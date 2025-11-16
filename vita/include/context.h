@@ -13,13 +13,17 @@
 #include "ui.h"
 // #include "debugnet.h"
 
+void vita_log_init_file(void);
+void vita_log_append(const char *msg);
+
 #define LOGD(fmt, ...) do {\
     uint64_t timestamp = sceKernelGetProcessTimeWide(); \
-    sceClibPrintf("[DEBUG] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
+    char msg[800]; \
+    sceClibSnprintf(msg, sizeof(msg), "[DEBUG] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
+    sceClibPrintf("%s", msg); \
+    vita_log_append(msg); \
     if (!context.stream.is_streaming) { \
         if (context.mlog) { \
-          char msg[800]; \
-          sceClibSnprintf(msg, 800, "[DEBUG] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
           write_message_log(context.mlog, msg); \
         } \
       } \
@@ -27,11 +31,12 @@
   //debugNetPrintf(DEBUG, "%ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__);
 #define LOGE(fmt, ...) do {\
     uint64_t timestamp = sceKernelGetProcessTimeWide(); \
-    sceClibPrintf("[ERROR] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
+    char msg[800]; \
+    sceClibSnprintf(msg, sizeof(msg), "[ERROR] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
+    sceClibPrintf("%s", msg); \
+    vita_log_append(msg); \
     if (!context.stream.is_streaming) { \
         if (context.mlog) { \
-          char msg[800]; \
-          sceClibSnprintf(msg, 800, "[ERROR] %ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__); \
           write_message_log(context.mlog, msg); \
         } \
       } \
@@ -44,15 +49,22 @@ typedef struct vita_chiaki_stream_t {
   VitakiCtrlMapInfo vcmi;
   bool session_init;
   bool is_streaming;
+  bool inputs_ready;
+  bool stop_requested;
   int fps;
   ChiakiOpusDecoder opus_decoder;
   ChiakiThread input_thread;
+  float measured_bitrate_mbps;      // Last measured downstream bitrate
+  uint32_t measured_rtt_ms;         // Last measured round-trip time (ms)
+  uint64_t metrics_last_update_us;  // Timestamp for latest metrics sample
+  uint64_t next_stream_allowed_us;  // Cooldown gate after quit
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {
   ChiakiLog log;
   ChiakiDiscoveryService discovery;
   bool discovery_enabled;
+  bool discovery_resume_after_stream;
   VitaChiakiDiscoveryCallbackState* discovery_cb_state;
   VitaChiakiHost* hosts[MAX_NUM_HOSTS];
   VitaChiakiHost* active_host;

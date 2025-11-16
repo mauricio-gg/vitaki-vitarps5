@@ -6,16 +6,21 @@
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <psp2/kernel/processmgr.h>
 
 #include "discovery.h"
 #include "context.h"
 #include "host.h"
 #include "util.h"
 
+/// Allow some grace time before removing a flapping host
+#define DISCOVERY_LOST_GRACE_US (3 * 1000 * 1000ULL)
+
 /// Save a newly discovered host into the context
 // Returns the index in context.hosts where it is saved (-1 if not saved)
 int save_discovered_host(ChiakiDiscoveryHost* host) {
   CHIAKI_LOGI(&(context.log), "Saving discovered host...");
+  uint64_t now_us = sceKernelGetProcessTimeWide();
   // Check if the host is already known, and if not, locate a free spot for it
   uint8_t host_mac[6];
   parse_mac(host->host_id, host_mac);
@@ -34,6 +39,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
         memcpy(h->discovery_state, host, sizeof(ChiakiDiscoveryHost));
         if (h->hostname) free(h->hostname);
         h->hostname = strdup(h->discovery_state->host_addr);
+        h->last_discovery_seen_us = now_us;
         return host_idx;
       }
     }
@@ -105,6 +111,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
       (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
   memcpy(h->discovery_state, host, sizeof(ChiakiDiscoveryHost));
   h->hostname = strdup(h->discovery_state->host_addr);
+  h->last_discovery_seen_us = now_us;
 
   CHIAKI_LOGI(&(context.log), "--");
 
@@ -148,24 +155,31 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   return target_idx;
 }
 
-// remove discovered hosts from context except those with index in discovered_idxs
-void remove_lost_discovered_hosts(int* discovered_idxs, size_t discovered_hosts_count) {
+// remove discovered hosts if they haven't been seen for longer than the grace window
+static void remove_lost_discovered_hosts(void) {
+  uint64_t now_us = sceKernelGetProcessTimeWide();
   for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
     VitaChiakiHost* h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
-      bool is_lost = true;
-      for (int j = 0; j < discovered_hosts_count; j++) {
-        if (host_idx == discovered_idxs[j]) {
-          is_lost = false;
-          break;
-        }
-      }
-      if (is_lost) {
-        CHIAKI_LOGI(&(context.log), "Removing lost host from context (idx %d)", host_idx);
-        // free and remove from context
-        host_free(h);
-        context.hosts[host_idx] = NULL;
-      }
+      bool active_streaming = (context.active_host == h) &&
+                              (context.stream.session_init ||
+                               context.stream.is_streaming);
+      if (active_streaming)
+        continue;
+
+      uint64_t last_seen = h->last_discovery_seen_us;
+      if (last_seen == 0 ||
+          now_us - last_seen < DISCOVERY_LOST_GRACE_US)
+        continue;
+
+      uint64_t stale_ms = (now_us - last_seen) / 1000;
+      CHIAKI_LOGI(&(context.log),
+                  "Removing lost host from context (idx %d, stale %llums)",
+                  host_idx,
+                  (unsigned long long)stale_ms);
+      // free and remove from context
+      host_free(h);
+      context.hosts[host_idx] = NULL;
     }
   }
 
@@ -174,12 +188,11 @@ void remove_lost_discovered_hosts(int* discovered_idxs, size_t discovered_hosts_
 
 /// Called whenever new hosts are discovered
 void discovery_cb(ChiakiDiscoveryHost* hosts, size_t hosts_count, void* user) {
-  int discovered_idxs[hosts_count];
   for (int dhost_idx = 0; dhost_idx < hosts_count; dhost_idx++) {
-    discovered_idxs[dhost_idx] = save_discovered_host(&hosts[dhost_idx]);
+    save_discovered_host(&hosts[dhost_idx]);
   }
 
-  remove_lost_discovered_hosts(discovered_idxs, hosts_count);
+  remove_lost_discovered_hosts();
 
   // Call caller-defined callback
   VitaChiakiDiscoveryCallbackState* cb_state =
@@ -225,25 +238,26 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
 }
 
 /// Terminate the Chiaki discovery thread, clean up discovey state in context
-void stop_discovery() {
+void stop_discovery(bool keep_hosts) {
   if (!context.discovery_enabled) {
     return;
   }
   chiaki_discovery_service_fini(&(context.discovery));
   context.discovery_enabled = false;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
-    VitaChiakiHost* h = context.hosts[i];
-    if (h == NULL) {
-      continue;
-    }
-    if (!(h->type & MANUALLY_ADDED)) {
-      host_free(h);
-      context.hosts[i] = NULL;
-      context.num_hosts--;
-    } else if (h->type & DISCOVERED) {
-      // Discovered host that's also manually added, only free the discovery
-      // state
-      free(h->discovery_state);
+  if (!keep_hosts) {
+    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+      VitaChiakiHost* h = context.hosts[i];
+      if (h == NULL) {
+        continue;
+      }
+      if (!(h->type & MANUALLY_ADDED)) {
+        host_free(h);
+        context.hosts[i] = NULL;
+        context.num_hosts--;
+      } else if (h->type & DISCOVERED) {
+        free(h->discovery_state);
+        h->discovery_state = NULL;
+      }
     }
   }
   if (context.discovery_cb_state != NULL) {

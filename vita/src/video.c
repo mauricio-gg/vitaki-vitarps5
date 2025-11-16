@@ -125,39 +125,40 @@ void update_scaling_settings(int width, int height) {
   image_scaling.origin_y = 0;
   image_scaling.region_x1 = 0;
   image_scaling.region_y1 = 0;
-  image_scaling.region_x2 = image_scaling.texture_width;
-  image_scaling.region_y2 = image_scaling.texture_height;
+  image_scaling.region_x2 = SCREEN_WIDTH;
+  image_scaling.region_y2 = SCREEN_HEIGHT;
 
   double scaled_width = (double) SCREEN_HEIGHT * width / height;
   double scaled_height = (double) SCREEN_WIDTH * height / width;
 
-  if (SCREEN_WIDTH * height == SCREEN_HEIGHT * width) {
-    // streaming resolution ratio matches Vita's screen ratio
-    // use default setting
-  } else if (SCREEN_WIDTH * height > SCREEN_HEIGHT * width) {
-    // host ratio example: 4:3, 16:10
-    // Vita ratio range: 2:16 (64 x 544) - native (960 x 544)
-    if (false/*config.center_region_only*/) {
-      image_scaling.texture_height = VITA_DECODER_RESOLUTION(scaled_height);
-      image_scaling.region_y1 = VITA_DECODER_RESOLUTION((scaled_height - SCREEN_HEIGHT) / 2);
-      image_scaling.region_y2 = VITA_DECODER_RESOLUTION((scaled_height + SCREEN_HEIGHT) / 2);
-    } else {
+  if (context.config.stretch_video) {
+    if (SCREEN_WIDTH * height == SCREEN_HEIGHT * width) {
+      // matches aspect; already fills screen
+      image_scaling.region_x2 = SCREEN_WIDTH;
+      image_scaling.region_y2 = SCREEN_HEIGHT;
+    } else if (SCREEN_WIDTH * height > SCREEN_HEIGHT * width) {
       image_scaling.texture_width = VITA_DECODER_RESOLUTION(scaled_width);
       image_scaling.region_x2 = VITA_DECODER_RESOLUTION(scaled_width);
       image_scaling.origin_x = round((double) (SCREEN_WIDTH - image_scaling.texture_width) / 2);
-    }
-  } else {
-    // host ratio example: 16:9, 21:9, 32:9
-    // Vita ratio range: native (960 x 544) - 15:1 (960 x 64)
-    if (false/*config.center_region_only*/) {
-      image_scaling.texture_width = VITA_DECODER_RESOLUTION(scaled_width);
-      image_scaling.region_x1 = VITA_DECODER_RESOLUTION((scaled_width - SCREEN_WIDTH) / 2);
-      image_scaling.region_x2 = VITA_DECODER_RESOLUTION((scaled_width + SCREEN_WIDTH) / 2);
+      image_scaling.region_y2 = SCREEN_HEIGHT;
     } else {
       image_scaling.texture_height = VITA_DECODER_RESOLUTION(scaled_height);
       image_scaling.region_y2 = VITA_DECODER_RESOLUTION(scaled_height);
       image_scaling.origin_y = round((double) (SCREEN_HEIGHT - image_scaling.texture_height) / 2);
+      image_scaling.region_x2 = SCREEN_WIDTH;
     }
+  } else {
+    float scale = 1.0f;
+    float scale_w = (float)SCREEN_WIDTH / (float)width;
+    float scale_h = (float)SCREEN_HEIGHT / (float)height;
+    scale = scale_w < scale_h ? scale_w : scale_h;
+    if (scale > 1.0f)
+      scale = 1.0f;
+
+    image_scaling.region_x2 = width * scale;
+    image_scaling.region_y2 = height * scale;
+    image_scaling.origin_x = round((SCREEN_WIDTH - image_scaling.region_x2) / 2.0f);
+    image_scaling.origin_y = round((SCREEN_HEIGHT - image_scaling.region_y2) / 2.0f);
   }
 
   LOGD("update_scaling_settings: width = %u\n", width);
@@ -701,7 +702,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   chiaki_mutex_lock(&mtx);
   if(!threadSetupComplete) {
 		sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-		sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
+		sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 		threadSetupComplete = true;
 	}
   // if (first_frame) {
@@ -849,7 +850,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
 
 void draw_streaming(vita2d_texture *frame_texture) {
   // ui is still rendering in the background, clear the screen first
-  // vita2d_clear_screen();
+  vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RGBA8(0, 0, 0, 255));
   vita2d_draw_texture_part(frame_texture,
                            image_scaling.origin_x,
                            image_scaling.origin_y,

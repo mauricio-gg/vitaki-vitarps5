@@ -12,4 +12,4 @@ typedef struct vita_chiaki_discovery_callback_state_t {
 } VitaChiakiDiscoveryCallbackState;
 
 ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user);
-void stop_discovery();
+void stop_discovery(bool keep_hosts);
