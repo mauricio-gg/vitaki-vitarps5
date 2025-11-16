@@ -1,4 +1,6 @@
 #pragma once
+#include <stdint.h>
+
 #include <chiaki/common.h>
 #include <chiaki/discovery.h>
 #include <chiaki/regist.h>
@@ -17,6 +19,7 @@ typedef struct vita_chiaki_host_t {
   ChiakiTarget target;
   uint8_t server_mac[6];
   char* hostname;
+  uint64_t last_discovery_seen_us;
 
   ChiakiDiscoveryHost* discovery_state;
   ChiakiRegisteredHost* registered_state;
