@@ -415,6 +415,23 @@ static void draw_status_dot(int x, int y, int radius, StatusType status) {
   draw_circle(x, y, radius, color);
 }
 
+/// Draw a styled section header (for single-section screens like Settings)
+/// @param x X position
+/// @param y Y position
+/// @param width Width of header
+/// @param title Title text
+static void draw_section_header(int x, int y, int width, const char* title) {
+  // Subtle gradient background bar
+  int header_h = 40;
+  draw_rounded_rectangle(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
+
+  // Bottom accent line (PlayStation Blue)
+  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
+
+  // Title text (centered vertically in header)
+  vita2d_font_draw_text(font, x + 15, y + (header_h / 2) + 8, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
+}
+
 // Particle system functions
 
 /// Initialize particle system with random positions and velocities
@@ -1449,8 +1466,8 @@ bool draw_settings() {
   int content_y = 100;
   int content_w = VITA_WIDTH - WAVE_NAV_WIDTH - 80;
 
-  // Settings title (streaming settings only now)
-  vita2d_font_draw_text(font, content_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, "Streaming Settings");
+  // Styled section header (replaces plain text title)
+  draw_section_header(content_x, 30, content_w, "Streaming Settings");
 
   // Content area (no tabs needed - only one section)
   int tab_content_y = 90;
@@ -1812,10 +1829,10 @@ typedef struct {
 
 static ControllerState controller_state = {0};
 
-// Tab colors (Purple for both tabs - controller theme)
+// Tab colors (PlayStation Blue theme for consistency)
 static uint32_t controller_tab_colors[CONTROLLER_TAB_COUNT] = {
-  RGBA8(0x7C, 0x3A, 0xED, 255), // Purple - Mappings
-  RGBA8(0x9C, 0x27, 0xB0, 255), // Accent Purple - Settings
+  RGBA8(0x34, 0x90, 0xFF, 255), // PlayStation Blue - Mappings
+  RGBA8(0x00, 0x9E, 0xD8, 255), // Lighter Blue - Settings
 };
 
 static const char* controller_tab_names[CONTROLLER_TAB_COUNT] = {
@@ -1986,12 +2003,23 @@ static void draw_controller_mappings_tab(int content_x, int content_y, int conte
   int mapping_count = 0;
   get_button_mappings(context.config.controller_map_id, mappings, &mapping_count);
 
-  // Draw first 8 mappings
-  int row_spacing = 24;
+  // Draw first 8 mappings with zebra striping for better readability
+  int row_h = 28;  // Increased from 24 for better spacing
   for (int i = 0; i < mapping_count && i < 8; i++) {
-    vita2d_font_draw_text(font, col1_x, row_y + (i * row_spacing),
+    int current_row_y = row_y + (i * row_h);
+
+    // Zebra striping (alternating row backgrounds)
+    uint32_t row_bg = (i % 2 == 0) ?
+        RGBA8(0x30, 0x30, 0x38, 255) :  // Darker rows (even)
+        RGBA8(0x38, 0x38, 0x40, 255);   // Lighter rows (odd)
+
+    // Draw row background
+    vita2d_draw_rectangle(table_x + 5, current_row_y - 16, panel_w - 10, row_h, row_bg);
+
+    // Draw button names with padding
+    vita2d_font_draw_text(font, col1_x, current_row_y,
                           UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, mappings[i].vita_button);
-    vita2d_font_draw_text(font, col2_x, row_y + (i * row_spacing),
+    vita2d_font_draw_text(font, col2_x, current_row_y,
                           UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, mappings[i].ps5_button);
   }
 
@@ -2212,7 +2240,16 @@ uint32_t pin_to_number() {
 
 /// Helper: Render single PIN digit box
 void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Digit box background
+  // Enhanced visual feedback for current digit
+  if (is_current) {
+    // Outer glow effect for better visibility
+    draw_rounded_rectangle(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6, RGBA8(0x34, 0x90, 0xFF, 60));
+  }
+
+  // Digit box background with shadow
+  int shadow_offset = is_current ? 3 : 2;
+  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, RGBA8(0x00, 0x00, 0x00, 60));  // Shadow
+
   uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
   draw_rounded_rectangle(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
 
@@ -2224,11 +2261,12 @@ void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_va
     int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
     vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 40, digit_text);
   } else if (is_current && show_cursor) {
-    // Blinking cursor
-    int cursor_x = x + PIN_DIGIT_WIDTH / 2;
+    // Enhanced blinking cursor (wider and more visible)
+    int cursor_w = 3;  // Thicker cursor
+    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
     int cursor_y1 = y + 15;
-    int cursor_y2 = y + PIN_DIGIT_HEIGHT - 15;
-    vita2d_draw_line(cursor_x, cursor_y1, cursor_x, cursor_y2, UI_COLOR_TEXT_PRIMARY);
+    int cursor_h = PIN_DIGIT_HEIGHT - 30;
+    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
   }
 }
 
