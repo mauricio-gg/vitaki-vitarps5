@@ -513,23 +513,37 @@ void render_wave_navigation() {
 
   for (int i = 0; i < 4; i++) {
     int y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
 
-    // Selection highlight (PlayStation Blue circle) - only show if nav bar has focus
-    if (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR) {
+    // Enhanced selection highlight - only show if nav bar has focus
+    if (is_selected) {
+      // Background rounded rectangle for better visibility
+      int bg_size = 64;
+      int bg_x = WAVE_NAV_ICON_X - bg_size / 2;
+      int bg_y = y - bg_size / 2;
+      draw_rounded_rectangle(bg_x, bg_y, bg_size, bg_size, 12, RGBA8(0x34, 0x90, 0xFF, 60));  // Semi-transparent blue background
+
+      // Glow effect (outer ring)
+      draw_circle(WAVE_NAV_ICON_X, y, 30, RGBA8(0x34, 0x90, 0xFF, 80));  // Soft glow
+
+      // Primary highlight circle
       draw_circle(WAVE_NAV_ICON_X, y, 28, UI_COLOR_PRIMARY_BLUE);
     }
 
-    // Draw icon (centered at WAVE_NAV_ICON_X, y) - STATIC position
+    // Draw icon with scale increase when selected
+    float icon_scale_multiplier = is_selected ? 1.08f : 1.0f;  // 8% larger when selected
+    int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
+
     if (i == 0) {
       // First icon: Draw white triangle play icon instead of texture
-      draw_play_icon(WAVE_NAV_ICON_X, y, WAVE_NAV_ICON_SIZE);
+      draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size);
     } else {
       // Other icons: Draw from textures
       if (!nav_icons[i]) continue;
 
       int icon_w = vita2d_texture_get_width(nav_icons[i]);
       int icon_h = vita2d_texture_get_height(nav_icons[i]);
-      float scale = (float)WAVE_NAV_ICON_SIZE / (float)(icon_w > icon_h ? icon_w : icon_h);
+      float scale = ((float)current_icon_size / (float)(icon_w > icon_h ? icon_w : icon_h));
 
       vita2d_draw_texture_scale(nav_icons[i],
         WAVE_NAV_ICON_X - (icon_w * scale / 2.0f),
@@ -600,14 +614,24 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     draw_rounded_rectangle(x - 3, y - 3, CONSOLE_CARD_WIDTH + 6, CONSOLE_CARD_HEIGHT + 6, 12, border_color);
   }
 
-  // Selection highlight (PlayStation Blue border, only for paired consoles)
+  // Enhanced selection highlight (PlayStation Blue border with glow, only for paired consoles)
   if (selected && !is_unpaired) {
+    // Outer glow effect (subtle)
+    draw_rounded_rectangle(x - 6, y - 6, CONSOLE_CARD_WIDTH + 12, CONSOLE_CARD_HEIGHT + 12, 14, RGBA8(0x34, 0x90, 0xFF, 40));  // Soft outer glow
+
+    // Primary selection border
     draw_rounded_rectangle(x - 4, y - 4, CONSOLE_CARD_WIDTH + 8, CONSOLE_CARD_HEIGHT + 8, 12, UI_COLOR_PRIMARY_BLUE);
   }
 
-  // Card background (greyed out for unpaired consoles)
-  uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) : UI_COLOR_CARD_BG;
-  draw_card_with_shadow(x, y, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, card_bg);
+  // Card background (greyed out for unpaired consoles, lighter for selected)
+  uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) :
+                     (selected ? RGBA8(0x42, 0x38, 0x3D, 255) : UI_COLOR_CARD_BG);  // Lighter bg when selected
+
+  // Enhanced shadow for selected cards
+  int shadow_offset = selected ? 6 : 4;
+  uint32_t shadow_color = selected ? RGBA8(0x00, 0x00, 0x00, 80) : UI_COLOR_SHADOW;
+  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, shadow_color);
+  draw_rounded_rectangle(x, y, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, card_bg);
 
   // PS5 logo (centered, properly scaled for card)
   bool is_ps5 = console->host && chiaki_target_is_ps5(console->host->target);
