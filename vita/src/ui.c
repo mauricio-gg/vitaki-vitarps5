@@ -29,7 +29,7 @@
 #define UI_COLOR_PRIMARY_BLUE 0xFFFF9034     // PlayStation Blue #3490FF
 #define UI_COLOR_BACKGROUND 0xFF1A1614       // Animated charcoal gradient base
 #define UI_COLOR_CARD_BG 0xFF37322D          // Dark charcoal (45,50,55)
-#define UI_COLOR_TEXT_PRIMARY 0xFFFFFFFF     // White
+#define UI_COLOR_TEXT_PRIMARY 0xFFFAFAFA     // Off-white (reduced eye strain)
 #define UI_COLOR_TEXT_SECONDARY 0xFFB4B4B4   // Light Gray
 #define UI_COLOR_TEXT_TERTIARY 0xFFA0A0A0    // Medium Gray
 #define UI_COLOR_STATUS_AVAILABLE 0xFF50AF4C    // Success Green #4CAF50
@@ -51,13 +51,13 @@
 #define FONT_SIZE_HEADER 24      // Screen titles, main headers
 #define FONT_SIZE_SUBHEADER 18   // Section titles, tab labels
 #define FONT_SIZE_BODY 16        // Primary content text
-#define FONT_SIZE_SMALL 16       // Secondary text, hints (MINIMUM - 16pt)
+#define FONT_SIZE_SMALL 14       // Secondary text, hints (improved hierarchy)
 
 // VitaRPS5 UI Layout Constants
 #define WAVE_NAV_WIDTH 104  // 20% thinner than original 130px
 #define CONTENT_AREA_X WAVE_NAV_WIDTH
 #define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)
-#define PARTICLE_COUNT 12
+#define PARTICLE_COUNT 8         // Optimized from 12 for better performance
 
 // Legacy layout (will be phased out)
 #define HEADER_BAR_X 136
@@ -123,7 +123,7 @@ static float wave_animation_time = 0.0f;
 // Console card system
 #define CONSOLE_CARD_WIDTH 200  // Half width for more compact cards
 #define CONSOLE_CARD_HEIGHT 200
-#define CONSOLE_CARD_SPACING 120
+#define CONSOLE_CARD_SPACING 85  // Optimized spacing for better screen utilization
 #define CONSOLE_CARD_START_Y 150
 
 typedef struct {
@@ -2379,8 +2379,8 @@ UIScreenType draw_waking_screen() {
   int card_x = (VITA_WIDTH - card_w) / 2;
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
-  // Draw card background
-  vita2d_draw_rectangle(card_x, card_y, card_w, card_h, RGBA8(0x2A, 0x2A, 0x3E, 0xFF));
+  // Draw card background with shadow for consistency
+  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, RGBA8(0x2A, 0x2A, 0x3E, 0xFF));
 
   // Draw card border
   vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);  // Top
