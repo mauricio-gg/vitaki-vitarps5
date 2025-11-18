@@ -82,6 +82,11 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_retry_ready_us;     // When the fallback retry is allowed to start
   bool reconnect_overlay_active;    // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
+  ChiakiControllerState cached_controller_state;
+  bool cached_controller_valid;
+  uint64_t last_input_packet_us;
+  uint64_t last_input_stall_log_us;
+  uint64_t inputs_blocked_since_us;
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

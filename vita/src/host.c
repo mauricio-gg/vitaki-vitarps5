@@ -261,6 +261,7 @@ static void reset_stream_metrics(void) {
   context.stream.reconnect_overlay_active = false;
   context.stream.reconnect_overlay_start_us = 0;
   context.stream.cached_controller_valid = false;
+  context.stream.inputs_blocked_since_us = 0;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -595,18 +596,25 @@ static void *input_thread_func(void* user) {
 
 
     if (!stream->inputs_ready) {
-      uint64_t last_send = context.stream.last_input_packet_us;
-      if (last_send) {
-        uint64_t now_us = sceKernelGetProcessTimeWide();
-        if (now_us - last_send >= INPUT_STALL_THRESHOLD_US) {
-          if (!context.stream.last_input_stall_log_us ||
-              now_us - context.stream.last_input_stall_log_us >= INPUT_STALL_LOG_INTERVAL_US) {
-            LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last send)",
-                 (float)(now_us - last_send) / 1000.0f);
-            context.stream.last_input_stall_log_us = now_us;
-          }
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      if (!context.stream.inputs_blocked_since_us)
+        context.stream.inputs_blocked_since_us = now_us;
+      uint64_t delta_since_block =
+          now_us - context.stream.inputs_blocked_since_us;
+      uint64_t delta_since_send =
+          context.stream.last_input_packet_us ?
+          (now_us - context.stream.last_input_packet_us) : 0;
+      uint64_t observed = delta_since_send ? delta_since_send : delta_since_block;
+      if (observed >= INPUT_STALL_THRESHOLD_US) {
+        if (!context.stream.last_input_stall_log_us ||
+            now_us - context.stream.last_input_stall_log_us >= INPUT_STALL_LOG_INTERVAL_US) {
+          float ms = (float)observed / 1000.0f;
+          LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last activity)", ms);
+          context.stream.last_input_stall_log_us = now_us;
         }
       }
+    } else {
+      context.stream.inputs_blocked_since_us = 0;
     }
 
     if (stream->inputs_ready) {
