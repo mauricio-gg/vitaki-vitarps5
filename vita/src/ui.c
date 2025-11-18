@@ -433,6 +433,48 @@ static void draw_section_header(int x, int y, int width, const char* title) {
   vita2d_font_draw_text(font, x + 15, y + (header_h / 2) + 8, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 }
 
+/// Draw a rotating spinner animation (for loading/waiting states)
+/// @param cx Center X position
+/// @param cy Center Y position
+/// @param radius Spinner radius
+/// @param thickness Arc thickness
+/// @param rotation_deg Current rotation angle in degrees
+/// @param color Spinner color
+static void draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color) {
+  // Draw a circular arc that rotates continuously
+  // We'll draw 3/4 of a circle (270 degrees) that rotates around
+  int segments = 32;  // Smooth circle with 32 segments
+  float arc_length = 270.0f;  // 3/4 circle in degrees
+
+  for (int i = 0; i < segments * 3 / 4; i++) {  // 3/4 of total segments
+    float angle1 = rotation_deg + (i * arc_length / (segments * 3 / 4));
+    float angle2 = rotation_deg + ((i + 1) * arc_length / (segments * 3 / 4));
+
+    // Convert to radians
+    float rad1 = angle1 * 3.14159f / 180.0f;
+    float rad2 = angle2 * 3.14159f / 180.0f;
+
+    // Draw outer arc segment
+    int x1_outer = cx + (int)(cos(rad1) * radius);
+    int y1_outer = cy + (int)(sin(rad1) * radius);
+    int x2_outer = cx + (int)(cos(rad2) * radius);
+    int y2_outer = cy + (int)(sin(rad2) * radius);
+
+    // Draw inner arc segment (for thickness)
+    int x1_inner = cx + (int)(cos(rad1) * (radius - thickness));
+    int y1_inner = cy + (int)(sin(rad1) * (radius - thickness));
+    int x2_inner = cx + (int)(cos(rad2) * (radius - thickness));
+    int y2_inner = cy + (int)(sin(rad2) * (radius - thickness));
+
+    // Draw lines to create filled arc segment
+    vita2d_draw_line(x1_outer, y1_outer, x2_outer, y2_outer, color);
+    vita2d_draw_line(x1_inner, y1_inner, x2_inner, y2_inner, color);
+
+    // Fill between inner and outer arcs
+    vita2d_draw_line(x1_outer, y1_outer, x1_inner, y1_inner, color);
+  }
+}
+
 // Particle system functions
 
 /// Initialize particle system with random positions and velocities
@@ -2513,9 +2555,6 @@ bool draw_stream() {
 
 /// Waking screen state
 static uint32_t waking_start_time = 0;
-static int waking_animation_frame = 0;
-static UIScreenType waking_next_screen = UI_SCREEN_TYPE_MAIN;
-static const uint32_t WAKING_TIMEOUT_MS = 30000;  // 30 seconds timeout
 static uint32_t waking_wait_for_stream_us = 0;
 static uint32_t reconnect_start_time = 0;
 static int reconnect_animation_frame = 0;
@@ -2524,25 +2563,17 @@ void ui_clear_waking_wait(void) {
   waking_wait_for_stream_us = 0;
 }
 
-/// Draw the "Waking up console..." screen with animation
+/// Draw the "Waking up console..." screen with spinner animation
+/// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
 UIScreenType draw_waking_screen() {
   // Initialize timer on first call
   if (waking_start_time == 0) {
     waking_start_time = sceKernelGetProcessTimeLow() / 1000;  // Convert to milliseconds
-    waking_animation_frame = 0;
-    waking_next_screen = UI_SCREEN_TYPE_WAKING;
   }
 
-  // Check timeout
+  // Get current time for animations
   uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
-  uint32_t elapsed = current_time - waking_start_time;
-
-  if (elapsed > WAKING_TIMEOUT_MS) {
-    // Timeout - reset and go back to main
-    waking_start_time = 0;
-    return UI_SCREEN_TYPE_MAIN;
-  }
 
   // Check if console woke up (became ready for streaming)
   if (context.active_host) {
@@ -2551,88 +2582,90 @@ UIScreenType draw_waking_screen() {
                    context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
     if (ready) {
-      // Console woke up! Reset state and start streaming if allowed
+      // Console woke up! Reset state and auto-transition to streaming
       if (!context.stream.session_init) {
+        LOGD("Console awake, auto-starting stream");
         waking_start_time = 0;
+        waking_wait_for_stream_us = 0;
         host_stream(context.active_host);
         return UI_SCREEN_TYPE_STREAM;
       } else if (waking_wait_for_stream_us == 0) {
+        // Waiting for previous session to end
         waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
       }
     }
   }
 
-  // Draw waking screen
-  vita2d_set_clear_color(RGBA8(0x1A, 0x1A, 0x2E, 0xFF));
+  // Draw modern waking screen with polished UI
+  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
 
-  // Card dimensions
+  // Card dimensions (slightly taller for spinner)
   int card_w = 600;
-  int card_h = 300;
+  int card_h = 350;
   int card_x = (VITA_WIDTH - card_w) / 2;
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
-  // Draw card background with shadow for consistency
-  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, RGBA8(0x2A, 0x2A, 0x3E, 0xFF));
+  // Draw card with enhanced shadow (consistent with Phase 1 & 2 polish)
+  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
 
-  // Draw card border
-  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);  // Top
-  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);  // Bottom
+  // Draw PlayStation Blue accent borders (top and bottom)
+  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
+  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
-  // Draw title
-  const char* title = "Waking Up Console";
-  vita2d_font_draw_text(font, card_x + 30, card_y + 60, UI_COLOR_TEXT_PRIMARY, 28, title);
+  // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
+  const char* title = "Waking Console";
+  int title_size = 28;
+  int title_w = vita2d_font_text_width(font, title_size, title);
+  int title_x = card_x + (card_w - title_w) / 2;  // Center title
+  vita2d_font_draw_text(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
-  // Draw console name if available
+  // Console name/IP info
   if (context.active_host && context.active_host->hostname) {
-    char console_text[128];
-    snprintf(console_text, sizeof(console_text), "Console: %s", context.active_host->hostname);
-    vita2d_font_draw_text(font, card_x + 30, card_y + 100, UI_COLOR_TEXT_SECONDARY, 20, console_text);
+    char console_info[128];
+    const char* console_name = context.active_host->hostname;
+
+    // Try to get more specific name if available
+    if (context.active_host->discovery_state && context.active_host->discovery_state->host_name) {
+      console_name = context.active_host->discovery_state->host_name;
+    }
+
+    snprintf(console_info, sizeof(console_info), "%s", console_name);
+    int info_w = vita2d_font_text_width(font, FONT_SIZE_BODY, console_info);
+    int info_x = card_x + (card_w - info_w) / 2;  // Center info
+    vita2d_font_draw_text(font, info_x, card_y + 95, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, console_info);
   }
 
-  // Animate dots (simple animation: 0, 1, 2, 3 dots cycling)
-  waking_animation_frame = (current_time / 500) % 4;  // Change every 500ms
-  char dots[5] = "";
-  for (int i = 0; i < waking_animation_frame; i++) {
-    dots[i] = '.';
-  }
-  dots[waking_animation_frame] = '\0';
+  // Spinner animation (smooth rotation at 2 rotations per second)
+  int spinner_cx = card_x + card_w / 2;
+  int spinner_cy = card_y + card_h / 2 + 10;
+  int spinner_radius = 32;
+  int spinner_thickness = 5;
+  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
+  draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation, UI_COLOR_PRIMARY_BLUE);
 
-  char status_text[64];
-  if (waking_wait_for_stream_us && context.stream.session_init) {
-    snprintf(status_text, sizeof(status_text), "Waiting for previous session%s", dots);
-  } else {
-    snprintf(status_text, sizeof(status_text), "Please wait%s", dots);
-  }
-  vita2d_font_draw_text(font, card_x + 30, card_y + 150, UI_COLOR_TEXT_PRIMARY, 22, status_text);
+  // Status message below spinner
+  const char* status_msg = (waking_wait_for_stream_us && context.stream.session_init) ?
+                           "Waiting for previous session to end..." :
+                           "Please wait...";
+  int msg_w = vita2d_font_text_width(font, FONT_SIZE_BODY, status_msg);
+  int msg_x = card_x + (card_w - msg_w) / 2;
+  vita2d_font_draw_text(font, msg_x, card_y + card_h - 80, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, status_msg);
 
-  // Draw timeout progress bar
-  int progress_w = card_w - 60;
-  int progress_h = 6;
-  int progress_x = card_x + 30;
-  int progress_y = card_y + card_h - 60;
+  // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
+  const char* cancel_hint = "Press Circle to cancel";
+  int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, cancel_hint);
+  int hint_x = card_x + (card_w - hint_w) / 2;
+  vita2d_font_draw_text(font, hint_x, card_y + card_h - 40, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, cancel_hint);
 
-  // Background
-  vita2d_draw_rectangle(progress_x, progress_y, progress_w, progress_h, RGBA8(0x40, 0x40, 0x50, 0xFF));
-
-  // Progress
-  float progress_ratio = (float)elapsed / (float)WAKING_TIMEOUT_MS;
-  int filled_w = (int)(progress_w * progress_ratio);
-  vita2d_draw_rectangle(progress_x, progress_y, filled_w, progress_h, UI_COLOR_PRIMARY_BLUE);
-
-  // Timeout text
-  int remaining_sec = (WAKING_TIMEOUT_MS - elapsed) / 1000;
-  char timeout_text[32];
-  snprintf(timeout_text, sizeof(timeout_text), "Timeout in %d seconds", remaining_sec);
-  vita2d_font_draw_text(font, card_x + 30, card_y + card_h - 30, UI_COLOR_TEXT_SECONDARY, 18, timeout_text);
-
-  // Circle to cancel
+  // Handle Circle button to cancel
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
+    LOGD("Waking cancelled by user");
     waking_start_time = 0;
     waking_wait_for_stream_us = 0;
     return UI_SCREEN_TYPE_MAIN;
   }
 
-  return UI_SCREEN_TYPE_WAKING;  // Keep showing waking screen
+  return UI_SCREEN_TYPE_WAKING;  // Continue showing waking screen
 }
 
 UIScreenType draw_reconnecting_screen() {
