@@ -487,6 +487,8 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
   }
   if (frames_lost > 0) {
     handle_loss_event(frames_lost, frame_recovered);
+    if (context.stream.stop_requested)
+      return false;
   }
   context.stream.is_streaming = true;
   if (context.stream.reconnect_overlay_active)
