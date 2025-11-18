@@ -8,6 +8,7 @@
 #include <chiaki/base64.h>
 #include <chiaki/audio.h>
 #include <chiaki/video.h>
+#include <chiaki/time.h>
 
 #include <string.h>
 #include <assert.h>
@@ -94,6 +95,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
 	stream_connection->remote_disconnect_reason = NULL;
+	stream_connection->drop_events = 0;
+	stream_connection->drop_packets = 0;
+	stream_connection->drop_last_ms = 0;
 
 	return CHIAKI_ERR_SUCCESS;
 
@@ -743,6 +747,7 @@ static bool pb_decode_resolution(pb_istream_t *stream, const pb_field_t *field, 
 
 static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
+	ChiakiSession *session = stream_connection->session;
 	tkproto_TakionMessage msg;
 	memset(&msg, 0, sizeof(msg));
 
@@ -807,6 +812,12 @@ static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnecti
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to send controller connection");
 		goto error;
+	}
+	if(session->connect_info.cached_controller_state_valid)
+	{
+		chiaki_feedback_sender_set_controller_state(&stream_connection->feedback_sender,
+				&session->connect_info.cached_controller_state);
+		session->connect_info.cached_controller_state_valid = false;
 	}
 
 	err = stream_connection_enable_microphone(stream_connection);
@@ -1126,4 +1137,13 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamC
 
 	CHIAKI_LOGD(stream_connection->log, "StreamConnection reporting corrupt frame(s) from %u to %u", (unsigned int)start, (unsigned int)end);
 	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 2, buf, stream.bytes_written, NULL);
+}
+
+CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *stream_connection, uint32_t dropped_packets)
+{
+	if(!stream_connection)
+		return;
+	stream_connection->drop_events++;
+	stream_connection->drop_packets += dropped_packets;
+	stream_connection->drop_last_ms = chiaki_time_now_monotonic_ms();
 }

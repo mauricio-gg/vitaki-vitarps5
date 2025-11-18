@@ -56,6 +56,10 @@ This fork adds the following enhancements to ywnico's vitaki-fork:
    - Better console name and IP display formatting
    - Circle button for cancel (PlayStation convention)
 
+5. **Packet-Loss Fallback & Overlay**
+   - When Ultra Low still drops frames, the client now pauses briefly, displays a reconnecting overlay, and restarts streaming at an even lower bitrate instead of crashing back to the menu.
+   - Automatic retries keep discovery paused and resume seamlessly once the link stabilizes.
+
 ## Features from ywnico's vitaki-fork
 
 All the features from ywnico's fork are included:
@@ -110,6 +114,8 @@ cd vitaki-fork
 The VPK file will be created in:
 - `./build/vitaki-fork.vpk` (main build output)
 - `./VitakiForkv0.1.XXX.vpk` (versioned copy in project root)
+
+Runtime logs (including Chiaki transport warnings) are also written to `ux0:data/vita-chiaki/vitarps5.log` on the Vita, so you can pull that file to share debug output without capturing console text.
 
 **Note:** Always use `./tools/build.sh` - never call Docker manually. The script ensures the correct environment and handles versioning automatically.
 
@@ -170,6 +176,9 @@ This project uses a GitHub Actions workflow to create releases. **Releases can o
 6. Select the console and Vitaki should ask for a registration code. On the PS5, navigate to `Settings > System > Remote Play` and select `Pair Device`. An 8-digit numeric code should appear; enter this into Vitaki and hit triangle to save.
 7. Select the console again in Vitaki. It should now connect (and in the future, will not ask for the device pairing code).
 
+### In-stream controls
+- Hold **L + R + Start** (Options) for about a second to stop the current Remote Play session and return to the VitaRPS5 menu. This lets you tweak settings (e.g., latency mode) without rebooting the app.
+
 ### Remote connection
 UDP holepunching is not supported. Instead, a remote connection requires a static IP and port forwarding.
 
@@ -187,6 +196,10 @@ Note: if the remote host cannot be reached, it will get stuck on "Trying to requ
 Some configuration lacks a UI but can be set in the config file located at `ux0:data/vita-chiaki/chiaki.toml`.
 - `circle_btn_confirm = true` swaps circle and cross in the main UI, so that circle is confirm and cross is cancel (`false` makes cross into confirm and circle into cancel). Note that this does not affect the button mappings in remote play, only in the UI before remote play starts.
 - `auto_discovery = false` makes Vitaki not start discovery on launch. It can still be started manually by selecting the wifi icon.
+- `latency_mode = "balanced"` targets a specific bitrate for PS5 streaming. Options:  
+  `ultra_low` (≈1.2 Mbps), `low` (≈1.8 Mbps), `balanced` (≈2.6 Mbps), `high` (≈3.2 Mbps), `max` (≈3.8 Mbps, ~95% of Vita Wi-Fi). Use the new latency dropdown in Settings to switch modes without editing the file.
+- `stretch_video = false` keeps incoming frames centered with letterboxing. Set to `true` (or toggle “Fill Screen” under Streaming Settings) if you prefer the 360p/540p output stretched across the display.
+- `force_30fps = false` disables the new 30 fps presentation clamp. Set to `true` (or toggle “Force 30 FPS Output” under Streaming Settings) to make the Vita drop frames locally whenever the PS5 insists on a 60 fps stream. This keeps GPU workload and perceived latency closer to native 30 fps behavior at the cost of visual smoothness.
 
 ## Known issues & troubleshooting
 - Latency. On remote connections (not local WLAN), it's especially bad. ([Relevant GitHub issue](https://github.com/ywnico/vitaki-fork/issues/12))

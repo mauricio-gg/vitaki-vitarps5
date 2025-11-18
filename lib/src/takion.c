@@ -6,6 +6,7 @@
 #include <chiaki/random.h>
 #include <chiaki/gkcrypt.h>
 #include <chiaki/time.h>
+#include <chiaki/streamconnection.h>
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -43,7 +44,8 @@
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
-#define TAKION_REORDER_QUEUE_SIZE_EXP 4 // => 16 entries
+// Reverting to 64 slots; 128 appeared to block session startup on Vita builds.
+#define TAKION_REORDER_QUEUE_SIZE_EXP 6 // => 64 entries
 #define TAKION_SEND_BUFFER_SIZE 16
 
 #define TAKION_POSTPONE_PACKETS_SIZE 32
@@ -869,10 +871,41 @@ static ChiakiErrorCode takion_handshake(ChiakiTakion *takion, uint32_t *seq_num_
 	return CHIAKI_ERR_SUCCESS;
 }
 
+#define TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS 1000
+
+static void takion_log_drop_summary(ChiakiTakion *takion, uint64_t now_ms, bool force)
+{
+	uint64_t drops = takion->recv_drop_stats.drops_since_log;
+	if(!drops && !force)
+		return;
+
+	unsigned long long queue_slots = (unsigned long long)chiaki_reorder_queue_size(&takion->data_queue);
+	uint64_t interval_ms = takion->recv_drop_stats.last_log_ms ? now_ms - takion->recv_drop_stats.last_log_ms : 0;
+	const char *prefix = drops ? "overflow" : "summary";
+	const char *format = drops
+			? "Takion receive queue %s (%llu slots). Dropped %llu packet(s) over last %llums (last seq %#llx)"
+			: "Takion receive queue %s (%llu slots). No drops in last %llums (last seq %#llx)";
+
+	CHIAKI_LOGW(takion->log,
+			format,
+			prefix,
+			queue_slots,
+			(unsigned long long)(drops ? drops : 0),
+			(unsigned long long)interval_ms,
+			(unsigned long long)takion->recv_drop_stats.last_seq_num);
+
+	takion->recv_drop_stats.drops_since_log = 0;
+	takion->recv_drop_stats.last_log_ms = now_ms;
+}
+
 static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 {
 	ChiakiTakion *takion = cb_user;
-	CHIAKI_LOGE(takion->log, "Takion dropping data with seq num %#llx", (unsigned long long)seq_num);
+	takion->recv_drop_stats.drops_since_log++;
+	takion->recv_drop_stats.last_seq_num = seq_num;
+	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
+	if(takion->cb_user)
+		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
 	TakionDataPacketEntry *entry = elem_user;
 	free(entry->packet_buf);
 	free(entry);
@@ -888,6 +921,16 @@ static void *takion_thread_func(void *user)
 
 	if(chiaki_reorder_queue_init_32(&takion->data_queue, TAKION_REORDER_QUEUE_SIZE_EXP, seq_num_remote_initial) != CHIAKI_ERR_SUCCESS)
 		goto beach;
+
+	takion->recv_drop_stats.drops_since_log = 0;
+	takion->recv_drop_stats.last_log_ms = 0;
+	takion->recv_drop_stats.last_seq_num = 0;
+	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
+	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
+	CHIAKI_LOGI(takion->log, "Takion receive queue size configured for %llu packets",
+			queue_slots);
+	size_t queue_highwater = 0;
+	uint64_t queue_usage_log_last_ms = 0;
 
 	chiaki_reorder_queue_set_drop_cb(&takion->data_queue, takion_data_drop, takion);
 
@@ -963,6 +1006,25 @@ static void *takion_thread_func(void *user)
 			continue;
 		}
 		takion_handle_packet(takion, resized_buf, received_size);
+
+		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
+		if(queue_used > queue_highwater)
+		{
+			queue_highwater = queue_used;
+			uint64_t now_ms = chiaki_time_now_monotonic_ms();
+			if(now_ms - queue_usage_log_last_ms >= TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS)
+			{
+				unsigned int usage_percent = queue_slots_sz
+						? (unsigned int)((queue_used * 100) / queue_slots_sz)
+						: 0;
+				CHIAKI_LOGI(takion->log,
+						"Takion receive queue usage %zu/%llu slots (%u%%)",
+						queue_used,
+						queue_slots,
+						usage_percent);
+				queue_usage_log_last_ms = now_ms;
+			}
+		}
 	}
 
 	// chiaki_congestion_control_stop(&congestion_control);
@@ -970,9 +1032,11 @@ static void *takion_thread_func(void *user)
 	chiaki_takion_send_buffer_fini(&takion->send_buffer);
 
 error_reoder_queue:
+	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), true);
 	chiaki_reorder_queue_fini(&takion->data_queue);
 
 beach:
+	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), true);
 	if(takion->cb)
 	{
 		ChiakiTakionEvent event = { 0 };

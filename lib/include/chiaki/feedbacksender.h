@@ -27,6 +27,7 @@ typedef struct chiaki_feedback_sender_t
 	ChiakiControllerState controller_state_prev;
 	ChiakiControllerState controller_state;
 	bool controller_state_changed;
+	uint32_t controller_seq_counter;
 	ChiakiMutex state_mutex;
 	ChiakiCond state_cond;
 } ChiakiFeedbackSender;
