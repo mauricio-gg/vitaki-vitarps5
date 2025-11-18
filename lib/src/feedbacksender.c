@@ -279,8 +279,11 @@ static void *feedback_sender_thread_func(void *user)
 			feedback_sender_send_state(feedback_sender);
 			feedback_sender->controller_seq_counter++;
 			if((feedback_sender->controller_seq_counter % 500) == 0) {
+				uint64_t now_us = chiaki_time_now_monotonic_us();
 				CHIAKI_LOGI(feedback_sender->log,
-						"Controller send seq %u (Chiaki)", feedback_sender->controller_seq_counter);
+						"Controller send seq %u (Chiaki) time %llu",
+						feedback_sender->controller_seq_counter,
+						(unsigned long long)now_us);
 			}
 		}
 
