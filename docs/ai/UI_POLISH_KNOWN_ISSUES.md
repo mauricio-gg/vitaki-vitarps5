@@ -116,6 +116,105 @@ Improve the triangle rendering:
 
 ---
 
+## CRITICAL - Waking Screen Workflow Broken
+
+**Location:** `vita/src/ui.c:2387-2454` (draw_waking_screen function)
+
+**Current Implementation Problems:**
+
+1. **Progress Bar & Timeout** - Shows 30-second countdown with progress bar
+   ```c
+   // Current: ui.c:2387-2454
+   #define WAKING_TIMEOUT_MS 30000  // 30 seconds timeout
+   // Draws progress bar and countdown timer
+   // Returns to main screen on timeout
+   ```
+
+2. **Incorrect Workflow** - Returns to main screen instead of streaming
+   ```c
+   if (elapsed > WAKING_TIMEOUT_MS) {
+     waking_start_time = 0;
+     return UI_SCREEN_TYPE_MAIN;  // ❌ Wrong! Should wait for connection
+   }
+   ```
+
+3. **Visual Design Inconsistency** - Doesn't match modern UI polish
+   - Uses basic card without enhanced shadows
+   - Simple text without styled layout
+   - Doesn't match console cards, navigation, or other screens
+
+**Expected Behavior:**
+
+✅ **What it SHOULD do:**
+1. Show "Waking Console..." message with spinner (no progress bar)
+2. Wait indefinitely for console to wake up
+3. **Automatically transition to Remote Play** when console is ready
+4. Only action: Press Circle to cancel
+5. Match modern UI design (enhanced shadows, PlayStation Blue accents, proper spacing)
+
+**Problem Impact:** High (broken user flow, inconsistent design)
+
+**Solution Required:**
+
+```c
+// Remove timeout and progress bar
+// Keep only:
+// - "Waking Console..." title
+// - Console name/IP
+// - Spinner animation (not dots)
+// - "Press Circle to cancel" hint
+// - Auto-transition to UI_SCREEN_TYPE_STREAM when ready
+// - Match modern UI polish (shadows, colors, spacing)
+```
+
+**Priority:** CRITICAL (broken workflow)
+**Effort:** 2-3 hours
+**Blocks:** User experience for console wake-up flow
+
+---
+
+## HIGH - Reconnecting Screen Needs Polish
+
+**Location:** `vita/src/ui.c` (UI_SCREEN_TYPE_RECONNECTING)
+
+**Current State:**
+- New screen type added in recent merge (commit 3b80bac)
+- Likely uses basic/placeholder UI
+- Not yet implemented with modern design polish
+
+**Problem:**
+- Reconnecting screen shows during packet loss recovery
+- Critical screen for user experience (appears during issues)
+- Needs to match modern UI design:
+  - Enhanced card with shadow
+  - PlayStation Blue accents
+  - Consistent spacing and typography
+  - Proper visual feedback
+
+**Expected Design:**
+```
+┌─────────────────────────────────────────────────┐
+│ [Enhanced Card with Shadow]                     │
+│                                                 │
+│   Reconnecting to Console                       │
+│                                                 │
+│   PS5 - 192.168.1.100                          │
+│                                                 │
+│   [Spinner Animation]                           │
+│                                                 │
+│   Recovering from packet loss...                │
+│                                                 │
+│   Press Circle to cancel                        │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+**Priority:** HIGH (user-facing during issues)
+**Effort:** 2-3 hours
+**Related:** Should match Waking screen once polished
+
+---
+
 ## Other Minor Issues
 
 ### 1. Particle Count Still Potentially High
@@ -145,5 +244,5 @@ Improve the triangle rendering:
 
 ---
 
-**Last Updated:** November 4, 2025
-**Next Review:** After Phase 3 implementation
+**Last Updated:** November 18, 2025
+**Next Review:** After critical workflow fixes (Waking/Reconnecting screens)
