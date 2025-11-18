@@ -22,6 +22,7 @@ static void update_latency_metrics(void);
 static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode);
 static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode);
 static void request_stream_stop(const char *reason);
+static bool request_stream_restart(uint32_t bitrate_kbps);
 static void resume_discovery_if_needed(void);
 static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us);
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
@@ -33,7 +34,7 @@ static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 #define LOSS_EVENT_WINDOW_US (8 * 1000 * 1000ULL)
 #define LOSS_EVENT_THRESHOLD 3
 #define LOSS_EVENT_THRESHOLD_ULTRA_LOW 2
-#define LOSS_EVENT_MIN_FRAMES 2
+#define LOSS_EVENT_MIN_FRAMES 4
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
@@ -129,6 +130,10 @@ static void event_cb(ChiakiEvent *event, void *user) {
 			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
+      if (context.stream.fast_restart_active) {
+        context.stream.fast_restart_active = false;
+        context.stream.reconnect_overlay_active = false;
+      }
 			break;
 		case CHIAKI_EVENT_LOGIN_PIN_REQUEST:
 			LOGD("EventCB CHIAKI_EVENT_LOGIN_PIN_REQUEST");
@@ -139,8 +144,9 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_QUIT: {
       LOGE("EventCB CHIAKI_EVENT_QUIT (%s)",
            event->quit.reason_str ? event->quit.reason_str : "unknown");
+      bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
-      bool fallback_active = context.stream.loss_retry_active || context.stream.loss_retry_pending;
+      bool fallback_active = context.stream.loss_retry_active || retry_pending;
       uint64_t retry_ready = context.stream.loss_retry_ready_us;
       uint32_t retry_attempts = context.stream.loss_retry_attempts;
       uint32_t retry_bitrate = context.stream.loss_retry_bitrate_kbps;
@@ -151,7 +157,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
       vita_audio_cleanup();
       context.stream.is_streaming = false;
       context.stream.inputs_ready = false;
-      context.stream.inputs_resume_pending = fallback_active;
+	context.stream.fast_restart_active = false;
+	context.stream.inputs_resume_pending = fallback_active;
       ui_clear_waking_wait();
       context.stream.session_init = false;
       uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -177,33 +184,35 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
       reset_stream_metrics();
-      context.stream.loss_retry_pending = false;
       context.stream.loss_retry_attempts = retry_attempts;
       context.stream.loss_retry_bitrate_kbps = retry_bitrate;
       context.stream.loss_retry_ready_us = retry_ready;
+      context.stream.loss_retry_pending = false;
       context.stream.loss_retry_active = false;
       context.stream.reconnect_overlay_active = false;
 
-      if (!retry_pending && context.active_host && fallback_active &&
-          retry_attempts < LOSS_RETRY_MAX_ATTEMPTS) {
-        retry_attempts++;
-        context.stream.loss_retry_attempts = retry_attempts;
+      bool schedule_retry = restart_failed && context.active_host &&
+          retry_bitrate > 0 && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
+
+      if (schedule_retry) {
+        context.stream.loss_retry_attempts = retry_attempts + 1;
         context.stream.loss_retry_pending = true;
-        context.stream.loss_retry_bitrate_kbps =
-            retry_bitrate ? retry_bitrate : LOSS_RETRY_BITRATE_KBPS;
-        context.stream.loss_retry_ready_us = now_us + LOSS_RETRY_DELAY_US;
-        retry_pending = true;
+        context.stream.loss_retry_ready_us =
+            now_us + (context.stream.loss_retry_ready_us ? 0 : LOSS_RETRY_DELAY_US);
         should_resume_discovery = false;
-        LOGD("Packet loss fallback retry #%u scheduled after failure", retry_attempts);
+        LOGD("Soft restart failed — scheduling hard fallback retry #%u",
+             retry_attempts + 1);
       }
 
       if (should_resume_discovery)
         resume_discovery_if_needed();
 
-      if (retry_pending && context.active_host) {
+      if (schedule_retry && context.active_host) {
         uint64_t now_retry = sceKernelGetProcessTimeWide();
         uint64_t desired = context.stream.loss_retry_ready_us ?
-            context.stream.loss_retry_ready_us : retry_ready;
+            context.stream.loss_retry_ready_us : now_retry;
+        if (desired < now_retry)
+          desired = now_retry;
         if (desired > now_retry) {
           uint64_t wait = desired - now_retry;
           sceKernelDelayThread((unsigned int)wait);
@@ -222,10 +231,11 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.loss_retry_active = false;
           context.stream.reconnect_overlay_active = false;
           resume_discovery_if_needed();
+        } else {
+          context.stream.loss_retry_active = false;
+          context.stream.reconnect_overlay_active = false;
+          resume_discovery_if_needed();
         }
-      } else if (retry_pending && !context.active_host) {
-        context.stream.reconnect_overlay_active = false;
-        resume_discovery_if_needed();
       }
 			break;
     }
@@ -261,7 +271,10 @@ static void reset_stream_metrics(void) {
   context.stream.loss_retry_ready_us = 0;
   context.stream.reconnect_overlay_active = false;
   context.stream.reconnect_overlay_start_us = 0;
+  context.stream.fast_restart_active = false;
   context.stream.cached_controller_valid = false;
+  context.stream.last_input_packet_us = 0;
+  context.stream.last_input_stall_log_us = 0;
   context.stream.inputs_blocked_since_us = 0;
   context.stream.inputs_resume_pending = false;
   vitavideo_hide_poor_net_indicator();
@@ -343,6 +356,35 @@ static void request_stream_stop(const char *reason) {
   }
   context.stream.next_stream_allowed_us = 0;
   chiaki_session_stop(&context.stream.session);
+}
+
+static bool request_stream_restart(uint32_t bitrate_kbps) {
+  if (!context.stream.session_init) {
+    LOGE("Cannot restart stream — session not initialized");
+    return false;
+  }
+  if (context.stream.fast_restart_active) {
+    LOGD("Soft restart already active; ignoring duplicate request");
+    return true;
+  }
+
+  ChiakiConnectVideoProfile profile = context.stream.session.connect_info.video_profile;
+  if (bitrate_kbps > 0) {
+    profile.bitrate = bitrate_kbps;
+  }
+
+  ChiakiErrorCode err =
+      chiaki_session_request_stream_restart(&context.stream.session, &profile);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Failed to request soft stream restart: %s", chiaki_error_string(err));
+    return false;
+  }
+
+  context.stream.fast_restart_active = true;
+  context.stream.is_streaming = false;
+  context.stream.reconnect_overlay_active = true;
+  context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+  return true;
 }
 
 static void resume_discovery_if_needed(void) {
@@ -438,22 +480,29 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   bool downgraded = false;
   char hint[96];
   if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW) {
-    if (context.stream.loss_retry_attempts < 1) {
-      context.stream.loss_retry_attempts++;
-      context.stream.loss_retry_pending = true;
-      context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
-      context.stream.loss_retry_ready_us = now_us + LOSS_RETRY_DELAY_US;
+    if (context.stream.loss_retry_attempts < 1 && !context.stream.fast_restart_active) {
       sceClibSnprintf(
           hint,
           sizeof(hint),
           "Network unstable — retrying at %.1f Mbps",
           (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
-      LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
-           context.stream.loss_retry_attempts,
-           context.stream.loss_retry_bitrate_kbps);
-      context.stream.reconnect_overlay_active = true;
-      context.stream.reconnect_overlay_start_us = now_us;
-    } else {
+      bool restart_ok = request_stream_restart(LOSS_RETRY_BITRATE_KBPS);
+      if (restart_ok) {
+        context.stream.loss_retry_attempts++;
+        context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
+        context.stream.loss_retry_active = true;
+        LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
+             context.stream.loss_retry_attempts,
+             context.stream.loss_retry_bitrate_kbps);
+        if (context.active_host) {
+          host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+        }
+        return;
+      } else {
+        LOGE("Soft restart request failed; falling back to full reconnect");
+      }
+    }
+    if (context.stream.loss_retry_attempts >= 1 || context.stream.fast_restart_active) {
       sceClibSnprintf(
           hint,
           sizeof(hint),
@@ -580,9 +629,9 @@ static void *input_thread_func(void* user) {
   bool vitaki_left_square_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
   bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
 
-  static int wait_count = 0;
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;  // ~1s with 2ms loop
+  static uint32_t controller_seq_counter = 0;
   const uint64_t INPUT_STALL_THRESHOLD_US = 300000; // 0.3s without send
   const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
 
@@ -590,7 +639,6 @@ static void *input_thread_func(void* user) {
     stream->controller_state = context.stream.cached_controller_state;
     context.stream.cached_controller_valid = false;
   }
-
   while (true) {
 
     // TODO enable using triggers as L2, R2
@@ -620,10 +668,6 @@ static void *input_thread_func(void* user) {
     }
 
     if (stream->inputs_ready) {
-      if (wait_count > 0) {
-        LOGD("INPUT THREAD: inputs_ready after %d loops", wait_count);
-        wait_count = 0;
-      }
       int start_time_us = sceKernelGetProcessTimeWide();
 
       // get button state
@@ -797,24 +841,18 @@ static void *input_thread_func(void* user) {
       context.stream.cached_controller_valid = true;
       context.stream.last_input_packet_us = sceKernelGetProcessTimeWide();
       context.stream.last_input_stall_log_us = 0;
+      controller_seq_counter++;
+      if ((controller_seq_counter % 500) == 0) {
+        LOGD("Controller send seq %u (Vita)", controller_seq_counter);
+      }
       // LOGD("ly 0x%x %d", ctrl.ly, ctrl.ly);
 
       // Adjust sleep time to account for calculations above
       int diff_time_us = sceKernelGetProcessTimeWide() - start_time_us;
-      if (diff_time_us >= ms_per_loop*1000) {
-        // Control loop appears to usually take ~70-90 us, sometimes up to 130
-        // Far less than the 5000 us of the default loop
-        LOGD("SLOW CTRL LOOP! %d microseconds", diff_time_us);
-      } else {
+      if (diff_time_us < ms_per_loop*1000)
         usleep(ms_per_loop*1000 - diff_time_us);
-      }
 
     } else {
-      // Not streaming yet - count wait loops
-      wait_count++;
-      if (wait_count == 1000) {
-        LOGD("INPUT THREAD: Waiting for inputs_ready (1000 loops)");
-      }
       usleep(1000);  // Sleep 1ms to avoid tight spin
     }
   }

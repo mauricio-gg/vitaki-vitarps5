@@ -263,6 +263,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->connect_info.video_profile_auto_downgrade = connect_info->video_profile_auto_downgrade;
 	session->connect_info.enable_keyboard = connect_info->enable_keyboard;
 	session->connect_info.enable_dualsense = connect_info->enable_dualsense;
+	chiaki_controller_state_set_idle(&session->connect_info.cached_controller_state);
+	session->connect_info.cached_controller_state_valid = false;
+	session->stream_restart_requested = false;
+	session->stream_restart_profile_valid = false;
+	memset(&session->stream_restart_profile, 0, sizeof(session->stream_restart_profile));
+
 	if(connect_info->cached_controller_state_valid)
 	{
 		session->connect_info.cached_controller_state = connect_info->cached_controller_state;
@@ -322,6 +328,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session)
 	assert(err == CHIAKI_ERR_SUCCESS);
 
 	session->should_stop = true;
+	session->stream_restart_requested = false;
+	session->stream_restart_profile_valid = false;
 	chiaki_stop_pipe_stop(&session->stop_pipe);
 	chiaki_cond_signal(&session->state_cond);
 
@@ -373,6 +381,37 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_stream_connection_switch_receiv
 	session->stream_connection_switch_received = true;
 	chiaki_mutex_unlock(&session->state_mutex);
 	chiaki_cond_signal(&session->state_cond);
+	return CHIAKI_ERR_SUCCESS;
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_request_stream_restart(ChiakiSession *session, const ChiakiConnectVideoProfile *profile)
+{
+	ChiakiErrorCode err = chiaki_mutex_lock(&session->state_mutex);
+	assert(err == CHIAKI_ERR_SUCCESS);
+
+	if(session->should_stop || session->ctrl_failed)
+	{
+		chiaki_mutex_unlock(&session->state_mutex);
+		return CHIAKI_ERR_INVALID_DATA;
+	}
+
+	if(session->stream_restart_requested)
+	{
+		chiaki_mutex_unlock(&session->state_mutex);
+		return CHIAKI_ERR_INVALID_RESPONSE;
+	}
+
+	session->stream_restart_requested = true;
+	if(profile)
+	{
+		session->stream_restart_profile = *profile;
+		session->stream_restart_profile_valid = true;
+	}
+	else
+		session->stream_restart_profile_valid = false;
+
+	chiaki_mutex_unlock(&session->state_mutex);
+	chiaki_stream_connection_stop(&session->stream_connection);
 	return CHIAKI_ERR_SUCCESS;
 }
 
@@ -561,133 +600,156 @@ static void *session_thread_func(void *arg)
 		CHECK_STOP(quit_ctrl);
 	}
 
-	chiaki_socket_t *data_sock = NULL;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
-	if(session->rudp)
+	while(true)
 	{
-		CHIAKI_LOGI(session->log, "Punching hole for data connection");
-		ChiakiEvent event_start = { 0 };
-		event_start.type = CHIAKI_EVENT_HOLEPUNCH;
-		event_start.data_holepunch.finished = false;
-		chiaki_session_send_event(session, &event_start);
-		err = chiaki_holepunch_session_punch_hole(session->holepunch_session, CHIAKI_HOLEPUNCH_PORT_TYPE_DATA);
-		if (err != CHIAKI_ERR_SUCCESS)
+		chiaki_socket_t *data_sock = NULL;
+#if !(defined(__SWITCH__) || defined(__PSVITA__))
+		if(session->rudp)
 		{
-			CHIAKI_LOGE(session->log, "!! Failed to punch hole for data connection.");
-			QUIT(quit_ctrl);
+			CHIAKI_LOGI(session->log, "Punching hole for data connection");
+			ChiakiEvent event_start = { 0 };
+			event_start.type = CHIAKI_EVENT_HOLEPUNCH;
+			event_start.data_holepunch.finished = false;
+			chiaki_session_send_event(session, &event_start);
+			err = chiaki_holepunch_session_punch_hole(session->holepunch_session, CHIAKI_HOLEPUNCH_PORT_TYPE_DATA);
+			if (err != CHIAKI_ERR_SUCCESS)
+			{
+				CHIAKI_LOGE(session->log, "!! Failed to punch hole for data connection.");
+				QUIT(quit_ctrl);
+			}
+			CHIAKI_LOGI(session->log, ">> Punched hole for data connection!");
+			data_sock = chiaki_get_holepunch_sock(session->holepunch_session, CHIAKI_HOLEPUNCH_PORT_TYPE_DATA);
+			ChiakiEvent event_finish = { 0 };
+			event_finish.type = CHIAKI_EVENT_HOLEPUNCH;
+			event_finish.data_holepunch.finished = true;
+			chiaki_session_send_event(session, &event_finish);
+			err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_TIMEOUT_MS, session_check_state_pred_ctrl_start, session);
+			CHECK_STOP(quit_ctrl);
 		}
-		CHIAKI_LOGI(session->log, ">> Punched hole for data connection!");
-		data_sock = chiaki_get_holepunch_sock(session->holepunch_session, CHIAKI_HOLEPUNCH_PORT_TYPE_DATA);
-		ChiakiEvent event_finish = { 0 };
-		event_finish.type = CHIAKI_EVENT_HOLEPUNCH;
-		event_finish.data_holepunch.finished = true;
-		chiaki_session_send_event(session, &event_finish);
-		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_TIMEOUT_MS, session_check_state_pred_ctrl_start, session);
-		CHECK_STOP(quit_ctrl);
-	}
 #endif
 
-	if(!session->ctrl_session_id_received)
-	{
-		CHIAKI_LOGE(session->log, "Ctrl did not receive session id");
-		chiaki_mutex_unlock(&session->state_mutex);
-		err = ctrl_message_set_fallback_session_id(&session->ctrl);
-		chiaki_mutex_lock(&session->state_mutex);
-		if(err != CHIAKI_ERR_SUCCESS)
-			goto ctrl_failed;
-		ctrl_enable_features(&session->ctrl);
-	}
+		if(!session->ctrl_session_id_received)
+		{
+			CHIAKI_LOGE(session->log, "Ctrl did not receive session id");
+			chiaki_mutex_unlock(&session->state_mutex);
+			err = ctrl_message_set_fallback_session_id(&session->ctrl);
+			chiaki_mutex_lock(&session->state_mutex);
+			if(err != CHIAKI_ERR_SUCCESS)
+				goto ctrl_failed;
+			ctrl_enable_features(&session->ctrl);
+		}
 
-	if(!session->ctrl_session_id_received)
-	{
+		if(!session->ctrl_session_id_received)
+		{
 ctrl_failed:
-		CHIAKI_LOGE(session->log, "Ctrl has failed, shutting down");
-		if(session->quit_reason == CHIAKI_QUIT_REASON_NONE)
-			session->quit_reason = CHIAKI_QUIT_REASON_CTRL_UNKNOWN;
-		QUIT(quit_ctrl);
-	}
+			CHIAKI_LOGE(session->log, "Ctrl has failed, shutting down");
+			if(session->quit_reason == CHIAKI_QUIT_REASON_NONE)
+				session->quit_reason = CHIAKI_QUIT_REASON_CTRL_UNKNOWN;
+			QUIT(quit_ctrl);
+		}
 
 #ifdef ENABLE_SENKUSHA
-	CHIAKI_LOGI(session->log, "Starting Senkusha");
+		CHIAKI_LOGI(session->log, "Starting Senkusha");
 
-	ChiakiSenkusha senkusha;
-	err = chiaki_senkusha_init(&senkusha, session);
-	if(err != CHIAKI_ERR_SUCCESS)
-		QUIT(quit_ctrl);
+		ChiakiSenkusha senkusha;
+		err = chiaki_senkusha_init(&senkusha, session);
+		if(err != CHIAKI_ERR_SUCCESS)
+			QUIT(quit_ctrl);
 
-	err = chiaki_senkusha_run(&senkusha, &session->mtu_in, &session->mtu_out, &session->rtt_us, data_sock);
-	chiaki_senkusha_fini(&senkusha);
+		err = chiaki_senkusha_run(&senkusha, &session->mtu_in, &session->mtu_out, &session->rtt_us, data_sock);
+		chiaki_senkusha_fini(&senkusha);
 
-	if(err == CHIAKI_ERR_SUCCESS)
-		CHIAKI_LOGI(session->log, "Senkusha completed successfully");
-	else if(err == CHIAKI_ERR_CANCELED)
-		QUIT(quit_ctrl);
-	else
-	{
-		CHIAKI_LOGE(session->log, "Senkusha failed, but we still try to connect with fallback values");
-		session->mtu_in = 1454;
-		session->mtu_out = 1454;
-		session->rtt_us = 1000;
-	}
+		if(err == CHIAKI_ERR_SUCCESS)
+			CHIAKI_LOGI(session->log, "Senkusha completed successfully");
+		else if(err == CHIAKI_ERR_CANCELED)
+			QUIT(quit_ctrl);
+		else
+		{
+			CHIAKI_LOGE(session->log, "Senkusha failed, but we still try to connect with fallback values");
+			session->mtu_in = 1454;
+			session->mtu_out = 1454;
+			session->rtt_us = 1000;
+		}
 #endif
-	if(session->rudp)
-	{
-		ChiakiErrorCode err;
-		err = chiaki_rudp_send_switch_to_stream_connection_message(session->rudp);
+		if(session->rudp)
+		{
+			session->stream_connection_switch_received = false;
+			ChiakiErrorCode rudp_err;
+			rudp_err = chiaki_rudp_send_switch_to_stream_connection_message(session->rudp);
+			if(rudp_err != CHIAKI_ERR_SUCCESS)
+			{
+				CHIAKI_LOGE(session->log, "Failed to send switch to stream connection message");
+				QUIT(quit_ctrl);
+			}
+			rudp_err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_TIMEOUT_MS, session_check_state_pred_stream_connection_switch, session);
+			if(!session->stream_connection_switch_received)
+			{
+				CHIAKI_LOGE(session->log, "Failed to receive switch to stream connection ack!");
+				QUIT(quit_ctrl);
+			}
+			CHECK_STOP(quit_ctrl);
+			CHIAKI_LOGI(session->log, "Received Switch to Stream Connection Ack... Switching to Stream Connection now");
+		}
+
+		err = chiaki_random_bytes_crypt(session->handshake_key, sizeof(session->handshake_key));
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
-			CHIAKI_LOGE(session->log, "Failed to send switch to stream connection message");
+			CHIAKI_LOGE(session->log, "Session failed to generate handshake key");
 			QUIT(quit_ctrl);
 		}
-		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_TIMEOUT_MS, session_check_state_pred_stream_connection_switch, session);
-		if(!session->stream_connection_switch_received)
+
+		err = chiaki_ecdh_init(&session->ecdh);
+		if(err != CHIAKI_ERR_SUCCESS)
 		{
-			CHIAKI_LOGE(session->log, "Failed to receive switch to stream connection ack!");
+			CHIAKI_LOGE(session->log, "Session failed to initialize ECDH");
 			QUIT(quit_ctrl);
 		}
-		CHECK_STOP(quit_ctrl);
-		CHIAKI_LOGI(session->log, "Received Switch to Stream Connection Ack... Switching to Stream Connection now");
-	}
 
-	err = chiaki_random_bytes_crypt(session->handshake_key, sizeof(session->handshake_key));
-	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		CHIAKI_LOGE(session->log, "Session failed to generate handshake key");
-		QUIT(quit_ctrl);
-	}
+		chiaki_mutex_unlock(&session->state_mutex);
+		err = chiaki_stream_connection_run(&session->stream_connection, data_sock);
+		chiaki_mutex_lock(&session->state_mutex);
 
-	err = chiaki_ecdh_init(&session->ecdh);
-	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		CHIAKI_LOGE(session->log, "Session failed to initialize ECDH");
-		QUIT(quit_ctrl);
-	}
+		bool restart_requested = session->stream_restart_requested && !session->should_stop;
+		if(restart_requested)
+		{
+			if(session->stream_restart_profile_valid)
+			{
+				session->connect_info.video_profile = session->stream_restart_profile;
+				session->stream_restart_profile_valid = false;
+			}
+			session->stream_restart_requested = false;
+			chiaki_mutex_unlock(&session->state_mutex);
+			chiaki_ecdh_fini(&session->ecdh);
+			chiaki_mutex_lock(&session->state_mutex);
+			CHIAKI_LOGI(session->log, "StreamConnection restart requested; attempting reconnect with bitrate %u kbps",
+					session->connect_info.video_profile.bitrate);
+			continue;
+		}
 
-	chiaki_mutex_unlock(&session->state_mutex);
-	err = chiaki_stream_connection_run(&session->stream_connection, data_sock);
-	chiaki_mutex_lock(&session->state_mutex);
-	if(err == CHIAKI_ERR_DISCONNECTED)
-	{
-		CHIAKI_LOGE(session->log, "Remote disconnected from StreamConnection");
-		if(!strcmp(session->stream_connection.remote_disconnect_reason, "Server shutting down"))
-			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
+		if(err == CHIAKI_ERR_DISCONNECTED)
+		{
+			CHIAKI_LOGE(session->log, "Remote disconnected from StreamConnection");
+			if(!strcmp(session->stream_connection.remote_disconnect_reason, "Server shutting down"))
+				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
+			else
+				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
+			session->quit_reason_str = strdup(session->stream_connection.remote_disconnect_reason);
+		}
+		else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)
+		{
+			CHIAKI_LOGE(session->log, "StreamConnection run failed");
+			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN;
+		}
 		else
-			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
-		session->quit_reason_str = strdup(session->stream_connection.remote_disconnect_reason);
-	}
-	else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)
-	{
-		CHIAKI_LOGE(session->log, "StreamConnection run failed");
-		session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN;
-	}
-	else
-	{
-		CHIAKI_LOGI(session->log, "StreamConnection completed successfully");
-		session->quit_reason = CHIAKI_QUIT_REASON_STOPPED;
-	}
+		{
+			CHIAKI_LOGI(session->log, "StreamConnection completed successfully");
+			session->quit_reason = CHIAKI_QUIT_REASON_STOPPED;
+		}
 
-	chiaki_mutex_unlock(&session->state_mutex);
-	chiaki_ecdh_fini(&session->ecdh);
+		chiaki_mutex_unlock(&session->state_mutex);
+		chiaki_ecdh_fini(&session->ecdh);
+		break;
+	}
 
 quit_ctrl:
 	chiaki_ctrl_stop(&session->ctrl);
