@@ -576,7 +576,6 @@ static void *input_thread_func(void* user) {
   bool vitaki_left_square_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
   bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
 
-  static int wait_count = 0;
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;  // ~1s with 2ms loop
   while (true) {
@@ -586,10 +585,6 @@ static void *input_thread_func(void* user) {
 
 
     if (stream->inputs_ready) {
-      if (wait_count > 0) {
-        LOGD("INPUT THREAD: inputs_ready after %d loops", wait_count);
-        wait_count = 0;
-      }
       int start_time_us = sceKernelGetProcessTimeWide();
 
       // get button state
@@ -763,20 +758,10 @@ static void *input_thread_func(void* user) {
 
       // Adjust sleep time to account for calculations above
       int diff_time_us = sceKernelGetProcessTimeWide() - start_time_us;
-      if (diff_time_us >= ms_per_loop*1000) {
-        // Control loop appears to usually take ~70-90 us, sometimes up to 130
-        // Far less than the 5000 us of the default loop
-        LOGD("SLOW CTRL LOOP! %d microseconds", diff_time_us);
-      } else {
+      if (diff_time_us < ms_per_loop*1000)
         usleep(ms_per_loop*1000 - diff_time_us);
-      }
 
     } else {
-      // Not streaming yet - count wait loops
-      wait_count++;
-      if (wait_count == 1000) {
-        LOGD("INPUT THREAD: Waiting for inputs_ready (1000 loops)");
-      }
       usleep(1000);  // Sleep 1ms to avoid tight spin
     }
   }
