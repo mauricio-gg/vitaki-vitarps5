@@ -108,6 +108,8 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
+  cfg->send_start_bitrate = false;
+  cfg->low_bandwidth_mode = false;
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -187,6 +189,17 @@ void config_parse(VitaChiakiConfig* cfg) {
         free(datum.u.s);
       } else {
         cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+      }
+
+      datum = toml_bool_in(settings, "send_start_bitrate");
+      cfg->send_start_bitrate = datum.ok ? datum.u.b : false;
+
+      datum = toml_bool_in(settings, "low_bandwidth_mode");
+      cfg->low_bandwidth_mode = datum.ok ? datum.u.b : false;
+      if (cfg->low_bandwidth_mode) {
+        cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+        cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
+        cfg->latency_mode = VITA_LATENCY_MODE_ULTRA_LOW;
       }
     }
 
@@ -436,6 +449,10 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "force_30fps = %s\n",
           cfg->force_30fps ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "send_start_bitrate = %s\n",
+          cfg->send_start_bitrate ? "true" : "false");
+  fprintf(fp, "low_bandwidth_mode = %s\n",
+          cfg->low_bandwidth_mode ? "true" : "false");
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {
     VitaChiakiHost* host = cfg->manual_hosts[i];

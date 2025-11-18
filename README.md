@@ -200,6 +200,8 @@ Some configuration lacks a UI but can be set in the config file located at `ux0:
   `ultra_low` (≈1.2 Mbps), `low` (≈1.8 Mbps), `balanced` (≈2.6 Mbps), `high` (≈3.2 Mbps), `max` (≈3.8 Mbps, ~95% of Vita Wi-Fi). Use the new latency dropdown in Settings to switch modes without editing the file.
 - `stretch_video = false` keeps incoming frames centered with letterboxing. Set to `true` (or toggle “Fill Screen” under Streaming Settings) if you prefer the 360p/540p output stretched across the display.
 - `force_30fps = false` disables the new 30 fps presentation clamp. Set to `true` (or toggle “Force 30 FPS Output” under Streaming Settings) to make the Vita drop frames locally whenever the PS5 insists on a 60 fps stream. This keeps GPU workload and perceived latency closer to native 30 fps behavior at the cost of visual smoothness.
+- `send_start_bitrate = false` controls whether VitaRPS5 includes the encrypted `RP-StartBitrate` header inside the ctrl request. Flip it (or the matching “Send RP-StartBitrate Header” toggle under Streaming Settings) if you want to A/B test whether PS5 firmware honors the requested bitrate value on your network.
+- `low_bandwidth_mode = false` toggles the 360p/≈1.5 Mbps preset. The “Low-Bandwidth Mode” toggle in Streaming Settings forces 360p + 30 FPS + Ultra Low latency mode and caps the requested bitrate below 2 Mbps so congested Wi-Fi links stay playable.
 
 ## Known issues & troubleshooting
 - Latency. On remote connections (not local WLAN), it's especially bad. ([Relevant GitHub issue](https://github.com/ywnico/vitaki-fork/issues/12))

@@ -37,6 +37,7 @@ static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
+#define LOW_BANDWIDTH_TARGET_KBPS 1500
 
 void host_free(VitaChiakiHost *host) {
   if (host) {
@@ -811,10 +812,22 @@ int host_stream(VitaChiakiHost* host) {
     goto cleanup;
   }
 
+  bool low_bandwidth = context.config.low_bandwidth_mode;
+  ChiakiVideoResolutionPreset chosen_resolution = context.config.resolution;
+  ChiakiVideoFPSPreset chosen_fps = context.config.fps;
+  if (low_bandwidth) {
+    chosen_resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+    chosen_fps = CHIAKI_VIDEO_FPS_PRESET_30;
+  }
+
   ChiakiConnectVideoProfile profile = {};
-	chiaki_connect_video_profile_preset(&profile,
-		context.config.resolution, context.config.fps);
+	chiaki_connect_video_profile_preset(&profile, chosen_resolution, chosen_fps);
   apply_latency_mode(&profile, context.config.latency_mode);
+  if (low_bandwidth) {
+    profile.bitrate = LOW_BANDWIDTH_TARGET_KBPS;
+    LOGD("Low-bandwidth preset active: %ux%u @ %u kbps",
+         profile.width, profile.height, profile.bitrate);
+  }
   if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
     profile.bitrate = context.stream.loss_retry_bitrate_kbps;
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
@@ -837,6 +850,7 @@ int host_stream(VitaChiakiHost* host) {
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
+  chiaki_connect_info.send_start_bitrate = context.config.send_start_bitrate;
 	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
 	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));

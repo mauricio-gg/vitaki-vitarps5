@@ -1342,6 +1342,13 @@ typedef struct {
 
 static SettingsState settings_state = {0};
 
+static void disable_low_bandwidth_preset(void) {
+  if (!context.config.low_bandwidth_mode)
+    return;
+  LOGD("Low-bandwidth preset disabled due to manual override");
+  context.config.low_bandwidth_mode = false;
+}
+
 // Tab color (Blue) - Only Streaming settings, Video/Network removed (no backend support)
 static uint32_t settings_tab_colors[SETTINGS_TAB_COUNT] = {
   RGBA8(0x00, 0x70, 0xCC, 255), // Blue - Streaming
@@ -1447,6 +1454,26 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                      context.config.stretch_video, settings_state.selected_item == 6);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
+  y += item_h + item_spacing;
+
+  // RP-StartBitrate toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     context.config.send_start_bitrate, settings_state.selected_item == 7);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 - 2,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Send RP-StartBitrate Header");
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 18,
+                        UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                        "Requests consoles to honor the selected bitrate");
+  y += item_h + item_spacing;
+
+  // Low-bandwidth preset toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     context.config.low_bandwidth_mode, settings_state.selected_item == 8);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 - 2,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Low-Bandwidth Mode");
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 18,
+                        UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                        "Forces 360p/30 FPS at ≈1.5 Mbps");
 }
 
 /// Draw Controller Settings tab content
@@ -1509,7 +1536,7 @@ bool draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 7; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Fill Screen
+  int max_items = 9; // add StartBitrate + Low Bandwidth toggles
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -1521,6 +1548,7 @@ bool draw_settings() {
   // X: Activate selected item (toggle or cycle dropdown)
   if (btn_pressed(SCE_CTRL_CROSS)) {
     if (settings_state.selected_item == 0) {
+          disable_low_bandwidth_preset();
           // Cycle resolution: 360p → 540p → 720p → 1080p → 360p
           switch (context.config.resolution) {
             case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
@@ -1539,11 +1567,13 @@ bool draw_settings() {
           }
           config_serialize(&context.config);
         } else if (settings_state.selected_item == 1) {
+          disable_low_bandwidth_preset();
           // Cycle latency modes
           context.config.latency_mode =
             (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
           config_serialize(&context.config);
         } else if (settings_state.selected_item == 2) {
+          disable_low_bandwidth_preset();
           // Cycle FPS
           context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
             CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
@@ -1563,6 +1593,17 @@ bool draw_settings() {
         } else if (settings_state.selected_item == 6) {
           context.config.stretch_video = !context.config.stretch_video;
           config_serialize(&context.config);
+    } else if (settings_state.selected_item == 7) {
+      context.config.send_start_bitrate = !context.config.send_start_bitrate;
+      config_serialize(&context.config);
+    } else if (settings_state.selected_item == 8) {
+      context.config.low_bandwidth_mode = !context.config.low_bandwidth_mode;
+      if (context.config.low_bandwidth_mode) {
+        context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+        context.config.fps = CHIAKI_VIDEO_FPS_PRESET_30;
+        context.config.latency_mode = VITA_LATENCY_MODE_ULTRA_LOW;
+      }
+      config_serialize(&context.config);
     }
   }
 

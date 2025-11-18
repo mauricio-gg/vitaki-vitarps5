@@ -82,6 +82,7 @@ typedef struct chiaki_connect_info_t
 	uint8_t morning[0x10];
 	ChiakiConnectVideoProfile video_profile;
 	bool video_profile_auto_downgrade; // Downgrade video_profile if server does not seem to support it.
+	bool send_start_bitrate; // Whether to include RP-StartBitrate header.
 	bool enable_keyboard;
 	bool enable_dualsense;
 #if !(defined(__SWITCH__) || defined(__PSVITA__))
@@ -204,6 +205,7 @@ typedef struct chiaki_session_t
 		uint8_t did[CHIAKI_RP_DID_SIZE];
 		ChiakiConnectVideoProfile video_profile;
 		bool video_profile_auto_downgrade;
+		bool send_start_bitrate;
 		bool enable_keyboard;
 		bool enable_dualsense;
 		uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];
