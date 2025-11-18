@@ -67,6 +67,8 @@ enum {
   FRAMEBUFFER_ALIGNMENT = 256 * 1024
 };
 
+#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
+
 enum VideoStatus {
   NOT_INIT,
   INIT_GS,
@@ -117,6 +119,47 @@ typedef struct {
 } image_scaling_settings;
 
 static image_scaling_settings image_scaling = {0};
+
+static void record_incoming_frame_sample(void) {
+  uint64_t now_us = sceKernelGetSystemTimeWide();
+  if (context.stream.fps_window_start_us == 0)
+    context.stream.fps_window_start_us = now_us;
+
+  context.stream.fps_window_frame_count++;
+  if (now_us - context.stream.fps_window_start_us >= 1000000) {
+    context.stream.measured_incoming_fps = context.stream.fps_window_frame_count;
+    if (context.config.show_latency) {
+      uint32_t requested = context.stream.negotiated_fps;
+      if (requested == 0)
+        requested = 30;
+      LOGD("Video FPS — incoming %u fps (requested %u)",
+           context.stream.measured_incoming_fps, requested);
+    }
+    context.stream.fps_window_frame_count = 0;
+    context.stream.fps_window_start_us = now_us;
+  }
+}
+
+static bool should_drop_frame_for_pacing(void) {
+  if (!context.config.force_30fps)
+    return false;
+
+  uint32_t target = context.stream.target_fps;
+  if (target == 0)
+    return false;
+
+  uint32_t source = context.stream.measured_incoming_fps ?
+      context.stream.measured_incoming_fps : context.stream.negotiated_fps;
+  if (source == 0 || target >= source)
+    return false;
+
+  context.stream.pacing_accumulator += target;
+  if (context.stream.pacing_accumulator < source)
+    return true;
+
+  context.stream.pacing_accumulator -= source;
+  return false;
+}
 
 void update_scaling_settings(int width, int height) {
   image_scaling.texture_width = SCREEN_WIDTH;
@@ -183,7 +226,7 @@ static int vita_pacer_thread_main(SceSize args, void *argp) {
   //if (config.stream.fps == 30) {
   //  max_fps /= 2;
   //}
-  int max_fps = context.stream.fps; // bug?
+  int max_fps = context.stream.target_fps ? context.stream.target_fps : context.stream.negotiated_fps;
   uint64_t last_vblank_count = sceDisplayGetVcount();
   uint64_t last_check_time = sceKernelGetSystemTimeWide();
   //float carry = 0;
@@ -819,16 +862,19 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   }
   // display:
   if (active_video_thread) {
-    if (need_drop > 0) {
+    record_incoming_frame_sample();
+    bool drop_frame = should_drop_frame_for_pacing();
+    if (!drop_frame && need_drop > 0) {
       LOGD("remain frameskip: %d\n", need_drop);
-      // skip
       need_drop--;
-    } else {
+      drop_frame = true;
+    }
+    if (!drop_frame) {
       vita2d_start_drawing();
 
       draw_streaming(frame_texture);
       // draw_fps();
-      // draw_indicators();
+      draw_indicators();
 
       vita2d_end_drawing();
 
@@ -869,14 +915,37 @@ void draw_fps() {
 }
 
 void draw_indicators() {
-//   if (poor_net_indicator.activated) {
-//     vita2d_font_draw_text(font, 40, 500, RGBA8(0xFF, 0xFF, 0xFF, poor_net_indicator.alpha), 64, ICON_NETWORK);
-//     poor_net_indicator.alpha += (0x4 * (poor_net_indicator.plus ? 1 : -1));
-//     if (poor_net_indicator.alpha == 0) {
-//       poor_net_indicator.plus = !poor_net_indicator.plus;
-//       poor_net_indicator.alpha += (0x4 * (poor_net_indicator.plus ? 1 : -1));
-//     }
-//   }
+  if (!poor_net_indicator.activated)
+    return;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (!context.stream.loss_alert_until_us ||
+      now_us >= context.stream.loss_alert_until_us) {
+    poor_net_indicator.activated = false;
+    return;
+  }
+
+  uint64_t duration = context.stream.loss_alert_duration_us ?
+      context.stream.loss_alert_duration_us : VIDEO_LOSS_ALERT_DEFAULT_US;
+  uint64_t remaining = context.stream.loss_alert_until_us - now_us;
+  float alpha_ratio = duration ? (float)remaining / (float)duration : 0.0f;
+  if (alpha_ratio < 0.0f)
+    alpha_ratio = 0.0f;
+  uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
+
+  int box_w = 360;
+  int box_h = 56;
+  int margin = 18;
+  int box_x = SCREEN_WIDTH - box_w - margin;
+  int box_y = SCREEN_HEIGHT - box_h - margin;
+  vita2d_draw_rectangle(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, 180));
+
+  const char *headline = "Network unstable";
+  const char *detail = "Packet loss detected";
+  vita2d_font_draw_text(font, box_x + 18, box_y + 24,
+                        RGBA8(0xFF, 0x66, 0x66, alpha), 20, headline);
+  vita2d_font_draw_text(font, box_x + 18, box_y + 46,
+                        RGBA8(0xFF, 0xFF, 0xFF, alpha), 18, detail);
 }
 
 void vita_h264_start() {
@@ -896,7 +965,7 @@ void vitavideo_show_poor_net_indicator() {
 }
 
 void vitavideo_hide_poor_net_indicator() {
-  //poor_net_indicator.activated = false;
+  poor_net_indicator.activated = false;
   memset(&poor_net_indicator, 0, sizeof(indicator_status));
 }
 

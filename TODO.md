@@ -27,7 +27,17 @@ Only move a task to “Done” after the reviewer signs off.
 2. **Expose low-bandwidth profile in config/UI**  
    - Allow selecting 360p / <2 Mbps preset through the modern settings once backend supports it.
 
----
+3. **Graceful mid-stream packet-loss fallback**  
+   - Automatically lower bitrate without tearing down the whole UI when Ultra Low still drops frames.  
+   - Keep discovery paused, show a “reconnecting” overlay, and restart video/audio while preserving ctrl state.
+
+4. **Preserve controller responsiveness through fallbacks**  
+   - Instrument `input_thread_func()` to log when pad packets stall, then cache/synchronize pad state so restarts don’t add extra lag.  
+   - Investigate keeping ctrl alive while video/audio reconnect to avoid input gaps.
+
+5. **Upstream protocol support for dynamic bitrate**  
+   - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).  
+   - Document needed evidence so we can eventually reconfigure without a teardown.
 
 ### 📥 In Review
 1. **Instrument PS5 bitrate/latency metrics**  
@@ -38,6 +48,11 @@ Only move a task to “Done” after the reviewer signs off.
    - *Owner:* Implementation agent  
    - *Summary:* Introduced `latency_mode` config/UI dropdown plus bitrate overrides in `vita/src/host.c` so users can pick Ultra Low → Max bandwidth targets. Added presets to config serialization and documented options in README.  
    - *Needs:* Reviewer to validate Chiaki profile overrides, ensure config migration works, and smoke-test the new dropdown on hardware.
+
+3. **FPS instrumentation + client-side clamp**  
+   - *Owner:* Implementation agent  
+   - *Summary:* Added per-second frame cadence logging in `vita/src/video.c` + stored the negotiated fps in `vita/src/host.c`. Implemented a “Force 30 FPS Output” toggle (UI + config) that drops frames deterministically when the PS5 still streams 60 fps, while keeping 30 fps streams untouched. README now documents the new option.  
+   - *Needs:* Reviewer to verify the pacing logic on hardware (ensure toggling works while streaming, overlay logs make sense, and the Vita maintains 30 unique frames when the clamp is enabled).
 
 ---
 

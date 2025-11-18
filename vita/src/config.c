@@ -107,6 +107,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->show_latency = false;  // Default: latency display disabled
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
+  cfg->force_30fps = false;
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -176,6 +177,9 @@ void config_parse(VitaChiakiConfig* cfg) {
 
       datum = toml_bool_in(settings, "stretch_video");
       cfg->stretch_video = datum.ok ? datum.u.b : false;
+
+      datum = toml_bool_in(settings, "force_30fps");
+      cfg->force_30fps = datum.ok ? datum.u.b : false;
 
       datum = toml_string_in(settings, "latency_mode");
       if (datum.ok) {
@@ -429,6 +433,8 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->show_latency ? "true" : "false");
   fprintf(fp, "stretch_video = %s\n",
           cfg->stretch_video ? "true" : "false");
+  fprintf(fp, "force_30fps = %s\n",
+          cfg->force_30fps ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {

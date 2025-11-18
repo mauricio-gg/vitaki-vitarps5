@@ -6,6 +6,7 @@
 #include <chiaki/random.h>
 #include <chiaki/gkcrypt.h>
 #include <chiaki/time.h>
+#include <chiaki/streamconnection.h>
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -903,6 +904,8 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	takion->recv_drop_stats.drops_since_log++;
 	takion->recv_drop_stats.last_seq_num = seq_num;
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
+	if(takion->cb_user)
+		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
 	TakionDataPacketEntry *entry = elem_user;
 	free(entry->packet_buf);
 	free(entry);

@@ -12,6 +12,8 @@
 #include "videoreceiver.h"
 #include "congestioncontrol.h"
 
+#include <stdint.h>
+
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -69,6 +71,9 @@ typedef struct chiaki_stream_connection_t
 	#endif
 
 	double measured_bitrate;
+	uint32_t drop_events;
+	uint32_t drop_packets;
+	uint64_t drop_last_ms;
 } ChiakiStreamConnection;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session);
@@ -86,6 +91,7 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_toggle_mute_direct_message(
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnection *stream_connection);
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end);
+CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *stream_connection, uint32_t dropped_packets);
 
 #ifdef __cplusplus
 }

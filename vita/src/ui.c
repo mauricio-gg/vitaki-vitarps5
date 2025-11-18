@@ -192,6 +192,7 @@ typedef enum ui_screen_type_t {
   UI_SCREEN_TYPE_REGISTER_HOST,
   UI_SCREEN_TYPE_STREAM,
   UI_SCREEN_TYPE_WAKING,         // Waking up console screen
+  UI_SCREEN_TYPE_RECONNECTING,   // Reconnecting after packet loss
   UI_SCREEN_TYPE_SETTINGS,
   UI_SCREEN_TYPE_MESSAGES,
   UI_SCREEN_TYPE_PROFILE,        // Phase 2: Profile & Registration screen
@@ -683,6 +684,25 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     int state_text_width = vita2d_font_text_width(font, 18, state_text);
     int state_x = x + (CONSOLE_CARD_WIDTH / 2) - (state_text_width / 2);
     vita2d_font_draw_text(font, state_x, name_bar_y + 55, state_color, 18, state_text);
+  }
+
+  // Temporary status hints (e.g., Remote Play errors)
+  if (console->host && console->host->status_hint[0]) {
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    if (console->host->status_hint_expire_us == 0 ||
+        now_us <= console->host->status_hint_expire_us) {
+      uint32_t hint_color = console->host->status_hint_is_error
+                                ? RGBA8(255, 128, 128, 255)
+                                : UI_COLOR_TEXT_SECONDARY;
+      int hint_width = vita2d_font_text_width(font, 16, console->host->status_hint);
+      int hint_x = x + (CONSOLE_CARD_WIDTH / 2) - (hint_width / 2);
+      vita2d_font_draw_text(font, hint_x, name_bar_y + 80,
+                            hint_color, 16, console->host->status_hint);
+    } else {
+      console->host->status_hint[0] = '\0';
+      console->host->status_hint_is_error = false;
+      console->host->status_hint_expire_us = 0;
+    }
   }
 }
 
@@ -1367,6 +1387,16 @@ static const char* get_latency_mode_string(VitaChiakiLatencyMode mode) {
   }
 }
 
+static void apply_force_30fps_runtime(void) {
+  if (!context.stream.session_init)
+    return;
+  uint32_t clamp = context.stream.negotiated_fps ? context.stream.negotiated_fps : 60;
+  if (context.config.force_30fps && clamp > 30)
+    clamp = 30;
+  context.stream.target_fps = clamp;
+  context.stream.pacing_accumulator = 0;
+}
+
 /// Draw Streaming Quality tab content
 static void draw_settings_streaming_tab(int content_x, int content_y, int content_w) {
   int item_h = 50;
@@ -1391,23 +1421,30 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                 false, settings_state.selected_item == 2);
   y += item_h + item_spacing;
 
+  // Force 30 FPS toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     context.config.force_30fps, settings_state.selected_item == 3);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Force 30 FPS Output");
+  y += item_h + item_spacing;
+
   // Auto Discovery toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.auto_discovery, settings_state.selected_item == 3);
+                     context.config.auto_discovery, settings_state.selected_item == 4);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Auto Discovery");
   y += item_h + item_spacing;
 
   // Show Latency toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.show_latency, settings_state.selected_item == 4);
+                     context.config.show_latency, settings_state.selected_item == 5);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Latency");
   y += item_h + item_spacing;
 
   // Video stretch toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.stretch_video, settings_state.selected_item == 5);
+                     context.config.stretch_video, settings_state.selected_item == 6);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
 }
@@ -1472,7 +1509,7 @@ bool draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 6; // Resolution, Latency Mode, FPS, Auto Discovery, Show Latency, Fill Screen
+  int max_items = 7; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Fill Screen
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -1512,14 +1549,18 @@ bool draw_settings() {
             CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
           config_serialize(&context.config);
         } else if (settings_state.selected_item == 3) {
+          context.config.force_30fps = !context.config.force_30fps;
+          config_serialize(&context.config);
+          apply_force_30fps_runtime();
+        } else if (settings_state.selected_item == 4) {
           // Auto discovery toggle
           context.config.auto_discovery = !context.config.auto_discovery;
           config_serialize(&context.config);
-    } else if (settings_state.selected_item == 4) {
+    } else if (settings_state.selected_item == 5) {
       // Show latency toggle
       context.config.show_latency = !context.config.show_latency;
       config_serialize(&context.config);
-        } else if (settings_state.selected_item == 5) {
+        } else if (settings_state.selected_item == 6) {
           context.config.stretch_video = !context.config.stretch_video;
           config_serialize(&context.config);
     }
@@ -1687,6 +1728,26 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                           "Bitrate");
     vita2d_font_draw_text(font, col2_x, content_y, bitrate_color, FONT_SIZE_SMALL,
                           bitrate_text);
+    content_y += line_h;
+
+    // Packet Loss
+    char loss_text[48] = "Stable";
+    uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
+    bool loss_recent = context.stream.loss_alert_until_us &&
+                       now_us < context.stream.loss_alert_until_us;
+    if (context.stream.frame_loss_events > 0 ||
+        context.stream.takion_drop_events > 0) {
+      snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
+               context.stream.takion_drop_events,
+               context.stream.total_frames_lost);
+      if (loss_recent) {
+        loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
+      }
+    }
+    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY,
+                          FONT_SIZE_SMALL, "Packet Loss");
+    vita2d_font_draw_text(font, col2_x, content_y, loss_color, FONT_SIZE_SMALL,
+                          loss_text);
     content_y += line_h;
   }
 
@@ -2394,6 +2455,8 @@ static int waking_animation_frame = 0;
 static UIScreenType waking_next_screen = UI_SCREEN_TYPE_MAIN;
 static const uint32_t WAKING_TIMEOUT_MS = 30000;  // 30 seconds timeout
 static uint32_t waking_wait_for_stream_us = 0;
+static uint32_t reconnect_start_time = 0;
+static int reconnect_animation_frame = 0;
 
 void ui_clear_waking_wait(void) {
   waking_wait_for_stream_us = 0;
@@ -2508,6 +2571,60 @@ UIScreenType draw_waking_screen() {
   }
 
   return UI_SCREEN_TYPE_WAKING;  // Keep showing waking screen
+}
+
+UIScreenType draw_reconnecting_screen() {
+  if (!context.stream.reconnect_overlay_active) {
+    reconnect_start_time = 0;
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
+  if (reconnect_start_time == 0) {
+    reconnect_start_time = sceKernelGetProcessTimeLow() / 1000;
+    reconnect_animation_frame = 0;
+  }
+
+  uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
+  reconnect_animation_frame = (current_time / 500) % 4;
+
+  vita2d_set_clear_color(RGBA8(0x10, 0x14, 0x1F, 0xFF));
+
+  int card_w = 640;
+  int card_h = 280;
+  int card_x = (VITA_WIDTH - card_w) / 2;
+  int card_y = (VITA_HEIGHT - card_h) / 2;
+  vita2d_draw_rectangle(card_x, card_y, card_w, card_h, RGBA8(0x27, 0x29, 0x40, 0xFF));
+  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
+  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
+
+  const char* title = "Optimizing Stream";
+  vita2d_font_draw_text(font, card_x + 30, card_y + 60, UI_COLOR_TEXT_PRIMARY, 28, title);
+
+  float retry_mbps = context.stream.loss_retry_bitrate_kbps > 0
+                         ? (float)context.stream.loss_retry_bitrate_kbps / 1000.0f
+                         : 0.8f;
+  char detail[64];
+  snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);
+  vita2d_font_draw_text(font, card_x + 30, card_y + 110, UI_COLOR_TEXT_SECONDARY, 20, detail);
+
+  char attempt_text[64];
+  snprintf(attempt_text, sizeof(attempt_text), "Attempt %u of 1",
+           context.stream.loss_retry_attempts);
+  vita2d_font_draw_text(font, card_x + 30, card_y + 150, UI_COLOR_TEXT_SECONDARY, 18, attempt_text);
+
+  char dots[5] = "";
+  int dot_count = reconnect_animation_frame;
+  if (dot_count > 3)
+    dot_count = 3;
+  for (int i = 0; i < dot_count; i++) {
+    dots[i] = '.';
+  }
+  dots[dot_count] = '\0';
+  char status_text[64];
+  snprintf(status_text, sizeof(status_text), "Reconnecting%s", dots);
+  vita2d_font_draw_text(font, card_x + 30, card_y + 190, UI_COLOR_TEXT_PRIMARY, 22, status_text);
+
+  return UI_SCREEN_TYPE_RECONNECTING;
 }
 
 /// Draw the debug messages screen
@@ -2704,6 +2821,12 @@ void draw_ui() {
 
       // Skip ALL rendering when streaming - match ywnico pattern
       if (!context.stream.is_streaming) {
+        if (context.stream.reconnect_overlay_active) {
+          screen = UI_SCREEN_TYPE_RECONNECTING;
+        } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
+          screen = UI_SCREEN_TYPE_MAIN;
+        }
+
         vita2d_start_drawing();
         vita2d_clear_screen();
 
@@ -2748,6 +2871,8 @@ void draw_ui() {
           }
         } else if (screen == UI_SCREEN_TYPE_WAKING) {
           screen = draw_waking_screen();
+        } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
+          screen = draw_reconnecting_screen();
         } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
           if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
             context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);

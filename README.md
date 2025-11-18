@@ -56,6 +56,10 @@ This fork adds the following enhancements to ywnico's vitaki-fork:
    - Better console name and IP display formatting
    - Circle button for cancel (PlayStation convention)
 
+5. **Packet-Loss Fallback & Overlay**
+   - When Ultra Low still drops frames, the client now pauses briefly, displays a reconnecting overlay, and restarts streaming at an even lower bitrate instead of crashing back to the menu.
+   - Automatic retries keep discovery paused and resume seamlessly once the link stabilizes.
+
 ## Features from ywnico's vitaki-fork
 
 All the features from ywnico's fork are included:
@@ -195,6 +199,7 @@ Some configuration lacks a UI but can be set in the config file located at `ux0:
 - `latency_mode = "balanced"` targets a specific bitrate for PS5 streaming. Options:  
   `ultra_low` (≈1.2 Mbps), `low` (≈1.8 Mbps), `balanced` (≈2.6 Mbps), `high` (≈3.2 Mbps), `max` (≈3.8 Mbps, ~95% of Vita Wi-Fi). Use the new latency dropdown in Settings to switch modes without editing the file.
 - `stretch_video = false` keeps incoming frames centered with letterboxing. Set to `true` (or toggle “Fill Screen” under Streaming Settings) if you prefer the 360p/540p output stretched across the display.
+- `force_30fps = false` disables the new 30 fps presentation clamp. Set to `true` (or toggle “Force 30 FPS Output” under Streaming Settings) to make the Vita drop frames locally whenever the PS5 insists on a 60 fps stream. This keeps GPU workload and perceived latency closer to native 30 fps behavior at the cost of visual smoothness.
 
 ## Known issues & troubleshooting
 - Latency. On remote connections (not local WLAN), it's especially bad. ([Relevant GitHub issue](https://github.com/ywnico/vitaki-fork/issues/12))
