@@ -578,6 +578,7 @@ static void *input_thread_func(void* user) {
 
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;  // ~1s with 2ms loop
+  static uint32_t controller_seq_counter = 0;
   while (true) {
 
     // TODO enable using triggers as L2, R2
@@ -754,6 +755,10 @@ static void *input_thread_func(void* user) {
       }
 
       chiaki_session_set_controller_state(&stream->session, &stream->controller_state);
+      controller_seq_counter++;
+      if ((controller_seq_counter % 500) == 0) {
+        LOGD("Controller send seq %u (Vita)", controller_seq_counter);
+      }
       // LOGD("ly 0x%x %d", ctrl.ly, ctrl.ly);
 
       // Adjust sleep time to account for calculations above

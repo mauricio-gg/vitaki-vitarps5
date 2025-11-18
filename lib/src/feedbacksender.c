@@ -16,6 +16,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state_prev);
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state);
+	feedback_sender->controller_seq_counter = 0;
 
 	feedback_sender->state_seq_num = 0;
 
@@ -249,7 +250,7 @@ static void *feedback_sender_thread_func(void *user)
 	if(err != CHIAKI_ERR_SUCCESS)
 		return NULL;
 
-	uint64_t next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
+	uint64_t next_timeout = FEEDBACK_STATE_TIMEOUT_MIN_MS;
 	while(true)
 	{
 		err = chiaki_cond_timedwait_pred(&feedback_sender->state_cond, &feedback_sender->state_mutex, next_timeout, state_cond_check, feedback_sender);
@@ -274,8 +275,14 @@ static void *feedback_sender_thread_func(void *user)
 			send_feedback_history = !controller_state_equals_for_feedback_history(&feedback_sender->controller_state, &feedback_sender->controller_state_prev);
 		} // else: timeout
 
-		if(send_feedback_state)
+		if(send_feedback_state) {
 			feedback_sender_send_state(feedback_sender);
+			feedback_sender->controller_seq_counter++;
+			if((feedback_sender->controller_seq_counter % 500) == 0) {
+				CHIAKI_LOGD(feedback_sender->log,
+						"Controller send seq %u (Chiaki)", feedback_sender->controller_seq_counter);
+			}
+		}
 
 		if(send_feedback_history)
 			feedback_sender_send_history(feedback_sender);
