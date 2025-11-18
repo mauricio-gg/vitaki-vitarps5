@@ -209,6 +209,8 @@ typedef struct chiaki_session_t
 		bool enable_keyboard;
 		bool enable_dualsense;
 		uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];
+		ChiakiControllerState cached_controller_state;
+		bool cached_controller_state_valid;
 	} connect_info;
 
 	ChiakiTarget target;

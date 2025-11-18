@@ -747,6 +747,7 @@ static bool pb_decode_resolution(pb_istream_t *stream, const pb_field_t *field, 
 
 static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
+	ChiakiSession *session = stream_connection->session;
 	tkproto_TakionMessage msg;
 	memset(&msg, 0, sizeof(msg));
 
