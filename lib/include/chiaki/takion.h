@@ -167,6 +167,13 @@ typedef struct chiaki_takion_t
 	ChiakiKeyState key_state;
 
 	bool enable_dualsense;
+
+	struct
+	{
+		uint64_t drops_since_log;
+		uint64_t last_log_ms;
+		uint64_t last_seq_num;
+	} recv_drop_stats;
 } ChiakiTakion;
 
 

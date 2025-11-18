@@ -65,3 +65,7 @@ docs/*.md
 
 # Old project directories
 vitarps5/
+
+# AI Configs
+AGENTS.md
+CLAUDE.md

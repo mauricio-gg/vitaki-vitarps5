@@ -15,7 +15,7 @@ The PS Vita has inherent WiFi limitations you should be aware of:
 - **Known Issues:** Latency can spike to 700ms in poor network environments
 - **Year:** 2011 technology - 14 years old as of 2025
 
-These hardware limitations are why local network optimization is critical.
+These hardware limitations are why local network optimization is critical. The Vita cannot connect to 5 GHz networks, so every improvement has to clean up the congested 2.4 GHz band it relies on.
 
 ---
 
@@ -69,19 +69,19 @@ TKIP adds encryption overhead and the Vita's WiFi chip handles it poorly.
 
 ---
 
-### 2. Use 5GHz WiFi (If Supported by Router)
+### 2. Shift Other Devices to 5GHz
 
-**⚠️ WARNING:** PS Vita **ONLY supports 2.4GHz WiFi**
+**⚠️ REMINDER:** The PS Vita **only connects to 2.4 GHz WiFi**
 
-While you cannot use 5GHz on Vita, you CAN:
-1. Move other devices to 5GHz
-2. Reduce 2.4GHz congestion
-3. Give Vita cleaner 2.4GHz spectrum
+While the handheld stays on 2.4 GHz, you can:
+1. Move laptops/phones/tablets to 5 GHz so they stop competing with the Vita
+2. Leave the Vita alone on the cleanest possible 2.4 GHz channel
+3. Keep the PS5 on Ethernet or 5 GHz so the return path isn’t limited by 2.4 GHz
 
 **Recommended Setup:**
-- PS5: 5GHz WiFi or Ethernet (best)
-- Vita: 2.4GHz WiFi
-- Other devices: 5GHz WiFi
+- PS5: Ethernet (ideal) or 5 GHz WiFi
+- Vita: 2.4 GHz WiFi (with optimized channel + power-save off)
+- Everything else: 5 GHz WiFi whenever possible
 
 ---
 

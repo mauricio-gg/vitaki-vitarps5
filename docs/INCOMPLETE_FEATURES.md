@@ -182,16 +182,10 @@ set(VITA_VERSION "00.06")
 ---
 
 ### 11. File Logging
-**File:** `vita/src/context.c:46`
-**Status:** Not implemented
+**File:** `vita/src/context.c:30-120`
+**Status:** ✅ Implemented (Nov 2025)
 **Priority:** Low
-**Description:** Custom logging callback to write logs to a file.
-
-```c
-// TODO: Custom logging callback that logs to a file
-```
-
-**Impact:** Debugging requires console output only.
+**Description:** All runtime logs (LOGD/LOGE + Chiaki callbacks) now stream to `ux0:data/vita-chiaki/vitarps5.log` via a shared helper, so testers can pull a file instead of scraping console output.
 
 ---
 

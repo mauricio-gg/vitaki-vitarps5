@@ -10,13 +10,39 @@
 #include <psp2/ctrl.h>
 #include <psp2/motion.h>
 #include <psp2/touch.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <chiaki/base64.h>
 #include <chiaki/session.h>
+#include <chiaki/videoreceiver.h>
+#include <chiaki/frameprocessor.h>
+
+static void reset_stream_metrics(void);
+static void update_latency_metrics(void);
+static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode);
+static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode);
+static void request_stream_stop(const char *reason);
+static void resume_discovery_if_needed(void);
+static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us);
+static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
+static bool auto_downgrade_latency_mode(void);
+static const char *latency_mode_label(VitaChiakiLatencyMode mode);
+
+#define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
+#define LOSS_ALERT_DURATION_US (5 * 1000 * 1000ULL)
+#define LOSS_EVENT_WINDOW_US (8 * 1000 * 1000ULL)
+#define LOSS_EVENT_THRESHOLD 3
+#define LOSS_EVENT_THRESHOLD_ULTRA_LOW 2
+#define LOSS_EVENT_MIN_FRAMES 2
+#define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
+#define LOSS_RETRY_BITRATE_KBPS 800
+#define LOSS_RETRY_MAX_ATTEMPTS 2
 
 void host_free(VitaChiakiHost *host) {
   if (host) {
     if (host->discovery_state) {
-      free(host->discovery_state);
+      destroy_discovery_host(host->discovery_state);
+      host->discovery_state = NULL;
     }
     if (host->registered_state) {
       free(host->registered_state);
@@ -101,6 +127,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	{
 		case CHIAKI_EVENT_CONNECTED:
 			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
+      context.stream.inputs_ready = true;
+      context.stream.next_stream_allowed_us = 0;
 			break;
 		case CHIAKI_EVENT_LOGIN_PIN_REQUEST:
 			LOGD("EventCB CHIAKI_EVENT_LOGIN_PIN_REQUEST");
@@ -108,28 +136,367 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_RUMBLE:
 			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
 			break;
-		case CHIAKI_EVENT_QUIT:
-			LOGE("EventCB CHIAKI_EVENT_QUIT");
+		case CHIAKI_EVENT_QUIT: {
+      LOGE("EventCB CHIAKI_EVENT_QUIT (%s)",
+           event->quit.reason_str ? event->quit.reason_str : "unknown");
+      bool retry_pending = context.stream.loss_retry_pending;
+      bool fallback_active = context.stream.loss_retry_active || context.stream.loss_retry_pending;
+      uint64_t retry_ready = context.stream.loss_retry_ready_us;
+      uint32_t retry_attempts = context.stream.loss_retry_attempts;
+      uint32_t retry_bitrate = context.stream.loss_retry_bitrate_kbps;
+      if (retry_pending && !context.active_host)
+        retry_pending = false;
 	    chiaki_opus_decoder_fini(&context.stream.opus_decoder);
       vita_h264_cleanup();
       vita_audio_cleanup();
       context.stream.is_streaming = false;
+      context.stream.inputs_ready = false;
+      ui_clear_waking_wait();
+      context.stream.session_init = false;
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      bool remote_in_use =
+          event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
+      bool remote_crash =
+          event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH;
+      if (context.active_host && (remote_in_use || remote_crash)) {
+        const char *hint =
+            remote_in_use ? "Remote Play already active on console"
+                          : "Console Remote Play crashed - wait a moment";
+        host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+      }
+      uint64_t retry_delay = STREAM_RETRY_COOLDOWN_US;
+      if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
+        retry_delay = 5 * 1000 * 1000ULL;
+      }
+      if (context.stream.stop_requested) {
+        context.stream.next_stream_allowed_us = 0;
+      } else {
+        context.stream.next_stream_allowed_us = now_us + retry_delay;
+      }
+      context.stream.stop_requested = false;
+      bool should_resume_discovery = !retry_pending;
+      reset_stream_metrics();
+      context.stream.loss_retry_pending = false;
+      context.stream.loss_retry_attempts = retry_attempts;
+      context.stream.loss_retry_bitrate_kbps = retry_bitrate;
+      context.stream.loss_retry_ready_us = retry_ready;
+      context.stream.loss_retry_active = false;
+      context.stream.reconnect_overlay_active = false;
+
+      if (!retry_pending && context.active_host && fallback_active &&
+          retry_attempts < LOSS_RETRY_MAX_ATTEMPTS) {
+        retry_attempts++;
+        context.stream.loss_retry_attempts = retry_attempts;
+        context.stream.loss_retry_pending = true;
+        context.stream.loss_retry_bitrate_kbps =
+            retry_bitrate ? retry_bitrate : LOSS_RETRY_BITRATE_KBPS;
+        context.stream.loss_retry_ready_us = now_us + LOSS_RETRY_DELAY_US;
+        retry_pending = true;
+        should_resume_discovery = false;
+        LOGD("Packet loss fallback retry #%u scheduled after failure", retry_attempts);
+      }
+
+      if (should_resume_discovery)
+        resume_discovery_if_needed();
+
+      if (retry_pending && context.active_host) {
+        uint64_t now_retry = sceKernelGetProcessTimeWide();
+        uint64_t desired = context.stream.loss_retry_ready_us ?
+            context.stream.loss_retry_ready_us : retry_ready;
+        if (desired > now_retry) {
+          uint64_t wait = desired - now_retry;
+          sceKernelDelayThread((unsigned int)wait);
+        }
+        context.stream.loss_retry_pending = false;
+        context.stream.loss_retry_active = true;
+        context.stream.loss_retry_ready_us = 0;
+        context.stream.reconnect_overlay_active = true;
+        context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+        LOGD("Restarting stream after packet loss fallback (%u kbps)",
+             context.stream.loss_retry_bitrate_kbps ?
+             context.stream.loss_retry_bitrate_kbps : LOSS_RETRY_BITRATE_KBPS);
+        int restart_result = host_stream(context.active_host);
+        if (restart_result != 0) {
+          LOGE("Fallback restart failed (%d)", restart_result);
+          context.stream.loss_retry_active = false;
+          context.stream.reconnect_overlay_active = false;
+          resume_discovery_if_needed();
+        }
+      } else if (retry_pending && !context.active_host) {
+        context.stream.reconnect_overlay_active = false;
+        resume_discovery_if_needed();
+      }
 			break;
+    }
 	}
 }
 
-static bool video_cb(uint8_t *buf, size_t buf_size, void *user) {
+static void reset_stream_metrics(void) {
+  context.stream.measured_bitrate_mbps = 0.0f;
+  context.stream.measured_rtt_ms = 0;
+  context.stream.metrics_last_update_us = 0;
+  context.stream.measured_incoming_fps = 0;
+  context.stream.fps_window_start_us = 0;
+  context.stream.fps_window_frame_count = 0;
+  context.stream.negotiated_fps = 0;
+  context.stream.target_fps = 0;
+  context.stream.pacing_accumulator = 0;
+  context.stream.frame_loss_events = 0;
+  context.stream.total_frames_lost = 0;
+  context.stream.loss_window_start_us = 0;
+  context.stream.loss_window_event_count = 0;
+  context.stream.loss_alert_until_us = 0;
+  context.stream.loss_alert_duration_us = 0;
+  context.stream.logged_loss_events = 0;
+  context.stream.auto_loss_downgrades = 0;
+  context.stream.takion_drop_events = 0;
+  context.stream.takion_drop_packets = 0;
+  context.stream.logged_drop_events = 0;
+  context.stream.takion_drop_last_us = 0;
+  context.stream.loss_retry_pending = false;
+  context.stream.loss_retry_active = false;
+  context.stream.loss_retry_attempts = 0;
+  context.stream.loss_retry_bitrate_kbps = 0;
+  context.stream.loss_retry_ready_us = 0;
+  context.stream.reconnect_overlay_active = false;
+  context.stream.reconnect_overlay_start_us = 0;
+  vitavideo_hide_poor_net_indicator();
+}
+
+static void update_latency_metrics(void) {
+  if (!context.stream.session_init)
+    return;
+
+  ChiakiStreamConnection *stream_connection = &context.stream.session.stream_connection;
+  ChiakiVideoReceiver *receiver = stream_connection->video_receiver;
+  if (!receiver)
+    return;
+
+  context.stream.takion_drop_events = stream_connection->drop_events;
+  context.stream.takion_drop_packets = stream_connection->drop_packets;
+  context.stream.takion_drop_last_us =
+      stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
+
+  uint32_t fps = context.stream.session.connect_info.video_profile.max_fps;
+  if (fps == 0)
+    fps = 30;
+
+  ChiakiStreamStats *stats = &receiver->frame_processor.stream_stats;
+  uint64_t bitrate_bps = chiaki_stream_stats_bitrate(stats, fps);
+  float bitrate_mbps = bitrate_bps > 0 ? ((float)bitrate_bps / 1000000.0f) : 0.0f;
+  uint32_t rtt_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+
+  context.stream.measured_bitrate_mbps = bitrate_mbps;
+  context.stream.measured_rtt_ms = rtt_ms;
+  context.stream.metrics_last_update_us = now_us;
+
+  if (!context.config.show_latency)
+    return;
+
+  static const uint64_t LOG_INTERVAL_US = 1000000;
+  static uint64_t last_log_us = 0;
+  if (now_us - last_log_us >= LOG_INTERVAL_US) {
+    float target_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
+    LOGD("Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms",
+         target_mbps, bitrate_mbps, rtt_ms);
+    last_log_us = now_us;
+  }
+
+  if (context.stream.takion_drop_events != context.stream.logged_drop_events) {
+    uint32_t delta = context.stream.takion_drop_events - context.stream.logged_drop_events;
+    LOGD("Packet loss — Takion dropped %u packet(s), total %u",
+         delta,
+         context.stream.takion_drop_packets);
+    context.stream.logged_drop_events = context.stream.takion_drop_events;
+  }
+}
+
+static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode) {
+  switch (mode) {
+    case VITA_LATENCY_MODE_ULTRA_LOW: return 1200;
+    case VITA_LATENCY_MODE_LOW: return 1800;
+    case VITA_LATENCY_MODE_HIGH: return 3200;
+    case VITA_LATENCY_MODE_MAX: return 3800;
+    case VITA_LATENCY_MODE_BALANCED:
+    default:
+      return 2600;
+  }
+}
+
+static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode) {
+  unsigned int target = latency_mode_target_kbps(mode);
+  profile->bitrate = target;
+  LOGD("Latency mode applied: %u kbps @ %ux%u", target, profile->width, profile->height);
+}
+
+static void request_stream_stop(const char *reason) {
+  if (!context.stream.session_init)
+    return;
+  if (!context.stream.stop_requested) {
+    LOGD("Stopping stream (%s)", reason ? reason : "user");
+    context.stream.stop_requested = true;
+  }
+  context.stream.next_stream_allowed_us = 0;
+  chiaki_session_stop(&context.stream.session);
+}
+
+static void resume_discovery_if_needed(void) {
+  if (context.discovery_resume_after_stream) {
+    LOGD("Resuming discovery after stream");
+    start_discovery(NULL, NULL);
+    context.discovery_resume_after_stream = false;
+  }
+}
+
+static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us) {
+  if (!host)
+    return;
+
+  if (msg && msg[0]) {
+    sceClibSnprintf(host->status_hint, sizeof(host->status_hint), "%s", msg);
+    host->status_hint_is_error = is_error;
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    host->status_hint_expire_us = duration_us ? (now_us + duration_us) : 0;
+  } else {
+    host->status_hint[0] = '\0';
+    host->status_hint_is_error = false;
+    host->status_hint_expire_us = 0;
+  }
+}
+
+static const char *latency_mode_label(VitaChiakiLatencyMode mode) {
+  switch (mode) {
+    case VITA_LATENCY_MODE_ULTRA_LOW: return "Ultra Low";
+    case VITA_LATENCY_MODE_LOW: return "Low";
+    case VITA_LATENCY_MODE_BALANCED: return "Balanced";
+    case VITA_LATENCY_MODE_HIGH: return "High";
+    case VITA_LATENCY_MODE_MAX: return "Max";
+    default: return "Unknown";
+  }
+}
+
+static bool auto_downgrade_latency_mode(void) {
+  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW)
+    return false;
+  context.config.latency_mode =
+      (VitaChiakiLatencyMode)(context.config.latency_mode - 1);
+  context.stream.auto_loss_downgrades++;
+  LOGD("Auto latency mode downgrade triggered (%s)",
+       latency_mode_label(context.config.latency_mode));
+  return true;
+}
+
+static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
+  if (frames_lost <= 0)
+    return;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  context.stream.frame_loss_events++;
+  context.stream.total_frames_lost += (uint32_t)frames_lost;
+  context.stream.loss_alert_until_us = now_us + LOSS_ALERT_DURATION_US;
+  context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
+  vitavideo_show_poor_net_indicator();
+
+  if (context.config.show_latency &&
+      context.stream.frame_loss_events != context.stream.logged_loss_events) {
+    LOGD("Frame loss — %d frame(s) dropped (recovered=%s)",
+         frames_lost,
+         frame_recovered ? "yes" : "no");
+    context.stream.logged_loss_events = context.stream.frame_loss_events;
+  }
+
+  if (context.stream.loss_window_start_us == 0 ||
+      now_us - context.stream.loss_window_start_us > LOSS_EVENT_WINDOW_US) {
+    context.stream.loss_window_start_us = now_us;
+    context.stream.loss_window_event_count = 0;
+  }
+
+  // Ignore single-frame hiccups; they're common on Vita Wi-Fi and should not
+  // trip the aggressive fallback logic meant for sustained loss.
+  if (frames_lost < LOSS_EVENT_MIN_FRAMES)
+    return;
+
+  context.stream.loss_window_event_count++;
+
+  uint32_t event_threshold = LOSS_EVENT_THRESHOLD;
+  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW &&
+      context.stream.loss_retry_attempts == 0) {
+    event_threshold = LOSS_EVENT_THRESHOLD_ULTRA_LOW;
+  }
+
+  if (context.stream.loss_window_event_count < event_threshold)
+    return;
+
+  context.stream.loss_window_event_count = 0;
+  context.stream.loss_window_start_us = now_us;
+
+  bool downgraded = false;
+  char hint[96];
+  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW) {
+    if (context.stream.loss_retry_attempts < 1) {
+      context.stream.loss_retry_attempts++;
+      context.stream.loss_retry_pending = true;
+      context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
+      context.stream.loss_retry_ready_us = now_us + LOSS_RETRY_DELAY_US;
+      sceClibSnprintf(
+          hint,
+          sizeof(hint),
+          "Network unstable — retrying at %.1f Mbps",
+          (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
+      LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
+           context.stream.loss_retry_attempts,
+           context.stream.loss_retry_bitrate_kbps);
+      context.stream.reconnect_overlay_active = true;
+      context.stream.reconnect_overlay_start_us = now_us;
+    } else {
+      sceClibSnprintf(
+          hint,
+          sizeof(hint),
+          "Severe packet loss — pausing stream");
+      context.stream.reconnect_overlay_active = false;
+    }
+  } else if (auto_downgrade_latency_mode()) {
+    downgraded = true;
+    sceClibSnprintf(
+        hint,
+        sizeof(hint),
+        "Network unstable — switching to %s preset",
+        latency_mode_label(context.config.latency_mode));
+    context.stream.reconnect_overlay_active = false;
+  } else {
+    sceClibSnprintf(
+        hint,
+        sizeof(hint),
+        "Severe packet loss — pausing stream");
+    context.stream.reconnect_overlay_active = false;
+  }
+  if (context.active_host) {
+    host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+  }
+  request_stream_stop("packet loss");
+}
+
+static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
   static bool first_frame = true;
+  if (context.stream.stop_requested)
+    return false;
   if (first_frame) {
     LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
     first_frame = false;
   }
+  if (frames_lost > 0) {
+    handle_loss_event(frames_lost, frame_recovered);
+  }
   context.stream.is_streaming = true;
+  if (context.stream.reconnect_overlay_active)
+    context.stream.reconnect_overlay_active = false;
   int err = vita_h264_decode_frame(buf, buf_size);
   if (err != 0) {
 		LOGE("Error during video decode: %d", err);
     return false;
   }
+  update_latency_metrics();
   return true;
 }
 
@@ -169,10 +536,10 @@ void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
 
 static void *input_thread_func(void* user) {
   // Set input thread to highest priority for lowest input lag
-  // Note: Using CPU 0 same as video/audio to avoid scheduling issues
+  // Pin to CPU1 to avoid contention with video/audio threads on CPU0
   // Priority 96 is higher than video (64) so input takes precedence
   sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 96);
-  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
+  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
 
   sceMotionStartSampling();
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
@@ -210,21 +577,42 @@ static void *input_thread_func(void* user) {
   bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
 
   static int wait_count = 0;
+  static int exit_combo_hold = 0;
+  const int EXIT_COMBO_THRESHOLD = 500;  // ~1s with 2ms loop
   while (true) {
 
     // TODO enable using triggers as L2, R2
     // TODO enable home button, with long hold sent back to Vita?
 
 
-    if (stream->is_streaming) {
+    if (stream->inputs_ready) {
       if (wait_count > 0) {
-        LOGD("INPUT THREAD: is_streaming became true after %d loops", wait_count);
+        LOGD("INPUT THREAD: inputs_ready after %d loops", wait_count);
         wait_count = 0;
       }
       int start_time_us = sceKernelGetProcessTimeWide();
 
       // get button state
       sceCtrlPeekBufferPositive(0, &ctrl, 1);
+
+      bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
+                        (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
+                        (ctrl.buttons & SCE_CTRL_START);
+      if (exit_combo && stream->session_init && !stream->stop_requested) {
+        exit_combo_hold++;
+        if (exit_combo_hold >= EXIT_COMBO_THRESHOLD) {
+          request_stream_stop("L+R+Start");
+          exit_combo_hold = 0;
+          continue;
+        }
+      } else {
+        exit_combo_hold = 0;
+      }
+
+      if (stream->stop_requested) {
+        usleep(ms_per_loop * 1000);
+        continue;
+      }
 
       // get touchscreen state
       for(int port = 0; port < SCE_TOUCH_PORT_MAX_NUM; port++) {
@@ -387,7 +775,7 @@ static void *input_thread_func(void* user) {
       // Not streaming yet - count wait loops
       wait_count++;
       if (wait_count == 1000) {
-        LOGD("INPUT THREAD: Waiting for is_streaming (1000 loops)");
+        LOGD("INPUT THREAD: Waiting for inputs_ready (1000 loops)");
       }
       usleep(1000);  // Sleep 1ms to avoid tight spin
     }
@@ -401,31 +789,76 @@ int host_stream(VitaChiakiHost* host) {
   if (!host->hostname || !host->registered_state) {
     return 1;
   }
-  // stop_discovery();
+  if (context.stream.session_init) {
+    LOGD("Stream already initialized; ignoring duplicate start request");
+    return 1;
+  }
+  bool discovery_was_running = context.discovery_enabled;
+  context.discovery_resume_after_stream = false;
+  host_set_hint(host, NULL, false, 0);
+
+  int result = 1;
+  context.stream.stop_requested = false;
+  context.stream.inputs_ready = false;
+  context.stream.is_streaming = false;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (context.stream.next_stream_allowed_us &&
+      now_us < context.stream.next_stream_allowed_us) {
+    uint64_t remaining_ms =
+        (context.stream.next_stream_allowed_us - now_us + 999) / 1000;
+    LOGD("Stream start blocked for %llu ms to let console recover", remaining_ms);
+    goto cleanup;
+  }
+
   ChiakiConnectVideoProfile profile = {};
 	chiaki_connect_video_profile_preset(&profile,
 		context.config.resolution, context.config.fps);
-  // profile.bitrate = 15000;
-	// Build chiaki ps4 stream session
-	ChiakiConnectInfo chiaki_connect_info = {};
+  apply_latency_mode(&profile, context.config.latency_mode);
+  if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
+    profile.bitrate = context.stream.loss_retry_bitrate_kbps;
+    LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
+    context.stream.loss_retry_active = false;
+  }
+  uint32_t negotiated = profile.max_fps;
+  if (negotiated == 0)
+    negotiated = 60;
+  context.stream.negotiated_fps = negotiated;
+  uint32_t clamp_fps = negotiated;
+  if (context.config.force_30fps)
+    clamp_fps = clamp_fps > 30 ? 30 : clamp_fps;
+  context.stream.target_fps = clamp_fps;
+  context.stream.measured_incoming_fps = 0;
+  context.stream.fps_window_start_us = 0;
+  context.stream.fps_window_frame_count = 0;
+  context.stream.pacing_accumulator = 0;
 
+	ChiakiConnectInfo chiaki_connect_info = {};
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
-
 	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
-
 	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
 	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));
 
 	ChiakiErrorCode err = chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
 	if(err != CHIAKI_ERR_SUCCESS) {
-		LOGE("Error during stream setup: %s", chiaki_error_string(err));
-    return 1;
+    if (err == CHIAKI_ERR_PARSE_ADDR) {
+      LOGE("Error during stream setup: console address unresolved; keeping discovery active");
+      host_set_hint(host, "Waiting for console network link...", false, 3 * 1000 * 1000ULL);
+    } else {
+		  LOGE("Error during stream setup: %s", chiaki_error_string(err));
+    }
+    goto cleanup;
   }
-  init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
+  if (discovery_was_running) {
+    LOGD("Suspending discovery during stream");
+    stop_discovery(true);
+    context.discovery_resume_after_stream = true;
+  }
+	init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
 	context.stream.session_init = true;
-	// audio setting_cb and frame_cb
+  reset_stream_metrics();
 	ChiakiAudioSink audio_sink;
 	chiaki_opus_decoder_init(&context.stream.opus_decoder, &context.log);
 	chiaki_opus_decoder_set_cb(&context.stream.opus_decoder, vita_audio_init, vita_audio_cb, NULL);
@@ -433,21 +866,19 @@ int host_stream(VitaChiakiHost* host) {
 	chiaki_session_set_audio_sink(&context.stream.session, &audio_sink);
   chiaki_session_set_video_sample_cb(&context.stream.session, video_cb, NULL);
 	chiaki_session_set_event_cb(&context.stream.session, event_cb, NULL);
-
-	// init controller states
 	chiaki_controller_state_set_idle(&context.stream.controller_state);
 
   err = vita_h264_setup(profile.width, profile.height);
   if (err != 0) {
 		LOGE("Error during video start: %d", err);
-    return 1;
+    goto cleanup;
   }
   vita_h264_start();
 
 	err = chiaki_session_start(&context.stream.session);
   if(err != CHIAKI_ERR_SUCCESS) {
 		LOGE("Error during stream start: %s", chiaki_error_string(err));
-    return 1;
+    goto cleanup;
   }
 
 	err = chiaki_thread_create(&context.stream.input_thread, input_thread_func, &context.stream);
@@ -455,7 +886,13 @@ int host_stream(VitaChiakiHost* host) {
 	{
 		LOGE("Failed to create input thread");
 	}
-  return 0;
+
+  result = 0;
+
+cleanup:
+  if (result != 0)
+    resume_discovery_if_needed();
+  return result;
 }
 
 /// Check if two MAC addresses match
@@ -707,6 +1144,13 @@ void copy_host(VitaChiakiHost* h_dest, VitaChiakiHost* h_src, bool copy_hostname
 
         // don't copy discovery state
         h_dest->discovery_state = NULL;
+        if (h_src->status_hint[0]) {
+          sceClibSnprintf(h_dest->status_hint, sizeof(h_dest->status_hint), "%s", h_src->status_hint);
+        } else {
+          h_dest->status_hint[0] = '\0';
+        }
+        h_dest->status_hint_is_error = h_src->status_hint_is_error;
+        h_dest->status_hint_expire_us = h_src->status_hint_expire_us;
 }
 
 void copy_host_registered_state(ChiakiRegisteredHost* rstate_dest, ChiakiRegisteredHost* rstate_src) {

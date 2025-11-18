@@ -38,6 +38,32 @@ ChiakiVideoResolutionPreset parse_resolution_preset(char* preset) {
   return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
 }
 
+VitaChiakiLatencyMode parse_latency_mode(const char* mode) {
+  if (!mode)
+    return VITA_LATENCY_MODE_BALANCED;
+  if (strcmp(mode, "ultra_low") == 0)
+    return VITA_LATENCY_MODE_ULTRA_LOW;
+  if (strcmp(mode, "low") == 0)
+    return VITA_LATENCY_MODE_LOW;
+  if (strcmp(mode, "high") == 0)
+    return VITA_LATENCY_MODE_HIGH;
+  if (strcmp(mode, "max") == 0)
+    return VITA_LATENCY_MODE_MAX;
+  return VITA_LATENCY_MODE_BALANCED;
+}
+
+const char* serialize_latency_mode(VitaChiakiLatencyMode mode) {
+  switch (mode) {
+    case VITA_LATENCY_MODE_ULTRA_LOW: return "ultra_low";
+    case VITA_LATENCY_MODE_LOW: return "low";
+    case VITA_LATENCY_MODE_HIGH: return "high";
+    case VITA_LATENCY_MODE_MAX: return "max";
+    case VITA_LATENCY_MODE_BALANCED:
+    default:
+      return "balanced";
+  }
+}
+
 ChiakiTarget parse_target(char* target_name) {
   if (strcmp("ps4_unknown", target_name) == 0) {
     return CHIAKI_TARGET_PS4_UNKNOWN;
@@ -79,6 +105,9 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
   cfg->controller_map_id = 0;
   cfg->show_latency = false;  // Default: latency display disabled
+  cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+  cfg->stretch_video = false;
+  cfg->force_30fps = false;
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -145,6 +174,20 @@ void config_parse(VitaChiakiConfig* cfg) {
 
       datum = toml_bool_in(settings, "show_latency");
       cfg->show_latency = datum.ok ? datum.u.b : false;  // Default: disabled
+
+      datum = toml_bool_in(settings, "stretch_video");
+      cfg->stretch_video = datum.ok ? datum.u.b : false;
+
+      datum = toml_bool_in(settings, "force_30fps");
+      cfg->force_30fps = datum.ok ? datum.u.b : false;
+
+      datum = toml_string_in(settings, "latency_mode");
+      if (datum.ok) {
+        cfg->latency_mode = parse_latency_mode(datum.u.s);
+        free(datum.u.s);
+      } else {
+        cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+      }
     }
 
     toml_array_t* regist_hosts = toml_array_in(parsed, "registered_hosts");
@@ -388,6 +431,11 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->circle_btn_confirm ? "true" : "false");
   fprintf(fp, "show_latency = %s\n",
           cfg->show_latency ? "true" : "false");
+  fprintf(fp, "stretch_video = %s\n",
+          cfg->stretch_video ? "true" : "false");
+  fprintf(fp, "force_30fps = %s\n",
+          cfg->force_30fps ? "true" : "false");
+  fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {
     VitaChiakiHost* host = cfg->manual_hosts[i];
