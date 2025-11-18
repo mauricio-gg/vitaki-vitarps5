@@ -151,6 +151,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
       vita_audio_cleanup();
       context.stream.is_streaming = false;
       context.stream.inputs_ready = false;
+      context.stream.inputs_resume_pending = fallback_active;
       ui_clear_waking_wait();
       context.stream.session_init = false;
       uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -262,6 +263,7 @@ static void reset_stream_metrics(void) {
   context.stream.reconnect_overlay_start_us = 0;
   context.stream.cached_controller_valid = false;
   context.stream.inputs_blocked_since_us = 0;
+  context.stream.inputs_resume_pending = false;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -834,6 +836,7 @@ int host_stream(VitaChiakiHost* host) {
   host_set_hint(host, NULL, false, 0);
 
   int result = 1;
+  bool resume_inputs = context.stream.inputs_resume_pending;
   context.stream.stop_requested = false;
   context.stream.inputs_ready = false;
   context.stream.is_streaming = false;
@@ -887,6 +890,11 @@ int host_stream(VitaChiakiHost* host) {
     }
     goto cleanup;
   }
+  if (resume_inputs && err == CHIAKI_ERR_SUCCESS) {
+    context.stream.inputs_ready = true;
+    context.stream.inputs_resume_pending = false;
+  }
+
   if (discovery_was_running) {
     LOGD("Suspending discovery during stream");
     stop_discovery(true);
@@ -911,7 +919,7 @@ int host_stream(VitaChiakiHost* host) {
   }
   vita_h264_start();
 
-	err = chiaki_session_start(&context.stream.session);
+  err = chiaki_session_start(&context.stream.session);
   if(err != CHIAKI_ERR_SUCCESS) {
 		LOGE("Error during stream start: %s", chiaki_error_string(err));
     goto cleanup;
@@ -926,8 +934,13 @@ int host_stream(VitaChiakiHost* host) {
   result = 0;
 
 cleanup:
-  if (result != 0)
+  if (result != 0) {
+    context.stream.inputs_resume_pending = false;
     resume_discovery_if_needed();
+  } else if (resume_inputs) {
+    context.stream.inputs_ready = true;
+    context.stream.inputs_resume_pending = false;
+  }
   return result;
 }
 

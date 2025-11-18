@@ -87,6 +87,7 @@ typedef struct vita_chiaki_stream_t {
   uint64_t last_input_packet_us;
   uint64_t last_input_stall_log_us;
   uint64_t inputs_blocked_since_us;
+  bool inputs_resume_pending;
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {
