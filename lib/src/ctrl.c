@@ -1134,12 +1134,17 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 		goto error;
 
 	char bitrate_b64[256];
-	bool have_bitrate = session->target >= CHIAKI_TARGET_PS4_10;
+	bool have_bitrate = session->connect_info.send_start_bitrate && session->target >= CHIAKI_TARGET_PS4_10;
 	if(have_bitrate)
 	{
 		uint32_t requested_kbps = session->connect_info.video_profile.bitrate;
 		CHIAKI_LOGI(session->log, "Ctrl request StartBitrate header target: %u kbps", (unsigned int)requested_kbps);
-		uint8_t bitrate[4] = { 0 };
+		uint8_t bitrate[4] = {
+			requested_kbps & 0xff,
+			(requested_kbps >> 8) & 0xff,
+			(requested_kbps >> 16) & 0xff,
+			(requested_kbps >> 24) & 0xff
+		};
 		uint8_t bitrate_enc[4] = { 0 };
 		err = chiaki_rpcrypt_encrypt(&session->rpcrypt, ctrl->crypt_counter_local++, (const uint8_t *)bitrate, bitrate_enc, 4);
 		if(err != CHIAKI_ERR_SUCCESS)
