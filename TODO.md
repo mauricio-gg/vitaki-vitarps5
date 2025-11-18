@@ -34,6 +34,16 @@ Only move a task to “Done” after the reviewer signs off.
 4. **Preserve controller responsiveness through fallbacks**  
    - Instrument `input_thread_func()` to log when pad packets stall, then cache/synchronize pad state so restarts don’t add extra lag.  
    - Investigate keeping ctrl alive while video/audio reconnect to avoid input gaps.
+   - Latest telemetry (`vitarps5.log:11302-11324`) shows the controller gate stays closed for ~6.3 s during packet-loss retries despite gameplay resuming, so we need to re-arm `inputs_ready` (or keep ctrl alive) much earlier in the reconnect flow.
+
+5. **Calibrate loss-detection thresholds**  
+   - Tune `LOSS_EVENT_MIN_FRAMES`, `LOSS_RETRY_DELAY_US`, and related constants in `vita/src/host.c:34-210` so the soft reconnect only fires after sustained loss bursts, preventing extra latency from single-frame hiccups.
+
+6. **Keep controller thread alive during soft restarts**  
+   - Augment `request_stream_restart()`/Chiaki restart handling so controller packets continue flowing while the stream connection rebuilds, preventing the brief input pause currently logged around `context.stream.fast_restart_active` in `vita/src/host.c:129-234`.
+
+7. **Instrument soft-reconnect metrics**  
+   - Add log hooks or UI indicators around the new soft restart path and packet-loss counters (`vita/src/host.c:373-520`, `vita/src/video.c`) to correlate lag spikes with the fallback path, supporting the ongoing investigation in `docs/INCOMPLETE_FEATURES.md`.
 
 5. **Upstream protocol support for dynamic bitrate**  
    - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).  

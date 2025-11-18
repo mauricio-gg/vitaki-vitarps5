@@ -13,7 +13,13 @@
 #include "config.h"
 #include "ui.h"
 
+#ifndef VITAKI_DISABLE_FILE_LOGGING
+#define VITAKI_DISABLE_FILE_LOGGING 1
+#endif
+
 VitaChiakiContext context;
+
+#if !VITAKI_DISABLE_FILE_LOGGING
 
 #define VITARPS5_LOG_PATH "ux0:data/vita-chiaki/vitarps5.log"
 #define VITA_LOG_QUEUE_CAP 64
@@ -166,6 +172,13 @@ void vita_log_append(const char *msg) {
   sceKernelUnlockLwMutex(&log_mutex, 1);
 }
 
+#else
+
+void vita_log_init_file(void) {}
+void vita_log_append(const char *msg) { (void)msg; }
+
+#endif
+
 void log_cb_debugnet(ChiakiLogLevel lvl, const char *msg, void *user) {
   // int debugnet_lvl;
   // switch (lvl) {
@@ -189,7 +202,9 @@ void log_cb_debugnet(ChiakiLogLevel lvl, const char *msg, void *user) {
   char line[800];
   sceClibSnprintf(line, sizeof(line), "[CHIAKI] %s\n", msg);
   sceClibPrintf("%s", line);
+  #if !VITAKI_DISABLE_FILE_LOGGING
   vita_log_append(line);
+  #endif
   if (!context.stream.is_streaming) {
       if (context.mlog) {
         write_message_log(context.mlog, line);
