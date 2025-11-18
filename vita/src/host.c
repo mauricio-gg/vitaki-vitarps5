@@ -260,6 +260,7 @@ static void reset_stream_metrics(void) {
   context.stream.loss_retry_ready_us = 0;
   context.stream.reconnect_overlay_active = false;
   context.stream.reconnect_overlay_start_us = 0;
+  context.stream.cached_controller_valid = false;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -539,7 +540,7 @@ static void *input_thread_func(void* user) {
   // Pin to CPU1 to avoid contention with video/audio threads on CPU0
   // Priority 96 is higher than video (64) so input takes precedence
   sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 96);
-  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
+  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
 
   sceMotionStartSampling();
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
@@ -579,11 +580,34 @@ static void *input_thread_func(void* user) {
   static int wait_count = 0;
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;  // ~1s with 2ms loop
+  const uint64_t INPUT_STALL_THRESHOLD_US = 300000; // 0.3s without send
+  const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
+
+  if (context.stream.cached_controller_valid) {
+    stream->controller_state = context.stream.cached_controller_state;
+    context.stream.cached_controller_valid = false;
+  }
+
   while (true) {
 
     // TODO enable using triggers as L2, R2
     // TODO enable home button, with long hold sent back to Vita?
 
+
+    if (!stream->inputs_ready) {
+      uint64_t last_send = context.stream.last_input_packet_us;
+      if (last_send) {
+        uint64_t now_us = sceKernelGetProcessTimeWide();
+        if (now_us - last_send >= INPUT_STALL_THRESHOLD_US) {
+          if (!context.stream.last_input_stall_log_us ||
+              now_us - context.stream.last_input_stall_log_us >= INPUT_STALL_LOG_INTERVAL_US) {
+            LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last send)",
+                 (float)(now_us - last_send) / 1000.0f);
+            context.stream.last_input_stall_log_us = now_us;
+          }
+        }
+      }
+    }
 
     if (stream->inputs_ready) {
       if (wait_count > 0) {
@@ -759,6 +783,10 @@ static void *input_thread_func(void* user) {
       }
 
       chiaki_session_set_controller_state(&stream->session, &stream->controller_state);
+      context.stream.cached_controller_state = stream->controller_state;
+      context.stream.cached_controller_valid = true;
+      context.stream.last_input_packet_us = sceKernelGetProcessTimeWide();
+      context.stream.last_input_stall_log_us = 0;
       // LOGD("ly 0x%x %d", ctrl.ly, ctrl.ly);
 
       // Adjust sleep time to account for calculations above
