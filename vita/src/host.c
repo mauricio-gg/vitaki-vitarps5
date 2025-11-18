@@ -872,13 +872,20 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.fps_window_frame_count = 0;
   context.stream.pacing_accumulator = 0;
 
-	ChiakiConnectInfo chiaki_connect_info = {};
+  ChiakiConnectInfo chiaki_connect_info = {};
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
 	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
 	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));
+  if (context.stream.cached_controller_valid) {
+    chiaki_connect_info.cached_controller_state = context.stream.cached_controller_state;
+    chiaki_connect_info.cached_controller_state_valid = true;
+  } else {
+    chiaki_controller_state_set_idle(&chiaki_connect_info.cached_controller_state);
+    chiaki_connect_info.cached_controller_state_valid = false;
+  }
 
 	ChiakiErrorCode err = chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
 	if(err != CHIAKI_ERR_SUCCESS) {

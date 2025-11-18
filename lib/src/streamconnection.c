@@ -812,6 +812,12 @@ static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnecti
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to send controller connection");
 		goto error;
 	}
+	if(session->connect_info.cached_controller_state_valid)
+	{
+		chiaki_feedback_sender_set_controller_state(&stream_connection->feedback_sender,
+				&session->connect_info.cached_controller_state);
+		session->connect_info.cached_controller_state_valid = false;
+	}
 
 	err = stream_connection_enable_microphone(stream_connection);
 	if(err != CHIAKI_ERR_SUCCESS)

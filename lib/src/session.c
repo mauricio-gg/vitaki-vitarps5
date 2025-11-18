@@ -261,6 +261,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->connect_info.video_profile_auto_downgrade = connect_info->video_profile_auto_downgrade;
 	session->connect_info.enable_keyboard = connect_info->enable_keyboard;
 	session->connect_info.enable_dualsense = connect_info->enable_dualsense;
+	session->connect_info.cached_controller_state = connect_info->cached_controller_state;
+	session->connect_info.cached_controller_state_valid = connect_info->cached_controller_state_valid;
 
 	return CHIAKI_ERR_SUCCESS;
 
