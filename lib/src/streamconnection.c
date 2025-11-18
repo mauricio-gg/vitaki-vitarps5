@@ -747,6 +747,7 @@ static bool pb_decode_resolution(pb_istream_t *stream, const pb_field_t *field, 
 
 static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
+	ChiakiSession *session = stream_connection->session;
 	tkproto_TakionMessage msg;
 	memset(&msg, 0, sizeof(msg));
 
@@ -811,6 +812,12 @@ static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnecti
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to send controller connection");
 		goto error;
+	}
+	if(session->connect_info.cached_controller_state_valid)
+	{
+		chiaki_feedback_sender_set_controller_state(&stream_connection->feedback_sender,
+				&session->connect_info.cached_controller_state);
+		session->connect_info.cached_controller_state_valid = false;
 	}
 
 	err = stream_connection_enable_microphone(stream_connection);

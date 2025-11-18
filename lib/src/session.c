@@ -240,6 +240,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	}
 
 	chiaki_controller_state_set_idle(&session->controller_state);
+	chiaki_controller_state_set_idle(&session->connect_info.cached_controller_state);
+	session->connect_info.cached_controller_state_valid = false;
 
 	session->connect_info.ps5 = connect_info->ps5;
 	/*
@@ -261,9 +263,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->connect_info.video_profile_auto_downgrade = connect_info->video_profile_auto_downgrade;
 	session->connect_info.enable_keyboard = connect_info->enable_keyboard;
 	session->connect_info.enable_dualsense = connect_info->enable_dualsense;
+	chiaki_controller_state_set_idle(&session->connect_info.cached_controller_state);
+	session->connect_info.cached_controller_state_valid = false;
 	session->stream_restart_requested = false;
 	session->stream_restart_profile_valid = false;
 	memset(&session->stream_restart_profile, 0, sizeof(session->stream_restart_profile));
+
+	if(connect_info->cached_controller_state_valid)
+	{
+		session->connect_info.cached_controller_state = connect_info->cached_controller_state;
+		session->connect_info.cached_controller_state_valid = true;
+	}
 
 	return CHIAKI_ERR_SUCCESS;
 

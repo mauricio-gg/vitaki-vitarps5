@@ -83,6 +83,12 @@ typedef struct vita_chiaki_stream_t {
   bool reconnect_overlay_active;    // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
   bool fast_restart_active;         // Whether a soft reconnect is underway
+  ChiakiControllerState cached_controller_state;
+  bool cached_controller_valid;
+  uint64_t last_input_packet_us;
+  uint64_t last_input_stall_log_us;
+  uint64_t inputs_blocked_since_us;
+  bool inputs_resume_pending;
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {
