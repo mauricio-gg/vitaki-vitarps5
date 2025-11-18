@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <chiaki/discoveryservice.h>
 #include <chiaki/log.h>
 
@@ -15,6 +16,41 @@
 
 /// Allow some grace time before removing a flapping host
 #define DISCOVERY_LOST_GRACE_US (3 * 1000 * 1000ULL)
+
+static char* duplicate_string(const char* src) {
+  if (!src)
+    return NULL;
+  char* copy = strdup(src);
+  return copy;
+}
+
+ChiakiDiscoveryHost* copy_discovery_host(const ChiakiDiscoveryHost* src) {
+  if (!src)
+    return NULL;
+  ChiakiDiscoveryHost* dest = (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
+  if (!dest)
+    return NULL;
+  memcpy(dest, src, sizeof(ChiakiDiscoveryHost));
+#define DUP_FIELD(name) dest->name = duplicate_string(src->name);
+  CHIAKI_DISCOVERY_HOST_STRING_FOREACH(DUP_FIELD)
+#undef DUP_FIELD
+  return dest;
+}
+
+void destroy_discovery_host(ChiakiDiscoveryHost* host) {
+  if (!host)
+    return;
+#define FREE_FIELD(name)           \
+  do {                             \
+    if (host->name) {              \
+      free((void*)host->name);     \
+      host->name = NULL;           \
+    }                              \
+  } while (0)
+  CHIAKI_DISCOVERY_HOST_STRING_FOREACH(FREE_FIELD)
+#undef FREE_FIELD
+  free(host);
+}
 
 /// Save a newly discovered host into the context
 // Returns the index in context.hosts where it is saved (-1 if not saved)
@@ -31,14 +67,22 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     if (h && (h->type & DISCOVERED)) {
       if (mac_addrs_match(&(h->server_mac), &host_mac)) {
         // Already known discovered host. Just copy the discovery state and exit.
-        if (h->discovery_state && (h->discovery_state != host)) {
-          free(h->discovery_state);
+        ChiakiDiscoveryHost* new_state = copy_discovery_host(host);
+        if (!new_state) {
+          CHIAKI_LOGE(&(context.log), "Failed to cache discovery state (out of memory)");
+          return host_idx;
         }
-        h->discovery_state =
-            (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
-        memcpy(h->discovery_state, host, sizeof(ChiakiDiscoveryHost));
-        if (h->hostname) free(h->hostname);
-        h->hostname = strdup(h->discovery_state->host_addr);
+        if (h->discovery_state && (h->discovery_state != host)) {
+          destroy_discovery_host(h->discovery_state);
+        }
+        h->discovery_state = new_state;
+        if (h->hostname) {
+          free(h->hostname);
+          h->hostname = NULL;
+        }
+        if (h->discovery_state->host_addr) {
+          h->hostname = strdup(h->discovery_state->host_addr);
+        }
         h->last_discovery_seen_us = now_us;
         return host_idx;
       }
@@ -107,11 +151,21 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");
   h->target = target;
   memcpy(&(h->server_mac), &host_mac, 6);
-  h->discovery_state =
-      (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
-  memcpy(h->discovery_state, host, sizeof(ChiakiDiscoveryHost));
-  h->hostname = strdup(h->discovery_state->host_addr);
+  h->discovery_state = copy_discovery_host(host);
+  if (!h->discovery_state) {
+    CHIAKI_LOGE(&(context.log), "Failed to allocate discovery state");
+    free(h);
+    return -1;
+  }
+  if (h->discovery_state->host_addr) {
+    h->hostname = strdup(h->discovery_state->host_addr);
+  } else {
+    h->hostname = NULL;
+  }
   h->last_discovery_seen_us = now_us;
+  h->status_hint[0] = '\0';
+  h->status_hint_expire_us = 0;
+  h->status_hint_is_error = false;
 
   CHIAKI_LOGI(&(context.log), "--");
 
@@ -255,7 +309,7 @@ void stop_discovery(bool keep_hosts) {
         context.hosts[i] = NULL;
         context.num_hosts--;
       } else if (h->type & DISCOVERED) {
-        free(h->discovery_state);
+        destroy_discovery_host(h->discovery_state);
         h->discovery_state = NULL;
       }
     }
