@@ -809,9 +809,9 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     draw_rounded_rectangle(x - 4, y - 4, CONSOLE_CARD_WIDTH + 8, CONSOLE_CARD_HEIGHT + 8, 12, UI_COLOR_PRIMARY_BLUE);
   }
 
-  // Card background (greyed out for unpaired consoles, lighter for selected)
+  // Card background (greyed out for unpaired consoles, slightly lighter neutral grey when selected)
   uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) :
-                     (selected ? RGBA8(0x42, 0x38, 0x3D, 255) : UI_COLOR_CARD_BG);  // Lighter bg when selected
+                     (selected ? RGBA8(0x38, 0x3D, 0x42, 255) : UI_COLOR_CARD_BG);  // Neutral dark grey when selected
 
   // Enhanced shadow for selected cards
   int shadow_offset = selected ? 6 : 4;
@@ -854,15 +854,17 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     }
   }
 
-  // Console name bar (1/3 from bottom)
+  // Console name bar (1/3 from bottom) - increased height and padding for better spacing
   int name_bar_y = y + CONSOLE_CARD_HEIGHT - (CONSOLE_CARD_HEIGHT / 3) - 20;
-  draw_rounded_rectangle(x + 15, name_bar_y, CONSOLE_CARD_WIDTH - 30, 40, 8,
+  int name_bar_height = 45;  // Increased from 40 for better text breathing room
+  draw_rounded_rectangle(x + 15, name_bar_y, CONSOLE_CARD_WIDTH - 30, name_bar_height, 8,
     RGBA8(70, 75, 80, 255));
 
-  // Console name text (centered in bar)
+  // Console name text (centered in bar with better vertical spacing)
   int text_width = vita2d_font_text_width(font, 20, console->name);
   int text_x = x + (CONSOLE_CARD_WIDTH / 2) - (text_width / 2);
-  vita2d_font_draw_text(font, text_x, name_bar_y + 27, UI_COLOR_TEXT_PRIMARY, 20, console->name);
+  int text_y = name_bar_y + (name_bar_height / 2) + 7;  // Vertically centered
+  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 20, console->name);
 
   // Status indicator (top-right)
   vita2d_texture* status_tex = NULL;
@@ -892,7 +894,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
   if (state_text) {
     int state_text_width = vita2d_font_text_width(font, 18, state_text);
     int state_x = x + (CONSOLE_CARD_WIDTH / 2) - (state_text_width / 2);
-    vita2d_font_draw_text(font, state_x, name_bar_y + 55, state_color, 18, state_text);
+    vita2d_font_draw_text(font, state_x, name_bar_y + 60, state_color, 18, state_text);  // Adjusted for taller bar
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -905,7 +907,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
                                 : UI_COLOR_TEXT_SECONDARY;
       int hint_width = vita2d_font_text_width(font, 16, console->host->status_hint);
       int hint_x = x + (CONSOLE_CARD_WIDTH / 2) - (hint_width / 2);
-      vita2d_font_draw_text(font, hint_x, name_bar_y + 80,
+      vita2d_font_draw_text(font, hint_x, name_bar_y + 85,  // Better spacing below state text
                             hint_color, 16, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
@@ -2692,9 +2694,22 @@ UIScreenType draw_waking_screen() {
 
   // Check if console woke up (became ready for streaming)
   if (context.active_host) {
-    bool ready = (context.active_host->type & REGISTERED) &&
-                 !(context.active_host->discovery_state &&
-                   context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
+    bool has_discovery_state = (context.active_host->discovery_state != NULL);
+    bool is_registered = (context.active_host->type & REGISTERED);
+    bool is_not_standby = !(context.active_host->discovery_state &&
+                           context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
+    bool ready = is_registered && is_not_standby;
+
+    // Debug logging to understand state
+    static int log_counter = 0;
+    if (log_counter % 60 == 0) {  // Log every ~1 second (assuming 60fps)
+      LOGD("Waking: registered=%d, has_discovery=%d, not_standby=%d, ready=%d, session_init=%d",
+           is_registered, has_discovery_state, is_not_standby, ready, context.stream.session_init);
+      if (has_discovery_state) {
+        LOGD("Discovery state: %d", context.active_host->discovery_state->state);
+      }
+    }
+    log_counter++;
 
     if (ready) {
       // Console woke up! Reset state and auto-transition to streaming
