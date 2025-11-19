@@ -660,7 +660,7 @@ void update_particles() {
 }
 
 // Forward declarations
-// (draw_play_icon removed - now using texture like other navigation icons)
+void draw_play_icon(int center_x, int center_y, int size);
 
 /// Render all active particles
 void render_particles() {
@@ -725,17 +725,23 @@ void render_wave_navigation() {
     float icon_scale_multiplier = is_selected ? 1.08f : 1.0f;  // 8% larger when selected
     int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
 
-    // All navigation icons now use consistent texture rendering
-    if (!nav_icons[i]) continue;
+    // First icon (Play): Use primitive triangle until correct asset is provided
+    // icon_play.png is currently a duplicate of icon_profile.png
+    if (i == 0) {
+      draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+    } else {
+      // Other icons use textures
+      if (!nav_icons[i]) continue;
 
-    int icon_w = vita2d_texture_get_width(nav_icons[i]);
-    int icon_h = vita2d_texture_get_height(nav_icons[i]);
-    float scale = ((float)current_icon_size / (float)(icon_w > icon_h ? icon_w : icon_h));
+      int icon_w = vita2d_texture_get_width(nav_icons[i]);
+      int icon_h = vita2d_texture_get_height(nav_icons[i]);
+      float scale = ((float)current_icon_size / (float)(icon_w > icon_h ? icon_w : icon_h));
 
-    vita2d_draw_texture_scale(nav_icons[i],
-      WAVE_NAV_ICON_X - (icon_w * scale / 2.0f),
-      y - (icon_h * scale / 2.0f),
-      scale, scale);
+      vita2d_draw_texture_scale(nav_icons[i],
+        WAVE_NAV_ICON_X - (icon_w * scale / 2.0f),
+        y - (icon_h * scale / 2.0f),
+        scale, scale);
+    }
   }
 }
 
@@ -979,6 +985,28 @@ void render_console_grid() {
     }
   }
 }
+/// Draw a simple white filled triangle play icon (pointing right)
+/// Note: icon_play.png is currently a duplicate of icon_profile.png, so we use primitive drawing
+void draw_play_icon(int center_x, int center_y, int size) {
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int half_size = size / 2;
+
+  // Triangle centroid is at 1/3 from left edge for proper visual centering
+  // Offset the triangle left by size/6 to center it visually
+  int offset = size / 6;
+
+  // Draw filled triangle using horizontal lines
+  // Triangle points adjusted for visual centering
+  for (int y = -half_size; y <= half_size; y++) {
+    int x_start = center_x - half_size + abs(y) - offset;  // Left edge moves right as we go away from center
+    int x_end = center_x + half_size - offset;              // Right edge is fixed
+    int width = x_end - x_start;
+    if (width > 0) {
+      vita2d_draw_rectangle(x_start, center_y + y, width, 1, white);
+    }
+  }
+}
+
 /// Load all textures required for rendering the UI
 void load_textures() {
   img_ps4 = vita2d_load_PNG_file(IMG_PS4_PATH);
