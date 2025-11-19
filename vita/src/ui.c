@@ -2722,22 +2722,9 @@ UIScreenType draw_waking_screen() {
 
   // Check if console woke up (became ready for streaming)
   if (context.active_host) {
-    bool has_discovery_state = (context.active_host->discovery_state != NULL);
-    bool is_registered = (context.active_host->type & REGISTERED);
-    bool is_not_standby = !(context.active_host->discovery_state &&
-                           context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
-    bool ready = is_registered && is_not_standby;
-
-    // Debug logging to understand state
-    static int log_counter = 0;
-    if (log_counter % 60 == 0) {  // Log every ~1 second (assuming 60fps)
-      LOGD("Waking: registered=%d, has_discovery=%d, not_standby=%d, ready=%d, session_init=%d",
-           is_registered, has_discovery_state, is_not_standby, ready, context.stream.session_init);
-      if (has_discovery_state) {
-        LOGD("Discovery state: %d", context.active_host->discovery_state->state);
-      }
-    }
-    log_counter++;
+    bool ready = (context.active_host->type & REGISTERED) &&
+                 !(context.active_host->discovery_state &&
+                   context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
     if (ready) {
       // Console woke up! Reset state and auto-transition to streaming
