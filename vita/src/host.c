@@ -28,6 +28,7 @@ static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, 
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
+static void shutdown_media_pipeline(void);
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define LOSS_ALERT_DURATION_US (5 * 1000 * 1000ULL)
@@ -152,13 +153,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
       uint32_t retry_bitrate = context.stream.loss_retry_bitrate_kbps;
       if (retry_pending && !context.active_host)
         retry_pending = false;
-	    chiaki_opus_decoder_fini(&context.stream.opus_decoder);
-      vita_h264_cleanup();
-      vita_audio_cleanup();
-      context.stream.is_streaming = false;
-      context.stream.inputs_ready = false;
-	context.stream.fast_restart_active = false;
-	context.stream.inputs_resume_pending = fallback_active;
+      shutdown_media_pipeline();
+      context.stream.inputs_resume_pending = fallback_active;
       ui_clear_waking_wait();
       context.stream.session_init = false;
       uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -278,6 +274,20 @@ static void reset_stream_metrics(void) {
   context.stream.inputs_blocked_since_us = 0;
   context.stream.inputs_resume_pending = false;
   vitavideo_hide_poor_net_indicator();
+}
+
+static void shutdown_media_pipeline(void) {
+  if (!context.stream.media_initialized)
+    return;
+
+  chiaki_opus_decoder_fini(&context.stream.opus_decoder);
+  vita_h264_cleanup();
+  vita_audio_cleanup();
+  context.stream.media_initialized = false;
+  context.stream.is_streaming = false;
+  context.stream.inputs_ready = false;
+  context.stream.fast_restart_active = false;
+  context.stream.reconnect_overlay_active = false;
 }
 
 static void update_latency_metrics(void) {
@@ -878,6 +888,7 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.stop_requested = false;
   context.stream.inputs_ready = false;
   context.stream.is_streaming = false;
+  context.stream.media_initialized = false;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
   if (context.stream.next_stream_allowed_us &&
@@ -914,6 +925,7 @@ int host_stream(VitaChiakiHost* host) {
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
+	chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
 	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
 	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));
@@ -953,7 +965,8 @@ int host_stream(VitaChiakiHost* host) {
 	chiaki_opus_decoder_set_cb(&context.stream.opus_decoder, vita_audio_init, vita_audio_cb, NULL);
 	chiaki_opus_decoder_get_sink(&context.stream.opus_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&context.stream.session, &audio_sink);
-  chiaki_session_set_video_sample_cb(&context.stream.session, video_cb, NULL);
+  context.stream.media_initialized = true;
+	chiaki_session_set_video_sample_cb(&context.stream.session, video_cb, NULL);
 	chiaki_session_set_event_cb(&context.stream.session, event_cb, NULL);
 	chiaki_controller_state_set_idle(&context.stream.controller_state);
 
@@ -981,6 +994,14 @@ int host_stream(VitaChiakiHost* host) {
 cleanup:
   if (result != 0) {
     context.stream.inputs_resume_pending = false;
+    shutdown_media_pipeline();
+    context.stream.session_init = false;
+    context.stream.fast_restart_active = false;
+    context.stream.reconnect_overlay_active = false;
+    context.stream.loss_retry_active = false;
+    context.stream.loss_retry_pending = false;
+    context.stream.is_streaming = false;
+    context.stream.inputs_ready = false;
     resume_discovery_if_needed();
   } else if (resume_inputs) {
     context.stream.inputs_ready = true;

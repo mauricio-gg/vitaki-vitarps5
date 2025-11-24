@@ -36,6 +36,8 @@ typedef struct {
 
 static VitaLoggingConfig active_cfg;
 static bool cfg_initialized = false;
+static char resolved_log_path[VITA_LOG_MAX_PATH];
+static bool log_path_resolved = false;
 
 static SceUID log_file_fd = -1;
 static bool log_file_failed = false;
@@ -74,13 +76,57 @@ static bool vita_log_queue_pop_locked(VitaLogMessage *out_msg) {
   return true;
 }
 
+static const char *vita_log_get_path(void) {
+  if (log_path_resolved && resolved_log_path[0])
+    return resolved_log_path;
+
+  const char *base_path = active_cfg.path;
+  const char *last_sep = strrchr(base_path, '/');
+  size_t dir_len = 0;
+  const char *filename = base_path;
+  if (last_sep) {
+    dir_len = (size_t)(last_sep - base_path + 1);
+    filename = last_sep + 1;
+  }
+  if (!filename || filename[0] == '\0')
+    filename = "log.txt";
+
+  char timestamp_prefix[32];
+  uint64_t timestamp = sceKernelGetSystemTimeWide();
+  sceClibSnprintf(timestamp_prefix, sizeof(timestamp_prefix), "%llu_",
+                  (unsigned long long)timestamp);
+
+  size_t pos = 0;
+  if (dir_len > 0) {
+    size_t copy_len = dir_len < sizeof(resolved_log_path) - 1
+                          ? dir_len
+                          : sizeof(resolved_log_path) - 1;
+    sceClibMemcpy(resolved_log_path, base_path, copy_len);
+    pos = copy_len;
+  }
+
+  if (pos < sizeof(resolved_log_path)) {
+    sceClibSnprintf(resolved_log_path + pos,
+                    sizeof(resolved_log_path) - pos,
+                    "%s%s",
+                    timestamp_prefix,
+                    filename);
+  } else {
+    resolved_log_path[sizeof(resolved_log_path) - 1] = '\0';
+  }
+
+  log_path_resolved = true;
+  return resolved_log_path;
+}
+
 static void vita_log_try_open(void) {
   if (log_file_fd >= 0 || log_file_failed || !cfg_initialized)
     return;
 
+  const char *log_path = vita_log_get_path();
   sceIoMkdir("ux0:data", 0777);
   sceIoMkdir("ux0:data/vita-chiaki", 0777);
-  log_file_fd = sceIoOpen(active_cfg.path,
+  log_file_fd = sceIoOpen(log_path,
                           SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND,
                           0666);
   if (log_file_fd >= 0) {
@@ -228,6 +274,8 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
     strncpy(active_cfg.path, VITA_LOG_DEFAULT_PATH, sizeof(active_cfg.path) - 1);
   log_queue_cap = active_cfg.queue_depth;
   cfg_initialized = true;
+  log_path_resolved = false;
+  resolved_log_path[0] = '\0';
 }
 
 void vita_log_module_shutdown(void) {
@@ -250,6 +298,8 @@ void vita_log_module_shutdown(void) {
     log_file_fd = -1;
   }
   log_file_failed = false;
+  log_path_resolved = false;
+  resolved_log_path[0] = '\0';
 }
 
 bool vita_log_should_write_level(ChiakiLogLevel level) {

@@ -108,6 +108,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
+  cfg->send_actual_start_bitrate = true;
   vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
@@ -181,6 +182,9 @@ void config_parse(VitaChiakiConfig* cfg) {
 
       datum = toml_bool_in(settings, "force_30fps");
       cfg->force_30fps = datum.ok ? datum.u.b : false;
+
+      datum = toml_bool_in(settings, "send_actual_start_bitrate");
+      cfg->send_actual_start_bitrate = datum.ok ? datum.u.b : true;
 
       datum = toml_string_in(settings, "latency_mode");
       if (datum.ok) {
@@ -470,6 +474,8 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->stretch_video ? "true" : "false");
   fprintf(fp, "force_30fps = %s\n",
           cfg->force_30fps ? "true" : "false");
+  fprintf(fp, "send_actual_start_bitrate = %s\n",
+          cfg->send_actual_start_bitrate ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
   fprintf(fp, "\n[logging]\n");
   fprintf(fp, "enabled = %s\n", cfg->logging.enabled ? "true" : "false");
