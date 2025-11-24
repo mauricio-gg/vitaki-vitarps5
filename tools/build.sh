@@ -9,10 +9,11 @@ PROJECT_NAME="vitaki-fork"
 DOCKER_IMAGE="vitaki-fork-dev:latest"
 BUILD_DIR="./build"
 SOURCE_DIR="./vita/src"
+CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="174"
+VERSION_ITERATION="175"
 
 # Colors for output
 RED='\033[0;31m'
@@ -31,6 +32,90 @@ increment_version() {
 
 get_version_string() {
     echo "VitakiForkv${VERSION_PHASE}.${VERSION_ITERATION}"
+}
+
+# Environment handling -------------------------------------------------------
+ENV_PROFILE_PATH=""
+
+normalize_bool() {
+    local value="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+        1|"true"|"yes"|"on") echo 1 ;;
+        0|"false"|"no"|"off") echo 0 ;;
+        *) echo "" ;;
+    esac
+}
+
+load_env_profile() {
+    local requested_profile="$1"
+    local explicit_path="$2"
+
+    if [ -n "$explicit_path" ]; then
+        ENV_PROFILE_PATH="$explicit_path"
+    elif [ -n "$requested_profile" ]; then
+        ENV_PROFILE_PATH=".env.${requested_profile}"
+    elif [ -n "$VITARPS5_ENV_FILE" ]; then
+        ENV_PROFILE_PATH="$VITARPS5_ENV_FILE"
+    elif [ -f ".env.prod" ]; then
+        ENV_PROFILE_PATH=".env.prod"
+    else
+        ENV_PROFILE_PATH=""
+    fi
+
+    if [ -n "$ENV_PROFILE_PATH" ] && [ -f "$ENV_PROFILE_PATH" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$ENV_PROFILE_PATH"
+        set +a
+        log_info "Loaded environment profile: $ENV_PROFILE_PATH"
+    elif [ -n "$ENV_PROFILE_PATH" ]; then
+        log_warning "Environment profile $ENV_PROFILE_PATH not found; using built-in defaults"
+    else
+        log_info "No environment profile specified; using built-in defaults"
+    fi
+}
+
+configure_logging_cmake_args() {
+    local profile_define=""
+    local lowered_profile
+    local enabled_val force_val
+    local depth_arg path_arg
+    local cmake_args=()
+
+    if [ -n "$VITARPS5_LOG_PROFILE" ]; then
+        lowered_profile="$(echo "$VITARPS5_LOG_PROFILE" | tr '[:upper:]' '[:lower:]')"
+        case "$lowered_profile" in
+            "verbose") profile_define="VITA_LOG_PROFILE_VERBOSE" ;;
+            "errors"|"error") profile_define="VITA_LOG_PROFILE_ERRORS" ;;
+            "off") profile_define="VITA_LOG_PROFILE_OFF" ;;
+            *) profile_define="VITA_LOG_PROFILE_STANDARD" ;;
+        esac
+        cmake_args+=("-DVITARPS5_DEFAULT_LOG_PROFILE=${profile_define}")
+    fi
+
+    enabled_val=$(normalize_bool "$VITARPS5_LOG_ENABLED")
+    if [ -n "$enabled_val" ]; then
+        cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_ENABLED=${enabled_val}")
+    fi
+
+    force_val=$(normalize_bool "$VITARPS5_FORCE_ERROR_LOGGING")
+    if [ -n "$force_val" ]; then
+        cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_FORCE_ERRORS=${force_val}")
+    fi
+
+    if [ -n "$VITARPS5_LOG_QUEUE_DEPTH" ]; then
+        if [[ "$VITARPS5_LOG_QUEUE_DEPTH" =~ ^[0-9]+$ ]]; then
+            cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH=${VITARPS5_LOG_QUEUE_DEPTH}")
+        else
+            log_warning "Ignoring invalid VITARPS5_LOG_QUEUE_DEPTH value: $VITARPS5_LOG_QUEUE_DEPTH"
+        fi
+    fi
+
+    if [ -n "$VITARPS5_LOG_PATH" ]; then
+        cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_PATH=${VITARPS5_LOG_PATH}")
+    fi
+
+    CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
 }
 
 # Logging functions
@@ -113,6 +198,7 @@ EOF
 # Build VPK using Docker
 build_vpk() {
     local build_type="${1:-release}"
+    local cmake_logging_flags="${CMAKE_EXTRA_FLAGS}"
     
     # Increment version BEFORE build so it shows correctly in logs
     increment_version
@@ -149,7 +235,8 @@ build_vpk() {
                      -DCHIAKI_ENABLE_GUI=OFF \
                      -DCHIAKI_ENABLE_CLI=OFF \
                      -DCHIAKI_ENABLE_TESTS=OFF \
-                     $cmake_flags
+                     $cmake_flags \
+                     ${cmake_logging_flags}
             
             echo 'Building project...'
             make -j\$(nproc)
@@ -243,6 +330,7 @@ lint_code() {
 # Build and run test suite
 run_tests() {
     log_info "Building and running test suite..."
+    local cmake_logging_flags="${CMAKE_EXTRA_FLAGS}"
     
     # Run test build in Docker container
     docker run --rm \
@@ -258,7 +346,7 @@ run_tests() {
             mkdir -p build && cd build
             
             echo 'Running CMake with test configuration...'
-            cmake .. -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake -DBUILD_TESTS=ON
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake -DBUILD_TESTS=ON ${cmake_logging_flags}
             
             echo 'Building test suite...'
             make -j\$(nproc) vitarps5_tests
@@ -334,7 +422,7 @@ show_version() {
 # Show help
 show_help() {
     echo "Vitaki-Fork Build Script"
-    echo "Usage: ./build.sh [command] [options]"
+    echo "Usage: ./build.sh [--env <profile>] [--env-file <path>] [command] [options]"
     echo ""
     echo "Commands:"
     echo "  (no args)    Build release VPK (auto-increments version)"
@@ -350,6 +438,11 @@ show_help() {
     echo "  version      Show current version information"
     echo "  help         Show this help"
     echo ""
+    echo "Options:"
+    echo "  --env <profile>     Load .env.<profile> before running (e.g., testing, prod)"
+    echo "  --env-file <path>   Load a specific env file (overrides --env)"
+    echo "  --help              Show this help"
+    echo ""
     echo "Examples:"
     echo "  ./build.sh                    # Build release VPK"
     echo "  ./build.sh debug              # Build with debug symbols"
@@ -361,13 +454,53 @@ show_help() {
 
 # Main script logic
 main() {
-    local command="${1:-build}"
-    
+    local env_profile=""
+    local env_file=""
+    local positional=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env)
+                env_profile="$2"
+                shift 2
+                ;;
+            --env=*)
+                env_profile="${1#--env=}"
+                shift
+                ;;
+            --env-file)
+                env_file="$2"
+                shift 2
+                ;;
+            --env-file=*)
+                env_file="${1#--env-file=}"
+                shift
+                ;;
+            -h|--help)
+                show_help
+                return
+                ;;
+            *)
+                positional+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    local command="build"
+    if [ ${#positional[@]} -gt 0 ]; then
+        command="${positional[0]}"
+        positional=("${positional[@]:1}")
+    fi
+
+    load_env_profile "$env_profile" "$env_file"
+    configure_logging_cmake_args
+
     # Check Docker availability
     check_docker
-    
+
     case "$command" in
-        "build"|"")
+        "build")
             ensure_docker_image
             setup_build_dir
             build_vpk "release"
@@ -398,7 +531,7 @@ main() {
             dev_shell
             ;;
         "deploy")
-            deploy_vita "$2"
+            deploy_vita "${positional[0]}"
             ;;
         "update")
             pull_docker_image
@@ -410,7 +543,7 @@ main() {
         "version")
             show_version
             ;;
-        "help"|"-h"|"--help")
+        "help")
             show_help
             ;;
         *)

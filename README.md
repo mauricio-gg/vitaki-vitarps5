@@ -117,6 +117,8 @@ The VPK file will be created in:
 
 Runtime logs (including Chiaki transport warnings) are also written to `ux0:data/vita-chiaki/vitarps5.log` on the Vita, so you can pull that file to share debug output without capturing console text.
 
+**Environment profiles:** the build script auto-loads `.env.prod` (default) or any profile you pass via `--env`. For verbose developer builds run `./tools/build.sh --env testing`; for production-ready builds stick with `--env prod`. See `docs/ai/LOGGING.md` for the variables each profile controls.
+
 **Note:** Always use `./tools/build.sh` - never call Docker manually. The script ensures the correct environment and handles versioning automatically.
 
 ### Legacy Build System
