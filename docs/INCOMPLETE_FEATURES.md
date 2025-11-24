@@ -168,16 +168,12 @@ set(VITA_VERSION "00.06")
 ## Logging & Debugging
 
 ### 10. Configurable Log Level
-**File:** `vita/src/context.c:45`
-**Status:** Not implemented
+**File:** `vita/src/config.c:194`, `vita/src/logging.c:12`
+**Status:** ✅ Completed (Nov 2025)
 **Priority:** Low
-**Description:** Log level should be configurable from config file.
+**Description:** Logging profiles can now be set via `.env` build profiles and the `[logging]` table in `chiaki.toml`. Defaults live in `vita/src/logging.c`, and runtime parsing happens in `vita/src/config.c`.
 
-```c
-// TODO: Load log level from config
-```
-
-**Impact:** Users cannot adjust logging verbosity.
+**Impact:** Developers and testers can toggle verbose/crash-only logging without editing code.
 
 ---
 

@@ -108,6 +108,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
+  vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -187,6 +188,40 @@ void config_parse(VitaChiakiConfig* cfg) {
         free(datum.u.s);
       } else {
         cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+      }
+    }
+
+    toml_table_t* logging = toml_table_in(parsed, "logging");
+    if (logging) {
+      datum = toml_bool_in(logging, "enabled");
+      if (datum.ok)
+        cfg->logging.enabled = datum.u.b;
+
+      datum = toml_bool_in(logging, "force_error_logging");
+      if (datum.ok)
+        cfg->logging.force_error_logging = datum.u.b;
+
+      datum = toml_string_in(logging, "profile");
+      if (datum.ok) {
+        cfg->logging.profile = vita_logging_profile_from_string(datum.u.s);
+        free(datum.u.s);
+      }
+
+      datum = toml_int_in(logging, "queue_depth");
+      if (datum.ok) {
+        if (datum.u.i < 8)
+          cfg->logging.queue_depth = 8;
+        else if (datum.u.i > 256)
+          cfg->logging.queue_depth = 256;
+        else
+          cfg->logging.queue_depth = datum.u.i;
+      }
+
+      datum = toml_string_in(logging, "path");
+      if (datum.ok) {
+        strncpy(cfg->logging.path, datum.u.s, sizeof(cfg->logging.path) - 1);
+        cfg->logging.path[sizeof(cfg->logging.path) - 1] = '\0';
+        free(datum.u.s);
       }
     }
 
@@ -436,6 +471,14 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "force_30fps = %s\n",
           cfg->force_30fps ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "\n[logging]\n");
+  fprintf(fp, "enabled = %s\n", cfg->logging.enabled ? "true" : "false");
+  fprintf(fp, "force_error_logging = %s\n",
+          cfg->logging.force_error_logging ? "true" : "false");
+  fprintf(fp, "profile = \"%s\"\n",
+          vita_logging_profile_to_string(cfg->logging.profile));
+  fprintf(fp, "path = \"%s\"\n", cfg->logging.path);
+  fprintf(fp, "queue_depth = %zu\n", cfg->logging.queue_depth);
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {
     VitaChiakiHost* host = cfg->manual_hosts[i];

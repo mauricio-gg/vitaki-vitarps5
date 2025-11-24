@@ -17,6 +17,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/video.c
     src/audio.c
     src/message_log.c
+    src/logging.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -28,6 +29,21 @@ add_executable(${VITA_APP_NAME}.elf
 target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC
     CHIAKI_VERSION="${CHIAKI_VERSION}"
 )
+if(DEFINED VITARPS5_DEFAULT_LOG_PROFILE)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEFAULT_LOG_PROFILE=${VITARPS5_DEFAULT_LOG_PROFILE})
+endif()
+if(DEFINED VITARPS5_LOGGING_DEFAULT_ENABLED)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_LOGGING_DEFAULT_ENABLED=${VITARPS5_LOGGING_DEFAULT_ENABLED})
+endif()
+if(DEFINED VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS=${VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS})
+endif()
+if(DEFINED VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH=${VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH})
+endif()
+if(DEFINED VITARPS5_LOGGING_DEFAULT_PATH)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_LOGGING_DEFAULT_PATH="${VITARPS5_LOGGING_DEFAULT_PATH}")
+endif()
 
 target_include_directories(${VITA_APP_NAME}.elf PRIVATE
     include

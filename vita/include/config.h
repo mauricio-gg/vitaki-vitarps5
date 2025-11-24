@@ -3,6 +3,7 @@
 #include <chiaki/session.h>
 
 #include "host.h"
+#include "logging.h"
 
 #define CFG_VERSION 1
 #define CFG_FILENAME "ux0:data/vita-chiaki/chiaki.toml"
@@ -46,6 +47,7 @@ typedef struct vita_chiaki_config_t {
   bool stretch_video;
   bool force_30fps;   // Drop frames locally to hold 30 fps presentation
   VitaChiakiLatencyMode latency_mode;
+  VitaLoggingConfig logging;
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig* cfg);

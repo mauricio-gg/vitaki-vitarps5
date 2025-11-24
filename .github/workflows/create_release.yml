@@ -112,10 +112,10 @@ jobs:
           cat /tmp/full_changelog.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Build VPK using Docker
+      - name: Build VPK using Docker (prod env)
         run: |
           chmod +x tools/build.sh
-          ./tools/build.sh
+          ./tools/build.sh --env prod
 
       - name: Find and rename VPK
         id: find_vpk
