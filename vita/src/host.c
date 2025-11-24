@@ -655,7 +655,13 @@ static void *input_thread_func(void* user) {
     // TODO enable home button, with long hold sent back to Vita?
 
 
-    if (!stream->inputs_ready) {
+    // Keep controller packets flowing when Chiaki performs a fast restart so
+    // packet-loss fallbacks do not stall local inputs.
+    bool controller_gate_open =
+        stream->inputs_ready ||
+        (stream->fast_restart_active && stream->session_init && !stream->stop_requested);
+
+    if (!controller_gate_open) {
       uint64_t now_us = sceKernelGetProcessTimeWide();
       if (!context.stream.inputs_blocked_since_us)
         context.stream.inputs_blocked_since_us = now_us;
@@ -677,7 +683,7 @@ static void *input_thread_func(void* user) {
       context.stream.inputs_blocked_since_us = 0;
     }
 
-    if (stream->inputs_ready) {
+    if (controller_gate_open) {
       int start_time_us = sceKernelGetProcessTimeWide();
 
       // get button state
