@@ -1138,8 +1138,19 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	if(have_bitrate)
 	{
 		uint32_t requested_kbps = session->connect_info.video_profile.bitrate;
-		CHIAKI_LOGI(session->log, "Ctrl request StartBitrate header target: %u kbps", (unsigned int)requested_kbps);
+		bool send_actual_bitrate = session->connect_info.send_actual_start_bitrate;
+		CHIAKI_LOGI(session->log,
+			"Ctrl request StartBitrate header target: %u kbps (%s)",
+			(unsigned int)requested_kbps,
+			send_actual_bitrate ? "requested" : "legacy zero");
 		uint8_t bitrate[4] = { 0 };
+		if(send_actual_bitrate)
+		{
+			bitrate[0] = requested_kbps & 0xff;
+			bitrate[1] = (requested_kbps >> 8) & 0xff;
+			bitrate[2] = (requested_kbps >> 0x10) & 0xff;
+			bitrate[3] = (requested_kbps >> 0x18) & 0xff;
+		}
 		uint8_t bitrate_enc[4] = { 0 };
 		err = chiaki_rpcrypt_encrypt(&session->rpcrypt, ctrl->crypt_counter_local++, (const uint8_t *)bitrate, bitrate_enc, 4);
 		if(err != CHIAKI_ERR_SUCCESS)

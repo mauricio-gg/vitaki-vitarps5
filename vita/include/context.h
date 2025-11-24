@@ -81,6 +81,7 @@ typedef struct vita_chiaki_stream_t {
   bool reconnect_overlay_active;    // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
   bool fast_restart_active;         // Whether a soft reconnect is underway
+  bool media_initialized;           // Whether audio/video pipeline is initialized
   ChiakiControllerState cached_controller_state;
   bool cached_controller_valid;
   uint64_t last_input_packet_us;
