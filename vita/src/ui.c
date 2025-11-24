@@ -29,7 +29,7 @@
 #define UI_COLOR_PRIMARY_BLUE 0xFFFF9034     // PlayStation Blue #3490FF
 #define UI_COLOR_BACKGROUND 0xFF1A1614       // Animated charcoal gradient base
 #define UI_COLOR_CARD_BG 0xFF37322D          // Dark charcoal (45,50,55)
-#define UI_COLOR_TEXT_PRIMARY 0xFFFFFFFF     // White
+#define UI_COLOR_TEXT_PRIMARY 0xFFFAFAFA     // Off-white (reduced eye strain)
 #define UI_COLOR_TEXT_SECONDARY 0xFFB4B4B4   // Light Gray
 #define UI_COLOR_TEXT_TERTIARY 0xFFA0A0A0    // Medium Gray
 #define UI_COLOR_STATUS_AVAILABLE 0xFF50AF4C    // Success Green #4CAF50
@@ -51,13 +51,13 @@
 #define FONT_SIZE_HEADER 24      // Screen titles, main headers
 #define FONT_SIZE_SUBHEADER 18   // Section titles, tab labels
 #define FONT_SIZE_BODY 16        // Primary content text
-#define FONT_SIZE_SMALL 16       // Secondary text, hints (MINIMUM - 16pt)
+#define FONT_SIZE_SMALL 14       // Secondary text, hints (improved hierarchy)
 
 // VitaRPS5 UI Layout Constants
 #define WAVE_NAV_WIDTH 104  // 20% thinner than original 130px
 #define CONTENT_AREA_X WAVE_NAV_WIDTH
 #define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)
-#define PARTICLE_COUNT 12
+#define PARTICLE_COUNT 8         // Optimized from 12 for better performance
 
 // Legacy layout (will be phased out)
 #define HEADER_BAR_X 136
@@ -107,6 +107,7 @@ vita2d_texture *vita_front, *ps5_logo;
 // Particle system state
 static Particle particles[PARTICLE_COUNT];
 static bool particles_initialized = false;
+static int particle_update_frame = 0;  // Frame counter for 30fps updates
 
 // Wave navigation state
 #define WAVE_NAV_ICON_SIZE 48
@@ -123,7 +124,7 @@ static float wave_animation_time = 0.0f;
 // Console card system
 #define CONSOLE_CARD_WIDTH 200  // Half width for more compact cards
 #define CONSOLE_CARD_HEIGHT 200
-#define CONSOLE_CARD_SPACING 120
+#define CONSOLE_CARD_SPACING 85  // Optimized spacing for better screen utilization
 #define CONSOLE_CARD_START_Y 150
 
 typedef struct {
@@ -147,6 +148,52 @@ typedef struct {
 
 static ConsoleCardCache card_cache = {0};
 #define CARD_CACHE_UPDATE_INTERVAL_US (10 * 1000000)  // 10 seconds in microseconds
+
+// Toggle switch animation state - smooth lerp-based transitions
+#define TOGGLE_ANIMATION_DURATION_MS 180  // 180ms for smooth feel
+typedef struct {
+  int animating_index;      // Which toggle is animating (-1 = none)
+  bool target_state;        // Target state (true = ON, false = OFF)
+  uint64_t start_time_us;   // Animation start time
+} ToggleAnimationState;
+
+static ToggleAnimationState toggle_anim = {-1, false, 0};
+
+// Text width cache for static strings (simple optimization, avoids over-engineering full texture cache)
+#define TEXT_WIDTH_CACHE_SIZE 16
+typedef struct {
+  const char* text;
+  int font_size;
+  int width;
+  bool valid;
+} TextWidthCacheEntry;
+
+static TextWidthCacheEntry text_width_cache[TEXT_WIDTH_CACHE_SIZE] = {0};
+
+/// Get text width with simple caching for static strings
+static int get_text_width_cached(const char* text, int font_size) {
+  // Try to find in cache
+  for (int i = 0; i < TEXT_WIDTH_CACHE_SIZE; i++) {
+    if (text_width_cache[i].valid &&
+        text_width_cache[i].text == text &&  // Pointer comparison for static strings
+        text_width_cache[i].font_size == font_size) {
+      return text_width_cache[i].width;
+    }
+  }
+
+  // Not in cache, calculate and store
+  int width = vita2d_font_text_width(font, font_size, text);
+
+  // Find empty slot or replace oldest (simple FIFO)
+  static int next_cache_slot = 0;
+  text_width_cache[next_cache_slot].text = text;
+  text_width_cache[next_cache_slot].font_size = font_size;
+  text_width_cache[next_cache_slot].width = width;
+  text_width_cache[next_cache_slot].valid = true;
+  next_cache_slot = (next_cache_slot + 1) % TEXT_WIDTH_CACHE_SIZE;
+
+  return width;
+}
 
 // Wave navigation sidebar uses simple colored bar (no animation)
 
@@ -281,33 +328,103 @@ static void draw_card_with_shadow(int x, int y, int width, int height, int radiu
 }
 
 // ============================================================================
+// ANIMATION HELPERS
+// ============================================================================
+
+/// Linear interpolation between two values
+static inline float lerp(float a, float b, float t) {
+  return a + (b - a) * t;
+}
+
+/// Ease-in-out cubic interpolation for smooth animation
+static inline float ease_in_out_cubic(float t) {
+  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+}
+
+/// Start toggle animation
+static void start_toggle_animation(int toggle_index, bool target_state) {
+  toggle_anim.animating_index = toggle_index;
+  toggle_anim.target_state = target_state;
+  toggle_anim.start_time_us = sceKernelGetProcessTimeWide();
+}
+
+/// Get current toggle animation value (0.0 = OFF, 1.0 = ON)
+static float get_toggle_animation_value(int toggle_index, bool current_state) {
+  // If not animating this toggle, return static value
+  if (toggle_anim.animating_index != toggle_index) {
+    return current_state ? 1.0f : 0.0f;
+  }
+
+  // Calculate animation progress
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - toggle_anim.start_time_us;
+  float progress = (float)elapsed_us / (TOGGLE_ANIMATION_DURATION_MS * 1000.0f);
+
+  // Clamp to 0.0-1.0
+  if (progress >= 1.0f) {
+    toggle_anim.animating_index = -1;  // Animation complete
+    return toggle_anim.target_state ? 1.0f : 0.0f;
+  }
+
+  // Apply easing for smooth motion
+  float eased = ease_in_out_cubic(progress);
+
+  // Interpolate from start to end
+  float start_val = toggle_anim.target_state ? 0.0f : 1.0f;
+  float end_val = toggle_anim.target_state ? 1.0f : 0.0f;
+
+  return lerp(start_val, end_val, eased);
+}
+
+// ============================================================================
 // PHASE 2: REUSABLE UI COMPONENTS
 // ============================================================================
 
-/// Draw a toggle switch (iOS-style)
+/// Draw a toggle switch with smooth animation support
 /// @param x X position
 /// @param y Y position
 /// @param width Total width of switch
 /// @param height Total height of switch
-/// @param state true = ON, false = OFF
+/// @param anim_value Animation value (0.0 = OFF, 1.0 = ON)
 /// @param selected true if this control is currently selected
-static void draw_toggle_switch(int x, int y, int width, int height, bool state, bool selected) {
-  uint32_t track_color = state ? RGBA8(0x00, 0x70, 0xCC, 200) : RGBA8(0x60, 0x60, 0x60, 200);
-  uint32_t knob_color = RGBA8(0xFF, 0xFF, 0xFF, 255);
+static void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
+  // Interpolate track color based on animation value
+  uint32_t color_off = RGBA8(0x60, 0x60, 0x68, 200);
+  uint32_t color_on = UI_COLOR_PRIMARY_BLUE;
 
-  // Selection highlight
+  // Blend between OFF and ON colors
+  uint8_t r = (uint8_t)lerp(0x60, 0x34, anim_value);
+  uint8_t g = (uint8_t)lerp(0x60, 0x90, anim_value);
+  uint8_t b = (uint8_t)lerp(0x68, 0xFF, anim_value);
+  uint8_t a = (uint8_t)lerp(200, 255, anim_value);
+  uint32_t track_color = RGBA8(r, g, b, a);
+
+  uint32_t knob_color = UI_COLOR_TEXT_PRIMARY;
+
+  // Enhanced selection highlight with glow
   if (selected) {
+    // Outer glow
+    draw_rounded_rectangle(x - 3, y - 3, width + 6, height + 6, height/2 + 2, RGBA8(0x34, 0x90, 0xFF, 60));
+    // Border
     draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, height/2 + 1, UI_COLOR_PRIMARY_BLUE);
   }
+
+  // Track shadow for depth
+  draw_rounded_rectangle(x + 1, y + 1, width, height, height/2, RGBA8(0x00, 0x00, 0x00, 40));
 
   // Track (background)
   draw_rounded_rectangle(x, y, width, height, height/2, track_color);
 
-  // Knob (circular button)
+  // Knob (circular button) - smoothly animated position
   int knob_radius = (height - 4) / 2;
-  int knob_x = state ? (x + width - knob_radius - 2) : (x + knob_radius + 2);
+  int knob_x_off = x + knob_radius + 2;
+  int knob_x_on = x + width - knob_radius - 2;
+  int knob_x = (int)lerp((float)knob_x_off, (float)knob_x_on, anim_value);
   int knob_y = y + height/2;
 
+  // Knob shadow
+  draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
+  // Knob
   draw_circle(knob_x, knob_y, knob_radius, knob_color);
 }
 
@@ -322,33 +439,42 @@ static void draw_toggle_switch(int x, int y, int width, int height, bool state, 
 /// @param selected true if this control is currently selected
 static void draw_dropdown(int x, int y, int width, int height, const char* label,
                           const char* value, bool expanded, bool selected) {
-  uint32_t bg_color = selected ? RGBA8(0x40, 0x40, 0x50, 255) : RGBA8(0x30, 0x30, 0x38, 255);
+  // Modern card colors with subtle variation for selection
+  uint32_t bg_color = selected ? RGBA8(0x40, 0x42, 0x50, 255) : UI_COLOR_CARD_BG;
+
+  // Enhanced selection with shadow and glow
+  if (selected && !expanded) {
+    // Shadow
+    draw_rounded_rectangle(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
+    // Outer glow
+    draw_rounded_rectangle(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
+    // Border
+    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
+  } else {
+    // Subtle shadow for depth
+    draw_rounded_rectangle(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
+  }
 
   // Background
   draw_rounded_rectangle(x, y, width, height, 8, bg_color);
 
-  // Selection highlight
-  if (selected && !expanded) {
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
-    draw_rounded_rectangle(x, y, width, height, 8, bg_color);
-  }
+  // Label text (left) - use defined constant
+  vita2d_font_draw_text(font, x + 15, y + height/2 + 6, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
 
-  // Label text (left)
-  vita2d_font_draw_text(font, x + 15, y + height/2 + 6, UI_COLOR_TEXT_PRIMARY, 16, label);
-
-  // Value text (right)
-  int value_width = vita2d_font_text_width(font, 16, value);
+  // Value text (right) - use defined constant
+  int value_width = vita2d_font_text_width(font, FONT_SIZE_BODY, value);
   vita2d_font_draw_text(font, x + width - value_width - 30, y + height/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, 16, value);
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, value);
 
-  // Down arrow indicator (simple triangle)
+  // Down arrow indicator - enhanced with PlayStation Blue when selected
   int arrow_x = x + width - 18;
   int arrow_y = y + height/2;
   int arrow_size = 6;
+  uint32_t arrow_color = selected ? UI_COLOR_PRIMARY_BLUE : UI_COLOR_TEXT_SECONDARY;
 
   // Draw downward pointing triangle
   for (int i = 0; i < arrow_size; i++) {
-    vita2d_draw_rectangle(arrow_x - i, arrow_y + i, 1 + i*2, 1, UI_COLOR_TEXT_SECONDARY);
+    vita2d_draw_rectangle(arrow_x - i, arrow_y + i, 1 + i*2, 1, arrow_color);
   }
 }
 
@@ -416,6 +542,65 @@ static void draw_status_dot(int x, int y, int radius, StatusType status) {
   draw_circle(x, y, radius, color);
 }
 
+/// Draw a styled section header (for single-section screens like Settings)
+/// @param x X position
+/// @param y Y position
+/// @param width Width of header
+/// @param title Title text
+static void draw_section_header(int x, int y, int width, const char* title) {
+  // Subtle gradient background bar
+  int header_h = 40;
+  draw_rounded_rectangle(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
+
+  // Bottom accent line (PlayStation Blue)
+  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
+
+  // Title text (centered vertically in header)
+  vita2d_font_draw_text(font, x + 15, y + (header_h / 2) + 8, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
+}
+
+/// Draw a rotating spinner animation (for loading/waiting states)
+/// @param cx Center X position
+/// @param cy Center Y position
+/// @param radius Spinner radius
+/// @param thickness Arc thickness
+/// @param rotation_deg Current rotation angle in degrees
+/// @param color Spinner color
+static void draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color) {
+  // Draw a circular arc that rotates continuously
+  // We'll draw 3/4 of a circle (270 degrees) that rotates around
+  int segments = 32;  // Smooth circle with 32 segments
+  float arc_length = 270.0f;  // 3/4 circle in degrees
+
+  for (int i = 0; i < segments * 3 / 4; i++) {  // 3/4 of total segments
+    float angle1 = rotation_deg + (i * arc_length / (segments * 3 / 4));
+    float angle2 = rotation_deg + ((i + 1) * arc_length / (segments * 3 / 4));
+
+    // Convert to radians
+    float rad1 = angle1 * 3.14159f / 180.0f;
+    float rad2 = angle2 * 3.14159f / 180.0f;
+
+    // Draw outer arc segment
+    int x1_outer = cx + (int)(cos(rad1) * radius);
+    int y1_outer = cy + (int)(sin(rad1) * radius);
+    int x2_outer = cx + (int)(cos(rad2) * radius);
+    int y2_outer = cy + (int)(sin(rad2) * radius);
+
+    // Draw inner arc segment (for thickness)
+    int x1_inner = cx + (int)(cos(rad1) * (radius - thickness));
+    int y1_inner = cy + (int)(sin(rad1) * (radius - thickness));
+    int x2_inner = cx + (int)(cos(rad2) * (radius - thickness));
+    int y2_inner = cy + (int)(sin(rad2) * (radius - thickness));
+
+    // Draw lines to create filled arc segment
+    vita2d_draw_line(x1_outer, y1_outer, x2_outer, y2_outer, color);
+    vita2d_draw_line(x1_inner, y1_inner, x2_inner, y2_inner, color);
+
+    // Fill between inner and outer arcs
+    vita2d_draw_line(x1_outer, y1_outer, x1_inner, y1_inner, color);
+  }
+}
+
 // Particle system functions
 
 /// Initialize particle system with random positions and velocities
@@ -448,16 +633,21 @@ void init_particles() {
 }
 
 /// Update particle positions and rotation
+/// Optimized: Updates at 30fps instead of 60fps (50% CPU reduction, imperceptible for background)
 void update_particles() {
   if (!particles_initialized) return;
+
+  // Update particles every other frame (30fps instead of 60fps)
+  particle_update_frame++;
+  if (particle_update_frame % 2 != 0) return;
 
   for (int i = 0; i < PARTICLE_COUNT; i++) {
     if (!particles[i].active) continue;
 
-    // Update position
-    particles[i].x += particles[i].vx;
-    particles[i].y += particles[i].vy;
-    particles[i].rotation += particles[i].rotation_speed;
+    // Update position (doubled velocity to compensate for 30fps updates)
+    particles[i].x += particles[i].vx * 2.0f;
+    particles[i].y += particles[i].vy * 2.0f;
+    particles[i].rotation += particles[i].rotation_speed * 2.0f;
 
     // Wrap around screen edges (respawn at top when falling off bottom)
     if (particles[i].y > VITA_HEIGHT + 50) {
@@ -514,23 +704,38 @@ void render_wave_navigation() {
 
   for (int i = 0; i < 4; i++) {
     int y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
 
-    // Selection highlight (PlayStation Blue circle) - only show if nav bar has focus
-    if (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR) {
+    // Enhanced selection highlight - only show if nav bar has focus
+    if (is_selected) {
+      // Background rounded rectangle for better visibility
+      int bg_size = 64;
+      int bg_x = WAVE_NAV_ICON_X - bg_size / 2;
+      int bg_y = y - bg_size / 2;
+      draw_rounded_rectangle(bg_x, bg_y, bg_size, bg_size, 12, RGBA8(0x34, 0x90, 0xFF, 60));  // Semi-transparent blue background
+
+      // Glow effect (outer ring)
+      draw_circle(WAVE_NAV_ICON_X, y, 30, RGBA8(0x34, 0x90, 0xFF, 80));  // Soft glow
+
+      // Primary highlight circle
       draw_circle(WAVE_NAV_ICON_X, y, 28, UI_COLOR_PRIMARY_BLUE);
     }
 
-    // Draw icon (centered at WAVE_NAV_ICON_X, y) - STATIC position
+    // Draw icon with scale increase when selected
+    float icon_scale_multiplier = is_selected ? 1.08f : 1.0f;  // 8% larger when selected
+    int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
+
+    // First icon (Play): Use primitive triangle until correct asset is provided
+    // icon_play.png is currently a duplicate of icon_profile.png
     if (i == 0) {
-      // First icon: Draw white triangle play icon instead of texture
-      draw_play_icon(WAVE_NAV_ICON_X, y, WAVE_NAV_ICON_SIZE);
+      draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size);
     } else {
-      // Other icons: Draw from textures
+      // Other icons use textures
       if (!nav_icons[i]) continue;
 
       int icon_w = vita2d_texture_get_width(nav_icons[i]);
       int icon_h = vita2d_texture_get_height(nav_icons[i]);
-      float scale = (float)WAVE_NAV_ICON_SIZE / (float)(icon_w > icon_h ? icon_w : icon_h);
+      float scale = ((float)current_icon_size / (float)(icon_w > icon_h ? icon_w : icon_h));
 
       vita2d_draw_texture_scale(nav_icons[i],
         WAVE_NAV_ICON_X - (icon_w * scale / 2.0f),
@@ -601,14 +806,24 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     draw_rounded_rectangle(x - 3, y - 3, CONSOLE_CARD_WIDTH + 6, CONSOLE_CARD_HEIGHT + 6, 12, border_color);
   }
 
-  // Selection highlight (PlayStation Blue border, only for paired consoles)
+  // Enhanced selection highlight (PlayStation Blue border with glow, only for paired consoles)
   if (selected && !is_unpaired) {
+    // Outer glow effect (subtle)
+    draw_rounded_rectangle(x - 6, y - 6, CONSOLE_CARD_WIDTH + 12, CONSOLE_CARD_HEIGHT + 12, 14, RGBA8(0x34, 0x90, 0xFF, 40));  // Soft outer glow
+
+    // Primary selection border
     draw_rounded_rectangle(x - 4, y - 4, CONSOLE_CARD_WIDTH + 8, CONSOLE_CARD_HEIGHT + 8, 12, UI_COLOR_PRIMARY_BLUE);
   }
 
-  // Card background (greyed out for unpaired consoles)
-  uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) : UI_COLOR_CARD_BG;
-  draw_card_with_shadow(x, y, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, card_bg);
+  // Card background (greyed out for unpaired consoles, slightly lighter neutral grey when selected)
+  uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) :
+                     (selected ? RGBA8(0x38, 0x3D, 0x42, 255) : UI_COLOR_CARD_BG);  // Neutral dark grey when selected
+
+  // Enhanced shadow for selected cards
+  int shadow_offset = selected ? 6 : 4;
+  uint32_t shadow_color = selected ? RGBA8(0x00, 0x00, 0x00, 80) : UI_COLOR_SHADOW;
+  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, shadow_color);
+  draw_rounded_rectangle(x, y, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, card_bg);
 
   // PS5 logo (centered, properly scaled for card)
   bool is_ps5 = console->host && chiaki_target_is_ps5(console->host->target);
@@ -645,15 +860,17 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     }
   }
 
-  // Console name bar (1/3 from bottom)
+  // Console name bar (1/3 from bottom) - increased height and padding for better spacing
   int name_bar_y = y + CONSOLE_CARD_HEIGHT - (CONSOLE_CARD_HEIGHT / 3) - 20;
-  draw_rounded_rectangle(x + 15, name_bar_y, CONSOLE_CARD_WIDTH - 30, 40, 8,
+  int name_bar_height = 45;  // Increased from 40 for better text breathing room
+  draw_rounded_rectangle(x + 15, name_bar_y, CONSOLE_CARD_WIDTH - 30, name_bar_height, 8,
     RGBA8(70, 75, 80, 255));
 
-  // Console name text (centered in bar)
+  // Console name text (centered in bar with better vertical spacing)
   int text_width = vita2d_font_text_width(font, 20, console->name);
   int text_x = x + (CONSOLE_CARD_WIDTH / 2) - (text_width / 2);
-  vita2d_font_draw_text(font, text_x, name_bar_y + 27, UI_COLOR_TEXT_PRIMARY, 20, console->name);
+  int text_y = name_bar_y + (name_bar_height / 2) + 7;  // Vertically centered
+  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 20, console->name);
 
   // Status indicator (top-right)
   vita2d_texture* status_tex = NULL;
@@ -683,7 +900,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
   if (state_text) {
     int state_text_width = vita2d_font_text_width(font, 18, state_text);
     int state_x = x + (CONSOLE_CARD_WIDTH / 2) - (state_text_width / 2);
-    vita2d_font_draw_text(font, state_x, name_bar_y + 55, state_color, 18, state_text);
+    vita2d_font_draw_text(font, state_x, name_bar_y + 60, state_color, 18, state_text);  // Adjusted for taller bar
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -696,7 +913,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
                                 : UI_COLOR_TEXT_SECONDARY;
       int hint_width = vita2d_font_text_width(font, 16, console->host->status_hint);
       int hint_x = x + (CONSOLE_CARD_WIDTH / 2) - (hint_width / 2);
-      vita2d_font_draw_text(font, hint_x, name_bar_y + 80,
+      vita2d_font_draw_text(font, hint_x, name_bar_y + 85,  // Better spacing below state text
                             hint_color, 16, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
@@ -768,8 +985,8 @@ void render_console_grid() {
     }
   }
 }
-
 /// Draw a simple white filled triangle play icon (pointing right)
+/// Note: icon_play.png is currently a duplicate of icon_profile.png, so we use primitive drawing
 void draw_play_icon(int center_x, int center_y, int size) {
   uint32_t white = RGBA8(255, 255, 255, 255);
   int half_size = size / 2;
@@ -1423,28 +1640,32 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
 
   // Force 30 FPS toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.force_30fps, settings_state.selected_item == 3);
+                     get_toggle_animation_value(3, context.config.force_30fps),
+                     settings_state.selected_item == 3);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Force 30 FPS Output");
   y += item_h + item_spacing;
 
   // Auto Discovery toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.auto_discovery, settings_state.selected_item == 4);
+                     get_toggle_animation_value(4, context.config.auto_discovery),
+                     settings_state.selected_item == 4);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Auto Discovery");
   y += item_h + item_spacing;
 
   // Show Latency toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.show_latency, settings_state.selected_item == 5);
+                     get_toggle_animation_value(5, context.config.show_latency),
+                     settings_state.selected_item == 5);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Latency");
   y += item_h + item_spacing;
 
   // Video stretch toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.stretch_video, settings_state.selected_item == 6);
+                     get_toggle_animation_value(6, context.config.stretch_video),
+                     settings_state.selected_item == 6);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
 }
@@ -1464,16 +1685,18 @@ static void draw_settings_controller_tab(int content_x, int content_y, int conte
 
   // Button layout toggle (Circle vs Cross confirm)
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     context.config.circle_btn_confirm, settings_state.selected_item == 1);
+                     get_toggle_animation_value(101, context.config.circle_btn_confirm),
+                     settings_state.selected_item == 1);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, 16, "Circle Button Confirm");
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Circle Button Confirm");
   y += item_h + item_spacing;
 
   // TODO(PHASE2-STUB): Motion Controls - Not implemented
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     false, settings_state.selected_item == 2);
+                     get_toggle_animation_value(102, false),
+                     settings_state.selected_item == 2);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_SECONDARY, 16, "Motion Controls (Stub)");
+                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, "Motion Controls (Stub)");
 }
 
 /// Main Settings screen rendering function
@@ -1489,8 +1712,8 @@ bool draw_settings() {
   int content_y = 100;
   int content_w = VITA_WIDTH - WAVE_NAV_WIDTH - 80;
 
-  // Settings title (streaming settings only now)
-  vita2d_font_draw_text(font, content_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, "Streaming Settings");
+  // Styled section header (replaces plain text title)
+  draw_section_header(content_x, 30, content_w, "Streaming Settings");
 
   // Content area (no tabs needed - only one section)
   int tab_content_y = 90;
@@ -1550,18 +1773,22 @@ bool draw_settings() {
           config_serialize(&context.config);
         } else if (settings_state.selected_item == 3) {
           context.config.force_30fps = !context.config.force_30fps;
+          start_toggle_animation(3, context.config.force_30fps);
           config_serialize(&context.config);
           apply_force_30fps_runtime();
         } else if (settings_state.selected_item == 4) {
           // Auto discovery toggle
           context.config.auto_discovery = !context.config.auto_discovery;
+          start_toggle_animation(4, context.config.auto_discovery);
           config_serialize(&context.config);
     } else if (settings_state.selected_item == 5) {
       // Show latency toggle
       context.config.show_latency = !context.config.show_latency;
+      start_toggle_animation(5, context.config.show_latency);
       config_serialize(&context.config);
         } else if (settings_state.selected_item == 6) {
           context.config.stretch_video = !context.config.stretch_video;
+          start_toggle_animation(6, context.config.stretch_video);
           config_serialize(&context.config);
     }
   }
@@ -1907,10 +2134,10 @@ typedef struct {
 
 static ControllerState controller_state = {0};
 
-// Tab colors (Purple for both tabs - controller theme)
+// Tab colors (PlayStation Blue theme for consistency)
 static uint32_t controller_tab_colors[CONTROLLER_TAB_COUNT] = {
-  RGBA8(0x7C, 0x3A, 0xED, 255), // Purple - Mappings
-  RGBA8(0x9C, 0x27, 0xB0, 255), // Accent Purple - Settings
+  RGBA8(0x34, 0x90, 0xFF, 255), // PlayStation Blue - Mappings
+  RGBA8(0x00, 0x9E, 0xD8, 255), // Lighter Blue - Settings
 };
 
 static const char* controller_tab_names[CONTROLLER_TAB_COUNT] = {
@@ -2081,12 +2308,23 @@ static void draw_controller_mappings_tab(int content_x, int content_y, int conte
   int mapping_count = 0;
   get_button_mappings(context.config.controller_map_id, mappings, &mapping_count);
 
-  // Draw first 8 mappings
-  int row_spacing = 24;
+  // Draw first 8 mappings with zebra striping for better readability
+  int row_h = 28;  // Increased from 24 for better spacing
   for (int i = 0; i < mapping_count && i < 8; i++) {
-    vita2d_font_draw_text(font, col1_x, row_y + (i * row_spacing),
+    int current_row_y = row_y + (i * row_h);
+
+    // Zebra striping (alternating row backgrounds)
+    uint32_t row_bg = (i % 2 == 0) ?
+        RGBA8(0x30, 0x30, 0x38, 255) :  // Darker rows (even)
+        RGBA8(0x38, 0x38, 0x40, 255);   // Lighter rows (odd)
+
+    // Draw row background
+    vita2d_draw_rectangle(table_x + 5, current_row_y - 16, panel_w - 10, row_h, row_bg);
+
+    // Draw button names with padding
+    vita2d_font_draw_text(font, col1_x, current_row_y,
                           UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, mappings[i].vita_button);
-    vita2d_font_draw_text(font, col2_x, row_y + (i * row_spacing),
+    vita2d_font_draw_text(font, col2_x, current_row_y,
                           UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, mappings[i].ps5_button);
   }
 
@@ -2242,6 +2480,7 @@ bool draw_controller_config_screen() {
       if (controller_state.selected_item == 0) {
         // Circle button confirm toggle
         context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
+        start_toggle_animation(101, context.config.circle_btn_confirm);
         config_serialize(&context.config);
       }
       // Item 1 (Motion Controls) is not yet implemented - do nothing
@@ -2307,7 +2546,16 @@ uint32_t pin_to_number() {
 
 /// Helper: Render single PIN digit box
 void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Digit box background
+  // Enhanced visual feedback for current digit
+  if (is_current) {
+    // Outer glow effect for better visibility
+    draw_rounded_rectangle(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6, RGBA8(0x34, 0x90, 0xFF, 60));
+  }
+
+  // Digit box background with shadow
+  int shadow_offset = is_current ? 3 : 2;
+  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, RGBA8(0x00, 0x00, 0x00, 60));  // Shadow
+
   uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
   draw_rounded_rectangle(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
 
@@ -2319,11 +2567,12 @@ void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_va
     int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
     vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 40, digit_text);
   } else if (is_current && show_cursor) {
-    // Blinking cursor
-    int cursor_x = x + PIN_DIGIT_WIDTH / 2;
+    // Enhanced blinking cursor (wider and more visible)
+    int cursor_w = 3;  // Thicker cursor
+    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
     int cursor_y1 = y + 15;
-    int cursor_y2 = y + PIN_DIGIT_HEIGHT - 15;
-    vita2d_draw_line(cursor_x, cursor_y1, cursor_x, cursor_y2, UI_COLOR_TEXT_PRIMARY);
+    int cursor_h = PIN_DIGIT_HEIGHT - 30;
+    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
   }
 }
 
@@ -2451,9 +2700,6 @@ bool draw_stream() {
 
 /// Waking screen state
 static uint32_t waking_start_time = 0;
-static int waking_animation_frame = 0;
-static UIScreenType waking_next_screen = UI_SCREEN_TYPE_MAIN;
-static const uint32_t WAKING_TIMEOUT_MS = 30000;  // 30 seconds timeout
 static uint32_t waking_wait_for_stream_us = 0;
 static uint32_t reconnect_start_time = 0;
 static int reconnect_animation_frame = 0;
@@ -2462,25 +2708,17 @@ void ui_clear_waking_wait(void) {
   waking_wait_for_stream_us = 0;
 }
 
-/// Draw the "Waking up console..." screen with animation
+/// Draw the "Waking up console..." screen with spinner animation
+/// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
 UIScreenType draw_waking_screen() {
   // Initialize timer on first call
   if (waking_start_time == 0) {
     waking_start_time = sceKernelGetProcessTimeLow() / 1000;  // Convert to milliseconds
-    waking_animation_frame = 0;
-    waking_next_screen = UI_SCREEN_TYPE_WAKING;
   }
 
-  // Check timeout
+  // Get current time for animations
   uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
-  uint32_t elapsed = current_time - waking_start_time;
-
-  if (elapsed > WAKING_TIMEOUT_MS) {
-    // Timeout - reset and go back to main
-    waking_start_time = 0;
-    return UI_SCREEN_TYPE_MAIN;
-  }
 
   // Check if console woke up (became ready for streaming)
   if (context.active_host) {
@@ -2489,140 +2727,169 @@ UIScreenType draw_waking_screen() {
                    context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
     if (ready) {
-      // Console woke up! Reset state and start streaming if allowed
+      // Console woke up! Reset state and auto-transition to streaming
       if (!context.stream.session_init) {
+        LOGD("Console awake, auto-starting stream");
         waking_start_time = 0;
+        waking_wait_for_stream_us = 0;
         host_stream(context.active_host);
         return UI_SCREEN_TYPE_STREAM;
       } else if (waking_wait_for_stream_us == 0) {
+        // Waiting for previous session to end
         waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
       }
     }
   }
 
-  // Draw waking screen
-  vita2d_set_clear_color(RGBA8(0x1A, 0x1A, 0x2E, 0xFF));
+  // Draw modern waking screen with polished UI
+  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
 
-  // Card dimensions
+  // Card dimensions (slightly taller for spinner)
   int card_w = 600;
-  int card_h = 300;
+  int card_h = 350;
   int card_x = (VITA_WIDTH - card_w) / 2;
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
-  // Draw card background
-  vita2d_draw_rectangle(card_x, card_y, card_w, card_h, RGBA8(0x2A, 0x2A, 0x3E, 0xFF));
+  // Draw card with enhanced shadow (consistent with Phase 1 & 2 polish)
+  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
 
-  // Draw card border
-  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);  // Top
-  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);  // Bottom
+  // Draw PlayStation Blue accent borders (top and bottom)
+  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
+  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
-  // Draw title
-  const char* title = "Waking Up Console";
-  vita2d_font_draw_text(font, card_x + 30, card_y + 60, UI_COLOR_TEXT_PRIMARY, 28, title);
+  // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
+  const char* title = "Waking Console";
+  int title_size = 28;
+  int title_w = get_text_width_cached(title, title_size);
+  int title_x = card_x + (card_w - title_w) / 2;  // Center title
+  vita2d_font_draw_text(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
-  // Draw console name if available
+  // Console name/IP info
   if (context.active_host && context.active_host->hostname) {
-    char console_text[128];
-    snprintf(console_text, sizeof(console_text), "Console: %s", context.active_host->hostname);
-    vita2d_font_draw_text(font, card_x + 30, card_y + 100, UI_COLOR_TEXT_SECONDARY, 20, console_text);
+    char console_info[128];
+    const char* console_name = context.active_host->hostname;
+
+    // Try to get more specific name if available
+    if (context.active_host->discovery_state && context.active_host->discovery_state->host_name) {
+      console_name = context.active_host->discovery_state->host_name;
+    }
+
+    snprintf(console_info, sizeof(console_info), "%s", console_name);
+    int info_w = vita2d_font_text_width(font, FONT_SIZE_BODY, console_info);
+    int info_x = card_x + (card_w - info_w) / 2;  // Center info
+    vita2d_font_draw_text(font, info_x, card_y + 95, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, console_info);
   }
 
-  // Animate dots (simple animation: 0, 1, 2, 3 dots cycling)
-  waking_animation_frame = (current_time / 500) % 4;  // Change every 500ms
-  char dots[5] = "";
-  for (int i = 0; i < waking_animation_frame; i++) {
-    dots[i] = '.';
-  }
-  dots[waking_animation_frame] = '\0';
+  // Spinner animation (smooth rotation at 2 rotations per second)
+  int spinner_cx = card_x + card_w / 2;
+  int spinner_cy = card_y + card_h / 2 + 10;
+  int spinner_radius = 32;
+  int spinner_thickness = 5;
+  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
+  draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation, UI_COLOR_PRIMARY_BLUE);
 
-  char status_text[64];
-  if (waking_wait_for_stream_us && context.stream.session_init) {
-    snprintf(status_text, sizeof(status_text), "Waiting for previous session%s", dots);
-  } else {
-    snprintf(status_text, sizeof(status_text), "Please wait%s", dots);
-  }
-  vita2d_font_draw_text(font, card_x + 30, card_y + 150, UI_COLOR_TEXT_PRIMARY, 22, status_text);
+  // Status message below spinner
+  const char* status_msg = (waking_wait_for_stream_us && context.stream.session_init) ?
+                           "Waiting for previous session to end..." :
+                           "Please wait...";
+  int msg_w = vita2d_font_text_width(font, FONT_SIZE_BODY, status_msg);
+  int msg_x = card_x + (card_w - msg_w) / 2;
+  vita2d_font_draw_text(font, msg_x, card_y + card_h - 80, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, status_msg);
 
-  // Draw timeout progress bar
-  int progress_w = card_w - 60;
-  int progress_h = 6;
-  int progress_x = card_x + 30;
-  int progress_y = card_y + card_h - 60;
+  // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
+  const char* cancel_hint = "Press Circle to cancel";
+  int hint_w = get_text_width_cached(cancel_hint, FONT_SIZE_SMALL);
+  int hint_x = card_x + (card_w - hint_w) / 2;
+  vita2d_font_draw_text(font, hint_x, card_y + card_h - 40, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, cancel_hint);
 
-  // Background
-  vita2d_draw_rectangle(progress_x, progress_y, progress_w, progress_h, RGBA8(0x40, 0x40, 0x50, 0xFF));
-
-  // Progress
-  float progress_ratio = (float)elapsed / (float)WAKING_TIMEOUT_MS;
-  int filled_w = (int)(progress_w * progress_ratio);
-  vita2d_draw_rectangle(progress_x, progress_y, filled_w, progress_h, UI_COLOR_PRIMARY_BLUE);
-
-  // Timeout text
-  int remaining_sec = (WAKING_TIMEOUT_MS - elapsed) / 1000;
-  char timeout_text[32];
-  snprintf(timeout_text, sizeof(timeout_text), "Timeout in %d seconds", remaining_sec);
-  vita2d_font_draw_text(font, card_x + 30, card_y + card_h - 30, UI_COLOR_TEXT_SECONDARY, 18, timeout_text);
-
-  // Circle to cancel
+  // Handle Circle button to cancel
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
+    LOGD("Waking cancelled by user");
     waking_start_time = 0;
     waking_wait_for_stream_us = 0;
     return UI_SCREEN_TYPE_MAIN;
   }
 
-  return UI_SCREEN_TYPE_WAKING;  // Keep showing waking screen
+  return UI_SCREEN_TYPE_WAKING;  // Continue showing waking screen
 }
 
+/// Draw reconnecting screen with modern polished UI
+/// Shows during packet loss recovery with spinner animation
+/// @return the next screen type
 UIScreenType draw_reconnecting_screen() {
+  // Check if we should still be showing this screen
   if (!context.stream.reconnect_overlay_active) {
     reconnect_start_time = 0;
     return UI_SCREEN_TYPE_MAIN;
   }
 
+  // Initialize timer on first call
   if (reconnect_start_time == 0) {
     reconnect_start_time = sceKernelGetProcessTimeLow() / 1000;
-    reconnect_animation_frame = 0;
   }
 
+  // Get current time for animations
   uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
-  reconnect_animation_frame = (current_time / 500) % 4;
 
-  vita2d_set_clear_color(RGBA8(0x10, 0x14, 0x1F, 0xFF));
+  // Draw modern reconnecting screen (consistent with Waking screen)
+  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
 
+  // Card dimensions (taller to accommodate all info + spinner)
   int card_w = 640;
-  int card_h = 280;
+  int card_h = 380;
   int card_x = (VITA_WIDTH - card_w) / 2;
   int card_y = (VITA_HEIGHT - card_h) / 2;
-  vita2d_draw_rectangle(card_x, card_y, card_w, card_h, RGBA8(0x27, 0x29, 0x40, 0xFF));
+
+  // Draw card with enhanced shadow (Phase 1 & 2 style)
+  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
+
+  // PlayStation Blue accent borders
   vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
   vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
+  // Title (centered)
   const char* title = "Optimizing Stream";
-  vita2d_font_draw_text(font, card_x + 30, card_y + 60, UI_COLOR_TEXT_PRIMARY, 28, title);
+  int title_size = 28;
+  int title_w = vita2d_font_text_width(font, title_size, title);
+  int title_x = card_x + (card_w - title_w) / 2;
+  vita2d_font_draw_text(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
+  // Subtitle explaining what's happening (centered)
+  const char* subtitle = "Recovering from packet loss";
+  int subtitle_w = get_text_width_cached(subtitle, FONT_SIZE_BODY);
+  int subtitle_x = card_x + (card_w - subtitle_w) / 2;
+  vita2d_font_draw_text(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
+
+  // Retry bitrate info (centered)
   float retry_mbps = context.stream.loss_retry_bitrate_kbps > 0
                          ? (float)context.stream.loss_retry_bitrate_kbps / 1000.0f
                          : 0.8f;
   char detail[64];
   snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);
-  vita2d_font_draw_text(font, card_x + 30, card_y + 110, UI_COLOR_TEXT_SECONDARY, 20, detail);
+  int detail_w = vita2d_font_text_width(font, FONT_SIZE_BODY, detail);
+  int detail_x = card_x + (card_w - detail_w) / 2;
+  vita2d_font_draw_text(font, detail_x, card_y + 115, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, detail);
 
+  // Spinner animation (matching Waking screen style)
+  int spinner_cx = card_x + card_w / 2;
+  int spinner_cy = card_y + card_h / 2 + 20;
+  int spinner_radius = 32;
+  int spinner_thickness = 5;
+  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
+  draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation, UI_COLOR_PRIMARY_BLUE);
+
+  // Attempt count below spinner (centered)
   char attempt_text[64];
-  snprintf(attempt_text, sizeof(attempt_text), "Attempt %u of 1",
-           context.stream.loss_retry_attempts);
-  vita2d_font_draw_text(font, card_x + 30, card_y + 150, UI_COLOR_TEXT_SECONDARY, 18, attempt_text);
+  snprintf(attempt_text, sizeof(attempt_text), "Attempt %u", context.stream.loss_retry_attempts);
+  int attempt_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, attempt_text);
+  int attempt_x = card_x + (card_w - attempt_w) / 2;
+  vita2d_font_draw_text(font, attempt_x, card_y + card_h - 60, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, attempt_text);
 
-  char dots[5] = "";
-  int dot_count = reconnect_animation_frame;
-  if (dot_count > 3)
-    dot_count = 3;
-  for (int i = 0; i < dot_count; i++) {
-    dots[i] = '.';
-  }
-  dots[dot_count] = '\0';
-  char status_text[64];
-  snprintf(status_text, sizeof(status_text), "Reconnecting%s", dots);
-  vita2d_font_draw_text(font, card_x + 30, card_y + 190, UI_COLOR_TEXT_PRIMARY, 22, status_text);
+  // Status message at bottom (centered)
+  const char* status_msg = "Please wait...";
+  int status_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, status_msg);
+  int status_x = card_x + (card_w - status_w) / 2;
+  vita2d_font_draw_text(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, status_msg);
 
   return UI_SCREEN_TYPE_RECONNECTING;
 }
