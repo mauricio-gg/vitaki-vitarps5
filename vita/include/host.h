@@ -37,6 +37,7 @@ void host_free(VitaChiakiHost* host);
 int host_register(VitaChiakiHost* host, int pin);
 int host_wakeup(VitaChiakiHost* host);
 int host_stream(VitaChiakiHost* host);
+void host_cancel_stream_request(void);
 bool mac_addrs_match(MacAddr* a, MacAddr* b);
 void save_manual_host(VitaChiakiHost* rhost, char* new_hostname);
 void delete_manual_host(VitaChiakiHost* mhost);

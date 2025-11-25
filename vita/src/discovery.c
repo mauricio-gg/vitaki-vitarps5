@@ -12,6 +12,7 @@
 #include "discovery.h"
 #include "context.h"
 #include "host.h"
+#include "ui.h"
 #include "util.h"
 
 /// Allow some grace time before removing a flapping host
@@ -218,7 +219,11 @@ static void remove_lost_discovered_hosts(void) {
       bool active_streaming = (context.active_host == h) &&
                               (context.stream.session_init ||
                                context.stream.is_streaming);
+      bool connection_overlay_guard = ui_connection_overlay_active() &&
+                                      context.active_host == h;
       if (active_streaming)
+        continue;
+      if (connection_overlay_guard)
         continue;
 
       uint64_t last_seen = h->last_discovery_seen_us;

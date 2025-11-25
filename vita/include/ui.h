@@ -32,3 +32,17 @@ typedef enum ui_main_widget_id_t {
 
 void draw_ui();
 void ui_clear_waking_wait(void);
+
+typedef enum {
+  UI_CONNECTION_STAGE_NONE = 0,
+  UI_CONNECTION_STAGE_WAKING,
+  UI_CONNECTION_STAGE_CONNECTING,
+  UI_CONNECTION_STAGE_STARTING_STREAM,
+} UIConnectionStage;
+
+void ui_connection_begin(UIConnectionStage stage);
+void ui_connection_set_stage(UIConnectionStage stage);
+void ui_connection_complete(void);
+void ui_connection_cancel(void);
+bool ui_connection_overlay_active(void);
+UIConnectionStage ui_connection_stage(void);

@@ -134,6 +134,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
+      ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
       if (context.stream.fast_restart_active) {
         context.stream.fast_restart_active = false;
         context.stream.reconnect_overlay_active = false;
@@ -148,6 +149,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_QUIT: {
       LOGE("EventCB CHIAKI_EVENT_QUIT (%s)",
            event->quit.reason_str ? event->quit.reason_str : "unknown");
+      ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
       bool fallback_active = context.stream.loss_retry_active || retry_pending;
@@ -371,6 +373,10 @@ static void request_stream_stop(const char *reason) {
   chiaki_session_stop(&context.stream.session);
 }
 
+void host_cancel_stream_request(void) {
+  request_stream_stop("user cancel");
+}
+
 static bool request_stream_restart(uint32_t bitrate_kbps) {
   if (!context.stream.session_init) {
     LOGE("Cannot restart stream — session not initialized");
@@ -562,6 +568,8 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
     handle_loss_event(frames_lost, frame_recovered);
   }
   context.stream.is_streaming = true;
+  if (ui_connection_overlay_active())
+    ui_connection_complete();
   if (context.stream.reconnect_overlay_active)
     context.stream.reconnect_overlay_active = false;
   int err = vita_h264_decode_frame(buf, buf_size);
@@ -937,6 +945,7 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.fps_window_frame_count = 0;
   context.stream.pacing_accumulator = 0;
 
+  ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
   ChiakiConnectInfo chiaki_connect_info = {};
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
@@ -1019,6 +1028,7 @@ cleanup:
     context.stream.is_streaming = false;
     context.stream.inputs_ready = false;
     resume_discovery_if_needed();
+    ui_connection_cancel();
   } else if (resume_inputs) {
     context.stream.inputs_ready = true;
     context.stream.inputs_resume_pending = false;
