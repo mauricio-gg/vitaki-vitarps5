@@ -39,6 +39,9 @@ static void shutdown_media_pipeline(void);
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
+// Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
+// Wi-Fi path risks oscillating into unsustainable bitrates.
+#define FAST_RESTART_BITRATE_CAP_KBPS 1500
 
 void host_free(VitaChiakiHost *host) {
   if (host) {
@@ -381,6 +384,13 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   ChiakiConnectVideoProfile profile = context.stream.session.connect_info.video_profile;
   if (bitrate_kbps > 0) {
     profile.bitrate = bitrate_kbps;
+  }
+
+  if (context.config.clamp_soft_restart_bitrate &&
+      profile.bitrate > FAST_RESTART_BITRATE_CAP_KBPS) {
+    LOGD("Soft restart bitrate %u kbps exceeds cap %u kbps — clamping",
+         profile.bitrate, FAST_RESTART_BITRATE_CAP_KBPS);
+    profile.bitrate = FAST_RESTART_BITRATE_CAP_KBPS;
   }
 
   ChiakiErrorCode err =

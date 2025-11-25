@@ -1662,10 +1662,19 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Latency");
   y += item_h + item_spacing;
 
+  // Clamp soft restart bitrate toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     get_toggle_animation_value(7, context.config.clamp_soft_restart_bitrate),
+                     settings_state.selected_item == 6);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
+                        "Clamp Soft Restart Bitrate");
+  y += item_h + item_spacing;
+
   // Video stretch toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
                      get_toggle_animation_value(6, context.config.stretch_video),
-                     settings_state.selected_item == 6);
+                     settings_state.selected_item == 7);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
 }
@@ -1732,7 +1741,7 @@ bool draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 7; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Fill Screen
+  int max_items = 8; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Clamp, Fill Screen
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -1787,6 +1796,10 @@ bool draw_settings() {
       start_toggle_animation(5, context.config.show_latency);
       config_serialize(&context.config);
         } else if (settings_state.selected_item == 6) {
+          context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
+          start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
+          config_serialize(&context.config);
+        } else if (settings_state.selected_item == 7) {
           context.config.stretch_video = !context.config.stretch_video;
           start_toggle_animation(6, context.config.stretch_video);
           config_serialize(&context.config);
