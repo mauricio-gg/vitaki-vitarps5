@@ -204,6 +204,7 @@ Some configuration lacks a UI but can be set in the config file located at `ux0:
 - `force_30fps = false` disables the new 30 fps presentation clamp. Set to `true` (or toggle “Force 30 FPS Output” under Streaming Settings) to make the Vita drop frames locally whenever the PS5 insists on a 60 fps stream. This keeps GPU workload and perceived latency closer to native 30 fps behavior at the cost of visual smoothness.
 - `send_actual_start_bitrate = true` sends the requested bitrate (from the latency preset) in the `RP-StartBitrate` header. Flip to `false` to fall back to zeroed headers while A/B testing packet-loss behavior.
   - **PS5 Quirk:** Current PS5 firmware ignores the `RP-StartBitrate` hint and immediately forces ~1.5 Mbps streams even when lower presets or LaunchSpec values are requested. Keep this flag enabled for telemetry and future firmware checks, but expect the console to override the requested rate.
+- `clamp_soft_restart_bitrate = true` forces all Chiaki soft restarts to request ≤1.5 Mbps. Leave this enabled (or toggle “Clamp Soft Restart Bitrate” under Streaming Settings) to keep packet-loss fallbacks from spiking the Vita’s Wi-Fi when PS5 renegotiates.
 
 ## Known issues & troubleshooting
 - Latency. On remote connections (not local WLAN), it's especially bad. ([Relevant GitHub issue](https://github.com/ywnico/vitaki-fork/issues/12))

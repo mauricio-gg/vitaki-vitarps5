@@ -47,6 +47,7 @@ typedef struct vita_chiaki_config_t {
   bool stretch_video;
   bool force_30fps;   // Drop frames locally to hold 30 fps presentation
   bool send_actual_start_bitrate; // Guard for RP-StartBitrate payload
+  bool clamp_soft_restart_bitrate; // Keep soft restart bitrate <= ~1.5 Mbps
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
 } VitaChiakiConfig;

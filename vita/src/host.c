@@ -386,7 +386,8 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
     profile.bitrate = bitrate_kbps;
   }
 
-  if (profile.bitrate > FAST_RESTART_BITRATE_CAP_KBPS) {
+  if (context.config.clamp_soft_restart_bitrate &&
+      profile.bitrate > FAST_RESTART_BITRATE_CAP_KBPS) {
     LOGD("Soft restart bitrate %u kbps exceeds cap %u kbps — clamping",
          profile.bitrate, FAST_RESTART_BITRATE_CAP_KBPS);
     profile.bitrate = FAST_RESTART_BITRATE_CAP_KBPS;
