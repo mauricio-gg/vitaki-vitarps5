@@ -829,6 +829,8 @@ static UIScreenType nav_screen_for_index(int index) {
   }
 }
 
+static bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
+
 static bool nav_touch_hit(float touch_x, float touch_y, UIScreenType *out_screen) {
   for (int i = 0; i < 4; i++) {
     int icon_x = WAVE_NAV_ICON_X;
