@@ -819,6 +819,67 @@ void render_wave_navigation() {
   }
 }
 
+static UIScreenType nav_screen_for_index(int index) {
+  switch (index) {
+    case 0: return UI_SCREEN_TYPE_MAIN;
+    case 1: return UI_SCREEN_TYPE_SETTINGS;
+    case 2: return UI_SCREEN_TYPE_CONTROLLER;
+    case 3: return UI_SCREEN_TYPE_PROFILE;
+    default: return UI_SCREEN_TYPE_MAIN;
+  }
+}
+
+static bool nav_touch_hit(float touch_x, float touch_y, UIScreenType *out_screen) {
+  for (int i = 0; i < 4; i++) {
+    int icon_x = WAVE_NAV_ICON_X;
+    int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
+      selected_nav_icon = i;
+      current_focus = FOCUS_NAV_BAR;
+      if (out_screen)
+        *out_screen = nav_screen_for_index(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
+  SceTouchData nav_touch = {};
+  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
+  if (nav_touch.reportNum > 0) {
+    float tx = (nav_touch.report[0].x / 1920.0f) * 960.0f;
+    float ty = (nav_touch.report[0].y / 1088.0f) * 544.0f;
+    if (nav_touch_hit(tx, ty, out_screen))
+      return true;
+  }
+
+  if (!allow_dpad)
+    return false;
+
+  if (btn_pressed(SCE_CTRL_LEFT)) {
+    current_focus = FOCUS_NAV_BAR;
+  } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
+    current_focus = FOCUS_CONSOLE_CARDS;
+  }
+
+  if (current_focus == FOCUS_NAV_BAR) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      selected_nav_icon = (selected_nav_icon + 1) % 4;
+    }
+
+    if (btn_pressed(SCE_CTRL_CROSS)) {
+      if (out_screen)
+        *out_screen = nav_screen_for_index(selected_nav_icon);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /// Map VitaChiakiHost to ConsoleCardInfo
 void map_host_to_console_card(VitaChiakiHost* host, ConsoleCardInfo* card) {
   if (!host || !card) return;
@@ -1150,22 +1211,9 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
     float touch_x = (touch.report[0].x / 1920.0f) * 960.0f;
     float touch_y = (touch.report[0].y / 1088.0f) * 544.0f;
 
-    // Check wave navigation icons (circular hitboxes - static positions)
-    for (int i = 0; i < 4; i++) {
-      int icon_x = WAVE_NAV_ICON_X;
-      int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
-
-      if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
-        selected_nav_icon = i;
-        // Navigate to screen based on icon
-        switch (i) {
-          case 0: return UI_SCREEN_TYPE_MAIN;
-          case 1: return UI_SCREEN_TYPE_SETTINGS;
-          case 2: return UI_SCREEN_TYPE_CONTROLLER;  // Controller Configuration
-          case 3: return UI_SCREEN_TYPE_PROFILE;     // Profile & Authentication
-        }
-      }
-    }
+    UIScreenType nav_touch_screen;
+    if (nav_touch_hit(touch_x, touch_y, &nav_touch_screen))
+      return nav_touch_screen;
 
     // Check console cards (rectangular hitboxes)
     if (num_hosts > 0) {
@@ -1803,12 +1851,16 @@ static void draw_settings_controller_tab(int content_x, int content_y, int conte
 }
 
 /// Main Settings screen rendering function
-/// @return whether the dialog should keep rendering
-bool draw_settings() {
+/// @return next screen to display
+UIScreenType draw_settings() {
   // Render particle background and navigation sidebar
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, true))
+    return nav_screen;
 
   // Main content area (avoiding wave nav sidebar)
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -1902,10 +1954,10 @@ bool draw_settings() {
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    return false;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  return true;
+  return UI_SCREEN_TYPE_SETTINGS;
 }
 
 // ============================================================================
@@ -2177,6 +2229,10 @@ UIScreenType draw_profile_screen() {
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, false))
+    return nav_screen;
 
   // Main content area
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -2490,11 +2546,15 @@ static void draw_controller_settings_tab(int content_x, int content_y, int conte
 }
 
 /// Main Controller Configuration screen with tabs
-bool draw_controller_config_screen() {
+UIScreenType draw_controller_config_screen() {
   // Render particle background and navigation sidebar
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, false))
+    return nav_screen;
 
   // Main content area (avoiding wave nav sidebar)
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -2596,10 +2656,10 @@ bool draw_controller_config_screen() {
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    return false;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  return true;
+  return UI_SCREEN_TYPE_CONTROLLER;
 }
 
 // VitaRPS5-style PIN entry constants
@@ -3316,17 +3376,13 @@ void draw_ui() {
           if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
             context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
           }
-          if (!draw_settings()) {
-            screen = UI_SCREEN_TYPE_MAIN;
-          }
+          screen = draw_settings();
         } else if (screen == UI_SCREEN_TYPE_PROFILE) {
           // Phase 2: Profile & Registration screen
           screen = draw_profile_screen();
         } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
           // Phase 2: Controller Configuration screen
-          if (!draw_controller_config_screen()) {
-            screen = UI_SCREEN_TYPE_MAIN;
-          }
+          screen = draw_controller_config_screen();
         }
         vita2d_end_drawing();
         vita2d_common_dialog_update();
