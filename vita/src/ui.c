@@ -10,6 +10,7 @@
 #include <psp2/registrymgr.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <chiaki/base64.h>
 
 #include "context.h"
