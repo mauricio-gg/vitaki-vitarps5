@@ -159,6 +159,79 @@ typedef struct {
 
 static ToggleAnimationState toggle_anim = {-1, false, 0};
 
+// Connection overlay state (covers waking + fast connect flows)
+typedef struct {
+  bool active;
+  UIConnectionStage stage;
+  uint64_t stage_updated_us;
+} ConnectionOverlayState;
+
+static ConnectionOverlayState connection_overlay = {0};
+
+// Connection worker thread (kicks off host_stream asynchronously)
+static SceUID connection_thread_id = -1;
+static VitaChiakiHost *connection_thread_host = NULL;
+
+// Waking / reconnect state
+static uint32_t waking_start_time = 0;
+static uint32_t waking_wait_for_stream_us = 0;
+static uint32_t reconnect_start_time = 0;
+static int reconnect_animation_frame = 0;
+
+static int connection_thread_func(SceSize args, void *argp) {
+  VitaChiakiHost *host = connection_thread_host;
+  if (!host)
+    host = context.active_host;
+  host_stream(host);
+  connection_thread_host = NULL;
+  connection_thread_id = -1;
+  sceKernelExitDeleteThread(0);
+  return 0;
+}
+
+static void draw_circle_outline_simple(int cx, int cy, int radius, uint32_t color) {
+  const int segments = 48;
+  float step = (2.0f * M_PI) / (float)segments;
+  for (int i = 0; i < segments; i++) {
+    float angle1 = i * step;
+    float angle2 = (i + 1) * step;
+    float x1 = cx + cosf(angle1) * radius;
+    float y1 = cy + sinf(angle1) * radius;
+    float x2 = cx + cosf(angle2) * radius;
+    float y2 = cy + sinf(angle2) * radius;
+    vita2d_draw_line(x1, y1, x2, y2, color);
+  }
+}
+
+static bool start_connection_thread(VitaChiakiHost *host) {
+  if (connection_thread_id >= 0)
+    return true;  // Already running
+  connection_thread_host = host;
+  connection_thread_id = sceKernelCreateThread(
+      "VitaConnWorker",
+      connection_thread_func,
+      0x40,
+      0x10000,
+      0,
+      0,
+      NULL);
+  if (connection_thread_id < 0) {
+    LOGE("Failed to create connection worker thread (%d)", connection_thread_id);
+    connection_thread_host = NULL;
+    connection_thread_id = -1;
+    return false;
+  }
+  int status = sceKernelStartThread(connection_thread_id, 0, NULL);
+  if (status < 0) {
+    LOGE("Failed to start connection worker thread (%d)", status);
+    sceKernelDeleteThread(connection_thread_id);
+    connection_thread_id = -1;
+    connection_thread_host = NULL;
+    return false;
+  }
+  return true;
+}
+
 // Text width cache for static strings (simple optimization, avoids over-engineering full texture cache)
 #define TEXT_WIDTH_CACHE_SIZE 16
 typedef struct {
@@ -1118,10 +1191,16 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
                                context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
                 if (discovered && !at_rest && registered) {
-                  host_stream(context.active_host);
-                  return UI_SCREEN_TYPE_STREAM;
+                  ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+                  if (!start_connection_thread(context.active_host)) {
+                    ui_connection_cancel();
+                    return UI_SCREEN_TYPE_MAIN;
+                  }
+                  waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+                  return UI_SCREEN_TYPE_WAKING;
                 } else if (at_rest) {
                   LOGD("Touch wake gesture on dormant console");
+                  ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
                   host_wakeup(context.active_host);
                   return UI_SCREEN_TYPE_WAKING;
                 } else if (!registered) {
@@ -1324,6 +1403,8 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
     // }
     if (registered && btn_pressed(SCE_CTRL_CONFIRM)) {
       if (at_rest) {
+        ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+        host_wakeup(context.active_host);
         return UI_HOST_ACTION_WAKEUP;
       } else {
         // since we don't know if the remote host is awake, send wakeup signal
@@ -1331,7 +1412,12 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
         vita2d_end_drawing();
         vita2d_common_dialog_update();
         vita2d_swap_buffers();
-        int err = host_stream(context.active_host);
+        ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+        if (!start_connection_thread(context.active_host)) {
+          ui_connection_cancel();
+          return UI_HOST_ACTION_NONE;
+        }
+        waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
         return UI_HOST_ACTION_STREAM;
       }
     } else if (!registered && !added && discovered && btn_pressed(SCE_CTRL_CONFIRM)){
@@ -1457,12 +1543,19 @@ UIScreenType draw_main_menu() {
             } else if (at_rest) {
               // Dormant console - wake and show waking screen
               LOGD("Waking dormant console...");
+              ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
               host_wakeup(context.active_host);
               next_screen = UI_SCREEN_TYPE_WAKING;
             } else if (registered) {
-              // Ready console - start streaming
-              next_screen = UI_SCREEN_TYPE_STREAM;
-              host_stream(context.active_host);
+              // Ready console - start streaming with feedback
+              ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+              next_screen = UI_SCREEN_TYPE_WAKING;
+              if (!start_connection_thread(context.active_host)) {
+                ui_connection_cancel();
+                next_screen = UI_SCREEN_TYPE_MAIN;
+              } else {
+                waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+              }
             }
             break;
           }
@@ -2711,11 +2804,46 @@ bool draw_stream() {
   return false;
 }
 
-/// Waking screen state
-static uint32_t waking_start_time = 0;
-static uint32_t waking_wait_for_stream_us = 0;
-static uint32_t reconnect_start_time = 0;
-static int reconnect_animation_frame = 0;
+void ui_connection_begin(UIConnectionStage stage) {
+  connection_overlay.active = true;
+  connection_overlay.stage = stage;
+  connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
+  waking_start_time = 0;
+  waking_wait_for_stream_us = 0;
+}
+
+void ui_connection_set_stage(UIConnectionStage stage) {
+  if (!connection_overlay.active || connection_overlay.stage == stage)
+    return;
+  connection_overlay.stage = stage;
+  connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
+}
+
+void ui_connection_complete(void) {
+  connection_overlay.active = false;
+  waking_start_time = 0;
+  waking_wait_for_stream_us = 0;
+}
+
+void ui_connection_cancel(void) {
+  connection_overlay.active = false;
+  waking_start_time = 0;
+  waking_wait_for_stream_us = 0;
+  connection_thread_host = NULL;
+  if (connection_thread_id >= 0) {
+    sceKernelWaitThreadEnd(connection_thread_id, NULL, NULL);
+    sceKernelDeleteThread(connection_thread_id);
+    connection_thread_id = -1;
+  }
+}
+
+bool ui_connection_overlay_active(void) {
+  return connection_overlay.active;
+}
+
+UIConnectionStage ui_connection_stage(void) {
+  return connection_overlay.stage;
+}
 
 void ui_clear_waking_wait(void) {
   waking_wait_for_stream_us = 0;
@@ -2725,6 +2853,12 @@ void ui_clear_waking_wait(void) {
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
 UIScreenType draw_waking_screen() {
+  if (!connection_overlay.active) {
+    waking_start_time = 0;
+    waking_wait_for_stream_us = 0;
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
   // Initialize timer on first call
   if (waking_start_time == 0) {
     waking_start_time = sceKernelGetProcessTimeLow() / 1000;  // Convert to milliseconds
@@ -2733,33 +2867,48 @@ UIScreenType draw_waking_screen() {
   // Get current time for animations
   uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
 
-  // Check if console woke up (became ready for streaming)
-  if (context.active_host) {
+  // If we're in the wake stage, poll discovery state until the console is ready
+  if (connection_overlay.stage == UI_CONNECTION_STAGE_WAKING && context.active_host) {
     bool ready = (context.active_host->type & REGISTERED) &&
                  !(context.active_host->discovery_state &&
                    context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
-    if (ready) {
-      // Console woke up! Reset state and auto-transition to streaming
-      if (!context.stream.session_init) {
-        LOGD("Console awake, auto-starting stream");
-        waking_start_time = 0;
-        waking_wait_for_stream_us = 0;
-        host_stream(context.active_host);
-        return UI_SCREEN_TYPE_STREAM;
-      } else if (waking_wait_for_stream_us == 0) {
-        // Waiting for previous session to end
-        waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+    if (ready && !context.stream.session_init && connection_thread_id < 0) {
+      LOGD("Console awake, preparing stream startup");
+      ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+      if (!start_connection_thread(context.active_host)) {
+        ui_connection_cancel();
+        return UI_SCREEN_TYPE_MAIN;
       }
+      waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
     }
   }
 
-  // Draw modern waking screen with polished UI
+  static const char *stage_titles[] = {
+    "Waking console",
+    "Preparing Remote Play",
+    "Starting stream"
+  };
+  static const char *stage_details[] = {
+    "Sending wake signal",
+    "Negotiating session",
+    "Launching video pipeline"
+  };
+  const int stage_count = sizeof(stage_titles) / sizeof(stage_titles[0]);
+  int stage_index = 0;
+  if (connection_overlay.stage >= UI_CONNECTION_STAGE_WAKING)
+    stage_index = connection_overlay.stage - UI_CONNECTION_STAGE_WAKING;
+  if (stage_index < 0)
+    stage_index = 0;
+  if (stage_index >= stage_count)
+    stage_index = stage_count - 1;
+
+  // Draw modern waking/connecting screen with polished UI
   vita2d_set_clear_color(UI_COLOR_BACKGROUND);
 
   // Card dimensions (slightly taller for spinner)
-  int card_w = 600;
-  int card_h = 350;
+  int card_w = 640;
+  int card_h = 360;
   int card_x = (VITA_WIDTH - card_w) / 2;
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
@@ -2771,7 +2920,8 @@ UIScreenType draw_waking_screen() {
   vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
   // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
-  const char* title = "Waking Console";
+  const char* title = (connection_overlay.stage == UI_CONNECTION_STAGE_WAKING) ?
+      "Waking Console" : "Starting Remote Play";
   int title_size = 28;
   int title_w = get_text_width_cached(title, title_size);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title
@@ -2795,31 +2945,39 @@ UIScreenType draw_waking_screen() {
 
   // Spinner animation (smooth rotation at 2 rotations per second)
   int spinner_cx = card_x + card_w / 2;
-  int spinner_cy = card_y + card_h / 2 + 10;
-  int spinner_radius = 32;
-  int spinner_thickness = 5;
+  int spinner_cy = card_y + card_h / 2 - 10;
+  int spinner_radius = 40;
+  int spinner_thickness = 6;
   float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
   draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation, UI_COLOR_PRIMARY_BLUE);
 
-  // Status message below spinner
-  const char* status_msg = (waking_wait_for_stream_us && context.stream.session_init) ?
-                           "Waiting for previous session to end..." :
-                           "Please wait...";
-  int msg_w = vita2d_font_text_width(font, FONT_SIZE_BODY, status_msg);
-  int msg_x = card_x + (card_w - msg_w) / 2;
-  vita2d_font_draw_text(font, msg_x, card_y + card_h - 80, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, status_msg);
+  // Stage headline
+  const char *stage_headline = stage_titles[stage_index];
+  int stage_headline_size = 22;
+  int stage_headline_w = vita2d_font_text_width(font, stage_headline_size, stage_headline);
+  int stage_headline_x = card_x + (card_w - stage_headline_w) / 2;
+  vita2d_font_draw_text(font, stage_headline_x, spinner_cy + spinner_radius + 50,
+                        UI_COLOR_TEXT_PRIMARY, stage_headline_size, stage_headline);
+
+  // Detail line
+  const char *detail_text = stage_details[stage_index];
+  int detail_w = vita2d_font_text_width(font, FONT_SIZE_BODY, detail_text);
+  int detail_x = card_x + (card_w - detail_w) / 2;
+  vita2d_font_draw_text(font, detail_x, spinner_cy + spinner_radius + 80,
+                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, detail_text);
 
   // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
-  const char* cancel_hint = "Press Circle to cancel";
-  int hint_w = get_text_width_cached(cancel_hint, FONT_SIZE_SMALL);
-  int hint_x = card_x + (card_w - hint_w) / 2;
-  vita2d_font_draw_text(font, hint_x, card_y + card_h - 40, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, cancel_hint);
+  int cancel_center_y = card_y + card_h - 45;
+  int cancel_center_x = card_x + card_w / 2 - 40;
+  draw_circle_outline_simple(cancel_center_x, cancel_center_y, 12, UI_COLOR_TEXT_TERTIARY);
+  vita2d_font_draw_text(font, cancel_center_x + 20, cancel_center_y + 6,
+                        UI_COLOR_TEXT_TERTIARY, FONT_SIZE_BODY, "Cancel");
 
   // Handle Circle button to cancel
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    LOGD("Waking cancelled by user");
-    waking_start_time = 0;
-    waking_wait_for_stream_us = 0;
+    LOGD("Connection cancelled by user");
+    host_cancel_stream_request();
+    ui_connection_cancel();
     return UI_SCREEN_TYPE_MAIN;
   }
 
