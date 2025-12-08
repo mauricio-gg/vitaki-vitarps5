@@ -217,6 +217,25 @@ If problems arise:
 - Then, try deleting/renaming the config file (`ux0:data/vita-chiaki/chiaki.toml`). 
 - If that doesn't help, create a new [issue](https://github.com/ywnico/vitaki-fork/issues) (or comment on an existing issue).
 
+### Crash dump analysis
+If Vita throws a `C2-12828-1` crash, you can pull the generated `.psp2dmp` from `ux0:data/` and decode it locally:
+
+1. Initialize the parser submodule once:  
+   ```bash
+   git submodule update --init scripts/vita/parse_core
+   ```
+2. Enter the dev container (pyelftools is preinstalled):  
+   ```bash
+   ./tools/build.sh shell
+   ```
+3. Inside the shell, run the parser against the dump and your debug ELF:  
+   ```bash
+   python3 scripts/vita/parse_core/main.py \
+     /build/git/path/to/psp2core-xxxxxxxxx.psp2dmp \
+     /build/git/build/vita/VitaRPS5.elf
+   ```
+The script prints thread states, register dumps, and a file/line backtrace so you can pinpoint the fault without additional setup.
+
 # Chiaki4deck
 
 ## [chiaki4deck](https://streetpea.github.io/chiaki4deck/)

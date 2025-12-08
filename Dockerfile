@@ -28,6 +28,10 @@ RUN apk add --no-cache \
     protobuf-c \
     protobuf-c-dev
 
+# Python tooling for crash-dump analysis
+RUN pip3 install --no-cache-dir --break-system-packages \
+    "pyelftools==0.29"
+
 # Install nanopb (Protocol Buffers for embedded C) - cross-compile for ARM
 RUN cd /tmp && \
     wget https://github.com/nanopb/nanopb/archive/refs/tags/0.4.8.tar.gz && \
