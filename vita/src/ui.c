@@ -10,6 +10,7 @@
 #include <psp2/registrymgr.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <chiaki/base64.h>
 
 #include "context.h"
@@ -108,6 +109,8 @@ vita2d_texture *vita_front, *ps5_logo;
 static Particle particles[PARTICLE_COUNT];
 static bool particles_initialized = false;
 static int particle_update_frame = 0;  // Frame counter for 30fps updates
+static uint32_t button_block_mask = 0;
+static bool touch_block_active = false;
 
 // Wave navigation state
 #define WAVE_NAV_ICON_SIZE 48
@@ -327,8 +330,15 @@ char* cancel_btn_str  = "Circle";
 
 /// Check if a button has been newly pressed
 bool btn_pressed(SceCtrlButtons btn) {
+  if (button_block_mask & btn)
+    return false;
   return (context.ui_state.button_state & btn) &&
          !(context.ui_state.old_button_state & btn);
+}
+
+static void block_inputs_for_transition(void) {
+  button_block_mask |= context.ui_state.button_state;
+  touch_block_active = true;
 }
 
 // Modern rendering helpers (extracted from VitaRPS5)
@@ -368,24 +378,43 @@ static void draw_circle(int cx, int cy, int radius, uint32_t color) {
 
 /// Draw a rounded rectangle with the given parameters
 static void draw_rounded_rectangle(int x, int y, int width, int height, int radius, uint32_t color) {
-  // Main rectangle body
-  vita2d_draw_rectangle(x + radius, y, width - 2 * radius, height, color);
-  vita2d_draw_rectangle(x, y + radius, width, height - 2 * radius, color);
+  if (radius <= 0) {
+    vita2d_draw_rectangle(x, y, width, height, color);
+    return;
+  }
 
-  // Corner circles (simplified as small rectangles for performance)
-  for (int i = 0; i < radius; i++) {
-    for (int j = 0; j < radius; j++) {
-      if (i * i + j * j <= radius * radius) {
-        // Top-left corner
-        vita2d_draw_rectangle(x + radius - i, y + radius - j, 1, 1, color);
-        // Top-right corner
-        vita2d_draw_rectangle(x + width - radius + i - 1, y + radius - j, 1, 1, color);
-        // Bottom-left corner
-        vita2d_draw_rectangle(x + radius - i, y + height - radius + j - 1, 1, 1, color);
-        // Bottom-right corner
-        vita2d_draw_rectangle(x + width - radius + i - 1, y + height - radius + j - 1, 1, 1, color);
-      }
-    }
+  int max_radius = MIN(width, height) / 2;
+  if (radius > max_radius)
+    radius = max_radius;
+
+  // Main rectangle body (center cross)
+  int body_w = width - 2 * radius;
+  int body_h = height - 2 * radius;
+  if (body_w > 0)
+    vita2d_draw_rectangle(x + radius, y, body_w, height, color);
+  if (body_h > 0)
+    vita2d_draw_rectangle(x, y + radius, width, body_h, color);
+
+  // Draw curved corners row-by-row (O(radius) draw calls instead of O(radius^2))
+  const int radius_sq = radius * radius;
+  for (int dy = 0; dy < radius; ++dy) {
+    int dist = radius - dy;
+    int inside = radius_sq - dist * dist;
+    if (inside <= 0)
+      continue;
+    int dx = (int)ceilf(sqrtf((float)inside));
+    if (dx <= 0)
+      continue;
+
+    int top_y = y + dy;
+    int bottom_y = y + height - dy - 1;
+    int left_start = x + radius - dx;
+    int right_start = x + width - radius;
+
+    vita2d_draw_rectangle(left_start, top_y, dx, 1, color);
+    vita2d_draw_rectangle(right_start, top_y, dx, 1, color);
+    vita2d_draw_rectangle(left_start, bottom_y, dx, 1, color);
+    vita2d_draw_rectangle(right_start, bottom_y, dx, 1, color);
   }
 }
 
@@ -818,6 +847,76 @@ void render_wave_navigation() {
   }
 }
 
+static UIScreenType nav_screen_for_index(int index) {
+  switch (index) {
+    case 0: return UI_SCREEN_TYPE_MAIN;
+    case 1: return UI_SCREEN_TYPE_SETTINGS;
+    case 2: return UI_SCREEN_TYPE_CONTROLLER;
+    case 3: return UI_SCREEN_TYPE_PROFILE;
+    default: return UI_SCREEN_TYPE_MAIN;
+  }
+}
+
+static bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
+
+static bool nav_touch_hit(float touch_x, float touch_y, UIScreenType *out_screen) {
+  for (int i = 0; i < 4; i++) {
+    int icon_x = WAVE_NAV_ICON_X;
+    int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
+      selected_nav_icon = i;
+      current_focus = FOCUS_NAV_BAR;
+      if (out_screen)
+        *out_screen = nav_screen_for_index(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
+  SceTouchData nav_touch = {};
+  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
+  if (touch_block_active) {
+    if (nav_touch.reportNum == 0) {
+      touch_block_active = false;
+    } else {
+      return false;
+    }
+  }
+  if (nav_touch.reportNum > 0) {
+    float tx = (nav_touch.report[0].x / 1920.0f) * 960.0f;
+    float ty = (nav_touch.report[0].y / 1088.0f) * 544.0f;
+    if (nav_touch_hit(tx, ty, out_screen))
+      return true;
+  }
+
+  if (!allow_dpad)
+    return false;
+
+  if (btn_pressed(SCE_CTRL_LEFT)) {
+    current_focus = FOCUS_NAV_BAR;
+  } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
+    current_focus = FOCUS_CONSOLE_CARDS;
+  }
+
+  if (current_focus == FOCUS_NAV_BAR) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      selected_nav_icon = (selected_nav_icon + 1) % 4;
+    }
+
+    if (btn_pressed(SCE_CTRL_CROSS)) {
+      if (out_screen)
+        *out_screen = nav_screen_for_index(selected_nav_icon);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /// Map VitaChiakiHost to ConsoleCardInfo
 void map_host_to_console_card(VitaChiakiHost* host, ConsoleCardInfo* card) {
   if (!host || !card) return;
@@ -1143,28 +1242,23 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
 
+  if (touch_block_active) {
+    if (touch.reportNum == 0) {
+      touch_block_active = false;
+    } else {
+      return UI_SCREEN_TYPE_MAIN;
+    }
+  }
+
   if (touch.reportNum > 0) {
     // Convert touch coordinates to screen coordinates
     // Vita touch resolution: 1920x1088, screen: 960x544
     float touch_x = (touch.report[0].x / 1920.0f) * 960.0f;
     float touch_y = (touch.report[0].y / 1088.0f) * 544.0f;
 
-    // Check wave navigation icons (circular hitboxes - static positions)
-    for (int i = 0; i < 4; i++) {
-      int icon_x = WAVE_NAV_ICON_X;
-      int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
-
-      if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
-        selected_nav_icon = i;
-        // Navigate to screen based on icon
-        switch (i) {
-          case 0: return UI_SCREEN_TYPE_MAIN;
-          case 1: return UI_SCREEN_TYPE_SETTINGS;
-          case 2: return UI_SCREEN_TYPE_CONTROLLER;  // Controller Configuration
-          case 3: return UI_SCREEN_TYPE_PROFILE;     // Profile & Authentication
-        }
-      }
-    }
+    UIScreenType nav_touch_screen;
+    if (nav_touch_hit(touch_x, touch_y, &nav_touch_screen))
+      return nav_touch_screen;
 
     // Check console cards (rectangular hitboxes)
     if (num_hosts > 0) {
@@ -1802,12 +1896,16 @@ static void draw_settings_controller_tab(int content_x, int content_y, int conte
 }
 
 /// Main Settings screen rendering function
-/// @return whether the dialog should keep rendering
-bool draw_settings() {
+/// @return next screen to display
+UIScreenType draw_settings() {
   // Render particle background and navigation sidebar
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, true))
+    return nav_screen;
 
   // Main content area (avoiding wave nav sidebar)
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -1901,10 +1999,10 @@ bool draw_settings() {
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    return false;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  return true;
+  return UI_SCREEN_TYPE_SETTINGS;
 }
 
 // ============================================================================
@@ -2176,6 +2274,10 @@ UIScreenType draw_profile_screen() {
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, false))
+    return nav_screen;
 
   // Main content area
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -2489,11 +2591,15 @@ static void draw_controller_settings_tab(int content_x, int content_y, int conte
 }
 
 /// Main Controller Configuration screen with tabs
-bool draw_controller_config_screen() {
+UIScreenType draw_controller_config_screen() {
   // Render particle background and navigation sidebar
   update_particles();
   render_particles();
   render_wave_navigation();
+
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, false))
+    return nav_screen;
 
   // Main content area (avoiding wave nav sidebar)
   int content_x = WAVE_NAV_WIDTH + 40;
@@ -2595,10 +2701,10 @@ bool draw_controller_config_screen() {
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    return false;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  return true;
+  return UI_SCREEN_TYPE_CONTROLLER;
 }
 
 // VitaRPS5-style PIN entry constants
@@ -3228,6 +3334,7 @@ void draw_ui() {
     }
     context.ui_state.old_button_state = context.ui_state.button_state;
     context.ui_state.button_state = ctrl.buttons;
+    button_block_mask &= context.ui_state.button_state;
 
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
@@ -3291,42 +3398,46 @@ void draw_ui() {
                                          RGBA8(255, 255, 255, 128));
         }
 
+        UIScreenType prev_screen = screen;
+        UIScreenType next_screen = screen;
+
         // Render the current screen
         if (screen == UI_SCREEN_TYPE_MAIN) {
-          screen = draw_main_menu();
+          next_screen = draw_main_menu();
         } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
           context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
           if (!draw_registration_dialog()) {
-            screen = UI_SCREEN_TYPE_MAIN;
+            next_screen = UI_SCREEN_TYPE_MAIN;
           }
         } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
           if (!draw_messages()) {
-            screen = UI_SCREEN_TYPE_MAIN;
+            next_screen = UI_SCREEN_TYPE_MAIN;
           }
         } else if (screen == UI_SCREEN_TYPE_STREAM) {
           if (!draw_stream()) {
-            screen = UI_SCREEN_TYPE_MAIN;
+            next_screen = UI_SCREEN_TYPE_MAIN;
           }
         } else if (screen == UI_SCREEN_TYPE_WAKING) {
-          screen = draw_waking_screen();
+          next_screen = draw_waking_screen();
         } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
-          screen = draw_reconnecting_screen();
+          next_screen = draw_reconnecting_screen();
         } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
           if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
             context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
           }
-          if (!draw_settings()) {
-            screen = UI_SCREEN_TYPE_MAIN;
-          }
+          next_screen = draw_settings();
         } else if (screen == UI_SCREEN_TYPE_PROFILE) {
           // Phase 2: Profile & Registration screen
-          screen = draw_profile_screen();
+          next_screen = draw_profile_screen();
         } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
           // Phase 2: Controller Configuration screen
-          if (!draw_controller_config_screen()) {
-            screen = UI_SCREEN_TYPE_MAIN;
-          }
+          next_screen = draw_controller_config_screen();
         }
+
+        if (next_screen != prev_screen) {
+          block_inputs_for_transition();
+        }
+        screen = next_screen;
         vita2d_end_drawing();
         vita2d_common_dialog_update();
         vita2d_swap_buffers();
