@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/param.h>
 #include <string.h>
 #include <tomlc99/toml.h>
@@ -7,6 +9,84 @@
 #include "context.h"
 #include "host.h"
 #include "util.h"
+
+static bool config_fix_legacy_queue_depth(void) {
+  FILE* fp = fopen(CFG_FILENAME, "r");
+  if (!fp)
+    return false;
+
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    return false;
+  }
+  long len = ftell(fp);
+  if (len <= 0) {
+    fclose(fp);
+    return false;
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    return false;
+  }
+
+  size_t size = (size_t)len;
+  char* data = malloc(size);
+  if (!data) {
+    fclose(fp);
+    return false;
+  }
+  size_t read = fread(data, 1, size, fp);
+  fclose(fp);
+  if (read != size) {
+    free(data);
+    return false;
+  }
+
+  const char* prefix = "queue_depth = ";
+  char* prefix_pos = strstr(data, prefix);
+  if (!prefix_pos) {
+    free(data);
+    return false;
+  }
+  char* value_start = prefix_pos + strlen(prefix);
+  size_t remaining = (size_t)(data + size - value_start);
+  char* line_end = memchr(value_start, '\n', remaining);
+  if (!line_end)
+    line_end = data + size;
+
+  char replacement[16];
+  int replacement_len = snprintf(replacement, sizeof(replacement), "%u", VITA_LOG_DEFAULT_QUEUE_DEPTH);
+  if (replacement_len <= 0) {
+    free(data);
+    return false;
+  }
+
+  size_t head_len = (size_t)(value_start - data);
+  size_t tail_len = (size_t)(data + size - line_end);
+  size_t new_size = head_len + (size_t)replacement_len + tail_len;
+  char* patched = malloc(new_size);
+  if (!patched) {
+    free(data);
+    return false;
+  }
+
+  memcpy(patched, data, head_len);
+  memcpy(patched + head_len, replacement, (size_t)replacement_len);
+  memcpy(patched + head_len + (size_t)replacement_len, line_end, tail_len);
+
+  fp = fopen(CFG_FILENAME, "w");
+  if (!fp) {
+    free(data);
+    free(patched);
+    return false;
+  }
+  size_t written = fwrite(patched, 1, new_size, fp);
+  fclose(fp);
+
+  free(data);
+  free(patched);
+  return written == new_size;
+}
 
 void zero_pad(char* buf, size_t size) {
   bool pad = false;
@@ -116,24 +196,41 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->circle_btn_confirm = circle_btn_confirm_default;
 
   if (access(CFG_FILENAME, F_OK) == 0) {
-    FILE* fp = fopen(CFG_FILENAME, "r");
     char errbuf[200];
-    toml_table_t* parsed = toml_parse_file(fp, errbuf, sizeof(errbuf));
-    fclose(fp);
-    if (!cfg) {
-      CHIAKI_LOGE(&(context.log), "Failed to parse config due to illegal TOML: %s", errbuf);
-      return NULL;
+    bool attempted_queue_fix = false;
+    toml_table_t* parsed = NULL;
+    while (true) {
+      FILE* fp = fopen(CFG_FILENAME, "r");
+      if (!fp) {
+        CHIAKI_LOGE(&(context.log), "Failed to open %s for reading", CFG_FILENAME);
+        return;
+      }
+      parsed = toml_parse_file(fp, errbuf, sizeof(errbuf));
+      fclose(fp);
+      if (parsed) {
+        break;
+      }
+      if (attempted_queue_fix || !config_fix_legacy_queue_depth()) {
+        CHIAKI_LOGE(&(context.log), "Failed to parse config due to illegal TOML: %s", errbuf);
+        return;
+      }
+      attempted_queue_fix = true;
+      CHIAKI_LOGW(&(context.log),
+                  "Recovered invalid logging.queue_depth entry, resetting to default (%u)",
+                  VITA_LOG_DEFAULT_QUEUE_DEPTH);
     }
     toml_table_t* general = toml_table_in(parsed, "general");
     if (!general) {
       CHIAKI_LOGE(&(context.log), "Failed to parse config due to missing [general] section");
-      return NULL;
+      toml_free(parsed);
+      return;
     }
     toml_datum_t datum;
     datum = toml_int_in(general, "version");
     if (!datum.ok || datum.u.i != CFG_VERSION) {
       CHIAKI_LOGE(&(context.log), "Failed to parse config due to bad general.version, expected %d.", CFG_VERSION);
-      return NULL;
+      toml_free(parsed);
+      return;
     }
 
     toml_table_t* settings = toml_table_in(parsed, "settings");
@@ -358,7 +455,13 @@ void config_parse(VitaChiakiConfig* cfg) {
         }
 
         if (has_hostname && has_mac) {
-          cfg->manual_hosts[i] = host;
+          size_t slot = cfg->num_manual_hosts;
+          if (slot >= MAX_NUM_HOSTS) {
+            CHIAKI_LOGW(&(context.log), "Manual host capacity reached, skipping entry %d", i);
+            host_free(host);
+            continue;
+          }
+          cfg->manual_hosts[slot] = host;
           cfg->num_manual_hosts++;
         } else {
           CHIAKI_LOGW(&(context.log), "Failed to parse manual host due to missing hostname or mac.");
@@ -366,6 +469,7 @@ void config_parse(VitaChiakiConfig* cfg) {
         }
       }
     }
+    toml_free(parsed);
   }
 }
 
@@ -455,6 +559,10 @@ void serialize_target(FILE* fp, char* field_name, ChiakiTarget* target) {
 
 void config_serialize(VitaChiakiConfig* cfg) {
   FILE *fp = fopen(CFG_FILENAME, "w");
+  if (!fp) {
+    LOGE("Failed to open %s for writing", CFG_FILENAME);
+    return;
+  }
   fprintf(fp, "[general]\nversion = 1\n");
 
   // Settings
@@ -490,10 +598,15 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "profile = \"%s\"\n",
           vita_logging_profile_to_string(cfg->logging.profile));
   fprintf(fp, "path = \"%s\"\n", cfg->logging.path);
-  fprintf(fp, "queue_depth = %zu\n", cfg->logging.queue_depth);
+  // SCE libc used on Vita ignores %zu, so cast explicitly for portability.
+  fprintf(fp, "queue_depth = %lu\n", (unsigned long)cfg->logging.queue_depth);
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {
     VitaChiakiHost* host = cfg->manual_hosts[i];
+    if (!host) {
+      LOGD("config_serialize: manual host slot %d is NULL, skipping", i);
+      continue;
+    }
     uint8_t* mac = NULL;
     for (int m = 0; m < 6; m++) {
       if (host->server_mac[m] != 0) {
@@ -501,16 +614,22 @@ void config_serialize(VitaChiakiConfig* cfg) {
         break;
       }
     }
-    if (mac) {
-      // only save if mac is valid
-      fprintf(fp, "\n\n[[manual_hosts]]\n");
-      fprintf(fp, "hostname = \"%s\"\n", host->hostname);
-      serialize_b64(fp, "server_mac", mac, 6);
+    if (!mac || !host->hostname) {
+      LOGD("config_serialize: manual host slot %d missing data, skipping", i);
+      continue;
     }
+    fprintf(fp, "\n\n[[manual_hosts]]\n");
+    fprintf(fp, "hostname = \"%s\"\n", host->hostname);
+    serialize_b64(fp, "server_mac", mac, 6);
   }
 
   for (int i = 0; i < cfg->num_registered_hosts; i++) {
-    ChiakiRegisteredHost* rhost = cfg->registered_hosts[i]->registered_state;
+    VitaChiakiHost *host = cfg->registered_hosts[i];
+    ChiakiRegisteredHost* rhost = host ? host->registered_state : NULL;
+    if (!host || !rhost) {
+      LOGD("config_serialize: registered host slot %d missing data, skipping", i);
+      continue;
+    }
     fprintf(fp, "\n\n[[registered_hosts]]\n");
     serialize_b64(fp, "server_mac", rhost->server_mac, 6);
     fprintf(fp, "server_nickname = \"%s\"\n", rhost->server_nickname);
