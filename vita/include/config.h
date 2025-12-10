@@ -44,6 +44,7 @@ typedef struct vita_chiaki_config_t {
   int controller_map_id;
   bool circle_btn_confirm;
   bool show_latency;  // Display real-time latency in Profile screen
+  bool show_network_indicator; // Display "Network unstable" overlay in stream HUD
   bool stretch_video;
   bool force_30fps;   // Drop frames locally to hold 30 fps presentation
   bool send_actual_start_bitrate; // Guard for RP-StartBitrate payload

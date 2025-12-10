@@ -996,12 +996,13 @@ void map_host_to_console_card(VitaChiakiHost* host, ConsoleCardInfo* card) {
 }
 
 /// Render a single console card
-void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) {
+void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, bool cooldown_for_card) {
   if (!console) return;
 
   bool is_registered = console->is_registered;
   bool is_discovered = console->is_discovered;
   bool is_unpaired = is_discovered && !is_registered;
+  bool is_cooldown_card = cooldown_for_card;
 
   // Status border color (awake=light blue, asleep=yellow, unpaired=grey)
   uint32_t border_color = UI_COLOR_PRIMARY_BLUE;  // Default selection blue
@@ -1011,6 +1012,8 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     border_color = RGBA8(52, 144, 255, 255);  // Light blue
   } else if (!selected && console->state == 2) {  // Standby/Asleep
     border_color = RGBA8(255, 193, 7, 255);  // Yellow
+  } else if (is_cooldown_card) {
+    border_color = RGBA8(0xF4, 0x43, 0x36, 255);
   }
 
   // Draw status border
@@ -1030,6 +1033,8 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
   // Card background (greyed out for unpaired consoles, slightly lighter neutral grey when selected)
   uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) :
                      (selected ? RGBA8(0x38, 0x3D, 0x42, 255) : UI_COLOR_CARD_BG);  // Neutral dark grey when selected
+  if (is_cooldown_card)
+    card_bg = RGBA8(0x1D, 0x1F, 0x24, 255);
 
   // Enhanced shadow for selected cards
   int shadow_offset = selected ? 6 : 4;
@@ -1054,7 +1059,8 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
     int logo_y = y + 50;  // Fixed position from top
 
     // Dimmed for unpaired consoles
-    if (is_unpaired) {
+    bool dim_logo = is_unpaired || is_cooldown_card;
+    if (dim_logo) {
       vita2d_draw_texture_tint_scale(ps5_logo, logo_x, logo_y, scale, scale,
                                      RGBA8(255, 255, 255, 100));
     } else {
@@ -1068,7 +1074,12 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
       int logo_h = vita2d_texture_get_height(logo);
       int logo_x = x + (CONSOLE_CARD_WIDTH / 2) - (logo_w / 2);
       int logo_y = y + (CONSOLE_CARD_HEIGHT / 3) - (logo_h / 2);
-      vita2d_draw_texture(logo, logo_x, logo_y);
+      if (is_unpaired || is_cooldown_card) {
+        vita2d_draw_texture_tint(logo, logo_x, logo_y,
+                                 RGBA8(255, 255, 255, 120));
+      } else {
+        vita2d_draw_texture(logo, logo_x, logo_y);
+      }
     }
   }
 
@@ -1086,12 +1097,30 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
 
   // Status indicator (top-right)
   vita2d_texture* status_tex = NULL;
-  if (console->status == 0) status_tex = ellipse_green;
-  else if (console->status == 1) status_tex = ellipse_red;
-  else if (console->status == 2) status_tex = ellipse_yellow;
+  if (is_cooldown_card) {
+    status_tex = ellipse_red;
+  } else {
+    if (console->status == 0) status_tex = ellipse_green;
+    else if (console->status == 1) status_tex = ellipse_red;
+    else if (console->status == 2) status_tex = ellipse_yellow;
+  }
 
   if (status_tex) {
-    vita2d_draw_texture(status_tex, x + CONSOLE_CARD_WIDTH - 35, y + 10);
+    int indicator_x = x + CONSOLE_CARD_WIDTH - 35;
+    int indicator_y = y + 10;
+    if (is_cooldown_card) {
+      uint64_t now_ms = sceKernelGetProcessTimeWide() / 1000ULL;
+      static const char *ellipsis[] = {"", ".", "..", "..."};
+      const char *dots = ellipsis[(now_ms / 400) % 4];
+      char wait_text[32];
+      sceClibSnprintf(wait_text, sizeof(wait_text), "Please wait%s", dots);
+      int wait_w = vita2d_font_text_width(font, FONT_SIZE_BODY, wait_text);
+      int text_x = indicator_x - wait_w - 12;
+      int text_y = indicator_y + FONT_SIZE_BODY;
+      vita2d_font_draw_text(font, text_x, text_y,
+                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, wait_text);
+    }
+    vita2d_draw_texture(status_tex, indicator_x, indicator_y);
   }
 
   // State text ("Ready" / "Standby" / "Unpaired")
@@ -1107,6 +1136,10 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected) 
   } else if (console->state == 2) {
     state_text = "Standby";
     state_color = RGBA8(255, 193, 7, 255);  // Yellow
+  }
+
+  if (is_cooldown_card) {
+    state_text = NULL;
   }
 
   if (state_text) {
@@ -1188,43 +1221,49 @@ void render_console_grid() {
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint64_t cooldown_until_us = stream_cooldown_until_us();
   bool cooldown_active = cooldown_until_us && cooldown_until_us > now_us;
+  if (!cooldown_active &&
+      context.stream.disconnect_banner_until_us &&
+      context.stream.disconnect_banner_until_us <= now_us) {
+    context.stream.disconnect_reason[0] = '\0';
+    context.stream.disconnect_banner_until_us = 0;
+  }
+
   if (cooldown_active) {
-    float remaining_s = (float)(cooldown_until_us - now_us) / 1000000.0f;
-
-    char cooldown_text[96];
-    if (remaining_s > 0.05f) {
-      snprintf(cooldown_text, sizeof(cooldown_text),
-               "Recovering network… %.1fs", remaining_s);
-    } else {
-      snprintf(cooldown_text, sizeof(cooldown_text), "Recovering network…");
-    }
-
-    int badge_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, cooldown_text) + 36;
-    int badge_h = FONT_SIZE_SMALL + 14;
-    int badge_x = screen_center_x - (badge_w / 2);
-    int badge_y = text_y - badge_h - 8;
-
-    draw_rounded_rectangle(badge_x, badge_y, badge_w, badge_h, 10,
-        RGBA8(0x28, 0x28, 0x2B, 220));
-    vita2d_font_draw_text(font,
-                          badge_x + 18,
-                          badge_y + badge_h - 6,
-                          UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_SMALL,
-                          cooldown_text);
-    vita2d_draw_fill_circle(badge_x + 10, badge_y + badge_h / 2,
-                            4, RGBA8(0xF4, 0x43, 0x36, 220));
+    const char *reason =
+        (context.stream.disconnect_reason[0] &&
+         context.stream.disconnect_banner_until_us > now_us)
+            ? context.stream.disconnect_reason
+            : "Connection interrupted";
+    char banner_text[196];
+    sceClibSnprintf(banner_text, sizeof(banner_text),
+                    "Streaming stopped: %s - Please wait a few moments",
+                    reason);
+    int banner_w = VITA_WIDTH - 120;
+    int banner_h = 42;
+    int banner_x = (VITA_WIDTH - banner_w) / 2;
+    int banner_y = text_y - banner_h - 12;
+    draw_rounded_rectangle(banner_x, banner_y, banner_w, banner_h, 12,
+                           RGBA8(0x05, 0x05, 0x07, 230));
+    int banner_text_w = vita2d_font_text_width(font, FONT_SIZE_BODY, banner_text);
+    int banner_text_x = banner_x + (banner_w - banner_text_w) / 2;
+    int banner_text_y = banner_y + banner_h / 2 + (FONT_SIZE_BODY / 2);
+    vita2d_font_draw_text(font, banner_text_x, banner_text_y,
+                          UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, banner_text);
   }
 
   // Use cached cards to prevent flickering
   if (card_cache.num_cards > 0) {
+    VitaChiakiHost *cooldown_host = cooldown_active ? context.active_host : NULL;
     for (int i = 0; i < card_cache.num_cards; i++) {
       // For multiple cards, stack them vertically centered around screen center
       int this_card_y = card_y + (i * CONSOLE_CARD_SPACING);
 
       // Only show selection highlight if console cards have focus
       bool selected = (i == selected_console_index && current_focus == FOCUS_CONSOLE_CARDS);
-      render_console_card(&card_cache.cards[i], card_x, this_card_y, selected);
+      bool card_cooldown = cooldown_host &&
+                           card_cache.cards[i].host == cooldown_host;
+      render_console_card(&card_cache.cards[i], card_x, this_card_y, selected,
+                          card_cooldown);
     }
   }
 }
@@ -1934,10 +1973,18 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Latency");
   y += item_h + item_spacing;
 
+  // Show Network Alerts toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     get_toggle_animation_value(8, context.config.show_network_indicator),
+                     settings_state.selected_item == 6);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Network Alerts");
+  y += item_h + item_spacing;
+
   // Clamp soft restart bitrate toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
                      get_toggle_animation_value(7, context.config.clamp_soft_restart_bitrate),
-                     settings_state.selected_item == 6);
+                     settings_state.selected_item == 7);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
                         "Clamp Soft Restart Bitrate");
@@ -1946,7 +1993,7 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
   // Video stretch toggle
   draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
                      get_toggle_animation_value(6, context.config.stretch_video),
-                     settings_state.selected_item == 7);
+                     settings_state.selected_item == 8);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
 }
@@ -2017,7 +2064,7 @@ UIScreenType draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 8; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Clamp, Fill Screen
+  int max_items = 9; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -2072,10 +2119,17 @@ UIScreenType draw_settings() {
       start_toggle_animation(5, context.config.show_latency);
       config_serialize(&context.config);
         } else if (settings_state.selected_item == 6) {
+          context.config.show_network_indicator = !context.config.show_network_indicator;
+          start_toggle_animation(8, context.config.show_network_indicator);
+          if (!context.config.show_network_indicator) {
+            vitavideo_hide_poor_net_indicator();
+          }
+          config_serialize(&context.config);
+        } else if (settings_state.selected_item == 7) {
           context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
           start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
           config_serialize(&context.config);
-        } else if (settings_state.selected_item == 7) {
+        } else if (settings_state.selected_item == 8) {
           context.config.stretch_video = !context.config.stretch_video;
           start_toggle_animation(6, context.config.stretch_video);
           config_serialize(&context.config);

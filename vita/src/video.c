@@ -972,6 +972,8 @@ void vita_h264_stop() {
 }
 
 void vitavideo_show_poor_net_indicator() {
+  if (!context.config.show_network_indicator)
+    return;
   poor_net_indicator.activated = true;
 }
 

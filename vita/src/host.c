@@ -35,6 +35,7 @@ static void shutdown_media_pipeline(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
+static void update_disconnect_banner(const char *reason);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -175,12 +176,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_RUMBLE:
 			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
 			break;
-		case CHIAKI_EVENT_QUIT: {
+	case CHIAKI_EVENT_QUIT: {
+      bool user_stop_requested = context.stream.stop_requested;
       const char *reason_label = quit_reason_label(event->quit.reason);
-      LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
-           event->quit.reason_str ? event->quit.reason_str : "unknown",
-           event->quit.reason,
-           reason_label);
+			LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
+				 event->quit.reason_str ? event->quit.reason_str : "unknown",
+				 event->quit.reason,
+				 reason_label);
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -226,6 +228,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
         uint64_t wait_ms =
             (context.stream.next_stream_allowed_us - now_us + 999) / 1000ULL;
         LOGD("Stream cooldown engaged for %llu ms", wait_ms);
+      }
+      if (!user_stop_requested) {
+        const char *banner_reason =
+            (event->quit.reason_str && event->quit.reason_str[0])
+                ? event->quit.reason_str
+                : reason_label;
+        update_disconnect_banner(banner_reason);
       }
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
@@ -329,6 +338,8 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_overflow_recent_drops = 0;
   }
   context.stream.last_restart_failure_us = 0;
+  context.stream.disconnect_reason[0] = '\0';
+  context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
   context.stream.loss_retry_active = false;
   context.stream.loss_retry_attempts = 0;
@@ -811,6 +822,21 @@ static const char *quit_reason_label(ChiakiQuitReason reason) {
     default:
       return "Unspecified";
   }
+}
+
+static void update_disconnect_banner(const char *reason) {
+  if (!reason || !reason[0])
+    return;
+
+  sceClibSnprintf(context.stream.disconnect_reason,
+                  sizeof(context.stream.disconnect_reason),
+                  "%s",
+                  reason);
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  uint64_t until = context.stream.next_stream_allowed_us;
+  if (!until)
+    until = now_us + 3 * 1000 * 1000ULL;
+  context.stream.disconnect_banner_until_us = until;
 }
 
 static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
