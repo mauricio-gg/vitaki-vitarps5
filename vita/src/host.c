@@ -556,10 +556,19 @@ static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, 
     host->status_hint_is_error = is_error;
     uint64_t now_us = sceKernelGetProcessTimeWide();
     host->status_hint_expire_us = duration_us ? (now_us + duration_us) : 0;
+    if (is_error) {
+      context.ui_state.error_popup_active = true;
+      sceClibSnprintf(context.ui_state.error_popup_text,
+                      sizeof(context.ui_state.error_popup_text), "%s", msg);
+    }
   } else {
     host->status_hint[0] = '\0';
     host->status_hint_is_error = false;
     host->status_hint_expire_us = 0;
+    if (is_error) {
+      context.ui_state.error_popup_active = false;
+      context.ui_state.error_popup_text[0] = '\0';
+    }
   }
 }
 

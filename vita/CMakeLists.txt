@@ -45,6 +45,10 @@ if(DEFINED VITARPS5_LOGGING_DEFAULT_PATH)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_LOGGING_DEFAULT_PATH="${VITARPS5_LOGGING_DEFAULT_PATH}")
 endif()
 
+if(DEFINED VITARPS5_DEBUG_MENU)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_MENU=${VITARPS5_DEBUG_MENU})
+endif()
+
 target_include_directories(${VITA_APP_NAME}.elf PRIVATE
     include
     third_party
