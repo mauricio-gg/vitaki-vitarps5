@@ -19,6 +19,7 @@
 
 #include "video.h"
 #include "context.h"
+#include "ui.h"
 
 #include <h264-bitstream/h264_stream.h>
 
@@ -933,19 +934,29 @@ void draw_indicators() {
     alpha_ratio = 0.0f;
   uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
 
-  int box_w = 360;
-  int box_h = 56;
-  int margin = 18;
+  const int margin = 16;
+  const int dot_radius = 6;
+  const int padding_x = 12;
+  const int padding_y = 10;
+  const char *headline = "Network Unstable";
+  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
+  int box_w = padding_x * 2 + dot_radius * 2 + 8 + text_width;
+  int box_h = padding_y * 2 + FONT_SIZE_SMALL;
   int box_x = SCREEN_WIDTH - box_w - margin;
   int box_y = SCREEN_HEIGHT - box_h - margin;
-  vita2d_draw_rectangle(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, 180));
 
-  const char *headline = "Network unstable";
-  const char *detail = "Packet loss detected";
-  vita2d_font_draw_text(font, box_x + 18, box_y + 24,
-                        RGBA8(0xFF, 0x66, 0x66, alpha), 20, headline);
-  vita2d_font_draw_text(font, box_x + 18, box_y + 46,
-                        RGBA8(0xFF, 0xFF, 0xFF, alpha), 18, detail);
+  vita2d_draw_rectangle(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, 190));
+  vita2d_draw_line(box_x, box_y, box_x + box_w, box_y, RGBA8(255, 255, 255, 32));
+  vita2d_draw_line(box_x, box_y + box_h, box_x + box_w, box_y + box_h, RGBA8(0, 0, 0, 120));
+
+  int dot_x = box_x + padding_x + dot_radius;
+  int dot_y = box_y + box_h / 2;
+  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
+
+  int text_x = dot_x + dot_radius + 8;
+  int text_y = box_y + padding_y + FONT_SIZE_SMALL;
+  vita2d_font_draw_text(font, text_x, text_y,
+                        RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL, headline);
 }
 
 void vita_h264_start() {

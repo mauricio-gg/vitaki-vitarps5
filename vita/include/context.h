@@ -65,6 +65,9 @@ typedef struct vita_chiaki_stream_t {
   uint32_t total_frames_lost;       // Frames lost across the current session
   uint64_t loss_window_start_us;    // Sliding window start for adaptive mitigations
   uint32_t loss_window_event_count; // Events within the current sliding window
+  uint32_t loss_window_frame_accum; // Frames dropped inside the active loss window
+  uint32_t loss_burst_frame_accum;  // Frames dropped within the short-term burst bucket
+  uint64_t loss_burst_start_us;     // Timestamp when the current burst started
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade
   uint32_t logged_loss_events;      // Last loss event count logged to console
@@ -73,6 +76,14 @@ typedef struct vita_chiaki_stream_t {
   uint32_t takion_drop_packets;     // Total packets dropped from Takion queue
   uint32_t logged_drop_events;      // Last drop count that was logged
   uint64_t takion_drop_last_us;     // Timestamp of last drop event (us)
+  uint64_t last_takion_overflow_restart_us; // Rate-limit restarts on queue overflow
+  uint32_t takion_overflow_soft_attempts;   // Soft mitigation attempts in current window
+  uint64_t takion_overflow_window_start_us; // Window tracking for overflow attempts
+  uint64_t takion_overflow_backoff_until_us;// Cooldown before next overflow mitigation
+  bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
+  uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
+  uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
+  uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
   bool loss_retry_pending;          // Whether a lower bitrate retry is scheduled
   bool loss_retry_active;           // Apply fallback bitrate on next host_stream
   uint32_t loss_retry_attempts;     // Number of fallback retries used
@@ -88,6 +99,10 @@ typedef struct vita_chiaki_stream_t {
   uint64_t last_input_stall_log_us;
   uint64_t inputs_blocked_since_us;
   bool inputs_resume_pending;
+  uint32_t unrecovered_frame_streak;
+  uint32_t unrecovered_gate_events;
+  uint64_t unrecovered_gate_window_start_us;
+  bool restart_failure_active;
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

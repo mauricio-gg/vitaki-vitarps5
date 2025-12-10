@@ -48,12 +48,6 @@
 #define VITA_WIDTH 960
 #define VITA_HEIGHT 544
 
-// Font Size Hierarchy (Phase 2 Standards)
-#define FONT_SIZE_HEADER 24      // Screen titles, main headers
-#define FONT_SIZE_SUBHEADER 18   // Section titles, tab labels
-#define FONT_SIZE_BODY 16        // Primary content text
-#define FONT_SIZE_SMALL 14       // Secondary text, hints (improved hierarchy)
-
 // VitaRPS5 UI Layout Constants
 #define WAVE_NAV_WIDTH 104  // 20% thinner than original 130px
 #define CONTENT_AREA_X WAVE_NAV_WIDTH
@@ -174,6 +168,52 @@ static ConnectionOverlayState connection_overlay = {0};
 // Connection worker thread (kicks off host_stream asynchronously)
 static SceUID connection_thread_id = -1;
 static VitaChiakiHost *connection_thread_host = NULL;
+
+static bool stream_cooldown_active(void) {
+  uint64_t until_us = 0;
+
+  if (context.stream.takion_cooldown_overlay_active &&
+      context.stream.takion_overflow_backoff_until_us > until_us) {
+    until_us = context.stream.takion_overflow_backoff_until_us;
+  }
+
+  if (context.stream.next_stream_allowed_us > until_us) {
+    until_us = context.stream.next_stream_allowed_us;
+  }
+
+  if (!until_us)
+    return false;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (now_us >= until_us) {
+    if (context.stream.takion_cooldown_overlay_active &&
+        context.stream.takion_overflow_backoff_until_us <= now_us) {
+      context.stream.takion_cooldown_overlay_active = false;
+      context.stream.takion_overflow_backoff_until_us = 0;
+    }
+    if (context.stream.next_stream_allowed_us <= now_us)
+      context.stream.next_stream_allowed_us = 0;
+    return false;
+  }
+
+  return true;
+}
+
+static uint64_t stream_cooldown_until_us(void) {
+  uint64_t until_us = 0;
+  if (context.stream.takion_cooldown_overlay_active &&
+      context.stream.takion_overflow_backoff_until_us > until_us) {
+    until_us = context.stream.takion_overflow_backoff_until_us;
+  }
+  if (context.stream.next_stream_allowed_us > until_us) {
+    until_us = context.stream.next_stream_allowed_us;
+  }
+  return until_us;
+}
+
+static bool takion_cooldown_gate_active(void) {
+  return stream_cooldown_active();
+}
 
 // Waking / reconnect state
 static uint32_t waking_start_time = 0;
@@ -1145,6 +1185,37 @@ void render_console_grid() {
 
   vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
 
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  uint64_t cooldown_until_us = stream_cooldown_until_us();
+  bool cooldown_active = cooldown_until_us && cooldown_until_us > now_us;
+  if (cooldown_active) {
+    float remaining_s = (float)(cooldown_until_us - now_us) / 1000000.0f;
+
+    char cooldown_text[96];
+    if (remaining_s > 0.05f) {
+      snprintf(cooldown_text, sizeof(cooldown_text),
+               "Recovering network… %.1fs", remaining_s);
+    } else {
+      snprintf(cooldown_text, sizeof(cooldown_text), "Recovering network…");
+    }
+
+    int badge_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, cooldown_text) + 36;
+    int badge_h = FONT_SIZE_SMALL + 14;
+    int badge_x = screen_center_x - (badge_w / 2);
+    int badge_y = text_y - badge_h - 8;
+
+    draw_rounded_rectangle(badge_x, badge_y, badge_w, badge_h, 10,
+        RGBA8(0x28, 0x28, 0x2B, 220));
+    vita2d_font_draw_text(font,
+                          badge_x + 18,
+                          badge_y + badge_h - 6,
+                          UI_COLOR_TEXT_PRIMARY,
+                          FONT_SIZE_SMALL,
+                          cooldown_text);
+    vita2d_draw_fill_circle(badge_x + 10, badge_y + badge_h / 2,
+                            4, RGBA8(0xF4, 0x43, 0x36, 220));
+  }
+
   // Use cached cards to prevent flickering
   if (card_cache.num_cards > 0) {
     for (int i = 0; i < card_cache.num_cards; i++) {
@@ -1275,12 +1346,17 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
           // Find and connect to selected host
           int host_idx = 0;
           for (int j = 0; j < MAX_NUM_HOSTS; j++) {
-            if (context.hosts[j]) {
-              if (host_idx == selected_console_index) {
-                context.active_host = context.hosts[j];
+              if (context.hosts[j]) {
+                if (host_idx == selected_console_index) {
+                  context.active_host = context.hosts[j];
 
-                bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-                bool registered = context.active_host->type & REGISTERED;
+                  if (takion_cooldown_gate_active()) {
+                    LOGD("Touch connect ignored — network recovery cooldown active");
+                    return UI_SCREEN_TYPE_MAIN;
+                  }
+
+                  bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+                  bool registered = context.active_host->type & REGISTERED;
                 bool at_rest = discovered && context.active_host->discovery_state &&
                                context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
@@ -1496,6 +1572,10 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
     //   }
     // }
     if (registered && btn_pressed(SCE_CTRL_CONFIRM)) {
+      if (takion_cooldown_gate_active()) {
+        LOGD("Ignoring connect request — network recovery cooldown active");
+        return UI_HOST_ACTION_NONE;
+      }
       if (at_rest) {
         ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
         host_wakeup(context.active_host);
@@ -1625,6 +1705,11 @@ UIScreenType draw_main_menu() {
         if (context.hosts[i]) {
           if (host_idx == selected_console_index) {
             context.active_host = context.hosts[i];
+
+            if (takion_cooldown_gate_active()) {
+              LOGD("Ignoring connect request — network recovery cooldown active");
+              return UI_SCREEN_TYPE_MAIN;
+            }
 
             bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
             bool registered = context.active_host->type & REGISTERED;
@@ -2980,6 +3065,10 @@ UIScreenType draw_waking_screen() {
                    context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
     if (ready && !context.stream.session_init && connection_thread_id < 0) {
+      if (takion_cooldown_gate_active()) {
+        LOGD("Deferring stream start — network recovery cooldown active");
+        return UI_SCREEN_TYPE_WAKING;
+      }
       LOGD("Console awake, preparing stream startup");
       ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
       if (!start_connection_thread(context.active_host)) {
