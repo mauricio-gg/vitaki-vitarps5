@@ -64,6 +64,9 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define TAKION_OVERFLOW_IGNORE_THRESHOLD 2
 #define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
+#define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
+#define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
+#define FAST_RESTART_MAX_ATTEMPTS 2
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
@@ -460,6 +463,8 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   ChiakiConnectVideoProfile profile = context.stream.session.connect_info.video_profile;
   if (bitrate_kbps > 0) {
     profile.bitrate = bitrate_kbps;
+  } else {
+    profile.bitrate = LOSS_RETRY_BITRATE_KBPS;
   }
 
   if (context.config.clamp_soft_restart_bitrate &&
@@ -469,10 +474,26 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
     profile.bitrate = FAST_RESTART_BITRATE_CAP_KBPS;
   }
 
-  ChiakiErrorCode err =
-      chiaki_session_request_stream_restart(&context.stream.session, &profile);
+  ChiakiErrorCode err = CHIAKI_ERR_UNKNOWN;
+  for (uint32_t attempt = 0; attempt < FAST_RESTART_MAX_ATTEMPTS; ++attempt) {
+    err =
+        chiaki_session_request_stream_restart(&context.stream.session, &profile);
+    if (err == CHIAKI_ERR_SUCCESS) {
+      if (attempt > 0) {
+        LOGD("Soft restart request succeeded on retry %u", attempt + 1);
+      }
+      break;
+    }
+    LOGE("Soft restart request attempt %u failed: %s",
+         attempt + 1,
+         chiaki_error_string(err));
+    if (attempt + 1 < FAST_RESTART_MAX_ATTEMPTS) {
+      sceKernelDelayThread(FAST_RESTART_RETRY_DELAY_US);
+    }
+  }
   if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Failed to request soft stream restart: %s", chiaki_error_string(err));
+    LOGE("Failed to request soft stream restart after %u attempt(s)",
+         FAST_RESTART_MAX_ATTEMPTS);
     return false;
   }
 
@@ -696,7 +717,10 @@ static void handle_takion_overflow(void) {
          attempt,
          TAKION_OVERFLOW_SOFT_RECOVERY_MAX,
          TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
-    bool restart_ok = request_stream_restart(TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
+    if (FAST_RESTART_GRACE_DELAY_US)
+      sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
+    bool restart_ok =
+        request_stream_restart(TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
     context.stream.takion_overflow_backoff_until_us =
         now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
     if (context.stream.next_stream_allowed_us <
