@@ -179,6 +179,7 @@ typedef struct chiaki_takion_t
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock);
 CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion);
+CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion);
 
 /**
  * Must be called from within the Takion thread, i.e. inside the callback!

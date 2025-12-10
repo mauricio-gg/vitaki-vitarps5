@@ -50,6 +50,15 @@ CHIAKI_EXPORT void chiaki_packet_stats_push_seq(ChiakiPacketStats *stats, Chiaki
 
 CHIAKI_EXPORT void chiaki_packet_stats_get(ChiakiPacketStats *stats, bool reset, uint64_t *received, uint64_t *lost)
 {
+	if(!stats)
+	{
+		if(received)
+			*received = 0;
+		if(lost)
+			*lost = 0;
+		return;
+	}
+
 	chiaki_mutex_lock(&stats->mutex);
 
 	// gen

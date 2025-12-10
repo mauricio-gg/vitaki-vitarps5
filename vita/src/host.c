@@ -14,10 +14,11 @@
 #include <psp2/kernel/threadmgr.h>
 #include <chiaki/base64.h>
 #include <chiaki/session.h>
+#include <chiaki/streamconnection.h>
 #include <chiaki/videoreceiver.h>
 #include <chiaki/frameprocessor.h>
 
-static void reset_stream_metrics(void);
+static void reset_stream_metrics(bool preserve_recovery_state);
 static void update_latency_metrics(void);
 static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode);
 static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode);
@@ -26,19 +27,43 @@ static bool request_stream_restart(uint32_t bitrate_kbps);
 static void resume_discovery_if_needed(void);
 static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us);
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
+static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered);
+static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 static void shutdown_media_pipeline(void);
+static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
+static void request_decoder_resync(const char *reason);
+typedef struct {
+  uint64_t window_us;
+  uint32_t min_frames;
+  uint32_t event_threshold;
+  uint32_t frame_threshold;
+  uint64_t burst_window_us;
+  uint32_t burst_frame_threshold;
+} LossDetectionProfile;
+static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode);
+static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define LOSS_ALERT_DURATION_US (5 * 1000 * 1000ULL)
-#define LOSS_EVENT_WINDOW_US (8 * 1000 * 1000ULL)
-#define LOSS_EVENT_THRESHOLD 3
-#define LOSS_EVENT_THRESHOLD_ULTRA_LOW 2
-#define LOSS_EVENT_MIN_FRAMES 4
+#define LOSS_EVENT_WINDOW_DEFAULT_US (8 * 1000 * 1000ULL)
+#define LOSS_EVENT_MIN_FRAMES_DEFAULT 4
+#define LOSS_EVENT_THRESHOLD_DEFAULT 3
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
+#define UNRECOVERED_FRAME_THRESHOLD 3
+#define UNRECOVERED_FRAME_GATE_THRESHOLD 2
+#define UNRECOVERED_FRAME_GATE_WINDOW_US (800 * 1000ULL)
+#define TAKION_OVERFLOW_RESTART_DELAY_US (1500 * 1000ULL)
+#define TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US (12 * 1000 * 1000ULL)
+#define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
+#define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
+#define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
+#define TAKION_OVERFLOW_IGNORE_THRESHOLD 2
+#define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
+#define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
@@ -163,6 +188,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
       ui_clear_waking_wait();
       context.stream.session_init = false;
       uint64_t now_us = sceKernelGetProcessTimeWide();
+      uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
+      bool takion_cooldown_active = context.stream.takion_cooldown_overlay_active;
       bool remote_in_use =
           event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
       bool remote_crash =
@@ -177,14 +204,29 @@ static void event_cb(ChiakiEvent *event, void *user) {
       if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
         retry_delay = 5 * 1000 * 1000ULL;
       }
+      uint64_t throttle_until = now_us + retry_delay;
+      if (takion_backoff_until && takion_backoff_until > throttle_until)
+        throttle_until = takion_backoff_until;
       if (context.stream.stop_requested) {
-        context.stream.next_stream_allowed_us = 0;
+        context.stream.next_stream_allowed_us =
+            (takion_backoff_until && takion_backoff_until > now_us)
+                ? takion_backoff_until
+                : 0;
       } else {
-        context.stream.next_stream_allowed_us = now_us + retry_delay;
+        context.stream.next_stream_allowed_us = throttle_until;
+      }
+      if (context.stream.next_stream_allowed_us > now_us) {
+        uint64_t wait_ms =
+            (context.stream.next_stream_allowed_us - now_us + 999) / 1000ULL;
+        LOGD("Stream cooldown engaged for %llu ms", wait_ms);
       }
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
-      reset_stream_metrics();
+      reset_stream_metrics(true);
+      context.stream.takion_overflow_backoff_until_us = takion_backoff_until;
+      context.stream.takion_cooldown_overlay_active =
+          takion_cooldown_active &&
+          takion_backoff_until && takion_backoff_until > now_us;
       context.stream.loss_retry_attempts = retry_attempts;
       context.stream.loss_retry_bitrate_kbps = retry_bitrate;
       context.stream.loss_retry_ready_us = retry_ready;
@@ -231,6 +273,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
           LOGE("Fallback restart failed (%d)", restart_result);
           context.stream.loss_retry_active = false;
           context.stream.reconnect_overlay_active = false;
+          context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
+          context.stream.restart_failure_active = true;
           resume_discovery_if_needed();
         } else {
           context.stream.loss_retry_active = false;
@@ -243,7 +287,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	}
 }
 
-static void reset_stream_metrics(void) {
+static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
   context.stream.metrics_last_update_us = 0;
@@ -257,6 +301,9 @@ static void reset_stream_metrics(void) {
   context.stream.total_frames_lost = 0;
   context.stream.loss_window_start_us = 0;
   context.stream.loss_window_event_count = 0;
+  context.stream.loss_window_frame_accum = 0;
+  context.stream.loss_burst_frame_accum = 0;
+  context.stream.loss_burst_start_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
   context.stream.logged_loss_events = 0;
@@ -265,6 +312,16 @@ static void reset_stream_metrics(void) {
   context.stream.takion_drop_packets = 0;
   context.stream.logged_drop_events = 0;
   context.stream.takion_drop_last_us = 0;
+  context.stream.last_takion_overflow_restart_us = 0;
+  if (!preserve_recovery_state) {
+  context.stream.takion_overflow_soft_attempts = 0;
+  context.stream.takion_overflow_window_start_us = 0;
+  context.stream.takion_overflow_backoff_until_us = 0;
+  context.stream.takion_cooldown_overlay_active = false;
+  context.stream.takion_overflow_drop_window_start_us = 0;
+  context.stream.takion_overflow_recent_drops = 0;
+  }
+  context.stream.last_restart_failure_us = 0;
   context.stream.loss_retry_pending = false;
   context.stream.loss_retry_active = false;
   context.stream.loss_retry_attempts = 0;
@@ -278,6 +335,10 @@ static void reset_stream_metrics(void) {
   context.stream.last_input_stall_log_us = 0;
   context.stream.inputs_blocked_since_us = 0;
   context.stream.inputs_resume_pending = false;
+  context.stream.unrecovered_frame_streak = 0;
+  context.stream.unrecovered_gate_events = 0;
+  context.stream.unrecovered_gate_window_start_us = 0;
+  context.stream.restart_failure_active = false;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -341,6 +402,7 @@ static void update_latency_metrics(void) {
          delta,
          context.stream.takion_drop_packets);
     context.stream.logged_drop_events = context.stream.takion_drop_events;
+    handle_takion_overflow();
   }
 }
 
@@ -382,6 +444,14 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
     LOGE("Cannot restart stream — session not initialized");
     return false;
   }
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (context.stream.last_restart_failure_us &&
+      now_us - context.stream.last_restart_failure_us < RESTART_FAILURE_COOLDOWN_US) {
+    uint64_t remaining = RESTART_FAILURE_COOLDOWN_US -
+        (now_us - context.stream.last_restart_failure_us);
+    LOGD("Restart cooldown active — delaying %llu ms", remaining / 1000ULL);
+    return false;
+  }
   if (context.stream.fast_restart_active) {
     LOGD("Soft restart already active; ignoring duplicate request");
     return true;
@@ -410,7 +480,27 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   context.stream.is_streaming = false;
   context.stream.reconnect_overlay_active = true;
   context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+  context.stream.inputs_ready = true;
+  context.stream.inputs_resume_pending = true;
+  context.stream.restart_failure_active = false;
+  context.stream.takion_cooldown_overlay_active = false;
   return true;
+}
+
+static void request_decoder_resync(const char *reason) {
+  if (!context.stream.session_init)
+    return;
+  ChiakiStreamConnection *stream_connection =
+      &context.stream.session.stream_connection;
+  ChiakiErrorCode err =
+      chiaki_stream_connection_request_idr(stream_connection);
+  if (err == CHIAKI_ERR_SUCCESS) {
+    LOGD("Decoder resync requested (%s)", reason ? reason : "unspecified");
+  } else {
+    LOGE("Failed to request decoder resync (%s): %s",
+         reason ? reason : "unspecified",
+         chiaki_error_string(err));
+  }
 }
 
 static void resume_discovery_if_needed(void) {
@@ -459,6 +549,331 @@ static bool auto_downgrade_latency_mode(void) {
   return true;
 }
 
+static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered) {
+  bool triggered = false;
+  if (frames_lost <= 0) {
+    context.stream.unrecovered_frame_streak = 0;
+    return triggered;
+  }
+
+  if (frame_recovered) {
+    context.stream.unrecovered_frame_streak = 0;
+    return triggered;
+  }
+
+  context.stream.unrecovered_frame_streak += (uint32_t)frames_lost;
+  if (context.stream.unrecovered_frame_streak < UNRECOVERED_FRAME_THRESHOLD)
+    return triggered;
+
+  context.stream.unrecovered_frame_streak = 0;
+  if (context.stream.fast_restart_active || context.stream.stop_requested)
+    return triggered;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (context.stream.unrecovered_gate_window_start_us == 0 ||
+      now_us - context.stream.unrecovered_gate_window_start_us >
+          UNRECOVERED_FRAME_GATE_WINDOW_US) {
+    context.stream.unrecovered_gate_window_start_us = now_us;
+    context.stream.unrecovered_gate_events = 0;
+  }
+
+  context.stream.unrecovered_gate_events++;
+  if (context.stream.unrecovered_gate_events <=
+      UNRECOVERED_FRAME_GATE_THRESHOLD) {
+    if (context.config.show_latency) {
+      uint32_t remaining = UNRECOVERED_FRAME_GATE_THRESHOLD -
+          context.stream.unrecovered_gate_events + 1;
+      LOGD("Unrecovered frame gate tolerated (%u event(s) remaining)",
+           remaining);
+    }
+    vitavideo_show_poor_net_indicator();
+    context.stream.loss_alert_until_us =
+        now_us + LOSS_ALERT_DURATION_US;
+    context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
+    request_decoder_resync("unrecovered frame gate");
+    return triggered;
+  }
+
+  context.stream.unrecovered_gate_events = 0;
+  context.stream.unrecovered_gate_window_start_us = now_us;
+  request_decoder_resync("unrecovered frame streak");
+  LOGD("Unrecovered frame streak detected — requesting soft restart");
+  if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
+    LOGE("Soft restart request failed after unrecovered frames; pausing stream");
+    request_stream_stop("decoder desync");
+    triggered = true;
+    context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
+    context.stream.restart_failure_active = true;
+  } else if (context.active_host) {
+    host_set_hint(context.active_host,
+                  "Video desync — retrying stream",
+                  true,
+                  5 * 1000 * 1000ULL);
+    triggered = true;
+    context.stream.last_restart_failure_us = 0;
+  }
+  return triggered;
+}
+
+static void handle_takion_overflow(void) {
+  if (context.stream.stop_requested)
+    return;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+
+  if (context.stream.takion_cooldown_overlay_active &&
+      context.stream.takion_overflow_backoff_until_us &&
+      now_us >= context.stream.takion_overflow_backoff_until_us) {
+    context.stream.takion_cooldown_overlay_active = false;
+    context.stream.takion_overflow_backoff_until_us = 0;
+  }
+
+  if (context.stream.fast_restart_active) {
+    LOGD("Takion overflow reported while restart active; ignoring");
+    return;
+  }
+
+  if (context.stream.takion_overflow_drop_window_start_us == 0 ||
+      now_us - context.stream.takion_overflow_drop_window_start_us >
+          TAKION_OVERFLOW_IGNORE_WINDOW_US) {
+    context.stream.takion_overflow_drop_window_start_us = now_us;
+    context.stream.takion_overflow_recent_drops = 0;
+  }
+
+  context.stream.takion_overflow_recent_drops++;
+  if (context.stream.takion_overflow_recent_drops <=
+      TAKION_OVERFLOW_IGNORE_THRESHOLD) {
+    if (context.config.show_latency) {
+      uint64_t window_elapsed_us =
+          now_us - context.stream.takion_overflow_drop_window_start_us;
+      uint64_t window_ms = window_elapsed_us / 1000ULL;
+      LOGD("Takion overflow tolerated (%u/%u within %llums)",
+           context.stream.takion_overflow_recent_drops,
+           TAKION_OVERFLOW_IGNORE_THRESHOLD,
+           (unsigned long long)window_ms);
+    }
+    return;
+  }
+
+  if (context.config.show_latency &&
+      context.stream.takion_overflow_recent_drops ==
+          (TAKION_OVERFLOW_IGNORE_THRESHOLD + 1)) {
+    uint64_t window_elapsed_us =
+        now_us - context.stream.takion_overflow_drop_window_start_us;
+    uint64_t window_ms = window_elapsed_us / 1000ULL;
+    LOGD("Takion overflow gate tripped after %u drops in %llums",
+         context.stream.takion_overflow_recent_drops,
+         (unsigned long long)window_ms);
+    uint32_t flushed_seq = chiaki_takion_drop_data_queue(
+        &context.stream.session.stream_connection.takion);
+    if (flushed_seq) {
+      LOGD("Takion overflow gate flushed reorder queue (ack %#x)", flushed_seq);
+    }
+    request_decoder_resync("takion overflow gate");
+  }
+
+  if (context.stream.takion_overflow_backoff_until_us &&
+      now_us < context.stream.takion_overflow_backoff_until_us) {
+    uint64_t remaining =
+        context.stream.takion_overflow_backoff_until_us - now_us;
+    LOGD("Takion overflow mitigation cooling down (%llu ms remaining)",
+         remaining / 1000ULL);
+    context.stream.takion_cooldown_overlay_active = true;
+    return;
+  }
+
+  if (context.stream.takion_overflow_window_start_us == 0 ||
+      now_us - context.stream.takion_overflow_window_start_us >
+          TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US) {
+    context.stream.takion_overflow_window_start_us = now_us;
+    context.stream.takion_overflow_soft_attempts = 0;
+  }
+
+  if (context.stream.takion_overflow_soft_attempts <
+      TAKION_OVERFLOW_SOFT_RECOVERY_MAX) {
+    uint32_t attempt = context.stream.takion_overflow_soft_attempts + 1;
+    LOGD("Takion overflow — soft recovery %u/%u at %u kbps",
+         attempt,
+         TAKION_OVERFLOW_SOFT_RECOVERY_MAX,
+         TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
+    bool restart_ok = request_stream_restart(TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
+    context.stream.takion_overflow_backoff_until_us =
+        now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
+    if (context.stream.next_stream_allowed_us <
+        context.stream.takion_overflow_backoff_until_us) {
+      context.stream.next_stream_allowed_us =
+          context.stream.takion_overflow_backoff_until_us;
+    }
+    if (restart_ok) {
+      context.stream.takion_overflow_soft_attempts++;
+      context.stream.last_takion_overflow_restart_us = now_us;
+      context.stream.takion_cooldown_overlay_active = true;
+      if (context.active_host) {
+        host_set_hint(context.active_host,
+                      "Network congestion — reducing bitrate",
+                      false,
+                      5 * 1000 * 1000ULL);
+      }
+      return;
+    }
+    LOGE("Takion overflow soft recovery request failed");
+    context.stream.last_restart_failure_us = now_us;
+    context.stream.restart_failure_active = true;
+    context.stream.takion_cooldown_overlay_active = true;
+    return;
+  }
+
+  if (context.stream.last_takion_overflow_restart_us &&
+      now_us - context.stream.last_takion_overflow_restart_us <
+          TAKION_OVERFLOW_RESTART_DELAY_US) {
+    uint64_t remaining =
+        TAKION_OVERFLOW_RESTART_DELAY_US -
+        (now_us - context.stream.last_takion_overflow_restart_us);
+    LOGD("Takion overflow restart throttled (%llu ms remaining)",
+         remaining / 1000ULL);
+    return;
+  }
+
+  context.stream.last_takion_overflow_restart_us = now_us;
+  context.stream.takion_overflow_backoff_until_us =
+      now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
+  context.stream.takion_cooldown_overlay_active = true;
+  if (context.stream.next_stream_allowed_us <
+      context.stream.takion_overflow_backoff_until_us) {
+    context.stream.next_stream_allowed_us =
+        context.stream.takion_overflow_backoff_until_us;
+  }
+  LOGD("Takion overflow threshold reached — requesting guarded restart");
+  if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
+    LOGE("Takion overflow restart failed; pausing stream");
+    request_stream_stop("takion overflow");
+  } else if (context.active_host) {
+    host_set_hint(context.active_host,
+                  "Network congestion — rebuilding stream",
+                  true,
+                  5 * 1000 * 1000ULL);
+  }
+}
+
+static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value) {
+  if (value < min_value)
+    return min_value;
+  if (value > max_value)
+    return max_value;
+  return value;
+}
+
+static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
+  LossDetectionProfile profile = {
+      .window_us = LOSS_EVENT_WINDOW_DEFAULT_US,
+      .min_frames = LOSS_EVENT_MIN_FRAMES_DEFAULT,
+      .event_threshold = LOSS_EVENT_THRESHOLD_DEFAULT,
+      .frame_threshold = 10,
+      .burst_window_us = 200 * 1000ULL,
+      .burst_frame_threshold = 4};
+
+  switch (mode) {
+    case VITA_LATENCY_MODE_ULTRA_LOW:
+      profile.window_us = 5 * 1000 * 1000ULL;
+      profile.min_frames = 4;
+      profile.event_threshold = 2;
+      profile.frame_threshold = 6;
+      profile.burst_window_us = 220 * 1000ULL;
+      profile.burst_frame_threshold = 6;
+      break;
+    case VITA_LATENCY_MODE_LOW:
+      profile.window_us = 7 * 1000 * 1000ULL;
+      profile.min_frames = 4;
+      profile.event_threshold = 3;
+      profile.frame_threshold = 8;
+      profile.burst_window_us = 240 * 1000ULL;
+      profile.burst_frame_threshold = 5;
+      break;
+    case VITA_LATENCY_MODE_BALANCED:
+    default:
+      profile.window_us = LOSS_EVENT_WINDOW_DEFAULT_US;
+      profile.min_frames = LOSS_EVENT_MIN_FRAMES_DEFAULT;
+      profile.event_threshold = LOSS_EVENT_THRESHOLD_DEFAULT;
+      profile.frame_threshold = 9;
+      profile.burst_window_us = 220 * 1000ULL;
+      profile.burst_frame_threshold = 5;
+      break;
+    case VITA_LATENCY_MODE_HIGH:
+      profile.window_us = 9 * 1000 * 1000ULL;
+      profile.min_frames = 5;
+      profile.event_threshold = 3;
+      profile.frame_threshold = 11;
+      profile.burst_window_us = 260 * 1000ULL;
+      profile.burst_frame_threshold = 6;
+      break;
+    case VITA_LATENCY_MODE_MAX:
+      profile.window_us = 10 * 1000 * 1000ULL;
+      profile.min_frames = 6;
+      profile.event_threshold = 4;
+      profile.frame_threshold = 13;
+      profile.burst_window_us = 280 * 1000ULL;
+      profile.burst_frame_threshold = 7;
+      break;
+  }
+
+  return profile;
+}
+
+static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile) {
+  if (!profile)
+    return;
+
+  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW &&
+      context.stream.loss_retry_attempts == 0 && profile->event_threshold > 1) {
+    profile->event_threshold--;
+  }
+
+  float target_mbps =
+      (float)latency_mode_target_kbps(context.config.latency_mode) / 1000.0f;
+  float measured_mbps = context.stream.measured_bitrate_mbps;
+  bool bitrate_known = measured_mbps > 0.01f && target_mbps > 0.0f;
+  const uint64_t window_step = 2 * 1000 * 1000ULL;
+
+  if (bitrate_known) {
+    if (measured_mbps <= target_mbps * 0.85f) {
+      profile->event_threshold =
+          clamp_u32(profile->event_threshold + 1, 1, 6);
+      profile->min_frames = clamp_u32(profile->min_frames + 1, 2, 8);
+      profile->frame_threshold =
+          clamp_u32(profile->frame_threshold + 2, 4, 24);
+      profile->burst_frame_threshold =
+          clamp_u32(profile->burst_frame_threshold + 1, 3, 16);
+      profile->window_us += window_step;
+    } else if (measured_mbps >= target_mbps * 1.2f) {
+      if (profile->event_threshold > 1)
+        profile->event_threshold--;
+      if (profile->min_frames > 2)
+        profile->min_frames--;
+      if (profile->frame_threshold > 4)
+        profile->frame_threshold -= 2;
+      if (profile->burst_frame_threshold > 3)
+        profile->burst_frame_threshold--;
+      if (profile->window_us > window_step)
+        profile->window_us -= window_step;
+      if (profile->burst_window_us > 100 * 1000ULL)
+        profile->burst_window_us -= 50 * 1000ULL;
+    }
+  }
+
+  uint32_t measured_fps = context.stream.measured_incoming_fps ?
+      context.stream.measured_incoming_fps : context.stream.negotiated_fps;
+  uint32_t clamp_target = context.stream.target_fps ?
+      context.stream.target_fps : context.stream.negotiated_fps;
+  if (measured_fps && clamp_target && measured_fps <= clamp_target) {
+    profile->event_threshold =
+        clamp_u32(profile->event_threshold + 1, 1, 6);
+    profile->frame_threshold =
+        clamp_u32(profile->frame_threshold + 1, 4, 24);
+    profile->burst_frame_threshold =
+        clamp_u32(profile->burst_frame_threshold + 1, 3, 16);
+  }
+}
+
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   if (frames_lost <= 0)
     return;
@@ -478,30 +893,77 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.logged_loss_events = context.stream.frame_loss_events;
   }
 
+  LossDetectionProfile loss_profile =
+      loss_profile_for_mode(context.config.latency_mode);
+  adjust_loss_profile_with_metrics(&loss_profile);
+
   if (context.stream.loss_window_start_us == 0 ||
-      now_us - context.stream.loss_window_start_us > LOSS_EVENT_WINDOW_US) {
+      now_us - context.stream.loss_window_start_us > loss_profile.window_us) {
     context.stream.loss_window_start_us = now_us;
     context.stream.loss_window_event_count = 0;
+    context.stream.loss_window_frame_accum = 0;
   }
 
-  // Ignore single-frame hiccups; they're common on Vita Wi-Fi and should not
-  // trip the aggressive fallback logic meant for sustained loss.
-  if (frames_lost < LOSS_EVENT_MIN_FRAMES)
-    return;
+  context.stream.loss_window_frame_accum += (uint32_t)frames_lost;
 
-  context.stream.loss_window_event_count++;
-
-  uint32_t event_threshold = LOSS_EVENT_THRESHOLD;
-  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW &&
-      context.stream.loss_retry_attempts == 0) {
-    event_threshold = LOSS_EVENT_THRESHOLD_ULTRA_LOW;
+  if (frames_lost >= (int32_t)loss_profile.min_frames) {
+    context.stream.loss_window_event_count++;
   }
 
-  if (context.stream.loss_window_event_count < event_threshold)
+  // Short-term burst tracking
+  uint64_t burst_window_us = loss_profile.burst_window_us;
+  if (context.stream.loss_burst_start_us == 0 ||
+      now_us - context.stream.loss_burst_start_us > burst_window_us) {
+    context.stream.loss_burst_start_us = now_us;
+    context.stream.loss_burst_frame_accum = 0;
+  }
+  context.stream.loss_burst_frame_accum += (uint32_t)frames_lost;
+  uint32_t burst_frames = context.stream.loss_burst_frame_accum;
+  uint32_t window_frames = context.stream.loss_window_frame_accum;
+  uint32_t window_events = context.stream.loss_window_event_count;
+  uint64_t burst_elapsed_us = context.stream.loss_burst_start_us ?
+      (now_us - context.stream.loss_burst_start_us) : 0;
+
+  if (context.config.show_latency) {
+    float burst_ms = burst_elapsed_us ? ((float)burst_elapsed_us / 1000.0f) : 0.0f;
+    LOGD("Loss accumulators — drop=%d, window_frames=%u, events=%u, burst_frames=%u (%.1f ms)",
+         frames_lost,
+         window_frames,
+         window_events,
+         burst_frames,
+         burst_ms);
+  }
+
+  bool hit_burst_threshold =
+      context.stream.loss_burst_frame_accum >= loss_profile.burst_frame_threshold;
+
+  bool hit_frame_threshold =
+      context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
+  bool hit_event_threshold =
+      context.stream.loss_window_event_count >= loss_profile.event_threshold;
+
+  if (!hit_event_threshold && !hit_frame_threshold && !hit_burst_threshold) {
+    // Ignore sub-threshold hiccups; they're common on Vita Wi-Fi.
+    // Keep accumulating so repeated drops can still trip the gate.
     return;
+  }
 
   context.stream.loss_window_event_count = 0;
   context.stream.loss_window_start_us = now_us;
+  context.stream.loss_window_frame_accum = 0;
+  context.stream.loss_burst_frame_accum = 0;
+  context.stream.loss_burst_start_us = 0;
+
+  if (context.config.show_latency) {
+    float window_s = (float)loss_profile.window_us / 1000000.0f;
+    const char *trigger = hit_burst_threshold ? "burst threshold" :
+        (hit_frame_threshold ? "frame threshold" : "event threshold");
+    LOGD("Loss gate reached (%s, %u events / %u frames in %.1fs)",
+         trigger,
+         window_events,
+         window_frames,
+         window_s);
+  }
 
   bool downgraded = false;
   char hint[96];
@@ -553,6 +1015,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   if (context.active_host) {
     host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
   }
+  context.stream.inputs_resume_pending = true;
   request_stream_stop("packet loss");
 }
 
@@ -566,6 +1029,11 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
   }
   if (frames_lost > 0) {
     handle_loss_event(frames_lost, frame_recovered);
+    bool restart_pending = handle_unrecovered_frame_loss(frames_lost, frame_recovered);
+    if (restart_pending) {
+      context.stream.is_streaming = false;
+      return true;
+    }
   }
   context.stream.is_streaming = true;
   if (ui_connection_overlay_active())
@@ -958,9 +1426,14 @@ int host_stream(VitaChiakiHost* host) {
     chiaki_connect_info.cached_controller_state = context.stream.cached_controller_state;
     chiaki_connect_info.cached_controller_state_valid = true;
   } else {
-    chiaki_controller_state_set_idle(&chiaki_connect_info.cached_controller_state);
-    chiaki_connect_info.cached_controller_state_valid = false;
-  }
+	chiaki_controller_state_set_idle(&chiaki_connect_info.cached_controller_state);
+	chiaki_connect_info.cached_controller_state_valid = false;
+	}
+
+	LOGD("Initializing Chiaki session (host=%s, bitrate=%u kbps, fps=%u)",
+	     host->hostname ? host->hostname : "<null>",
+	     profile.bitrate,
+	     profile.max_fps);
 
 	ChiakiErrorCode err = chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
 	if(err != CHIAKI_ERR_SUCCESS) {
@@ -983,8 +1456,9 @@ int host_stream(VitaChiakiHost* host) {
     context.discovery_resume_after_stream = true;
   }
 	init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
-	context.stream.session_init = true;
-  reset_stream_metrics();
+ 	context.stream.session_init = true;
+	reset_stream_metrics(false);
+	LOGD("Chiaki session initialized successfully, starting media pipeline");
 	ChiakiAudioSink audio_sink;
 	chiaki_opus_decoder_init(&context.stream.opus_decoder, &context.log);
 	chiaki_opus_decoder_set_cb(&context.stream.opus_decoder, vita_audio_init, vita_audio_cb, NULL);
