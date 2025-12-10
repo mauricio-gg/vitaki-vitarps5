@@ -58,3 +58,12 @@ Even if `enabled = false`, the worker always writes `CHIAKI_LOG_ERROR` and `LOGE
 - For Chiaki-side logs, call `chiaki_log_*()` with an appropriate level and let the profile filter the callback.
 
 When making architectural changes, update this document and cite the relevant sources (e.g., `vita/src/logging.c` or `tools/build.sh`) so reviewers can trace the behavior quickly.
+
+## Debug HUD Shortcuts (Testing Builds Only)
+- Build with `./tools/build.sh --env testing` (or any profile that sets `VITARPS5_DEBUG_MENU=1`).
+- On the main dashboard press **L + R + Start** to open the hidden **Debug Actions** palette.
+- Available actions:
+  1. **Show Remote Play error popup** – renders the new modal overlay so UX changes can be reviewed without forcing a failure.
+  2. **Simulate disconnect banner** – greys out the active console card, shows the full-width “Streaming stopped” banner, and blocks reconnect taps for ~4 s.
+  3. **Trigger network unstable badge** – fades in the streaming “Network Unstable” pill so styling tweaks can be inspected outside a session.
+- While the overlay is visible, inputs to the rest of the UI are blocked; tap anywhere or press Circle to dismiss.

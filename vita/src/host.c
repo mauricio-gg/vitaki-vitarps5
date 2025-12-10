@@ -35,6 +35,7 @@ static void shutdown_media_pipeline(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
+static void update_disconnect_banner(const char *reason);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -175,12 +176,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_RUMBLE:
 			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
 			break;
-		case CHIAKI_EVENT_QUIT: {
+	case CHIAKI_EVENT_QUIT: {
+      bool user_stop_requested = context.stream.stop_requested;
       const char *reason_label = quit_reason_label(event->quit.reason);
-      LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
-           event->quit.reason_str ? event->quit.reason_str : "unknown",
-           event->quit.reason,
-           reason_label);
+			LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
+				 event->quit.reason_str ? event->quit.reason_str : "unknown",
+				 event->quit.reason,
+				 reason_label);
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -226,6 +228,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
         uint64_t wait_ms =
             (context.stream.next_stream_allowed_us - now_us + 999) / 1000ULL;
         LOGD("Stream cooldown engaged for %llu ms", wait_ms);
+      }
+      if (!user_stop_requested) {
+        const char *banner_reason =
+            (event->quit.reason_str && event->quit.reason_str[0])
+                ? event->quit.reason_str
+                : reason_label;
+        update_disconnect_banner(banner_reason);
       }
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
@@ -329,6 +338,8 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_overflow_recent_drops = 0;
   }
   context.stream.last_restart_failure_us = 0;
+  context.stream.disconnect_reason[0] = '\0';
+  context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
   context.stream.loss_retry_active = false;
   context.stream.loss_retry_attempts = 0;
@@ -545,10 +556,19 @@ static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, 
     host->status_hint_is_error = is_error;
     uint64_t now_us = sceKernelGetProcessTimeWide();
     host->status_hint_expire_us = duration_us ? (now_us + duration_us) : 0;
+    if (is_error) {
+      context.ui_state.error_popup_active = true;
+      sceClibSnprintf(context.ui_state.error_popup_text,
+                      sizeof(context.ui_state.error_popup_text), "%s", msg);
+    }
   } else {
     host->status_hint[0] = '\0';
     host->status_hint_is_error = false;
     host->status_hint_expire_us = 0;
+    if (is_error) {
+      context.ui_state.error_popup_active = false;
+      context.ui_state.error_popup_text[0] = '\0';
+    }
   }
 }
 
@@ -793,24 +813,38 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
 
 static const char *quit_reason_label(ChiakiQuitReason reason) {
   switch (reason) {
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST:
-      return "Generic session quit";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
-      return "Remote Play already in use";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
-      return "Remote Play crash";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN:
-      return "Unknown session request failure";
-    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_TIMEOUT:
-      return "Stream info timeout";
-    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_ERROR:
-      return "Stream info error";
-    case CHIAKI_QUIT_REASON_SESSION_GKCRYPT_ERROR:
-      return "GKCrypt error";
-    case CHIAKI_QUIT_REASON_SESSION_UNKNOWN:
+    case CHIAKI_QUIT_REASON_NONE: return "No quit";
+    case CHIAKI_QUIT_REASON_STOPPED: return "User stopped";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN: return "Session request failed";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_CONNECTION_REFUSED: return "Connection refused";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE: return "Remote Play already in use";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH: return "Remote Play crashed";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_VERSION_MISMATCH: return "Remote Play version mismatch";
+    case CHIAKI_QUIT_REASON_CTRL_UNKNOWN: return "Control channel failure";
+    case CHIAKI_QUIT_REASON_CTRL_CONNECT_FAILED: return "Control connection failed";
+    case CHIAKI_QUIT_REASON_CTRL_CONNECTION_REFUSED: return "Control connection refused";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN: return "Stream connection failure";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED: return "Console disconnected";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN: return "Console shutdown";
+    case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED: return "PSN registration failed";
     default:
       return "Unspecified";
   }
+}
+
+static void update_disconnect_banner(const char *reason) {
+  if (!reason || !reason[0])
+    return;
+
+  sceClibSnprintf(context.stream.disconnect_reason,
+                  sizeof(context.stream.disconnect_reason),
+                  "%s",
+                  reason);
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  uint64_t until = context.stream.next_stream_allowed_us;
+  if (!until)
+    until = now_us + 3 * 1000 * 1000ULL;
+  context.stream.disconnect_banner_until_us = until;
 }
 
 static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {

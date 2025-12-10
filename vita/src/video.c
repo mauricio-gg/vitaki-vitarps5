@@ -34,10 +34,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include <stdarg.h>
 
 void draw_streaming(vita2d_texture *frame_texture);
+
+static void draw_pill(int x, int y, int width, int height, uint32_t color) {
+  if (height <= 0 || width <= 0)
+    return;
+
+  int radius = height / 2;
+  if (radius <= 0) {
+    vita2d_draw_rectangle(x, y, width, height, color);
+    return;
+  }
+
+  if (radius * 2 > width)
+    radius = width / 2;
+
+  int body_width = width - 2 * radius;
+  if (body_width > 0)
+    vita2d_draw_rectangle(x + radius, y, body_width, height, color);
+
+  int center_y = y + radius;
+  int radius_sq = radius * radius;
+  for (int py = 0; py < height; ++py) {
+    int dy = (y + py) - center_y;
+    int inside = radius_sq - dy * dy;
+    if (inside <= 0)
+      continue;
+    int dx = (int)ceilf(sqrtf((float)inside));
+    if (dx <= 0)
+      continue;
+
+    vita2d_draw_rectangle(x + radius - dx, y + py, dx, 1, color);
+    vita2d_draw_rectangle(x + width - radius, y + py, dx, 1, color);
+  }
+}
 void draw_fps();
 void draw_indicators();
 
@@ -934,27 +968,29 @@ void draw_indicators() {
     alpha_ratio = 0.0f;
   uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
 
-  const int margin = 16;
+  const int margin = 18;
   const int dot_radius = 6;
-  const int padding_x = 12;
-  const int padding_y = 10;
+  const int padding_x = 18;
+  const int padding_y = 6;
   const char *headline = "Network Unstable";
   int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = padding_x * 2 + dot_radius * 2 + 8 + text_width;
-  int box_h = padding_y * 2 + FONT_SIZE_SMALL;
+  int box_w = padding_x * 2 + dot_radius * 2 + 10 + text_width;
+  int box_h = padding_y * 2 + FONT_SIZE_SMALL + 4;
   int box_x = SCREEN_WIDTH - box_w - margin;
   int box_y = SCREEN_HEIGHT - box_h - margin;
 
-  vita2d_draw_rectangle(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, 190));
-  vita2d_draw_line(box_x, box_y, box_x + box_w, box_y, RGBA8(255, 255, 255, 32));
-  vita2d_draw_line(box_x, box_y + box_h, box_x + box_w, box_y + box_h, RGBA8(0, 0, 0, 120));
+  uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
+  if (bg_alpha < 30)
+    bg_alpha = 30;
+  uint32_t bg_color = RGBA8(0, 0, 0, bg_alpha);
+  draw_pill(box_x, box_y, box_w, box_h, bg_color);
 
-  int dot_x = box_x + padding_x + dot_radius;
+  int dot_x = box_x + padding_x;
   int dot_y = box_y + box_h / 2;
   vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
 
-  int text_x = dot_x + dot_radius + 8;
-  int text_y = box_y + padding_y + FONT_SIZE_SMALL;
+  int text_x = dot_x + dot_radius + 10;
+  int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
   vita2d_font_draw_text(font, text_x, text_y,
                         RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL, headline);
 }
@@ -972,6 +1008,8 @@ void vita_h264_stop() {
 }
 
 void vitavideo_show_poor_net_indicator() {
+  if (!context.config.show_network_indicator)
+    return;
   poor_net_indicator.activated = true;
 }
 

@@ -2,6 +2,7 @@
 #include <chiaki/base64.h>
 #include <psp2/message_dialog.h>
 #include "util.h"
+#include <string.h>
 
 void parse_b64(const char* val, uint8_t* dest, size_t len) {
   chiaki_base64_decode(val, get_base64_size(len), dest, &len);

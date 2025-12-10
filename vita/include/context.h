@@ -84,6 +84,8 @@ typedef struct vita_chiaki_stream_t {
   uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
   uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
+  char disconnect_reason[128];
+  uint64_t disconnect_banner_until_us;
   bool loss_retry_pending;          // Whether a lower bitrate retry is scheduled
   bool loss_retry_active;           // Apply fallback bitrate on next host_stream
   uint32_t loss_retry_attempts;     // Number of fallback retries used

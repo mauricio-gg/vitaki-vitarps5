@@ -185,6 +185,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
   cfg->controller_map_id = 0;
   cfg->show_latency = false;  // Default: latency display disabled
+  cfg->show_network_indicator = true;
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
@@ -274,6 +275,8 @@ void config_parse(VitaChiakiConfig* cfg) {
 
       datum = toml_bool_in(settings, "show_latency");
       cfg->show_latency = datum.ok ? datum.u.b : false;  // Default: disabled
+      datum = toml_bool_in(settings, "show_network_indicator");
+      cfg->show_network_indicator = datum.ok ? datum.u.b : true;
 
       datum = toml_bool_in(settings, "stretch_video");
       cfg->stretch_video = datum.ok ? datum.u.b : false;
@@ -582,6 +585,8 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->circle_btn_confirm ? "true" : "false");
   fprintf(fp, "show_latency = %s\n",
           cfg->show_latency ? "true" : "false");
+  fprintf(fp, "show_network_indicator = %s\n",
+          cfg->show_network_indicator ? "true" : "false");
   fprintf(fp, "stretch_video = %s\n",
           cfg->stretch_video ? "true" : "false");
   fprintf(fp, "force_30fps = %s\n",

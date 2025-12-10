@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="224"
+VERSION_ITERATION="233"
 
 # Colors for output
 RED='\033[0;31m'
@@ -495,6 +495,16 @@ main() {
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
+
+    local debug_menu_val
+    debug_menu_val=$(normalize_bool "$VITARPS5_DEBUG_MENU")
+    if [ -n "$debug_menu_val" ]; then
+        if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
+            CMAKE_EXTRA_FLAGS+=" -DVITARPS5_DEBUG_MENU=${debug_menu_val}"
+        else
+            CMAKE_EXTRA_FLAGS="-DVITARPS5_DEBUG_MENU=${debug_menu_val}"
+        fi
+    fi
 
     # Check Docker availability
     check_docker
