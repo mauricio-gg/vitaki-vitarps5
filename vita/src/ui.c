@@ -19,6 +19,14 @@
 #include "util.h"
 #include "video.h"
 
+#ifndef VIDEO_LOSS_ALERT_DEFAULT_US
+#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
+#endif
+
+#ifndef VITARPS5_DEBUG_MENU
+#define VITARPS5_DEBUG_MENU 0
+#endif
+
 // Legacy colors (kept for compatibility)
 #define COLOR_WHITE RGBA8(255, 255, 255, 255)
 #define COLOR_GRAY50 RGBA8(129, 129, 129, 255)
@@ -156,6 +164,26 @@ typedef struct {
 } ToggleAnimationState;
 
 static ToggleAnimationState toggle_anim = {-1, false, 0};
+static void render_error_popup(void);
+static void handle_error_popup_input(void);
+static void render_debug_menu(void);
+static void handle_debug_menu_input(void);
+static void debug_menu_apply_action(int action_index);
+static void close_debug_menu(void);
+static void open_debug_menu(void);
+static void ensure_active_host_for_debug(void);
+static void render_loss_indicator_preview(void);
+static void draw_rounded_rectangle(int x, int y, int width, int height, int radius, uint32_t color);
+
+static const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
+static const uint32_t DEBUG_MENU_COMBO_MASK =
+    SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_START;
+static const char *debug_menu_options[] = {
+    "Show Remote Play error popup",
+    "Simulate disconnect banner",
+    "Trigger network unstable badge",
+};
+#define DEBUG_MENU_OPTION_COUNT (sizeof(debug_menu_options) / sizeof(debug_menu_options[0]))
 
 // Connection overlay state (covers waking + fast connect flows)
 typedef struct {
@@ -373,6 +401,8 @@ char* cancel_btn_str  = "Circle";
 bool btn_pressed(SceCtrlButtons btn) {
   if (button_block_mask & btn)
     return false;
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+    return false;
   return (context.ui_state.button_state & btn) &&
          !(context.ui_state.old_button_state & btn);
 }
@@ -414,6 +444,267 @@ static void draw_circle(int cx, int cy, int radius, uint32_t color) {
         vita2d_draw_rectangle(draw_x, draw_y, 1, 1, color);
       }
     }
+  }
+}
+
+static void render_error_popup(void) {
+  if (!context.ui_state.error_popup_active)
+    return;
+
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
+
+  const int popup_w = 520;
+  const int popup_h = 280;
+  int popup_x = (VITA_WIDTH - popup_w) / 2;
+  int popup_y = (VITA_HEIGHT - popup_h) / 2;
+  draw_rounded_rectangle(popup_x, popup_y, popup_w, popup_h, 16,
+                         RGBA8(0x14, 0x16, 0x1C, 240));
+
+  const char *message = context.ui_state.error_popup_text[0]
+                            ? context.ui_state.error_popup_text
+                            : "Connection error";
+  int message_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, message);
+  int message_x = popup_x + (popup_w - message_w) / 2;
+  int message_y = popup_y + popup_h / 2;
+  vita2d_font_draw_text(font, message_x, message_y,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, message);
+
+  const char *hint = "Tap anywhere to dismiss";
+  int hint_w = vita2d_font_text_width(font, FONT_SIZE_BODY, hint);
+  int hint_x = popup_x + (popup_w - hint_w) / 2;
+  int hint_y = popup_y + popup_h - 40;
+  vita2d_font_draw_text(font, hint_x, hint_y,
+                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
+}
+
+static void handle_error_popup_input(void) {
+  if (!context.ui_state.error_popup_active)
+    return;
+
+  uint32_t dismiss_mask = SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT;
+  bool button_dismiss =
+      (context.ui_state.button_state & dismiss_mask) &&
+      !(context.ui_state.old_button_state & dismiss_mask);
+  bool touch_dismiss = context.ui_state.touch_state_front.reportNum > 0;
+
+  if (button_dismiss || touch_dismiss) {
+    context.ui_state.error_popup_active = false;
+    context.ui_state.error_popup_text[0] = '\0';
+    button_block_mask |= context.ui_state.button_state;
+    touch_block_active = true;
+  }
+}
+
+static void ensure_active_host_for_debug(void) {
+  if (context.active_host)
+    return;
+  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    if (context.hosts[i]) {
+      context.active_host = context.hosts[i];
+      break;
+    }
+  }
+}
+
+static void open_debug_menu(void) {
+  if (!debug_menu_enabled)
+    return;
+  if (context.ui_state.debug_menu_active)
+    return;
+  context.ui_state.debug_menu_active = true;
+  context.ui_state.debug_menu_selection = 0;
+  button_block_mask |= context.ui_state.button_state;
+  touch_block_active = true;
+}
+
+static void close_debug_menu(void) {
+  if (!context.ui_state.debug_menu_active)
+    return;
+  context.ui_state.debug_menu_active = false;
+  context.ui_state.debug_menu_selection = 0;
+  button_block_mask |= context.ui_state.button_state;
+  touch_block_active = true;
+}
+
+static void debug_menu_apply_action(int action_index) {
+  if (!debug_menu_enabled)
+    return;
+  if (action_index < 0 || action_index >= (int)DEBUG_MENU_OPTION_COUNT)
+    return;
+
+  switch (action_index) {
+    case 0: {
+      context.ui_state.error_popup_active = true;
+      sceClibSnprintf(context.ui_state.error_popup_text,
+                      sizeof(context.ui_state.error_popup_text),
+                      "Remote Play already active on console");
+      LOGD("Debug menu: forced Remote Play error popup");
+      break;
+    }
+    case 1: {
+      ensure_active_host_for_debug();
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      const uint64_t demo_duration_us = 4 * 1000 * 1000ULL;
+      sceClibSnprintf(context.stream.disconnect_reason,
+                      sizeof(context.stream.disconnect_reason),
+                      "Connection interrupted (debug)");
+      context.stream.disconnect_banner_until_us = now_us + demo_duration_us;
+      context.stream.next_stream_allowed_us = now_us + demo_duration_us;
+      context.stream.takion_cooldown_overlay_active = true;
+      if (context.stream.takion_overflow_backoff_until_us <
+          context.stream.next_stream_allowed_us) {
+        context.stream.takion_overflow_backoff_until_us =
+            context.stream.next_stream_allowed_us;
+      }
+      LOGD("Debug menu: simulated disconnect banner for %llums",
+           (unsigned long long)(demo_duration_us / 1000ULL));
+      break;
+    }
+    case 2: {
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      const uint64_t alert_duration_us = 3 * 1000 * 1000ULL;
+      context.stream.loss_alert_duration_us = alert_duration_us;
+      context.stream.loss_alert_until_us = now_us + alert_duration_us;
+      vitavideo_show_poor_net_indicator();
+      LOGD("Debug menu: triggered network unstable indicator for %llums",
+           (unsigned long long)(alert_duration_us / 1000ULL));
+      break;
+    }
+    default:
+      break;
+  }
+
+  close_debug_menu();
+}
+
+static void render_loss_indicator_preview(void) {
+  if (context.stream.is_streaming)
+    return;
+  if (!context.config.show_network_indicator)
+    return;
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (!context.stream.loss_alert_until_us ||
+      now_us >= context.stream.loss_alert_until_us)
+    return;
+
+  uint64_t duration = context.stream.loss_alert_duration_us ?
+      context.stream.loss_alert_duration_us : VIDEO_LOSS_ALERT_DEFAULT_US;
+  if (!duration)
+    duration = VIDEO_LOSS_ALERT_DEFAULT_US;
+  uint64_t remaining = context.stream.loss_alert_until_us - now_us;
+  float alpha_ratio = (float)remaining / (float)duration;
+  if (alpha_ratio < 0.0f)
+    alpha_ratio = 0.0f;
+  uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
+
+  const int margin = 18;
+  const int dot_radius = 6;
+  const int padding_x = 18;
+  const int padding_y = 6;
+  const char *headline = "Network Unstable";
+  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
+  int box_w = padding_x * 2 + dot_radius * 2 + 10 + text_width;
+  int box_h = padding_y * 2 + FONT_SIZE_SMALL + 4;
+  int box_x = VITA_WIDTH - box_w - margin;
+  int box_y = VITA_HEIGHT - box_h - margin;
+
+  uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
+  if (bg_alpha < 40)
+    bg_alpha = 40;
+  draw_rounded_rectangle(box_x, box_y, box_w, box_h, box_h / 2,
+                         RGBA8(0, 0, 0, bg_alpha));
+
+  int dot_x = box_x + padding_x;
+  int dot_y = box_y + box_h / 2;
+  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius,
+                          RGBA8(0xF4, 0x43, 0x36, alpha));
+
+  int text_x = dot_x + dot_radius + 10;
+  int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
+  vita2d_font_draw_text(font, text_x, text_y,
+                        RGBA8(0xFF, 0xFF, 0xFF, alpha),
+                        FONT_SIZE_SMALL,
+                        headline);
+}
+
+static void render_debug_menu(void) {
+  if (!context.ui_state.debug_menu_active)
+    return;
+
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
+
+  const int panel_w = 560;
+  const int panel_h = 240;
+  int panel_x = (VITA_WIDTH - panel_w) / 2;
+  int panel_y = (VITA_HEIGHT - panel_h) / 2;
+  draw_rounded_rectangle(panel_x, panel_y, panel_w, panel_h, 18,
+                         RGBA8(0x14, 0x16, 0x1C, 240));
+
+  const char *title = "Debug Actions";
+  int title_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  vita2d_font_draw_text(font,
+                        panel_x + (panel_w - title_w) / 2,
+                        panel_y + 40,
+                        UI_COLOR_TEXT_PRIMARY,
+                        FONT_SIZE_HEADER,
+                        title);
+
+  int list_y = panel_y + 70;
+  for (int i = 0; i < (int)DEBUG_MENU_OPTION_COUNT; i++) {
+    uint32_t row_color = RGBA8(0x30, 0x35, 0x40, 255);
+    if (i == context.ui_state.debug_menu_selection) {
+      row_color = RGBA8(0x34, 0x90, 0xFF, 160);
+    }
+    int row_h = 44;
+    int row_margin = 6;
+    draw_rounded_rectangle(panel_x + 30,
+                           list_y + i * (row_h + row_margin),
+                           panel_w - 60,
+                           row_h,
+                           10,
+                           row_color);
+    vita2d_font_draw_text(font,
+                          panel_x + 50,
+                          list_y + i * (row_h + row_margin) + row_h / 2 + 6,
+                          UI_COLOR_TEXT_PRIMARY,
+                          FONT_SIZE_BODY,
+                          debug_menu_options[i]);
+  }
+
+  const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
+  int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+  vita2d_font_draw_text(font,
+                        panel_x + (panel_w - hint_w) / 2,
+                        panel_y + panel_h - 20,
+                        UI_COLOR_TEXT_SECONDARY,
+                        FONT_SIZE_SMALL,
+                        hint);
+}
+
+static void handle_debug_menu_input(void) {
+  if (!context.ui_state.debug_menu_active)
+    return;
+
+  uint32_t buttons = context.ui_state.button_state;
+  uint32_t prev_buttons = context.ui_state.old_button_state;
+
+  if ((buttons & SCE_CTRL_UP) && !(prev_buttons & SCE_CTRL_UP)) {
+    context.ui_state.debug_menu_selection--;
+    if (context.ui_state.debug_menu_selection < 0)
+      context.ui_state.debug_menu_selection = DEBUG_MENU_OPTION_COUNT - 1;
+  } else if ((buttons & SCE_CTRL_DOWN) && !(prev_buttons & SCE_CTRL_DOWN)) {
+    context.ui_state.debug_menu_selection++;
+    if (context.ui_state.debug_menu_selection >= (int)DEBUG_MENU_OPTION_COUNT)
+      context.ui_state.debug_menu_selection = 0;
+  }
+
+  if ((buttons & SCE_CTRL_CIRCLE) && !(prev_buttons & SCE_CTRL_CIRCLE)) {
+    close_debug_menu();
+    return;
+  }
+
+  if ((buttons & SCE_CTRL_CROSS) && !(prev_buttons & SCE_CTRL_CROSS)) {
+    debug_menu_apply_action(context.ui_state.debug_menu_selection);
   }
 }
 
@@ -1111,15 +1402,16 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
     int indicator_y = y + 10;
     if (is_cooldown_card) {
       uint64_t now_ms = sceKernelGetProcessTimeWide() / 1000ULL;
-      static const char *ellipsis[] = {"", ".", "..", "..."};
-      const char *dots = ellipsis[(now_ms / 400) % 4];
-      char wait_text[32];
-      sceClibSnprintf(wait_text, sizeof(wait_text), "Please wait%s", dots);
+      float phase = (float)(now_ms % 1600) / 1600.0f;
+      float pulse = (sinf(phase * 2.0f * M_PI) + 1.0f) * 0.5f;
+      uint8_t channel = (uint8_t)(190 + pulse * 50.0f);
+      uint32_t wait_color = RGBA8(channel, channel, channel, 255);
+      const char *wait_text = "Please wait...";
       int wait_w = vita2d_font_text_width(font, FONT_SIZE_BODY, wait_text);
-      int text_x = indicator_x - wait_w - 12;
+      int text_x = x + (CONSOLE_CARD_WIDTH - wait_w) / 2;
       int text_y = indicator_y + FONT_SIZE_BODY;
       vita2d_font_draw_text(font, text_x, text_y,
-                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, wait_text);
+                            wait_color, FONT_SIZE_BODY, wait_text);
     }
     vita2d_draw_texture(status_tex, indicator_x, indicator_y);
   }
@@ -1239,15 +1531,15 @@ void render_console_grid() {
     sceClibSnprintf(banner_text, sizeof(banner_text),
                     "Streaming stopped: %s - Please wait a few moments",
                     reason);
-    int banner_w = VITA_WIDTH - 120;
-    int banner_h = 42;
-    int banner_x = (VITA_WIDTH - banner_w) / 2;
-    int banner_y = text_y - banner_h - 12;
-    draw_rounded_rectangle(banner_x, banner_y, banner_w, banner_h, 12,
-                           RGBA8(0x05, 0x05, 0x07, 230));
+    int banner_w = VITA_WIDTH;
+    int banner_h = 44;
+    int banner_x = 0;
+    int banner_y = 0;
+    vita2d_draw_rectangle(banner_x, banner_y, banner_w, banner_h,
+                          RGBA8(0x05, 0x05, 0x07, 235));
     int banner_text_w = vita2d_font_text_width(font, FONT_SIZE_BODY, banner_text);
     int banner_text_x = banner_x + (banner_w - banner_text_w) / 2;
-    int banner_text_y = banner_y + banner_h / 2 + (FONT_SIZE_BODY / 2);
+    int banner_text_y = banner_y + banner_h / 2 + (FONT_SIZE_BODY / 2) - 4;
     vita2d_font_draw_text(font, banner_text_x, banner_text_y,
                           UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, banner_text);
   }
@@ -1352,6 +1644,10 @@ bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
 UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
+
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active) {
+    return UI_SCREEN_TYPE_MAIN;
+  }
 
   if (touch_block_active) {
     if (touch.reportNum == 0) {
@@ -3466,6 +3762,8 @@ void draw_ui() {
 
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
+  context.ui_state.debug_menu_active = false;
+  context.ui_state.debug_menu_selection = 0;
 
   load_psn_id_if_needed();
 
@@ -3482,6 +3780,18 @@ void draw_ui() {
 
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
+
+    // Allow popup dismissal to capture inputs before we process other widgets
+    handle_error_popup_input();
+    handle_debug_menu_input();
+
+    if (debug_menu_enabled && !context.stream.is_streaming &&
+        !context.ui_state.debug_menu_active) {
+      if ((context.ui_state.button_state & DEBUG_MENU_COMBO_MASK) == DEBUG_MENU_COMBO_MASK &&
+          (context.ui_state.old_button_state & DEBUG_MENU_COMBO_MASK) != DEBUG_MENU_COMBO_MASK) {
+        open_debug_menu();
+      }
+    }
 
 
       // handle invalid items
@@ -3582,6 +3892,9 @@ void draw_ui() {
           block_inputs_for_transition();
         }
         screen = next_screen;
+        render_loss_indicator_preview();
+        render_debug_menu();
+        render_error_popup();
         vita2d_end_drawing();
         vita2d_common_dialog_update();
         vita2d_swap_buffers();

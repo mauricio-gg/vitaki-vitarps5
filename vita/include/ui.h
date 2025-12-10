@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
 #include <vita2d.h>
@@ -18,6 +19,10 @@ typedef struct vita_chiaki_ui_state_t {
   int next_active_item;
   int mlog_line_offset;
   uint64_t mlog_last_update;
+  bool error_popup_active;
+  char error_popup_text[128];
+  bool debug_menu_active;
+  int debug_menu_selection;
 } VitaChiakiUIState;
 
 /// Identifiers of various widgets on the screen
