@@ -17,6 +17,7 @@
 #include "host.h"
 #include "ui.h"
 #include "util.h"
+#include "video.h"
 
 // Legacy colors (kept for compatibility)
 #define COLOR_WHITE RGBA8(255, 255, 255, 255)

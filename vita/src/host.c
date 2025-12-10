@@ -804,21 +804,20 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
 
 static const char *quit_reason_label(ChiakiQuitReason reason) {
   switch (reason) {
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST:
-      return "Generic session quit";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
-      return "Remote Play already in use";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
-      return "Remote Play crash";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN:
-      return "Unknown session request failure";
-    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_TIMEOUT:
-      return "Stream info timeout";
-    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_ERROR:
-      return "Stream info error";
-    case CHIAKI_QUIT_REASON_SESSION_GKCRYPT_ERROR:
-      return "GKCrypt error";
-    case CHIAKI_QUIT_REASON_SESSION_UNKNOWN:
+    case CHIAKI_QUIT_REASON_NONE: return "No quit";
+    case CHIAKI_QUIT_REASON_STOPPED: return "User stopped";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN: return "Session request failed";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_CONNECTION_REFUSED: return "Connection refused";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE: return "Remote Play already in use";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH: return "Remote Play crashed";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_VERSION_MISMATCH: return "Remote Play version mismatch";
+    case CHIAKI_QUIT_REASON_CTRL_UNKNOWN: return "Control channel failure";
+    case CHIAKI_QUIT_REASON_CTRL_CONNECT_FAILED: return "Control connection failed";
+    case CHIAKI_QUIT_REASON_CTRL_CONNECTION_REFUSED: return "Control connection refused";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN: return "Stream connection failure";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED: return "Console disconnected";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN: return "Console shutdown";
+    case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED: return "PSN registration failed";
     default:
       return "Unspecified";
   }
