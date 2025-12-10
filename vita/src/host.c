@@ -34,6 +34,7 @@ static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 static void shutdown_media_pipeline(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
+static const char *quit_reason_label(ChiakiQuitReason reason);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -175,8 +176,11 @@ static void event_cb(ChiakiEvent *event, void *user) {
 			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
 			break;
 		case CHIAKI_EVENT_QUIT: {
-      LOGE("EventCB CHIAKI_EVENT_QUIT (%s)",
-           event->quit.reason_str ? event->quit.reason_str : "unknown");
+      const char *reason_label = quit_reason_label(event->quit.reason);
+      LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
+           event->quit.reason_str ? event->quit.reason_str : "unknown",
+           event->quit.reason,
+           reason_label);
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -785,6 +789,28 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
   if (value > max_value)
     return max_value;
   return value;
+}
+
+static const char *quit_reason_label(ChiakiQuitReason reason) {
+  switch (reason) {
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST:
+      return "Generic session quit";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
+      return "Remote Play already in use";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
+      return "Remote Play crash";
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN:
+      return "Unknown session request failure";
+    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_TIMEOUT:
+      return "Stream info timeout";
+    case CHIAKI_QUIT_REASON_SESSION_CONNECTION_INFO_ERROR:
+      return "Stream info error";
+    case CHIAKI_QUIT_REASON_SESSION_GKCRYPT_ERROR:
+      return "GKCrypt error";
+    case CHIAKI_QUIT_REASON_SESSION_UNKNOWN:
+    default:
+      return "Unspecified";
+  }
 }
 
 static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
