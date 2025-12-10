@@ -1,0 +1,21 @@
+• A few client-side levers remain even after confirming PS5 ignores the
+  StartBitrate hint:
+
+  - Dial in our fallback logic. The soft-restart path is in place, but we’re still
+    using hard-coded thresholds (LOSS_EVENT_MIN_FRAMES, LOSS_EVENT_WINDOW_US, etc.
+    in vita/src/host.c). Tuning those (or making them adaptive per latency preset)
+    can reduce how often we trip the “network unstable” overlay and keep frame
+    drops from snowballing.
+  - Improve pacing and drop handling. We can extend the existing frame pacing
+    metrics (context.stream.measured_incoming_fps) to drive selective frame drops
+    or temporary decoder slack when the PS5 overshoots the Vita’s throughput.
+    Even without changing the requested bitrate, smarter pacing and queue sizing
+    (Takion, H264 decode) can smooth spikes.
+  - Expose more telemetry/controls. The docs already note we write per-run logs,
+    but surfacing real-time congestion stats (e.g., target_bitrate vs. actual
+    throughput) in the UI makes it easier for users to choose the best preset or
+    know when to force a reconnect.
+  - Investigate LaunchSpec tweaks. Even though the StartBitrate header fails,
+    LaunchSpec still advertises our requested bitrate and MTU. We could experiment
+    with lowering network.bwLoss/bwKbpsSent or changing appSpecification hints to
+    see if the PS5 is more sensitive to those fields than to the header.

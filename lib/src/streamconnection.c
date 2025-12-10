@@ -213,7 +213,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		goto err_video_receiver;
 	}
 
-	err = chiaki_congestion_control_start(&stream_connection->congestion_control, &stream_connection->takion, &stream_connection->packet_stats);
+	err = chiaki_congestion_control_start(&stream_connection->congestion_control, &stream_connection->takion, &stream_connection->packet_stats, stream_connection->log);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(session->log, "StreamConnection failed to start Congestion Control");
@@ -1111,6 +1111,23 @@ static ChiakiErrorCode stream_connection_send_heartbeat(ChiakiStreamConnection *
 	if(!pbr)
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection heartbeat protobuf encoding failed");
+		return CHIAKI_ERR_UNKNOWN;
+	}
+
+	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 1, buf, stream.bytes_written, NULL);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_request_idr(ChiakiStreamConnection *stream_connection)
+{
+	tkproto_TakionMessage msg = { 0 };
+	msg.type = tkproto_TakionMessage_PayloadType_IDRREQUEST;
+
+	uint8_t buf[8];
+	pb_ostream_t stream = pb_ostream_from_buffer(buf, sizeof(buf));
+	bool pbr = pb_encode(&stream, tkproto_TakionMessage_fields, &msg);
+	if(!pbr)
+	{
+		CHIAKI_LOGE(stream_connection->log, "StreamConnection IDR request protobuf encoding failed");
 		return CHIAKI_ERR_UNKNOWN;
 	}
 

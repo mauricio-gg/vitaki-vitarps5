@@ -15,12 +15,13 @@ typedef struct chiaki_congestion_control_t
 {
 	ChiakiTakion *takion;
 	ChiakiPacketStats *stats;
+	ChiakiLog *log;
 	ChiakiThread thread;
 	ChiakiBoolPredCond stop_cond;
 	double packet_loss;
 } ChiakiCongestionControl;
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionControl *control, ChiakiTakion *takion, ChiakiPacketStats *stats);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionControl *control, ChiakiTakion *takion, ChiakiPacketStats *stats, ChiakiLog *log);
 
 /**
  * Stop control and join the thread

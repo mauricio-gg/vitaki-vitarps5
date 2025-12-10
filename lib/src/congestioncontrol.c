@@ -18,15 +18,18 @@ static void *congestion_control_thread_func(void *user)
 		if(err != CHIAKI_ERR_TIMEOUT)
 			break;
 
-		uint64_t received;
-		uint64_t lost;
+		if(!control->takion || !control->stats || !control->log)
+			continue;
+
+		uint64_t received = 0;
+		uint64_t lost = 0;
 		chiaki_packet_stats_get(control->stats, true, &received, &lost);
 		ChiakiTakionCongestionPacket packet = { 0 };
 		packet.received = (uint16_t)received;
 		packet.lost = (uint16_t)lost;
 		uint64_t total = received + lost;
 		control->packet_loss = total > 0 ? (double)lost / total : 0;
-		CHIAKI_LOGV(control->takion->log, "Sending Congestion Control Packet, received: %u, lost: %u",
+		CHIAKI_LOGV(control->log, "Sending Congestion Control Packet, received: %u, lost: %u",
 			(unsigned int)packet.received, (unsigned int)packet.lost);
 		chiaki_takion_send_congestion(control->takion, &packet);
 	}
@@ -35,10 +38,11 @@ static void *congestion_control_thread_func(void *user)
 	return NULL;
 }
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionControl *control, ChiakiTakion *takion, ChiakiPacketStats *stats)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionControl *control, ChiakiTakion *takion, ChiakiPacketStats *stats, ChiakiLog *log)
 {
 	control->takion = takion;
 	control->stats = stats;
+	control->log = log;
 	control->packet_loss = 0;
 
 	ChiakiErrorCode err = chiaki_bool_pred_cond_init(&control->stop_cond);

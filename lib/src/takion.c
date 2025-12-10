@@ -1008,10 +1008,10 @@ static void *takion_thread_func(void *user)
 		takion_handle_packet(takion, resized_buf, received_size);
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
+		uint64_t now_ms = chiaki_time_now_monotonic_ms();
 		if(queue_used > queue_highwater)
 		{
 			queue_highwater = queue_used;
-			uint64_t now_ms = chiaki_time_now_monotonic_ms();
 			if(now_ms - queue_usage_log_last_ms >= TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS)
 			{
 				unsigned int usage_percent = queue_slots_sz
@@ -1022,6 +1022,20 @@ static void *takion_thread_func(void *user)
 						queue_used,
 						queue_slots,
 						usage_percent);
+				queue_usage_log_last_ms = now_ms;
+			}
+		}
+
+		if(queue_slots_sz && queue_used * 100 >= queue_slots_sz * 80)
+		{
+			if(now_ms - queue_usage_log_last_ms >= TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS / 2)
+			{
+				unsigned int usage_percent = (unsigned int)((queue_used * 100) / queue_slots_sz);
+				CHIAKI_LOGW(takion->log,
+					"Takion queue pressure %zu/%llu slots (%u%%)",
+					queue_used,
+					queue_slots,
+					usage_percent);
 				queue_usage_log_last_ms = now_ms;
 			}
 		}
@@ -1206,6 +1220,14 @@ static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, siz
 	}
 }
 
+static void takion_free_data_entry(TakionDataPacketEntry *entry)
+{
+	if(!entry)
+		return;
+	free(entry->packet_buf);
+	free(entry);
+}
+
 static void takion_flush_data_queue(ChiakiTakion *takion)
 {
 	uint64_t seq_num = 0;
@@ -1220,8 +1242,7 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 
 		if(entry->payload_size < 9)
 		{
-			free(entry->packet_buf);
-			free(entry);
+			takion_free_data_entry(entry);
 			continue;
 		}
 
@@ -1249,12 +1270,34 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 			takion->cb(&event, takion->cb_user);
 		}
 
-		free(entry->packet_buf);
-		free(entry);
+		takion_free_data_entry(entry);
 	}
 
 	if(ack)
 		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
+}
+
+CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
+{
+	if(!takion)
+		return 0;
+
+	uint64_t seq_num = 0;
+	bool dropped = false;
+	while(true)
+	{
+		TakionDataPacketEntry *entry;
+		bool pulled = chiaki_reorder_queue_pull(&takion->data_queue, &seq_num, (void **)&entry);
+		if(!pulled)
+			break;
+		dropped = true;
+		takion_free_data_entry(entry);
+	}
+
+	if(dropped)
+		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
+
+	return dropped ? (uint32_t)seq_num : 0;
 }
 
 static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size)
