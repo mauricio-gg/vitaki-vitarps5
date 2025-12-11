@@ -76,6 +76,18 @@
 #define WAVE_ALPHA_BOTTOM 160     // 160/255 opacity for bottom wave
 #define WAVE_ALPHA_TOP 100        // 100/255 opacity for top wave (less opaque for depth)
 
+// Collapsible navigation constants (per SCOPING_NAV_COLLAPSIBLE_BAR.md)
+#define NAV_COLLAPSE_DURATION_MS 280      // Total animation duration
+#define NAV_PHASE1_END_MS 80              // Preparation phase end
+#define NAV_PHASE2_END_MS 200             // Collapse phase end
+#define NAV_PILL_WIDTH 120                // Pill width when fully collapsed
+#define NAV_PILL_HEIGHT 36                // Pill height
+#define NAV_PILL_X 16                     // Pill X position
+#define NAV_PILL_Y 16                     // Pill Y position
+#define NAV_PILL_RADIUS 18                // Pill corner radius (fully rounded)
+#define NAV_TOAST_DURATION_MS 2000        // Toast display duration
+#define NAV_TOAST_FADE_MS 300             // Toast fade in/out duration
+
 // Legacy layout (will be phased out)
 #define HEADER_BAR_X 136
 #define HEADER_BAR_Y 43
@@ -151,6 +163,42 @@ typedef struct {
 static WaveLayerState wave_bottom_state = {0.0f, WAVE_SPEED_BOTTOM};
 static WaveLayerState wave_top_state = {0.0f, WAVE_SPEED_TOP};
 static uint64_t wave_last_update_us = 0;  // For delta time calculation
+
+// Navigation sidebar collapse state machine
+typedef enum {
+  NAV_STATE_EXPANDED = 0,    // Full sidebar visible (130px), waves animating
+  NAV_STATE_COLLAPSING,      // Animation: 130px -> 0px -> pill reveal
+  NAV_STATE_COLLAPSED,       // Pill visible at top-left (120x36px), waves paused
+  NAV_STATE_EXPANDING        // Animation: pill -> 0px -> 130px sidebar
+} NavSidebarState;
+
+typedef struct {
+  NavSidebarState state;          // Current state
+  uint64_t anim_start_us;         // Animation start timestamp
+  float anim_progress;            // 0.0 to 1.0 animation progress
+  float stored_wave_bottom_phase; // For resume after collapse
+  float stored_wave_top_phase;    // For resume after collapse
+  float current_width;            // 0.0 to 130.0 animated sidebar width
+  float pill_width;               // 36 to 120 animated pill width
+  float pill_opacity;             // 0.0 to 1.0 pill visibility
+  bool toast_shown_this_session;  // Only show toast once per app launch
+  bool toast_active;              // Currently displaying toast
+  uint64_t toast_start_us;        // Toast display start time
+} NavCollapseState;
+
+static NavCollapseState nav_collapse = {
+  .state = NAV_STATE_EXPANDED,
+  .anim_start_us = 0,
+  .anim_progress = 0.0f,
+  .stored_wave_bottom_phase = 0.0f,
+  .stored_wave_top_phase = 0.0f,
+  .current_width = WAVE_NAV_WIDTH,
+  .pill_width = NAV_PILL_HEIGHT,  // Start as circle (36px)
+  .pill_opacity = 0.0f,
+  .toast_shown_this_session = false,
+  .toast_active = false,
+  .toast_start_us = 0
+};
 
 // Console card system (updated per UI spec)
 #define CONSOLE_CARD_WIDTH 200          // Reverted to original 200px for better layout
@@ -468,6 +516,273 @@ bool btn_pressed(SceCtrlButtons btn) {
 static void block_inputs_for_transition(void) {
   button_block_mask |= context.ui_state.button_state;
   touch_block_active = true;
+}
+
+// ============================================================================
+// Navigation Collapse State Machine (per SCOPING_NAV_COLLAPSIBLE_BAR.md)
+// ============================================================================
+
+// Forward declaration for easing function used in animations
+static inline float ease_in_out_cubic(float t);
+
+static void nav_request_collapse(bool from_content_interaction) {
+  // If from content interaction, check if pinned setting blocks it
+  if (from_content_interaction && context.config.keep_nav_pinned) {
+    return;
+  }
+
+  // Only collapse from expanded state
+  if (nav_collapse.state != NAV_STATE_EXPANDED) {
+    return;
+  }
+
+  // Store wave phases for resume
+  nav_collapse.stored_wave_bottom_phase = wave_bottom_state.phase;
+  nav_collapse.stored_wave_top_phase = wave_top_state.phase;
+
+  // Start collapse animation
+  nav_collapse.state = NAV_STATE_COLLAPSING;
+  nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
+  nav_collapse.anim_progress = 0.0f;
+}
+
+static void nav_request_expand(void) {
+  // Only expand from collapsed state
+  if (nav_collapse.state != NAV_STATE_COLLAPSED) {
+    return;
+  }
+
+  // Restore wave phases and reset delta timer to prevent phase jump
+  wave_bottom_state.phase = nav_collapse.stored_wave_bottom_phase;
+  wave_top_state.phase = nav_collapse.stored_wave_top_phase;
+  wave_last_update_us = sceKernelGetProcessTimeWide();
+
+  // Start expand animation
+  nav_collapse.state = NAV_STATE_EXPANDING;
+  nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
+  nav_collapse.anim_progress = 0.0f;
+}
+
+static void nav_toggle_collapse(void) {
+  if (nav_collapse.state == NAV_STATE_EXPANDED) {
+    nav_request_collapse(false);  // Not from content interaction
+  } else if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+    nav_request_expand();
+  }
+  // Ignore toggle during animation
+}
+
+static void nav_reset_to_expanded(void) {
+  nav_collapse.state = NAV_STATE_EXPANDED;
+  nav_collapse.anim_progress = 0.0f;
+  nav_collapse.current_width = WAVE_NAV_WIDTH;
+  nav_collapse.pill_width = NAV_PILL_HEIGHT;
+  nav_collapse.pill_opacity = 0.0f;
+  // Don't reset toast_shown_this_session - should persist for whole app session
+}
+
+static void show_nav_collapse_toast(void) {
+  if (nav_collapse.toast_shown_this_session) {
+    return;
+  }
+  nav_collapse.toast_shown_this_session = true;
+  nav_collapse.toast_active = true;
+  nav_collapse.toast_start_us = sceKernelGetProcessTimeWide();
+}
+
+static void update_nav_toast(void) {
+  if (!nav_collapse.toast_active) {
+    return;
+  }
+
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.toast_start_us;
+  uint64_t total_us = (NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS + NAV_TOAST_FADE_MS) * 1000ULL;
+
+  if (elapsed_us >= total_us) {
+    nav_collapse.toast_active = false;
+  }
+}
+
+static void update_nav_collapse_animation(void) {
+  if (nav_collapse.state != NAV_STATE_COLLAPSING && nav_collapse.state != NAV_STATE_EXPANDING) {
+    return;
+  }
+
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.anim_start_us;
+  float elapsed_ms = (float)elapsed_us / 1000.0f;
+  float progress = elapsed_ms / (float)NAV_COLLAPSE_DURATION_MS;
+
+  if (progress >= 1.0f) {
+    progress = 1.0f;
+
+    // Animation complete - transition to final state
+    if (nav_collapse.state == NAV_STATE_COLLAPSING) {
+      nav_collapse.state = NAV_STATE_COLLAPSED;
+      nav_collapse.current_width = 0.0f;
+      nav_collapse.pill_width = NAV_PILL_WIDTH;
+      nav_collapse.pill_opacity = 1.0f;
+      show_nav_collapse_toast();
+    } else if (nav_collapse.state == NAV_STATE_EXPANDING) {
+      nav_collapse.state = NAV_STATE_EXPANDED;
+      nav_collapse.current_width = WAVE_NAV_WIDTH;
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
+    }
+  }
+
+  nav_collapse.anim_progress = progress;
+
+  // Calculate interpolated values based on animation state
+  if (nav_collapse.state == NAV_STATE_COLLAPSING) {
+    // Collapsing: width goes down, pill fades in
+    float eased = ease_in_out_cubic(progress);
+    nav_collapse.current_width = WAVE_NAV_WIDTH * (1.0f - eased);
+
+    // Pill only appears in phase 3 (200-280ms, progress 0.71-1.0)
+    if (progress > 0.71f) {
+      float pill_progress = (progress - 0.71f) / 0.29f;
+      nav_collapse.pill_width = NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
+      nav_collapse.pill_opacity = pill_progress;
+    } else {
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
+    }
+  } else if (nav_collapse.state == NAV_STATE_EXPANDING) {
+    // Expanding: reverse of collapsing
+    // Pill contracts first (0-80ms, progress 0-0.29)
+    if (progress < 0.29f) {
+      float pill_progress = 1.0f - (progress / 0.29f);
+      nav_collapse.pill_width = NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
+      nav_collapse.pill_opacity = pill_progress;
+      nav_collapse.current_width = 0.0f;
+    } else {
+      // Sidebar expands (80-280ms, progress 0.29-1.0)
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
+      float width_progress = (progress - 0.29f) / 0.71f;
+      nav_collapse.current_width = WAVE_NAV_WIDTH * width_progress;
+    }
+  }
+}
+
+// ============================================================================
+// Pill Rendering (collapsed navigation state)
+// ============================================================================
+
+static void draw_hamburger_icon(int x, int cy, int size, uint32_t color) {
+  int line_h = 2;
+  int line_w = size;
+
+  // Position three lines evenly: top at -size/2, middle at center, bottom at +size/2
+  int y1 = cy - size / 2 + line_h / 2;
+  int y2 = cy;
+  int y3 = cy + size / 2 - line_h / 2;
+
+  vita2d_draw_rectangle(x, y1 - line_h / 2, line_w, line_h, color);
+  vita2d_draw_rectangle(x, y2 - line_h / 2, line_w, line_h, color);
+  vita2d_draw_rectangle(x, y3 - line_h / 2, line_w, line_h, color);
+}
+
+static void render_nav_pill(void) {
+  if (nav_collapse.pill_opacity <= 0.0f) {
+    return;
+  }
+
+  int x = NAV_PILL_X;
+  int y = NAV_PILL_Y;
+  int w = (int)nav_collapse.pill_width;
+  int h = NAV_PILL_HEIGHT;
+  int r = h / 2;  // Fully rounded ends
+
+  // Calculate alpha from pill_opacity (90% max opacity)
+  uint8_t alpha = (uint8_t)(nav_collapse.pill_opacity * 230);
+  uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
+
+  // Focus highlight (if pill is focused while collapsed)
+  bool pill_focused = (nav_collapse.state == NAV_STATE_COLLAPSED &&
+                       current_focus == FOCUS_NAV_BAR);
+  if (pill_focused) {
+    draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, r + 2,
+                           UI_COLOR_PRIMARY_BLUE);
+  }
+
+  // Pill background
+  draw_rounded_rectangle(x, y, w, h, r, bg_color);
+
+  // Hamburger icon (only show when pill is wide enough)
+  if (w > 50) {
+    int icon_x = x + 12;
+    int icon_cy = y + h / 2;
+    uint8_t icon_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
+    draw_hamburger_icon(icon_x, icon_cy, 14, RGBA8(250, 250, 250, icon_alpha));
+  }
+
+  // "Menu" text (only when pill is nearly full width)
+  if (w >= NAV_PILL_WIDTH - 10) {
+    uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
+    vita2d_font_draw_text(font, x + 32, y + h / 2 + 5,
+                          RGBA8(250, 250, 250, text_alpha),
+                          FONT_SIZE_BODY, "Menu");
+  }
+}
+
+static void render_nav_collapse_toast(void) {
+  if (!nav_collapse.toast_active) {
+    return;
+  }
+
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.toast_start_us;
+  uint64_t elapsed_ms = elapsed_us / 1000ULL;
+
+  // Calculate opacity based on animation phase
+  float opacity = 1.0f;
+  if (elapsed_ms < NAV_TOAST_FADE_MS) {
+    // Fade in
+    opacity = (float)elapsed_ms / (float)NAV_TOAST_FADE_MS;
+  } else if (elapsed_ms > NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS) {
+    // Fade out
+    uint64_t fade_elapsed = elapsed_ms - NAV_TOAST_FADE_MS - NAV_TOAST_DURATION_MS;
+    opacity = 1.0f - ((float)fade_elapsed / (float)NAV_TOAST_FADE_MS);
+  }
+
+  if (opacity <= 0.0f) {
+    return;
+  }
+
+  const char* text = "Menu hidden - tap pill or press Triangle to reopen";
+  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
+
+  int toast_x = NAV_PILL_X;
+  int toast_y = NAV_PILL_Y + NAV_PILL_HEIGHT + 8;
+  int toast_w = text_w + 24;
+  int toast_h = 28;
+
+  uint8_t alpha = (uint8_t)(opacity * 230);
+  uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
+  uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
+
+  draw_rounded_rectangle(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
+  vita2d_font_draw_text(font, toast_x + 12, toast_y + toast_h / 2 + 4,
+                        text_color, FONT_SIZE_SMALL, text);
+}
+
+static bool pill_touch_hit(float touch_x, float touch_y) {
+  if (nav_collapse.state != NAV_STATE_COLLAPSED) {
+    return false;
+  }
+
+  float x = NAV_PILL_X;
+  float y = NAV_PILL_Y;
+  float w = nav_collapse.pill_width;
+  float h = NAV_PILL_HEIGHT;
+
+  // Expand hitbox slightly for easier touch (8px padding)
+  float pad = 8.0f;
+  return (touch_x >= x - pad && touch_x <= x + w + pad &&
+          touch_y >= y - pad && touch_y <= y + h + pad);
 }
 
 // Modern rendering helpers (extracted from VitaRPS5)
@@ -1220,12 +1535,33 @@ static void update_wave_animation() {
 }
 
 void render_wave_navigation() {
-  // Update wave animation state
-  update_wave_animation();
+  // Update collapse animation state first
+  update_nav_collapse_animation();
+  update_nav_toast();
+
+  // If fully collapsed, render only the pill and toast (save GPU cycles)
+  if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+    render_nav_pill();
+    render_nav_collapse_toast();
+    return;
+  }
+
+  // Update wave animation state (only when not collapsed)
+  if (nav_collapse.state == NAV_STATE_EXPANDED) {
+    update_wave_animation();
+  }
+
+  // Calculate width scale for animation
+  float width_scale = nav_collapse.current_width / (float)WAVE_NAV_WIDTH;
+  if (width_scale < 0.01f) {
+    // Nearly collapsed - just render pill during transition
+    render_nav_pill();
+    render_nav_collapse_toast();
+    return;
+  }
 
   // Draw procedural fluid wave background with continuous vertical animation
   // Base teal colors matching PlayStation aesthetic
-
   // Note: No solid background rectangle - waves extend fully to screen top
 
   // Draw multiple sine wave layers that create fluid motion
@@ -1233,7 +1569,7 @@ void render_wave_navigation() {
   for (int layer = 0; layer < 2; layer++) {
     // Each layer has different speed and amplitude for depth
     float phase = (layer == 0) ? wave_bottom_state.phase : wave_top_state.phase;
-    float amplitude = 12.0f + (float)layer * 8.0f;
+    float amplitude = (12.0f + (float)layer * 8.0f) * width_scale;
 
     // Draw wave as filled polygon using horizontal slices
     for (int y = 0; y < VITA_HEIGHT; y++) {
@@ -1242,12 +1578,14 @@ void render_wave_navigation() {
       float wave_x = sinf((float)y * 0.015f + phase) * amplitude +
                      sinf((float)y * 0.008f - phase * 0.7f) * (amplitude * 0.5f);
 
-      // Allow waves to extend freely beyond WAVE_NAV_WIDTH
-      int right_edge = WAVE_NAV_WIDTH + (int)wave_x;
+      // Allow waves to extend freely beyond current width
+      int right_edge = (int)(nav_collapse.current_width + wave_x);
 
       // Clamp to prevent negative width and excessive overdraw
       if (right_edge < 0) right_edge = 0;
-      if (right_edge > WAVE_NAV_WIDTH + 50) right_edge = WAVE_NAV_WIDTH + 50;  // Prevent excessive overdraw
+      if (right_edge > (int)(nav_collapse.current_width) + 50) {
+        right_edge = (int)(nav_collapse.current_width) + 50;
+      }
 
       // Draw horizontal slice with layered alpha for depth
       uint8_t alpha = (layer == 0) ? WAVE_ALPHA_BOTTOM : WAVE_ALPHA_TOP;
@@ -1256,7 +1594,12 @@ void render_wave_navigation() {
     }
   }
 
-  // Draw navigation icons statically (bobbing animation disabled)
+  // Calculate icon opacity for fade effect during collapse
+  float icon_opacity = width_scale;
+  if (icon_opacity > 1.0f) icon_opacity = 1.0f;
+  if (icon_opacity < 0.0f) icon_opacity = 0.0f;
+
+  // Draw navigation icons (fade during collapse animation)
   for (int i = 0; i < 4; i++) {
     // Base Y position
     int base_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
@@ -1267,7 +1610,8 @@ void render_wave_navigation() {
     bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
 
     // Selection highlight (semi-transparent white rounded rect per spec line 76)
-    if (is_selected) {
+    // Only show when not animating and sidebar is expanded
+    if (is_selected && nav_collapse.state == NAV_STATE_EXPANDED) {
       int highlight_size = 48;
       int highlight_x = WAVE_NAV_ICON_X - highlight_size / 2;
       int highlight_y = y - highlight_size / 2;
@@ -1296,7 +1640,15 @@ void render_wave_navigation() {
       int scaled_h = (int)(tex_h * scale);
       int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
       int draw_y = y - scaled_h / 2;
-      vita2d_draw_texture_scale(icon_tex, draw_x, draw_y, scale, scale);
+
+      // Apply opacity during animation (tint with alpha)
+      if (icon_opacity < 1.0f) {
+        uint8_t tint_alpha = (uint8_t)(icon_opacity * 255);
+        vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
+                                       RGBA8(255, 255, 255, tint_alpha));
+      } else {
+        vita2d_draw_texture_scale(icon_tex, draw_x, draw_y, scale, scale);
+      }
     } else {
       // Fallback to procedural icons if texture failed to load
       int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
@@ -1308,6 +1660,14 @@ void render_wave_navigation() {
       }
     }
   }
+
+  // Render pill during expanding animation (fades out as sidebar expands)
+  if (nav_collapse.state == NAV_STATE_EXPANDING) {
+    render_nav_pill();
+  }
+
+  // Toast may still be visible during expansion
+  render_nav_collapse_toast();
 }
 
 static UIScreenType nav_screen_for_index(int index) {
@@ -1338,6 +1698,12 @@ static bool nav_touch_hit(float touch_x, float touch_y, UIScreenType *out_screen
 }
 
 static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
+  // Triangle button toggles sidebar collapse (global, works anywhere)
+  if (btn_pressed(SCE_CTRL_TRIANGLE)) {
+    nav_toggle_collapse();
+    // Don't return - let other input processing continue
+  }
+
   SceTouchData nav_touch = {};
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
   if (touch_block_active) {
@@ -1347,20 +1713,64 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
       return false;
     }
   }
+
   if (nav_touch.reportNum > 0) {
     float tx = (nav_touch.report[0].x / 1920.0f) * 960.0f;
     float ty = (nav_touch.report[0].y / 1088.0f) * 544.0f;
-    if (nav_touch_hit(tx, ty, out_screen))
-      return true;
+
+    // Check pill touch first when collapsed
+    if (pill_touch_hit(tx, ty)) {
+      nav_request_expand();
+      touch_block_active = true;  // Prevent immediate re-collapse
+      return false;
+    }
+
+    // If expanded, check nav icon touch
+    if (nav_collapse.state == NAV_STATE_EXPANDED) {
+      if (nav_touch_hit(tx, ty, out_screen)) {
+        return true;
+      }
+    }
+
+    // Touch in content area triggers collapse (if not pinned)
+    // Content area is to the right of the nav bar
+    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH) {
+      nav_request_collapse(true);  // From content interaction
+    }
   }
 
   if (!allow_dpad)
     return false;
 
+  // D-pad handling depends on collapse state
+  if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+    // When collapsed, D-pad Left focuses pill (already focused by default)
+    // Cross/Confirm on pill expands sidebar
+    if (current_focus == FOCUS_NAV_BAR) {
+      if (btn_pressed(SCE_CTRL_CROSS) || btn_pressed(SCE_CTRL_LEFT)) {
+        nav_request_expand();
+        return false;
+      }
+      // D-pad Right moves to content and keeps sidebar collapsed
+      if (btn_pressed(SCE_CTRL_RIGHT)) {
+        current_focus = FOCUS_CONSOLE_CARDS;
+      }
+    } else {
+      // Focus is on content - D-pad Left focuses pill
+      if (btn_pressed(SCE_CTRL_LEFT)) {
+        current_focus = FOCUS_NAV_BAR;
+      }
+    }
+    return false;
+  }
+
+  // Normal expanded state D-pad handling
   if (btn_pressed(SCE_CTRL_LEFT)) {
     current_focus = FOCUS_NAV_BAR;
   } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
     current_focus = FOCUS_CONSOLE_CARDS;
+    // Moving focus to content triggers collapse
+    nav_request_collapse(true);
   }
 
   if (current_focus == FOCUS_NAV_BAR) {
@@ -2618,6 +3028,14 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                      settings_state.selected_item == 8);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
+  y += item_h + item_spacing;
+
+  // Keep navigation pinned toggle (prevents auto-collapse on content interaction)
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     get_toggle_animation_value(9, context.config.keep_nav_pinned),
+                     settings_state.selected_item == 9);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Keep Navigation Pinned");
 }
 
 /// Draw Controller Settings tab content
@@ -2686,7 +3104,7 @@ UIScreenType draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 9; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen
+  int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -2754,6 +3172,10 @@ UIScreenType draw_settings() {
         } else if (settings_state.selected_item == 8) {
           context.config.stretch_video = !context.config.stretch_video;
           start_toggle_animation(6, context.config.stretch_video);
+          config_serialize(&context.config);
+        } else if (settings_state.selected_item == 9) {
+          context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
+          start_toggle_animation(9, context.config.keep_nav_pinned);
           config_serialize(&context.config);
     }
   }
@@ -4221,6 +4643,7 @@ void draw_ui() {
 
         if (next_screen != prev_screen) {
           block_inputs_for_transition();
+          nav_reset_to_expanded();  // Reset sidebar to expanded on screen transition
         }
         screen = next_screen;
         render_loss_indicator_preview();
