@@ -71,12 +71,10 @@
 #define PARTICLE_SWAY_SPEED_MAX 1.5f
 
 // Wave animation constants (per SCOPING_UI_POLISH.md)
-#define WAVE_AMPLITUDE 3.0f       // ±3px horizontal movement
 #define WAVE_SPEED_BOTTOM 0.7f    // radians per second for bottom wave
 #define WAVE_SPEED_TOP 1.1f       // radians per second for top wave
 #define WAVE_ALPHA_BOTTOM 160     // 160/255 opacity for bottom wave
 #define WAVE_ALPHA_TOP 100        // 100/255 opacity for top wave (less opaque for depth)
-#define WAVE_ICON_BOB_OFFSET 0.35f // Phase offset between icons
 
 // Legacy layout (will be phased out)
 #define HEADER_BAR_X 136
@@ -156,7 +154,7 @@ static uint64_t wave_last_update_us = 0;  // For delta time calculation
 
 // Console card system (updated per UI spec)
 #define CONSOLE_CARD_WIDTH 200          // Reverted to original 200px for better layout
-#define CONSOLE_CARD_HEIGHT 200         // Reverted to original 200px square cards
+#define CONSOLE_CARD_HEIGHT 205         // +5px bottom margin for better spacing
 #define CONSOLE_CARD_SPACING 100        // Horizontal spacing between cards
 #define CONSOLE_CARD_START_Y 150
 #define CONSOLE_CARD_FOCUS_SCALE_MIN 0.95f
@@ -169,6 +167,7 @@ static uint64_t wave_last_update_us = 0;  // For delta time calculation
 #define CARD_LOGO_MAX_WIDTH 120         // PS5 logo max width (adjusted for 200px card)
 #define CARD_LOGO_TOP_PADDING 20        // 20px from top of card
 #define CARD_NAME_BAR_BOTTOM_OFFSET 80  // Distance from bottom of card to name bar start
+#define CARD_TEXT_BASELINE_OFFSET 7     // Vertical baseline adjustment for card text
 
 // Content area centering
 #define CONTENT_CENTER_X (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
@@ -1153,8 +1152,8 @@ void update_particles() {
     particles[i].y += particles[i].vy * 2.0f * layer_speed;
     particles[i].rotation += particles[i].rotation_speed * 2.0f;
 
-    // Batch 3: Update sway phase (doubled for 30fps updates - 2 frames worth at 60fps)
-    particles[i].sway_phase += particles[i].sway_speed * 2.0f * (1.0f / 30.0f);
+    // Batch 3: Update sway phase (30fps updates)
+    particles[i].sway_phase += particles[i].sway_speed * (1.0f / 30.0f);
 
     // Wrap around screen edges (respawn at top when falling off bottom)
     // Keep particles constrained to content area only
@@ -1246,8 +1245,9 @@ void render_wave_navigation() {
       // Allow waves to extend freely beyond WAVE_NAV_WIDTH
       int right_edge = WAVE_NAV_WIDTH + (int)wave_x;
 
-      // Only clamp to prevent negative width
+      // Clamp to prevent negative width and excessive overdraw
       if (right_edge < 0) right_edge = 0;
+      if (right_edge > WAVE_NAV_WIDTH + 50) right_edge = WAVE_NAV_WIDTH + 50;  // Prevent excessive overdraw
 
       // Draw horizontal slice with layered alpha for depth
       uint8_t alpha = (layer == 0) ? WAVE_ALPHA_BOTTOM : WAVE_ALPHA_TOP;
@@ -1533,7 +1533,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
   // Console name text (centered in bar)
   int text_width = vita2d_font_text_width(font, CARD_TITLE_FONT_SIZE, console->name);
   int text_x = draw_x + (card_w / 2) - (text_width / 2);
-  int text_y = name_bar_y + (name_bar_h / 2) + 7;
+  int text_y = name_bar_y + (name_bar_h / 2) + CARD_TEXT_BASELINE_OFFSET;
   vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, CARD_TITLE_FONT_SIZE, console->name);
 
   // Status indicator (top-right)
@@ -1561,7 +1561,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
       int text_y = indicator_y + FONT_SIZE_BODY;
       vita2d_font_draw_text(font, text_x, text_y,
                             wait_color, FONT_SIZE_BODY, wait_text);
-      vita2d_draw_texture(status_tex, indicator_x, indicator_y);
+      vita2d_draw_texture_scale(status_tex, indicator_x, indicator_y, scale, scale);
     } else {
       // Batch 4: Status dot breathing animation (0.7-1.0 alpha over 1.5s cycle)
       uint64_t time_us = sceKernelGetProcessTimeWide();
@@ -1569,9 +1569,9 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
       float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
       uint8_t alpha = (uint8_t)(255.0f * breath);
 
-      // Apply breathing alpha to status texture
+      // Apply breathing alpha to status texture with scale
       uint32_t status_color = RGBA8(255, 255, 255, alpha);
-      vita2d_draw_texture_tint(status_tex, indicator_x, indicator_y, status_color);
+      vita2d_draw_texture_tint_scale(status_tex, indicator_x, indicator_y, scale, scale, status_color);
     }
   }
 
