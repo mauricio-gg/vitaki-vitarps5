@@ -58,10 +58,25 @@
 #define VITA_HEIGHT 544
 
 // VitaRPS5 UI Layout Constants
-#define WAVE_NAV_WIDTH 104  // 20% thinner than original 130px
+#define WAVE_NAV_WIDTH 130        // Per UI spec line 45
 #define CONTENT_AREA_X WAVE_NAV_WIDTH
-#define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)
-#define PARTICLE_COUNT 8         // Optimized from 12 for better performance
+#define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)  // 830px
+#define PARTICLE_COUNT 8          // Optimized from 12 for better performance
+
+// Particle animation constants (Batch 3: Particle Background Enhancements)
+#define PARTICLE_LAYER_BG_SPEED 0.7f
+#define PARTICLE_LAYER_FG_SPEED 1.0f
+#define PARTICLE_SWAY_AMPLITUDE 2.0f
+#define PARTICLE_SWAY_SPEED_MIN 0.5f
+#define PARTICLE_SWAY_SPEED_MAX 1.5f
+
+// Wave animation constants (per SCOPING_UI_POLISH.md)
+#define WAVE_AMPLITUDE 3.0f       // ±3px horizontal movement
+#define WAVE_SPEED_BOTTOM 0.7f    // radians per second for bottom wave
+#define WAVE_SPEED_TOP 1.1f       // radians per second for top wave
+#define WAVE_ALPHA_BOTTOM 160     // 160/255 opacity for bottom wave
+#define WAVE_ALPHA_TOP 220        // 220/255 opacity for top wave
+#define WAVE_ICON_BOB_OFFSET 0.35f // Phase offset between icons
 
 // Legacy layout (will be phased out)
 #define HEADER_BAR_X 136
@@ -83,6 +98,9 @@ typedef struct {
   int symbol_type;  // 0=triangle, 1=circle, 2=x, 3=square
   uint32_t color;
   bool active;
+  int layer;           // 0=background (0.7x speed), 1=foreground (1.0x speed)
+  float sway_phase;    // for horizontal sway animation
+  float sway_speed;    // radians per second
 } Particle;
 
 #define TEXTURE_PATH "app0:/assets/"
@@ -116,22 +134,44 @@ static uint32_t button_block_mask = 0;
 static bool touch_block_active = false;
 
 // Wave navigation state
-#define WAVE_NAV_ICON_SIZE 48
-#define WAVE_NAV_ICON_X 52  // Centered on nav bar (WAVE_NAV_WIDTH / 2 = 104 / 2 = 52)
-#define WAVE_NAV_ICON_SPACING 80  // Spacing between icon centers
+#define WAVE_NAV_ICON_SIZE 32       // Per spec: 32x32px icons
+#define WAVE_NAV_ICON_X 50          // Positioned left of center to avoid overlapping wave edge
+#define WAVE_NAV_ICON_SPACING 80    // Spacing between icon centers
 // Vertically center 4 icons: 3 gaps of 80px = 240px total span between first and last
 // Center Y = VITA_HEIGHT / 2 = 272px
 // First icon Y = 272px - (240px / 2) = 272px - 120px = 152px
 #define WAVE_NAV_ICON_START_Y 152
 
-static int selected_nav_icon = 0;  // 0=Play, 1=Settings, 2=Controller, 3=Profile
-static float wave_animation_time = 0.0f;
+static int selected_nav_icon = 0;   // 0=Play, 1=Settings, 2=Controller, 3=Profile
 
-// Console card system
-#define CONSOLE_CARD_WIDTH 200  // Half width for more compact cards
-#define CONSOLE_CARD_HEIGHT 200
-#define CONSOLE_CARD_SPACING 85  // Optimized spacing for better screen utilization
+// Wave animation state
+typedef struct {
+  float phase;      // Current phase (radians, accumulates)
+  float speed;      // radians per second
+} WaveLayerState;
+
+static WaveLayerState wave_bottom_state = {0.0f, WAVE_SPEED_BOTTOM};
+static WaveLayerState wave_top_state = {0.0f, WAVE_SPEED_TOP};
+static uint64_t wave_last_update_us = 0;  // For delta time calculation
+
+// Console card system (updated per UI spec)
+#define CONSOLE_CARD_WIDTH 200          // Reverted to original 200px for better layout
+#define CONSOLE_CARD_HEIGHT 200         // Reverted to original 200px square cards
+#define CONSOLE_CARD_SPACING 100        // Horizontal spacing between cards
 #define CONSOLE_CARD_START_Y 150
+#define CONSOLE_CARD_FOCUS_SCALE_MIN 0.95f
+#define CONSOLE_CARD_FOCUS_SCALE_MAX 1.0f
+#define CONSOLE_CARD_FOCUS_DURATION_MS 180
+#define CONSOLE_CARD_GLOW_COLOR 0xFFFF9034  // #3490FF in ABGR
+
+// Typography
+#define CARD_TITLE_FONT_SIZE 20         // Card name text
+#define CARD_LOGO_MAX_WIDTH 120         // PS5 logo max width (adjusted for 200px card)
+#define CARD_LOGO_TOP_PADDING 20        // 20px from top of card
+#define CARD_NAME_BAR_BOTTOM_OFFSET 80  // Distance from bottom of card to name bar start
+
+// Content area centering
+#define CONTENT_CENTER_X (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
 
 typedef struct {
   char name[32];           // "PS5 - 024"
@@ -164,6 +204,16 @@ typedef struct {
 } ToggleAnimationState;
 
 static ToggleAnimationState toggle_anim = {-1, false, 0};
+
+// Card focus animation state
+typedef struct {
+  int focused_card_index;       // Which card is currently focused (-1 = none)
+  float current_scale;          // Current scale (0.95 to 1.0)
+  uint64_t focus_start_us;      // When focus started
+} CardFocusAnimState;
+
+static CardFocusAnimState card_focus_anim = {-1, CONSOLE_CARD_FOCUS_SCALE_MIN, 0};
+
 static void render_error_popup(void);
 static void handle_error_popup_input(void);
 static void render_debug_menu(void);
@@ -174,6 +224,13 @@ static void open_debug_menu(void);
 static void ensure_active_host_for_debug(void);
 static void render_loss_indicator_preview(void);
 static void draw_rounded_rectangle(int x, int y, int width, int height, int radius, uint32_t color);
+static void draw_circle(int center_x, int center_y, int radius, uint32_t color);
+
+// Procedural navigation icon forward declarations
+void draw_play_icon(int center_x, int center_y, int size);
+void draw_settings_icon(int center_x, int center_y, int size);
+void draw_controller_icon(int center_x, int center_y, int size);
+void draw_profile_icon(int center_x, int center_y, int size);
 
 static const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
 static const uint32_t DEBUG_MENU_COMBO_MASK =
@@ -1044,7 +1101,8 @@ void init_particles() {
   srand((unsigned int)sceKernelGetProcessTimeWide());
 
   for (int i = 0; i < PARTICLE_COUNT; i++) {
-    particles[i].x = (float)(rand() % VITA_WIDTH);
+    // Constrain particles to content area only (not in wave navigation area)
+    particles[i].x = CONTENT_AREA_X + (float)(rand() % CONTENT_AREA_WIDTH);
     particles[i].y = -(float)(rand() % 200);  // Start above screen (0 to -200)
     particles[i].vx = ((float)(rand() % 100) / 100.0f - 0.5f) * 0.5f;  // Slight horizontal drift
     particles[i].vy = ((float)(rand() % 100) / 100.0f + 0.3f) * 1.2f;  // Downward (positive Y, gravity)
@@ -1061,6 +1119,13 @@ void init_particles() {
       case 3: particles[i].color = PARTICLE_COLOR_ORANGE; break;
     }
     particles[i].active = true;
+
+    // Batch 3: Initialize layer and sway animation parameters
+    particles[i].layer = (rand() % 2);  // 50/50 split between background (0) and foreground (1)
+    particles[i].sway_phase = ((float)(rand() % 360)) * (M_PI / 180.0f);  // Random starting phase
+    particles[i].sway_speed = PARTICLE_SWAY_SPEED_MIN +
+                              ((float)(rand() % 100) / 100.0f) *
+                              (PARTICLE_SWAY_SPEED_MAX - PARTICLE_SWAY_SPEED_MIN);
   }
 
   particles_initialized = true;
@@ -1078,23 +1143,27 @@ void update_particles() {
   for (int i = 0; i < PARTICLE_COUNT; i++) {
     if (!particles[i].active) continue;
 
-    // Update position (doubled velocity to compensate for 30fps updates)
-    particles[i].x += particles[i].vx * 2.0f;
-    particles[i].y += particles[i].vy * 2.0f;
+    // Batch 3: Apply layer-based speed multiplier
+    float layer_speed = (particles[i].layer == 0) ? PARTICLE_LAYER_BG_SPEED : PARTICLE_LAYER_FG_SPEED;
+
+    // Update position with layer speed (doubled for 30fps compensation)
+    particles[i].x += particles[i].vx * 2.0f * layer_speed;
+    particles[i].y += particles[i].vy * 2.0f * layer_speed;
     particles[i].rotation += particles[i].rotation_speed * 2.0f;
 
+    // Batch 3: Update sway phase (doubled for 30fps updates - 2 frames worth at 60fps)
+    particles[i].sway_phase += particles[i].sway_speed * 2.0f * (1.0f / 30.0f);
+
     // Wrap around screen edges (respawn at top when falling off bottom)
+    // Keep particles constrained to content area only
     if (particles[i].y > VITA_HEIGHT + 50) {
       particles[i].y = -(float)(rand() % 100);  // Respawn at top
-      particles[i].x = (float)(rand() % VITA_WIDTH);
+      particles[i].x = CONTENT_AREA_X + (float)(rand() % CONTENT_AREA_WIDTH);
     }
-    if (particles[i].x < -50) particles[i].x = VITA_WIDTH + 50;
-    if (particles[i].x > VITA_WIDTH + 50) particles[i].x = -50;
+    if (particles[i].x < CONTENT_AREA_X - 50) particles[i].x = VITA_WIDTH + 50;
+    if (particles[i].x > VITA_WIDTH + 50) particles[i].x = CONTENT_AREA_X - 50;
   }
 }
-
-// Forward declarations
-void draw_play_icon(int center_x, int center_y, int size);
 
 /// Render all active particles
 void render_particles() {
@@ -1110,9 +1179,13 @@ void render_particles() {
     vita2d_texture* tex = symbol_textures[particles[i].symbol_type];
     if (!tex) continue;
 
-    // Draw with scale and rotation
+    // Batch 3: Calculate sway offset for horizontal motion
+    float sway_offset = sinf(particles[i].sway_phase) * PARTICLE_SWAY_AMPLITUDE;
+    float render_x = particles[i].x + sway_offset;
+
+    // Draw with scale, rotation, and sway
     vita2d_draw_texture_scale_rotate(tex,
-      particles[i].x, particles[i].y,
+      render_x, particles[i].y,
       particles[i].scale, particles[i].scale,
       particles[i].rotation);
 
@@ -1122,59 +1195,119 @@ void render_particles() {
 }
 
 /// Render VitaRPS5 navigation sidebar with simple colored bar
+/// Update wave animation phases (call once per frame)
+static void update_wave_animation() {
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (wave_last_update_us == 0) {
+    wave_last_update_us = now_us;
+    return;
+  }
+
+  float delta_sec = (float)(now_us - wave_last_update_us) / 1000000.0f;
+  wave_last_update_us = now_us;
+
+  // Update wave phases
+  wave_bottom_state.phase += wave_bottom_state.speed * delta_sec;
+  wave_top_state.phase += wave_top_state.speed * delta_sec;
+
+  // Wrap phases to prevent float overflow, using a large period for seamless looping
+  // We wrap at 1000*2*PI (~6283 radians) instead of 2*PI to avoid visible discontinuities
+  // caused by the complex multi-frequency wave calculations that don't align at 2*PI.
+  // At typical speeds (0.7-1.1 rad/s), this wraps every ~90-150 minutes, well within
+  // float precision limits while maintaining perfectly continuous animation.
+  float wrap_period = 1000.0f * 2.0f * M_PI;
+  wave_bottom_state.phase = fmodf(wave_bottom_state.phase, wrap_period);
+  wave_top_state.phase = fmodf(wave_top_state.phase, wrap_period);
+}
+
 void render_wave_navigation() {
-  // Draw simple teal/cyan colored bar for navigation sidebar
-  // Color matches the original wave texture (teal/cyan)
-  uint32_t nav_bar_color = RGBA8(78, 133, 139, 255);  // Teal color from wave texture
-  vita2d_draw_rectangle(0, 0, WAVE_NAV_WIDTH, VITA_HEIGHT, nav_bar_color);
+  // Update wave animation state
+  update_wave_animation();
 
-  // Navigation icons array
-  vita2d_texture* nav_icons[4] = {
-    icon_play, icon_settings, icon_controller, icon_profile
-  };
+  // Draw procedural fluid wave background with continuous vertical animation
+  // Base teal colors matching PlayStation aesthetic
+  uint32_t wave_color_dark = RGBA8(60, 110, 120, 255);
 
-  // Draw navigation icons (static, no animation)
-  // TODO: Add wave background animation in future update
+  // Note: No solid background rectangle - waves extend fully to screen top
 
+  // Draw multiple sine wave layers that create fluid motion
+  // Using wave phase from update_wave_animation() for time-based animation
+  for (int layer = 0; layer < 2; layer++) {
+    // Each layer has different speed and amplitude for depth
+    float phase = wave_top_state.phase + (float)layer * 0.5f;
+    float amplitude = 12.0f + (float)layer * 8.0f;
+
+    // Draw wave as filled polygon using horizontal slices
+    for (int y = 0; y < VITA_HEIGHT; y++) {
+      // Calculate wave X offset at this Y position
+      // Multiple frequencies create complex wave pattern
+      float wave_x = sinf((float)y * 0.015f + phase) * amplitude +
+                     sinf((float)y * 0.008f - phase * 0.7f) * (amplitude * 0.5f);
+
+      // Allow waves to extend freely beyond WAVE_NAV_WIDTH
+      int right_edge = WAVE_NAV_WIDTH + (int)wave_x;
+
+      // Only clamp to prevent negative width
+      if (right_edge < 0) right_edge = 0;
+
+      // Draw horizontal slice with layered alpha for depth
+      uint8_t alpha = (layer == 0) ? 160 : 100;
+      uint32_t wave_color = RGBA8(90, 150, 160, alpha);
+      vita2d_draw_rectangle(0, y, right_edge, 1, wave_color);
+    }
+  }
+
+  // Draw navigation icons with bobbing animation
   for (int i = 0; i < 4; i++) {
-    int y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    // Base Y position
+    int base_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+
+    // Icons are static (no bobbing animation)
+    float icon_bob = 0.0f;  // Disabled: was sinf(wave_top_state.phase + (float)i * WAVE_ICON_BOB_OFFSET) * WAVE_AMPLITUDE;
+    int y = base_y + (int)icon_bob;
+
     bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
 
-    // Enhanced selection highlight - only show if nav bar has focus
+    // Selection highlight (semi-transparent white rounded rect per spec line 76)
     if (is_selected) {
-      // Background rounded rectangle for better visibility
-      int bg_size = 64;
-      int bg_x = WAVE_NAV_ICON_X - bg_size / 2;
-      int bg_y = y - bg_size / 2;
-      draw_rounded_rectangle(bg_x, bg_y, bg_size, bg_size, 12, RGBA8(0x34, 0x90, 0xFF, 60));  // Semi-transparent blue background
-
-      // Glow effect (outer ring)
-      draw_circle(WAVE_NAV_ICON_X, y, 30, RGBA8(0x34, 0x90, 0xFF, 80));  // Soft glow
-
-      // Primary highlight circle
-      draw_circle(WAVE_NAV_ICON_X, y, 28, UI_COLOR_PRIMARY_BLUE);
+      int highlight_size = 48;
+      int highlight_x = WAVE_NAV_ICON_X - highlight_size / 2;
+      int highlight_y = y - highlight_size / 2;
+      // White at 20% alpha as specified
+      draw_rounded_rectangle(highlight_x, highlight_y, highlight_size, highlight_size, 8, RGBA8(255, 255, 255, 51));
     }
 
     // Draw icon with scale increase when selected
-    float icon_scale_multiplier = is_selected ? 1.08f : 1.0f;  // 8% larger when selected
-    int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
+    float icon_scale_multiplier = is_selected ? 1.15f : 1.0f;  // 15% larger when selected
 
-    // First icon (Play): Use primitive triangle until correct asset is provided
-    // icon_play.png is currently a duplicate of icon_profile.png
-    if (i == 0) {
-      draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+    // Use texture-based icons (fallback to procedural if NULL)
+    vita2d_texture* icon_tex = NULL;
+    switch (i) {
+      case 0: icon_tex = icon_play; break;
+      case 1: icon_tex = icon_settings; break;
+      case 2: icon_tex = icon_controller; break;
+      case 3: icon_tex = icon_profile; break;
+    }
+
+    if (icon_tex) {
+      // Texture-based rendering: single draw call per icon
+      int tex_w = vita2d_texture_get_width(icon_tex);
+      int tex_h = vita2d_texture_get_height(icon_tex);
+      float scale = (WAVE_NAV_ICON_SIZE * icon_scale_multiplier) / (float)tex_w;
+      int scaled_w = (int)(tex_w * scale);
+      int scaled_h = (int)(tex_h * scale);
+      int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
+      int draw_y = y - scaled_h / 2;
+      vita2d_draw_texture_scale(icon_tex, draw_x, draw_y, scale, scale);
     } else {
-      // Other icons use textures
-      if (!nav_icons[i]) continue;
-
-      int icon_w = vita2d_texture_get_width(nav_icons[i]);
-      int icon_h = vita2d_texture_get_height(nav_icons[i]);
-      float scale = ((float)current_icon_size / (float)(icon_w > icon_h ? icon_w : icon_h));
-
-      vita2d_draw_texture_scale(nav_icons[i],
-        WAVE_NAV_ICON_X - (icon_w * scale / 2.0f),
-        y - (icon_h * scale / 2.0f),
-        scale, scale);
+      // Fallback to procedural icons if texture failed to load
+      int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
+      switch (i) {
+        case 0: draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+        case 1: draw_settings_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+        case 2: draw_controller_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+        case 3: draw_profile_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+      }
     }
   }
 }
@@ -1288,13 +1421,25 @@ void map_host_to_console_card(VitaChiakiHost* host, ConsoleCardInfo* card) {
 }
 
 /// Render a single console card
-void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, bool cooldown_for_card) {
+void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, bool cooldown_for_card, float scale) {
   if (!console) return;
 
   bool is_registered = console->is_registered;
   bool is_discovered = console->is_discovered;
   bool is_unpaired = is_discovered && !is_registered;
   bool is_cooldown_card = cooldown_for_card;
+
+  // Apply scale parameter to card dimensions
+  int base_w = CONSOLE_CARD_WIDTH;
+  int base_h = CONSOLE_CARD_HEIGHT;
+  int card_w = (int)(base_w * scale);
+  int card_h = (int)(base_h * scale);
+
+  // Center scaled card on original position
+  int offset_x = (base_w - card_w) / 2;
+  int offset_y = (base_h - card_h) / 2;
+  int draw_x = x + offset_x;
+  int draw_y = y + offset_y;
 
   // Status border color (awake=light blue, asleep=yellow, unpaired=grey)
   uint32_t border_color = UI_COLOR_PRIMARY_BLUE;  // Default selection blue
@@ -1310,62 +1455,67 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
 
   // Draw status border
   if (!selected || is_unpaired) {
-    draw_rounded_rectangle(x - 3, y - 3, CONSOLE_CARD_WIDTH + 6, CONSOLE_CARD_HEIGHT + 6, 12, border_color);
+    draw_rounded_rectangle(draw_x - 3, draw_y - 3, card_w + 6, card_h + 6, 12, border_color);
   }
 
-  // Enhanced selection highlight (PlayStation Blue border with glow, only for paired consoles)
+  // Enhanced selection highlight with 2px glow stroke (only for paired consoles)
   if (selected && !is_unpaired) {
-    // Outer glow effect (subtle)
-    draw_rounded_rectangle(x - 6, y - 6, CONSOLE_CARD_WIDTH + 12, CONSOLE_CARD_HEIGHT + 12, 14, RGBA8(0x34, 0x90, 0xFF, 40));  // Soft outer glow
-
-    // Primary selection border
-    draw_rounded_rectangle(x - 4, y - 4, CONSOLE_CARD_WIDTH + 8, CONSOLE_CARD_HEIGHT + 8, 12, UI_COLOR_PRIMARY_BLUE);
+    // 2px outline glow
+    draw_rounded_rectangle(draw_x - 2, draw_y - 2, card_w + 4, card_h + 4, 14, CONSOLE_CARD_GLOW_COLOR);
   }
 
   // Card background (greyed out for unpaired consoles, slightly lighter neutral grey when selected)
   uint32_t card_bg = is_unpaired ? RGBA8(0x25, 0x25, 0x28, 255) :
-                     (selected ? RGBA8(0x38, 0x3D, 0x42, 255) : UI_COLOR_CARD_BG);  // Neutral dark grey when selected
+                     (selected ? RGBA8(0x38, 0x3D, 0x42, 255) : UI_COLOR_CARD_BG);
   if (is_cooldown_card)
     card_bg = RGBA8(0x1D, 0x1F, 0x24, 255);
 
   // Enhanced shadow for selected cards
   int shadow_offset = selected ? 6 : 4;
   uint32_t shadow_color = selected ? RGBA8(0x00, 0x00, 0x00, 80) : UI_COLOR_SHADOW;
-  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, shadow_color);
-  draw_rounded_rectangle(x, y, CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT, 12, card_bg);
+  draw_rounded_rectangle(draw_x + shadow_offset, draw_y + shadow_offset, card_w, card_h, 12, shadow_color);
+  draw_rounded_rectangle(draw_x, draw_y, card_w, card_h, 12, card_bg);
 
-  // PS5 logo (centered, properly scaled for card)
+  // PS5 logo (centered, with max width and top padding per spec)
   bool is_ps5 = console->host && chiaki_target_is_ps5(console->host->target);
+
+  // Calculate shared layout values for logo centering (used by both PS5 and PS4)
+  int name_bar_start = card_h - (int)(CARD_NAME_BAR_BOTTOM_OFFSET * scale);
+  int available_top = (int)(CARD_LOGO_TOP_PADDING * scale);
+  int available_height = name_bar_start - available_top;
 
   if (is_ps5 && ps5_logo) {
     int logo_w = vita2d_texture_get_width(ps5_logo);
     int logo_h = vita2d_texture_get_height(ps5_logo);
 
-    // Scale logo to fit card width (max 60% of card width)
-    float max_width = CONSOLE_CARD_WIDTH * 0.6f;
-    float scale = max_width / logo_w;
+    // Scale logo with max width, applying card scale
+    float max_logo_w = fminf((float)(CARD_LOGO_MAX_WIDTH * scale), card_w * 0.6f);
+    float logo_scale = max_logo_w / logo_w;
 
-    int scaled_w = (int)(logo_w * scale);
-    int scaled_h = (int)(logo_h * scale);
-    int logo_x = x + (CONSOLE_CARD_WIDTH / 2) - (scaled_w / 2);
-    int logo_y = y + 50;  // Fixed position from top
+    int logo_scaled_w = (int)(logo_w * logo_scale);
+    int logo_scaled_h = (int)(logo_h * logo_scale);
+    int logo_x = draw_x + (card_w / 2) - (logo_scaled_w / 2);
+
+    // Center logo vertically in available space above name bar
+    int logo_y = draw_y + available_top + (available_height - logo_scaled_h) / 2;
 
     // Dimmed for unpaired consoles
     bool dim_logo = is_unpaired || is_cooldown_card;
     if (dim_logo) {
-      vita2d_draw_texture_tint_scale(ps5_logo, logo_x, logo_y, scale, scale,
+      vita2d_draw_texture_tint_scale(ps5_logo, logo_x, logo_y, logo_scale, logo_scale,
                                      RGBA8(255, 255, 255, 100));
     } else {
-      vita2d_draw_texture_scale(ps5_logo, logo_x, logo_y, scale, scale);
+      vita2d_draw_texture_scale(ps5_logo, logo_x, logo_y, logo_scale, logo_scale);
     }
   } else if (!is_ps5) {
-    // Fallback to PS4 icon for PS4 consoles
+    // Fallback to PS4 icon for PS4 consoles (using same centering logic as PS5)
     vita2d_texture* logo = img_ps4;
     if (logo) {
       int logo_w = vita2d_texture_get_width(logo);
       int logo_h = vita2d_texture_get_height(logo);
-      int logo_x = x + (CONSOLE_CARD_WIDTH / 2) - (logo_w / 2);
-      int logo_y = y + (CONSOLE_CARD_HEIGHT / 3) - (logo_h / 2);
+      int logo_x = draw_x + (card_w / 2) - (logo_w / 2);
+      // Center logo vertically in available space above name bar (consistent with PS5)
+      int logo_y = draw_y + available_top + (available_height - logo_h) / 2;
       if (is_unpaired || is_cooldown_card) {
         vita2d_draw_texture_tint(logo, logo_x, logo_y,
                                  RGBA8(255, 255, 255, 120));
@@ -1375,17 +1525,18 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
     }
   }
 
-  // Console name bar (1/3 from bottom) - increased height and padding for better spacing
-  int name_bar_y = y + CONSOLE_CARD_HEIGHT - (CONSOLE_CARD_HEIGHT / 3) - 20;
-  int name_bar_height = 45;  // Increased from 40 for better text breathing room
-  draw_rounded_rectangle(x + 15, name_bar_y, CONSOLE_CARD_WIDTH - 30, name_bar_height, 8,
+  // Console name bar (adjusted for 200x200 card)
+  int name_bar_h = (int)(40 * scale);
+  int name_bar_y = draw_y + card_h - (int)(CARD_NAME_BAR_BOTTOM_OFFSET * scale);  // Position name bar near bottom of card
+  int name_bar_padding = (int)(12 * scale);
+  draw_rounded_rectangle(draw_x + name_bar_padding, name_bar_y, card_w - name_bar_padding * 2, name_bar_h, (int)(8 * scale),
     RGBA8(70, 75, 80, 255));
 
-  // Console name text (centered in bar with better vertical spacing)
-  int text_width = vita2d_font_text_width(font, 20, console->name);
-  int text_x = x + (CONSOLE_CARD_WIDTH / 2) - (text_width / 2);
-  int text_y = name_bar_y + (name_bar_height / 2) + 7;  // Vertically centered
-  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 20, console->name);
+  // Console name text (centered in bar)
+  int text_width = vita2d_font_text_width(font, CARD_TITLE_FONT_SIZE, console->name);
+  int text_x = draw_x + (card_w / 2) - (text_width / 2);
+  int text_y = name_bar_y + (name_bar_h / 2) + 7;
+  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, CARD_TITLE_FONT_SIZE, console->name);
 
   // Status indicator (top-right)
   vita2d_texture* status_tex = NULL;
@@ -1398,8 +1549,8 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
   }
 
   if (status_tex) {
-    int indicator_x = x + CONSOLE_CARD_WIDTH - 35;
-    int indicator_y = y + 10;
+    int indicator_x = draw_x + card_w - (int)(35 * scale);
+    int indicator_y = draw_y + (int)(10 * scale);
     if (is_cooldown_card) {
       uint64_t now_ms = sceKernelGetProcessTimeWide() / 1000ULL;
       float phase = (float)(now_ms % 1600) / 1600.0f;
@@ -1408,12 +1559,22 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
       uint32_t wait_color = RGBA8(channel, channel, channel, 255);
       const char *wait_text = "Please wait...";
       int wait_w = vita2d_font_text_width(font, FONT_SIZE_BODY, wait_text);
-      int text_x = x + (CONSOLE_CARD_WIDTH - wait_w) / 2;
+      int text_x = draw_x + (card_w - wait_w) / 2;
       int text_y = indicator_y + FONT_SIZE_BODY;
       vita2d_font_draw_text(font, text_x, text_y,
                             wait_color, FONT_SIZE_BODY, wait_text);
+      vita2d_draw_texture(status_tex, indicator_x, indicator_y);
+    } else {
+      // Batch 4: Status dot breathing animation (0.7-1.0 alpha over 1.5s cycle)
+      uint64_t time_us = sceKernelGetProcessTimeWide();
+      float time_sec = (float)(time_us % 1500000ULL) / 1000000.0f;  // 1.5s period
+      float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
+      uint8_t alpha = (uint8_t)(255.0f * breath);
+
+      // Apply breathing alpha to status texture
+      uint32_t status_color = RGBA8(255, 255, 255, alpha);
+      vita2d_draw_texture_tint(status_tex, indicator_x, indicator_y, status_color);
     }
-    vita2d_draw_texture(status_tex, indicator_x, indicator_y);
   }
 
   // State text ("Ready" / "Standby" / "Unpaired")
@@ -1437,8 +1598,10 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
 
   if (state_text) {
     int state_text_width = vita2d_font_text_width(font, 18, state_text);
-    int state_x = x + (CONSOLE_CARD_WIDTH / 2) - (state_text_width / 2);
-    vita2d_font_draw_text(font, state_x, name_bar_y + 60, state_color, 18, state_text);  // Adjusted for taller bar
+    int state_x = draw_x + (card_w / 2) - (state_text_width / 2);
+    // Position status text 15px below name bar (name_bar_y + name_bar_h + 15px gap + text baseline)
+    int state_y = name_bar_y + name_bar_h + 15 + 18;  // 15px gap + font size for baseline
+    vita2d_font_draw_text(font, state_x, state_y, state_color, 18, state_text);
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -1450,9 +1613,10 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
                                 ? RGBA8(255, 128, 128, 255)
                                 : UI_COLOR_TEXT_SECONDARY;
       int hint_width = vita2d_font_text_width(font, 16, console->host->status_hint);
-      int hint_x = x + (CONSOLE_CARD_WIDTH / 2) - (hint_width / 2);
-      vita2d_font_draw_text(font, hint_x, name_bar_y + 85,  // Better spacing below state text
-                            hint_color, 16, console->host->status_hint);
+      int hint_x = draw_x + (card_w / 2) - (hint_width / 2);
+      // Position hint text 8px below status text
+      int hint_y = name_bar_y + name_bar_h + 15 + 18 + 8 + 16;  // status_y + 8px gap + font size
+      vita2d_font_draw_text(font, hint_x, hint_y, hint_color, 16, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
       console->host->status_hint_is_error = false;
@@ -1491,22 +1655,61 @@ void update_console_card_cache(bool force_update) {
 }
 
 /// Render console cards in grid layout
+/// Update card focus animation state (call once per frame before rendering)
+static void update_card_focus_animation(int new_focus_index) {
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+
+  // Focus changed?
+  if (new_focus_index != card_focus_anim.focused_card_index) {
+    card_focus_anim.focused_card_index = new_focus_index;
+    card_focus_anim.focus_start_us = now_us;
+  }
+
+  // Calculate animation progress
+  if (card_focus_anim.focused_card_index >= 0 && card_focus_anim.focus_start_us > 0) {
+    float elapsed_ms = (float)(now_us - card_focus_anim.focus_start_us) / 1000.0f;
+    float progress = elapsed_ms / (float)CONSOLE_CARD_FOCUS_DURATION_MS;
+
+    if (progress >= 1.0f) {
+      card_focus_anim.current_scale = CONSOLE_CARD_FOCUS_SCALE_MAX;
+    } else {
+      // Cubic ease-out for smooth feel
+      float eased = 1.0f - powf(1.0f - progress, 3.0f);
+      card_focus_anim.current_scale = lerp(CONSOLE_CARD_FOCUS_SCALE_MIN, CONSOLE_CARD_FOCUS_SCALE_MAX, eased);
+    }
+  } else {
+    card_focus_anim.current_scale = CONSOLE_CARD_FOCUS_SCALE_MIN;
+  }
+}
+
+/// Get scale for a specific card based on focus state
+static float get_card_scale(int card_index, bool is_focused) {
+  if (is_focused && card_index == card_focus_anim.focused_card_index) {
+    return card_focus_anim.current_scale;
+  }
+  return CONSOLE_CARD_FOCUS_SCALE_MIN;
+}
+
 void render_console_grid() {
-  // Center based on FULL screen width (not just content area)
-  int screen_center_x = VITA_WIDTH / 2;
+  // Center cards within content area (830px starting at x=130)
+  int content_center_x = CONTENT_CENTER_X;
   int screen_center_y = VITA_HEIGHT / 2;
 
   // Update cache (respects 10-second interval)
   update_console_card_cache(false);
 
-  // Calculate card position - centered on full screen
-  int card_y = screen_center_y - (CONSOLE_CARD_HEIGHT / 2);
-  int card_x = screen_center_x - (CONSOLE_CARD_WIDTH / 2);
+  // Update card focus animation
+  int focused_index = (current_focus == FOCUS_CONSOLE_CARDS) ? selected_console_index : -1;
+  update_card_focus_animation(focused_index);
 
-  // Header text - centered horizontally on full screen above the card
+  // Calculate card position - centered within content area
+  int card_y = screen_center_y - (CONSOLE_CARD_HEIGHT / 2);
+  int card_x = content_center_x - (CONSOLE_CARD_WIDTH / 2);
+
+  // Header text - centered within content area above the card
   const char* header_text = "Which do you want to connect?";
   int text_width = vita2d_font_text_width(font, 24, header_text);
-  int text_x = screen_center_x - (text_width / 2);
+  int text_x = content_center_x - (text_width / 2);
   int text_y = card_y - 50;  // Position text 50px above card
 
   vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
@@ -1555,8 +1758,12 @@ void render_console_grid() {
       bool selected = (i == selected_console_index && current_focus == FOCUS_CONSOLE_CARDS);
       bool card_cooldown = cooldown_host &&
                            card_cache.cards[i].host == cooldown_host;
+
+      // Get animated scale for this card
+      float scale = get_card_scale(i, selected);
+
       render_console_card(&card_cache.cards[i], card_x, this_card_y, selected,
-                          card_cooldown);
+                          card_cooldown, scale);
     }
   }
 }
@@ -1580,6 +1787,90 @@ void draw_play_icon(int center_x, int center_y, int size) {
       vita2d_draw_rectangle(x_start, center_y + y, width, 1, white);
     }
   }
+}
+
+/// Draw a settings gear icon (procedural)
+void draw_settings_icon(int center_x, int center_y, int size) {
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int outer_r = size / 2;
+  int inner_r = size / 4;
+  int tooth_count = 8;
+
+  // Draw center circle
+  draw_circle(center_x, center_y, inner_r, white);
+
+  // Draw gear teeth as small rectangles around the perimeter
+  for (int i = 0; i < tooth_count; i++) {
+    float angle = (float)i * 2.0f * M_PI / (float)tooth_count;
+    int tooth_x = center_x + (int)(cosf(angle) * (outer_r - 3));
+    int tooth_y = center_y + (int)(sinf(angle) * (outer_r - 3));
+    // Draw small square tooth
+    vita2d_draw_rectangle(tooth_x - 3, tooth_y - 3, 6, 6, white);
+  }
+
+  // Draw outer ring using line segments
+  int segments = 32;
+  for (int i = 0; i < segments; i++) {
+    float a1 = (float)i * 2.0f * M_PI / (float)segments;
+    float a2 = (float)(i + 1) * 2.0f * M_PI / (float)segments;
+    int x1 = center_x + (int)(cosf(a1) * (outer_r - 5));
+    int y1 = center_y + (int)(sinf(a1) * (outer_r - 5));
+    int x2 = center_x + (int)(cosf(a2) * (outer_r - 5));
+    int y2 = center_y + (int)(sinf(a2) * (outer_r - 5));
+    vita2d_draw_line(x1, y1, x2, y2, white);
+  }
+}
+
+/// Draw a controller/gamepad icon (procedural)
+void draw_controller_icon(int center_x, int center_y, int size) {
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int w = size;
+  int h = size * 2 / 3;
+
+  // Main body (rounded rectangle approximation)
+  int body_x = center_x - w / 2;
+  int body_y = center_y - h / 3;
+  draw_rounded_rectangle(body_x, body_y, w, h, 4, white);
+
+  // Left handle
+  int handle_w = w / 4;
+  int handle_h = h / 2;
+  draw_rounded_rectangle(body_x - handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+
+  // Right handle
+  draw_rounded_rectangle(body_x + w - handle_w + handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+
+  // D-pad (left side) - draw as cross
+  int dpad_x = body_x + w / 4;
+  int dpad_y = body_y + h / 2;
+  int dpad_size = 3;
+  vita2d_draw_rectangle(dpad_x - dpad_size, dpad_y - 1, dpad_size * 2, 2, UI_COLOR_CARD_BG);
+  vita2d_draw_rectangle(dpad_x - 1, dpad_y - dpad_size, 2, dpad_size * 2, UI_COLOR_CARD_BG);
+
+  // Buttons (right side) - draw as small circles
+  int btn_x = body_x + w * 3 / 4;
+  int btn_y = body_y + h / 2;
+  draw_circle(btn_x, btn_y - 3, 2, UI_COLOR_CARD_BG);
+  draw_circle(btn_x, btn_y + 3, 2, UI_COLOR_CARD_BG);
+  draw_circle(btn_x - 3, btn_y, 2, UI_COLOR_CARD_BG);
+  draw_circle(btn_x + 3, btn_y, 2, UI_COLOR_CARD_BG);
+}
+
+/// Draw a profile/user icon (procedural)
+void draw_profile_icon(int center_x, int center_y, int size) {
+  uint32_t white = RGBA8(255, 255, 255, 255);
+
+  // Head (circle at top)
+  int head_r = size / 4;
+  int head_y = center_y - size / 6;
+  draw_circle(center_x, head_y, head_r, white);
+
+  // Body (arc/shoulders) - approximate with rounded rectangle
+  int body_w = size * 2 / 3;
+  int body_h = size / 3;
+  int body_x = center_x - body_w / 2;
+  int body_y = center_y + size / 8;
+  draw_rounded_rectangle(body_x, body_y, body_w, body_h, body_h / 2, white);
 }
 
 /// Load all textures required for rendering the UI
@@ -3829,11 +4120,17 @@ void draw_ui() {
         vita2d_start_drawing();
         vita2d_clear_screen();
 
-        // Draw gradient background if available, otherwise fallback to solid color
+        // Draw background with separate wave and content areas
+        // Wave navigation area gets dark teal base (waves draw on top)
+        vita2d_draw_rectangle(0, 0, WAVE_NAV_WIDTH, VITA_HEIGHT, RGBA8(20, 40, 50, 255));
+
+        // Content area gets normal background
         if (background_gradient) {
-          vita2d_draw_texture(background_gradient, 0, 0);
+          // Draw gradient only in content area
+          vita2d_draw_texture_part(background_gradient, WAVE_NAV_WIDTH, 0,
+                                   WAVE_NAV_WIDTH, 0, CONTENT_AREA_WIDTH, VITA_HEIGHT);
         } else {
-          vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
+          vita2d_draw_rectangle(WAVE_NAV_WIDTH, 0, CONTENT_AREA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
         }
 
         // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
