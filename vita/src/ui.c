@@ -75,7 +75,7 @@
 #define WAVE_SPEED_BOTTOM 0.7f    // radians per second for bottom wave
 #define WAVE_SPEED_TOP 1.1f       // radians per second for top wave
 #define WAVE_ALPHA_BOTTOM 160     // 160/255 opacity for bottom wave
-#define WAVE_ALPHA_TOP 220        // 220/255 opacity for top wave
+#define WAVE_ALPHA_TOP 100        // 100/255 opacity for top wave (less opaque for depth)
 #define WAVE_ICON_BOB_OFFSET 0.35f // Phase offset between icons
 
 // Legacy layout (will be phased out)
@@ -210,9 +210,11 @@ typedef struct {
   int focused_card_index;       // Which card is currently focused (-1 = none)
   float current_scale;          // Current scale (0.95 to 1.0)
   uint64_t focus_start_us;      // When focus started
+  int previous_focused_card_index;  // Previous focused card for scale-down animation (-1 = none)
+  uint64_t unfocus_start_us;    // When unfocus animation started
 } CardFocusAnimState;
 
-static CardFocusAnimState card_focus_anim = {-1, CONSOLE_CARD_FOCUS_SCALE_MIN, 0};
+static CardFocusAnimState card_focus_anim = {-1, CONSOLE_CARD_FOCUS_SCALE_MIN, 0, -1, 0};
 
 static void render_error_popup(void);
 static void handle_error_popup_input(void);
@@ -1210,11 +1212,9 @@ static void update_wave_animation() {
   wave_bottom_state.phase += wave_bottom_state.speed * delta_sec;
   wave_top_state.phase += wave_top_state.speed * delta_sec;
 
-  // Wrap phases to prevent float overflow, using a large period for seamless looping
-  // We wrap at 1000*2*PI (~6283 radians) instead of 2*PI to avoid visible discontinuities
-  // caused by the complex multi-frequency wave calculations that don't align at 2*PI.
-  // At typical speeds (0.7-1.1 rad/s), this wraps every ~90-150 minutes, well within
-  // float precision limits while maintaining perfectly continuous animation.
+  // Wrap phases to prevent float overflow, using a large period for seamless looping.
+  // We wrap at 1000*2*PI (~6283 radians) to ensure long-running animation remains
+  // smooth and within float precision limits.
   float wrap_period = 1000.0f * 2.0f * M_PI;
   wave_bottom_state.phase = fmodf(wave_bottom_state.phase, wrap_period);
   wave_top_state.phase = fmodf(wave_top_state.phase, wrap_period);
@@ -1226,7 +1226,6 @@ void render_wave_navigation() {
 
   // Draw procedural fluid wave background with continuous vertical animation
   // Base teal colors matching PlayStation aesthetic
-  uint32_t wave_color_dark = RGBA8(60, 110, 120, 255);
 
   // Note: No solid background rectangle - waves extend fully to screen top
 
@@ -1234,7 +1233,7 @@ void render_wave_navigation() {
   // Using wave phase from update_wave_animation() for time-based animation
   for (int layer = 0; layer < 2; layer++) {
     // Each layer has different speed and amplitude for depth
-    float phase = wave_top_state.phase + (float)layer * 0.5f;
+    float phase = (layer == 0) ? wave_bottom_state.phase : wave_top_state.phase;
     float amplitude = 12.0f + (float)layer * 8.0f;
 
     // Draw wave as filled polygon using horizontal slices
@@ -1251,20 +1250,19 @@ void render_wave_navigation() {
       if (right_edge < 0) right_edge = 0;
 
       // Draw horizontal slice with layered alpha for depth
-      uint8_t alpha = (layer == 0) ? 160 : 100;
+      uint8_t alpha = (layer == 0) ? WAVE_ALPHA_BOTTOM : WAVE_ALPHA_TOP;
       uint32_t wave_color = RGBA8(90, 150, 160, alpha);
       vita2d_draw_rectangle(0, y, right_edge, 1, wave_color);
     }
   }
 
-  // Draw navigation icons with bobbing animation
+  // Draw navigation icons statically (bobbing animation disabled)
   for (int i = 0; i < 4; i++) {
     // Base Y position
     int base_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
 
     // Icons are static (no bobbing animation)
-    float icon_bob = 0.0f;  // Disabled: was sinf(wave_top_state.phase + (float)i * WAVE_ICON_BOB_OFFSET) * WAVE_AMPLITUDE;
-    int y = base_y + (int)icon_bob;
+    int y = base_y;
 
     bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
 
@@ -1661,11 +1659,17 @@ static void update_card_focus_animation(int new_focus_index) {
 
   // Focus changed?
   if (new_focus_index != card_focus_anim.focused_card_index) {
+    // Track the previous focused card for scale-down animation
+    if (card_focus_anim.focused_card_index >= 0) {
+      card_focus_anim.previous_focused_card_index = card_focus_anim.focused_card_index;
+      card_focus_anim.unfocus_start_us = now_us;
+    }
+
     card_focus_anim.focused_card_index = new_focus_index;
     card_focus_anim.focus_start_us = now_us;
   }
 
-  // Calculate animation progress
+  // Calculate animation progress for currently focused card
   if (card_focus_anim.focused_card_index >= 0 && card_focus_anim.focus_start_us > 0) {
     float elapsed_ms = (float)(now_us - card_focus_anim.focus_start_us) / 1000.0f;
     float progress = elapsed_ms / (float)CONSOLE_CARD_FOCUS_DURATION_MS;
@@ -1680,13 +1684,43 @@ static void update_card_focus_animation(int new_focus_index) {
   } else {
     card_focus_anim.current_scale = CONSOLE_CARD_FOCUS_SCALE_MIN;
   }
+
+  // Clear previous focused card index once its scale-down animation completes
+  if (card_focus_anim.previous_focused_card_index >= 0 && card_focus_anim.unfocus_start_us > 0) {
+    float elapsed_ms = (float)(now_us - card_focus_anim.unfocus_start_us) / 1000.0f;
+    if (elapsed_ms >= (float)CONSOLE_CARD_FOCUS_DURATION_MS) {
+      card_focus_anim.previous_focused_card_index = -1;
+    }
+  }
 }
 
 /// Get scale for a specific card based on focus state
 static float get_card_scale(int card_index, bool is_focused) {
+  // Bounds check for invalid indices
+  if (card_index < 0) {
+    return CONSOLE_CARD_FOCUS_SCALE_MIN;
+  }
+
+  // Currently focused card: use scale-up animation
   if (is_focused && card_index == card_focus_anim.focused_card_index) {
     return card_focus_anim.current_scale;
   }
+
+  // Previously focused card: animate scale-down
+  if (card_index == card_focus_anim.previous_focused_card_index && card_focus_anim.unfocus_start_us > 0) {
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    float elapsed_ms = (float)(now_us - card_focus_anim.unfocus_start_us) / 1000.0f;
+    float progress = elapsed_ms / (float)CONSOLE_CARD_FOCUS_DURATION_MS;
+
+    if (progress >= 1.0f) {
+      return CONSOLE_CARD_FOCUS_SCALE_MIN;
+    } else {
+      // Cubic ease-out for smooth scale-down
+      float eased = 1.0f - powf(1.0f - progress, 3.0f);
+      return lerp(CONSOLE_CARD_FOCUS_SCALE_MAX, CONSOLE_CARD_FOCUS_SCALE_MIN, eased);
+    }
+  }
+
   return CONSOLE_CARD_FOCUS_SCALE_MIN;
 }
 
