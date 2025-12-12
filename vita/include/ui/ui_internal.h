@@ -196,8 +196,8 @@ void ui_draw_loss_indicator(void);
 #define draw_profile_icon(cx, cy, sz) ui_nav_draw_profile_icon(cx, cy, sz)
 #define draw_hamburger_icon(x, cy, sz, col) ui_nav_draw_hamburger_icon(x, cy, sz, col)
 
-// Console cards (ui_console_cards.c - will be created)
-// void ui_cards_render_grid(int x, int y);
+// Console cards (ui_console_cards.c)
+#include "ui_console_cards.h"
 
 // Animation (ui_animation.c)
 void ui_particles_init(void);
