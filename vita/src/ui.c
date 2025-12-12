@@ -1,4 +1,31 @@
-// Very very simple homegrown immediate mode GUI
+/**
+ * @file ui.c
+ * @brief VitaRPS5 UI Coordinator - Main rendering loop and initialization
+ *
+ * This file serves as the central coordinator for VitaRPS5's modular UI system.
+ * It orchestrates the rendering pipeline, manages the main UI loop, and dispatches
+ * to specialized UI modules for specific functionality.
+ *
+ * Architecture:
+ * - ui_graphics.c: Low-level drawing primitives and shapes
+ * - ui_animation.c: Particle effects and animation timing
+ * - ui_input.c: Button/touch input handling and gesture detection
+ * - ui_state.c: UI state management and transitions
+ * - ui_components.c: Reusable UI widgets (toggles, dropdowns, popups)
+ * - ui_navigation.c: Wave navigation sidebar and menu system
+ * - ui_console_cards.c: Console selection card grid
+ * - ui_screens.c: Full-screen rendering (main, settings, profile, etc.)
+ *
+ * This coordinator:
+ * 1. Initializes vita2d, fonts, textures, and all UI modules
+ * 2. Runs the main rendering loop
+ * 3. Dispatches input to appropriate handlers
+ * 4. Routes rendering to the correct screen based on current state
+ * 5. Manages global overlays (debug menu, error popups, hints)
+ *
+ * All UI constants, types, and shared state are defined in ui/ui_*.h headers.
+ */
+
 #include <sys/param.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,88 +51,6 @@
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
 #include "ui/ui_internal.h"
-
-#ifndef VIDEO_LOSS_ALERT_DEFAULT_US
-#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
-#endif
-
-#ifndef VITARPS5_DEBUG_MENU
-#define VITARPS5_DEBUG_MENU 0
-#endif
-
-// Legacy colors (kept for compatibility)
-#define COLOR_WHITE RGBA8(255, 255, 255, 255)
-#define COLOR_GRAY50 RGBA8(129, 129, 129, 255)
-#define COLOR_BLACK RGBA8(0, 0, 0, 255)
-#define COLOR_ACTIVE RGBA8(255, 170, 238, 255)
-#define COLOR_TILE_BG RGBA8(51, 51, 51, 255)
-#define COLOR_BANNER RGBA8(22, 45, 80, 255)
-
-// Modern VitaRPS5 colors (ABGR format for vita2d)
-#define UI_COLOR_PRIMARY_BLUE 0xFFFF9034     // PlayStation Blue #3490FF
-#define UI_COLOR_BACKGROUND 0xFF1A1614       // Animated charcoal gradient base
-#define UI_COLOR_CARD_BG 0xFF37322D          // Dark charcoal (45,50,55)
-#define UI_COLOR_TEXT_PRIMARY 0xFFFAFAFA     // Off-white (reduced eye strain)
-#define UI_COLOR_TEXT_SECONDARY 0xFFB4B4B4   // Light Gray
-#define UI_COLOR_TEXT_TERTIARY 0xFFA0A0A0    // Medium Gray
-#define UI_COLOR_STATUS_AVAILABLE 0xFF50AF4C    // Success Green #4CAF50
-#define UI_COLOR_STATUS_CONNECTING 0xFF0098FF   // Warning Orange #FF9800
-#define UI_COLOR_STATUS_UNAVAILABLE 0xFF3643F4  // Error Red #F44336
-#define UI_COLOR_ACCENT_PURPLE 0xFFB0279C       // Accent Purple #9C27B0
-#define UI_COLOR_SHADOW 0x3C000000           // Semi-transparent black for shadows
-
-// Particle colors (ABGR with alpha for transparency - 80% opacity = 0xCC)
-#define PARTICLE_COLOR_RED    0xCCFF5555  // 80% transparent red
-#define PARTICLE_COLOR_GREEN  0xCC55FF55  // 80% transparent green
-#define PARTICLE_COLOR_BLUE   0xCC5555FF  // 80% transparent blue
-#define PARTICLE_COLOR_ORANGE 0xCC55AAFF  // 80% transparent orange
-
-#define VITA_WIDTH 960
-#define VITA_HEIGHT 544
-
-// VitaRPS5 UI Layout Constants
-#define WAVE_NAV_WIDTH 130        // Per UI spec line 45
-#define CONTENT_AREA_X WAVE_NAV_WIDTH
-#define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)  // 830px
-#define PARTICLE_COUNT 8          // Optimized from 12 for better performance
-
-// Particle animation constants (Batch 3: Particle Background Enhancements)
-#define PARTICLE_LAYER_BG_SPEED 0.7f
-#define PARTICLE_LAYER_FG_SPEED 1.0f
-#define PARTICLE_SWAY_AMPLITUDE 2.0f
-#define PARTICLE_SWAY_SPEED_MIN 0.5f
-#define PARTICLE_SWAY_SPEED_MAX 1.5f
-
-// Wave animation constants (per SCOPING_UI_POLISH.md)
-#define WAVE_SPEED_BOTTOM 0.7f    // radians per second for bottom wave
-#define WAVE_SPEED_TOP 1.1f       // radians per second for top wave
-#define WAVE_ALPHA_BOTTOM 160     // 160/255 opacity for bottom wave
-#define WAVE_ALPHA_TOP 100        // 100/255 opacity for top wave (less opaque for depth)
-
-// Collapsible navigation constants (per SCOPING_NAV_COLLAPSIBLE_BAR.md)
-#define NAV_COLLAPSE_DURATION_MS 280      // Total animation duration
-#define NAV_PHASE1_END_MS 80              // Preparation phase end
-#define NAV_PHASE2_END_MS 200             // Collapse phase end
-#define NAV_PILL_WIDTH 140                // Pill width when fully collapsed
-#define NAV_PILL_HEIGHT 44                // Pill height
-#define NAV_PILL_X 16                     // Pill X position
-#define NAV_PILL_Y 16                     // Pill Y position
-#define NAV_PILL_RADIUS 22                // Pill corner radius (fully rounded)
-#define NAV_TOAST_DURATION_MS 2000        // Toast display duration
-#define NAV_TOAST_FADE_MS 300             // Toast fade in/out duration
-
-// Legacy layout constants moved to ui_constants.h
-
-// Particle type moved to ui_types.h
-
-#define TEXTURE_PATH "app0:/assets/"
-#define IMG_PS4_PATH TEXTURE_PATH "ps4.png"
-#define IMG_PS4_OFF_PATH TEXTURE_PATH "ps4_off.png"
-#define IMG_PS4_REST_PATH TEXTURE_PATH "ps4_rest.png"
-#define IMG_PS5_PATH TEXTURE_PATH "ps5.png"
-#define IMG_PS5_OFF_PATH TEXTURE_PATH "ps5_off.png"
-#define IMG_PS5_REST_PATH TEXTURE_PATH "ps5_rest.png"
-#define IMG_DISCOVERY_HOST TEXTURE_PATH "discovered_host.png"
 
 vita2d_font* font;
 vita2d_font* font_mono;
@@ -156,23 +101,6 @@ static bool *touch_block_pending_clear = NULL;
 
 // Console card system (updated per UI spec)
 // Console card constants moved to ui_constants.h
-// Content area centering
-#define CONTENT_CENTER_X (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
-
-/**
- * get_dynamic_content_center_x() - Calculate horizontal center of content area
- *
- * Returns the X coordinate of the content area's horizontal center, accounting
- * for the current navigation sidebar width during collapse/expand animations.
- * This ensures content stays centered within the available space as the nav
- * sidebar animates between 0px and 130px width.
- *
- * Returns: X coordinate for centering content in the available area
- */
-static inline int get_dynamic_content_center_x(void) {
-    // Menu is an overlay - content centers on FULL screen
-    return VITA_WIDTH / 2;  // 480px
-}
 
 // ConsoleCardInfo type moved to ui_types.h
 // selected_console_index moved to ui_console_cards.c
@@ -279,74 +207,37 @@ static void render_loss_indicator_preview(void) {
 // ============================================================================
 // ANIMATION HELPERS
 // ============================================================================
+// Animation helper functions (lerp, ease_in_out_cubic) moved to ui_internal.h
 // Toggle animation functions moved to ui_components.c
 
-/// Linear interpolation between two values
-static inline float lerp(float a, float b, float t) {
-  return a + (b - a) * t;
-}
-
-/// Ease-in-out cubic interpolation for smooth animation
-static inline float ease_in_out_cubic(float t) {
-  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-}
-
 // ============================================================================
-// PHASE 2: REUSABLE UI COMPONENTS
+// REUSABLE UI COMPONENTS
 // ============================================================================
 // Widget drawing functions (toggle, dropdown, tabs, status_dot, section_header) moved to ui_components.c
 // StatusType enum moved to ui_components.h as UIStatusType
+// Spinner drawing moved to ui_graphics.c (ui_draw_spinner)
 
-/// Draw a rotating spinner animation (for loading/waiting states)
-/// @param cx Center X position
-/// @param cy Center Y position
-/// @param radius Spinner radius
-/// @param thickness Arc thickness
-/// @param rotation_deg Current rotation angle in degrees
-/// @param color Spinner color
-static void draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color) {
-  // Draw a circular arc that rotates continuously
-  // We'll draw 3/4 of a circle (270 degrees) that rotates around
-  int segments = 32;  // Smooth circle with 32 segments
-  float arc_length = 270.0f;  // 3/4 circle in degrees
-
-  for (int i = 0; i < segments * 3 / 4; i++) {  // 3/4 of total segments
-    float angle1 = rotation_deg + (i * arc_length / (segments * 3 / 4));
-    float angle2 = rotation_deg + ((i + 1) * arc_length / (segments * 3 / 4));
-
-    // Convert to radians
-    float rad1 = angle1 * 3.14159f / 180.0f;
-    float rad2 = angle2 * 3.14159f / 180.0f;
-
-    // Draw outer arc segment
-    int x1_outer = cx + (int)(cos(rad1) * radius);
-    int y1_outer = cy + (int)(sin(rad1) * radius);
-    int x2_outer = cx + (int)(cos(rad2) * radius);
-    int y2_outer = cy + (int)(sin(rad2) * radius);
-
-    // Draw inner arc segment (for thickness)
-    int x1_inner = cx + (int)(cos(rad1) * (radius - thickness));
-    int y1_inner = cy + (int)(sin(rad1) * (radius - thickness));
-    int x2_inner = cx + (int)(cos(rad2) * (radius - thickness));
-    int y2_inner = cy + (int)(sin(rad2) * (radius - thickness));
-
-    // Draw lines to create filled arc segment
-    vita2d_draw_line(x1_outer, y1_outer, x2_outer, y2_outer, color);
-    vita2d_draw_line(x1_inner, y1_inner, x2_inner, y2_inner, color);
-
-    // Fill between inner and outer arcs
-    vita2d_draw_line(x1_outer, y1_outer, x1_inner, y1_inner, color);
-  }
-}
-
-
-/// Map VitaChiakiHost to ConsoleCardInfo
-// map_host_to_console_card moved to ui_console_cards.c (ui_cards_map_host)
-
+// ============================================================================
+// CONSOLE CARDS
+// ============================================================================
+// Map VitaChiakiHost to ConsoleCardInfo moved to ui_console_cards.c (ui_cards_map_host)
 // Console card functions moved to ui_console_cards.c (ui_cards_*)
 
-/// Load all textures required for rendering the UI
+// ============================================================================
+// TEXTURE LOADING
+// ============================================================================
 
+/**
+ * load_textures() - Load all UI textures and assets into memory
+ *
+ * Loads console icons, UI symbols, navigation icons, and other graphical
+ * assets required for rendering the VitaRPS5 interface. Called once during
+ * UI initialization.
+ *
+ * Note: Textures are loaded from app0:/assets/ directory as defined in
+ * ui_constants.h. Failed loads result in NULL texture pointers which must
+ * be checked before rendering.
+ */
 void load_textures() {
   img_ps4 = vita2d_load_PNG_file(IMG_PS4_PATH);
   img_ps4_off = vita2d_load_PNG_file(IMG_PS4_OFF_PATH);
@@ -381,7 +272,23 @@ void load_textures() {
   ps5_logo = vita2d_load_PNG_file("app0:/assets/PS5_logo.png");
 }
 
-/// Check if a given region is touched on the front touch screen
+// ============================================================================
+// LEGACY TOUCH HELPERS
+// ============================================================================
+// TODO: Move to ui_input.c in future cleanup
+
+/**
+ * is_touched() - Check if a rectangular region is currently touched
+ * @param x: Left edge of region
+ * @param y: Top edge of region
+ * @param width: Width of region
+ * @param height: Height of region
+ *
+ * Returns true if any active touch point falls within the specified region.
+ * This is a legacy helper that should be replaced with ui_input.c functions.
+ *
+ * Returns: true if region is touched, false otherwise
+ */
 bool is_touched(int x, int y, int width, int height) {
   SceTouchData* tdf = &(context.ui_state.touch_state_front);
   if (!tdf) {
@@ -394,12 +301,23 @@ bool is_touched(int x, int y, int width, int height) {
 
 // is_point_in_circle() and is_point_in_rect() moved to ui_input.c
 
-/// Handle VitaRPS5 touch screen input
-
 // ============================================================================
 // Touch input handler moved to ui_screens.c
 // ============================================================================
 
+// ============================================================================
+// PSN ACCOUNT INITIALIZATION
+// ============================================================================
+
+/**
+ * load_psn_id_if_needed() - Load PSN account ID from Vita registry
+ *
+ * Queries the system registry for the PlayStation Network account ID and
+ * stores it in base64-encoded form in the context config. This is required
+ * for PS5/PS4 remote play authentication.
+ *
+ * Only loads if not already present in config. Called once during UI init.
+ */
 void load_psn_id_if_needed() {
   if (context.config.psn_account_id == NULL || strlen(context.config.psn_account_id) < 1) {
     char accIDBuf[8];
@@ -417,22 +335,37 @@ void load_psn_id_if_needed() {
   }
 }
 
-/// Draw the main menu screen with the list of hosts and header bar
-/// @return the screen to draw during the next cycle
-
+// ============================================================================
+// SCREEN RENDERING
 // ============================================================================
 // All screen rendering functions moved to ui_screens.c:
-// - ui_screen_draw_main() → ui_screen_draw_main()
-// - ui_screen_draw_settings() → ui_screen_ui_screen_draw_settings()
-// - ui_screen_draw_profile() → ui_screen_draw_profile()
-// - ui_screen_draw_controller() → ui_screen_draw_controller()
-// - ui_screen_draw_waking() → ui_screen_draw_waking()
-// - ui_screen_draw_reconnecting() → ui_screen_draw_reconnecting()
-// - ui_screen_draw_registration() → ui_screen_draw_registration()
-// - ui_screen_draw_stream() → ui_screen_ui_screen_draw_stream()
-// - ui_screen_draw_messages() → ui_screen_ui_screen_draw_messages()
+// - ui_screen_draw_main()
+// - ui_screen_draw_settings()
+// - ui_screen_draw_profile()
+// - ui_screen_draw_controller()
+// - ui_screen_draw_waking()
+// - ui_screen_draw_reconnecting()
+// - ui_screen_draw_registration()
+// - ui_screen_draw_stream()
+// - ui_screen_draw_messages()
 // ============================================================================
 
+// ============================================================================
+// UI INITIALIZATION
+// ============================================================================
+
+/**
+ * init_ui() - Initialize the VitaRPS5 UI system
+ *
+ * Performs one-time initialization of the UI subsystem:
+ * 1. Initializes vita2d graphics library
+ * 2. Loads all textures and fonts
+ * 3. Initializes touch screen input
+ * 4. Configures confirm/cancel button layout
+ * 5. Initializes all UI modules (input, screens, state, particles, cards)
+ *
+ * Must be called before draw_ui() main loop.
+ */
 void init_ui() {
   vita2d_init();
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
@@ -465,7 +398,23 @@ void init_ui() {
   touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
 }
 
-/// Main UI loop
+// ============================================================================
+// MAIN UI LOOP
+// ============================================================================
+
+/**
+ * draw_ui() - Main UI rendering and event loop
+ *
+ * Infinite loop that:
+ * 1. Reads controller and touch input
+ * 2. Handles global popups (error, debug menu, hints)
+ * 3. Dispatches to the appropriate screen renderer
+ * 4. Renders navigation overlay and global UI elements
+ * 5. Swaps buffers and updates display
+ *
+ * This function never returns - it runs for the lifetime of the application.
+ * Streaming mode bypasses all rendering to minimize latency.
+ */
 void draw_ui() {
   init_ui();
   SceCtrlData ctrl;
