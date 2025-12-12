@@ -238,6 +238,9 @@ void close_debug_menu(void);
 void render_debug_menu(void);
 void handle_debug_menu_input(void);
 
+// Screens (ui_screens.c)
+#include "ui_screens.h"
+
 // ============================================================================
 // Debug Menu Configuration
 // ============================================================================

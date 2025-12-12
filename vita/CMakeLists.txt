@@ -19,7 +19,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/message_log.c
     src/logging.c
 
-    # UI modules (Phase 2, 3, 4, 5 & 6 refactoring)
+    # UI modules (Phase 2, 3, 4, 5, 6 & 7 refactoring)
     src/ui/ui_graphics.c
     src/ui/ui_animation.c
     src/ui/ui_input.c
@@ -27,6 +27,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_components.c
     src/ui/ui_navigation.c
     src/ui/ui_console_cards.c
+    src/ui/ui_screens.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
