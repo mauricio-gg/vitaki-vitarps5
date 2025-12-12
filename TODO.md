@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2025-12-12
+Last Updated: 2025-12-12 (UI Refactoring Complete - Removed from TODO)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -20,35 +20,6 @@ Only move a task to "Done" after the reviewer signs off.
    - *Next Step:* Capture control-plane packets (logs) before/after instrumentation.
 
 ---
-
-### 📝 UI Refactoring (Phase 5-8)
-1. **Phase 5: Extract Navigation System (Medium Risk)**
-   - Extract `ui_navigation.c` - wave sidebar, collapse state machine, navigation pills
-   - Implement nav_collapse state management with accessor functions
-   - Create public navigation API in `ui_navigation.h`
-   - Build and test wave animation and collapse/expand transitions
-   - Estimated: 2 sessions
-
-2. **Phase 6: Extract Console Cards (Medium Risk)**
-   - Extract `ui_console_cards.c` - card rendering, caching, focus animation
-   - Implement card selection and scaling with accessor functions
-   - Create public cards API in `ui_console_cards.h`
-   - Build and test focus animation and scaling effects
-   - Estimated: 1 session
-
-3. **Phase 7: Extract Screen Implementations (High Risk)**
-   - Extract `ui_screens.c` - all 9 screen rendering functions
-   - Implement screen dispatch logic
-   - Create public screens API in `ui_screens.h`
-   - Build and test all 9 screens render correctly
-   - Estimated: 2-3 sessions
-
-4. **Phase 8: Cleanup and Verification (Low Risk)**
-   - Rename remaining `ui.c` to `ui_main.c`
-   - Update CMakeLists.txt with all new source files
-   - Remove deprecated code
-   - Final verification and regression testing
-   - Estimated: 1 session
 
 ### 📝 Latency & Performance
 1. **Expose low-bandwidth profile in config/UI**
