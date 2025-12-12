@@ -26,6 +26,8 @@ typedef struct vita_chiaki_ui_state_t {
 } VitaChiakiUIState;
 
 /// Identifiers of various widgets on the screen
+#ifndef UI_MAIN_WIDGET_ID_DEFINED
+#define UI_MAIN_WIDGET_ID_DEFINED
 typedef enum ui_main_widget_id_t {
   UI_MAIN_WIDGET_ADD_HOST_BTN,
   UI_MAIN_WIDGET_REGISTER_BTN,
@@ -39,17 +41,21 @@ typedef enum ui_main_widget_id_t {
   // FIXME: this is bound to fail REALLY fast if we start adding more inputs in the future
   UI_MAIN_WIDGET_TEXT_INPUT = 1 << 6,
 } MainWidgetId;
+#endif
 
 
 void draw_ui();
 void ui_clear_waking_wait(void);
 
+#ifndef UI_CONNECTION_STAGE_DEFINED
+#define UI_CONNECTION_STAGE_DEFINED
 typedef enum {
   UI_CONNECTION_STAGE_NONE = 0,
   UI_CONNECTION_STAGE_WAKING,
   UI_CONNECTION_STAGE_CONNECTING,
   UI_CONNECTION_STAGE_STARTING_STREAM,
 } UIConnectionStage;
+#endif
 
 void ui_connection_begin(UIConnectionStage stage);
 void ui_connection_set_stage(UIConnectionStage stage);
