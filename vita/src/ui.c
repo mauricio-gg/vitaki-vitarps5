@@ -80,11 +80,11 @@
 #define NAV_COLLAPSE_DURATION_MS 280      // Total animation duration
 #define NAV_PHASE1_END_MS 80              // Preparation phase end
 #define NAV_PHASE2_END_MS 200             // Collapse phase end
-#define NAV_PILL_WIDTH 120                // Pill width when fully collapsed
-#define NAV_PILL_HEIGHT 36                // Pill height
+#define NAV_PILL_WIDTH 140                // Pill width when fully collapsed
+#define NAV_PILL_HEIGHT 44                // Pill height
 #define NAV_PILL_X 16                     // Pill X position
 #define NAV_PILL_Y 16                     // Pill Y position
-#define NAV_PILL_RADIUS 18                // Pill corner radius (fully rounded)
+#define NAV_PILL_RADIUS 22                // Pill corner radius (fully rounded)
 #define NAV_TOAST_DURATION_MS 2000        // Toast display duration
 #define NAV_TOAST_FADE_MS 300             // Toast fade in/out duration
 
@@ -142,6 +142,7 @@ static bool particles_initialized = false;
 static int particle_update_frame = 0;  // Frame counter for 30fps updates
 static uint32_t button_block_mask = 0;
 static bool touch_block_active = false;
+static bool touch_block_pending_clear = false;  // Delayed clear to prevent icon tap collapse
 
 // Wave navigation state
 #define WAVE_NAV_ICON_SIZE 32       // Per spec: 32x32px icons
@@ -187,18 +188,30 @@ typedef struct {
 } NavCollapseState;
 
 static NavCollapseState nav_collapse = {
-  .state = NAV_STATE_EXPANDED,
+  .state = NAV_STATE_COLLAPSED,
   .anim_start_us = 0,
   .anim_progress = 0.0f,
   .stored_wave_bottom_phase = 0.0f,
   .stored_wave_top_phase = 0.0f,
-  .current_width = WAVE_NAV_WIDTH,
-  .pill_width = NAV_PILL_HEIGHT,  // Start as circle (36px)
-  .pill_opacity = 0.0f,
+  .current_width = 0.0f,
+  .pill_width = NAV_PILL_WIDTH,
+  .pill_opacity = 1.0f,
   .toast_shown_this_session = false,
   .toast_active = false,
   .toast_start_us = 0
 };
+
+// Hints popup system
+typedef struct {
+  bool active;
+  uint64_t start_time_us;
+  const char* current_hint;
+} HintsPopupState;
+
+static HintsPopupState hints_popup = {0};
+
+#define HINTS_POPUP_DURATION_MS 7000
+#define HINTS_FADE_DURATION_MS 500
 
 // Console card system (updated per UI spec)
 #define CONSOLE_CARD_WIDTH 200          // Reverted to original 200px for better layout
@@ -219,6 +232,21 @@ static NavCollapseState nav_collapse = {
 
 // Content area centering
 #define CONTENT_CENTER_X (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
+
+/**
+ * get_dynamic_content_center_x() - Calculate horizontal center of content area
+ *
+ * Returns the X coordinate of the content area's horizontal center, accounting
+ * for the current navigation sidebar width during collapse/expand animations.
+ * This ensures content stays centered within the available space as the nav
+ * sidebar animates between 0px and 130px width.
+ *
+ * Returns: X coordinate for centering content in the available area
+ */
+static inline int get_dynamic_content_center_x(void) {
+    // Menu is an overlay - content centers on FULL screen
+    return VITA_WIDTH / 2;  // 480px
+}
 
 typedef struct {
   char name[32];           // "PS5 - 024"
@@ -572,12 +600,12 @@ static void nav_toggle_collapse(void) {
   // Ignore toggle during animation
 }
 
-static void nav_reset_to_expanded(void) {
-  nav_collapse.state = NAV_STATE_EXPANDED;
+static void nav_reset_to_collapsed(void) {
+  nav_collapse.state = NAV_STATE_COLLAPSED;
   nav_collapse.anim_progress = 0.0f;
-  nav_collapse.current_width = WAVE_NAV_WIDTH;
-  nav_collapse.pill_width = NAV_PILL_HEIGHT;
-  nav_collapse.pill_opacity = 0.0f;
+  nav_collapse.current_width = 0.0f;
+  nav_collapse.pill_width = NAV_PILL_WIDTH;
+  nav_collapse.pill_opacity = 1.0f;
   // Don't reset toast_shown_this_session - should persist for whole app session
 }
 
@@ -711,21 +739,109 @@ static void render_nav_pill(void) {
   // Pill background
   draw_rounded_rectangle(x, y, w, h, r, bg_color);
 
-  // Hamburger icon (only show when pill is wide enough)
+  // Hamburger icon + "Menu" text (centered together as a single unit)
   if (w > 50) {
-    int icon_x = x + 12;
+    int hamburger_size = 14;
+    int menu_text_width = vita2d_font_text_width(font, FONT_SIZE_BODY, "Menu");
+    int gap = 8;
+    int total_content_width = hamburger_size + gap + menu_text_width;
+    int content_start_x = x + (w - total_content_width) / 2;
+
     int icon_cy = y + h / 2;
     uint8_t icon_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-    draw_hamburger_icon(icon_x, icon_cy, 14, RGBA8(250, 250, 250, icon_alpha));
+    draw_hamburger_icon(content_start_x, icon_cy, hamburger_size,
+                        RGBA8(250, 250, 250, icon_alpha));
+
+    if (w >= NAV_PILL_WIDTH - 10) {
+      uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
+      int text_x = content_start_x + hamburger_size + gap;
+      vita2d_font_draw_text(font, text_x, y + h / 2 + 5,
+                            RGBA8(250, 250, 250, text_alpha),
+                            FONT_SIZE_BODY, "Menu");
+    }
+  }
+}
+
+/**
+ * render_content_focus_overlay() - Draw semi-transparent overlay on content area
+ *
+ * When the navigation sidebar is expanded, this function draws a subtle dark
+ * overlay over the content area to visually indicate that focus is on the
+ * navigation. This helps users understand that the nav is active and content
+ * interaction is temporarily blocked.
+ */
+static void render_content_focus_overlay(void) {
+  if (nav_collapse.state != NAV_STATE_EXPANDED) {
+    return;
+  }
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT,
+                        RGBA8(0, 0, 0, 80));
+}
+
+/**
+ * render_hints_popup() - Render the hints popup at bottom of screen
+ *
+ * Displays a semi-transparent pill with control hints that fades in, stays
+ * visible for HINTS_POPUP_DURATION_MS, then fades out over HINTS_FADE_DURATION_MS.
+ */
+static void render_hints_popup(void) {
+  if (!hints_popup.active || !hints_popup.current_hint) return;
+
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - hints_popup.start_time_us;
+  float elapsed_ms = elapsed_us / 1000.0f;
+
+  float opacity = 1.0f;
+  if (elapsed_ms > HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS) {
+    float fade_progress = (elapsed_ms - (HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS)) / HINTS_FADE_DURATION_MS;
+    opacity = 1.0f - fade_progress;
+    if (opacity < 0.0f) opacity = 0.0f;
   }
 
-  // "Menu" text (only when pill is nearly full width)
-  if (w >= NAV_PILL_WIDTH - 10) {
-    uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-    vita2d_font_draw_text(font, x + 32, y + h / 2 + 5,
-                          RGBA8(250, 250, 250, text_alpha),
-                          FONT_SIZE_BODY, "Menu");
+  if (elapsed_ms >= HINTS_POPUP_DURATION_MS) {
+    hints_popup.active = false;
+    return;
   }
+
+  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
+  int pill_w = text_width + 40;
+  int pill_h = 36;
+  int pill_x = (VITA_WIDTH - pill_w) / 2;
+  int pill_y = VITA_HEIGHT - pill_h - 20;
+
+  uint8_t alpha = (uint8_t)(opacity * 200);
+  draw_rounded_rectangle(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
+
+  int text_x = pill_x + 20;
+  int text_y = pill_y + pill_h / 2 + 5;
+  vita2d_font_draw_text(font, text_x, text_y, RGBA8(255, 255, 255, alpha), FONT_SIZE_SMALL, hints_popup.current_hint);
+}
+
+/**
+ * render_hints_indicator() - Show "(Select) Hints" indicator in top-right
+ *
+ * Displays a subtle text indicator to inform users they can press Select
+ * to view control hints for the current screen.
+ */
+static void render_hints_indicator(void) {
+  const char* indicator = "(Select) Hints";
+  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, indicator);
+  int text_x = VITA_WIDTH - text_width - 100;  // Left of logo
+  int text_y = 35;
+  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
+}
+
+/**
+ * trigger_hints_popup() - Activate hints popup with specified text
+ * @param hint_text The hint text to display
+ *
+ * Triggers the hints popup animation, showing the provided hint text
+ * at the bottom of the screen with fade in/out animations.
+ */
+static void trigger_hints_popup(const char* hint_text) {
+  hints_popup.active = true;
+  hints_popup.start_time_us = sceKernelGetProcessTimeWide();
+  hints_popup.current_hint = hint_text;
 }
 
 static void render_nav_collapse_toast(void) {
@@ -1708,9 +1824,11 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
   if (touch_block_active) {
     if (nav_touch.reportNum == 0) {
+      // Finger lifted - clear the block
       touch_block_active = false;
+      touch_block_pending_clear = false;
     } else {
-      return false;
+      return false;  // Still blocking while finger is down
     }
   }
 
@@ -1728,14 +1846,16 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
     // If expanded, check nav icon touch
     if (nav_collapse.state == NAV_STATE_EXPANDED) {
       if (nav_touch_hit(tx, ty, out_screen)) {
+        touch_block_active = true;
         return true;
       }
     }
 
     // Touch in content area triggers collapse (if not pinned)
     // Content area is to the right of the nav bar
-    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH) {
+    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !touch_block_active) {
       nav_request_collapse(true);  // From content interaction
+      touch_block_active = true;   // Prevent double-processing of this touch
     }
   }
 
@@ -2136,7 +2256,7 @@ static float get_card_scale(int card_index, bool is_focused) {
 
 void render_console_grid() {
   // Center cards within content area (830px starting at x=130)
-  int content_center_x = CONTENT_CENTER_X;
+  int content_center_x = get_dynamic_content_center_x();
   int screen_center_y = VITA_HEIGHT / 2;
 
   // Update cache (respects 10-second interval)
@@ -2386,9 +2506,11 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
   if (touch_block_active) {
     if (touch.reportNum == 0) {
+      // Finger lifted - clear the block
       touch_block_active = false;
+      touch_block_pending_clear = false;
     } else {
-      return UI_SCREEN_TYPE_MAIN;
+      return UI_SCREEN_TYPE_MAIN;  // Still blocking while finger is down
     }
   }
 
@@ -2619,29 +2741,7 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
       // refresh tiles
       update_context_hosts();
     }
-    // Determine action to perform
-    // if (btn_pressed(SCE_CTRL_CONFIRM) && !registered) {
-    //   for (int i = 0; i < context.config.num_registered_hosts; i++) {
-    //     printf("0x%x", context.config.registered_hosts[i]->registered_state);
-    //     if (context.config.registered_hosts[i] != NULL && strcmp(context.active_host->hostname, context.config.registered_hosts[i]->hostname) == 0) {
-    //       context.active_host->registered_state = context.config.registered_hosts[i]->registered_state;
-    //       context.active_host->type |= REGISTERED;
-    //       registered = true;
-    //       break;
-    //     }
-    //   }
-    // }
-    // if (btn_pressed(SCE_CTRL_CONFIRM) && !registered && !added) {
-    //   for (int i = 0; i < context.config.num_manual_hosts; i++) {
-    //     if (context.config.manual_hosts[i] != NULL && strcmp(context.active_host->hostname, context.config.manual_hosts[i]->hostname) == 0) {
-    //       context.active_host->registered_state = context.config.manual_hosts[i]->registered_state;
-    //       context.active_host->type |= MANUALLY_ADDED;
-    //       context.active_host->type |= REGISTERED;
-    //       added = true;
-    //       break;
-    //     }
-    //   }
-    // }
+
     if (registered && btn_pressed(SCE_CTRL_CONFIRM)) {
       if (takion_cooldown_gate_active()) {
         LOGD("Ignoring connect request — network recovery cooldown active");
@@ -2710,8 +2810,9 @@ UIScreenType draw_main_menu() {
   update_particles();
   render_particles();
 
-  // Render VitaRPS5 navigation sidebar
-  render_wave_navigation();
+  UIScreenType nav_screen;
+  if (handle_global_nav_shortcuts(&nav_screen, true))
+    return nav_screen;
 
   // Render VitaRPS5 console cards instead of host tiles
   render_console_grid();
@@ -2874,12 +2975,10 @@ UIScreenType draw_main_menu() {
     return touch_screen;
   }
 
-  // VitaRPS5 UI control hints at bottom
-  int hint_y = VITA_HEIGHT - 25;
-  int hint_x = WAVE_NAV_WIDTH + 20;
-  vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, 16,
-    "D-Pad: Navigate | Cross: Connect/Wake | Square: Re-pair");
-
+  // Select button shows hints popup
+  if (btn_pressed(SCE_CTRL_SELECT)) {
+    trigger_hints_popup("D-Pad: Navigate | Cross: Connect/Wake | Square: Re-pair");
+  }
 
   return next_screen;
 }
@@ -3070,22 +3169,26 @@ static void draw_settings_controller_tab(int content_x, int content_y, int conte
 /// Main Settings screen rendering function
 /// @return next screen to display
 UIScreenType draw_settings() {
-  // Render particle background and navigation sidebar
+  // Render particle background
   update_particles();
   render_particles();
-  render_wave_navigation();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
-  // Main content area (avoiding wave nav sidebar)
-  int content_x = WAVE_NAV_WIDTH + 40;
+  // Main content area (nav is overlay - content centered on full screen)
+  int content_w = 800;  // Fixed width for content
+  int content_x = (VITA_WIDTH - content_w) / 2;  // Center on screen
   int content_y = 100;
-  int content_w = VITA_WIDTH - WAVE_NAV_WIDTH - 80;
 
-  // Styled section header (replaces plain text title)
-  draw_section_header(content_x, 30, content_w, "Streaming Settings");
+  // Settings title (centered on full screen width)
+  const char* title = "Streaming Settings";
+  int title_width = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_x = (VITA_WIDTH - title_width) / 2;
+  int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
+  if (title_x < min_title_x) title_x = min_title_x;
+  vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   // Content area (no tabs needed - only one section)
   int tab_content_y = 90;
@@ -3095,11 +3198,10 @@ UIScreenType draw_settings() {
   // Draw streaming settings content
   draw_settings_streaming_tab(tab_content_x, tab_content_y, tab_content_w);
 
-  // Control hints at bottom
-  int hint_y = VITA_HEIGHT - 25;
-  int hint_x = WAVE_NAV_WIDTH + 20;
-  vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-    "Up/Down: Navigate | X: Toggle/Select | Circle: Back");
+  // Select button shows hints popup
+  if (btn_pressed(SCE_CTRL_SELECT)) {
+    trigger_hints_popup("Up/Down: Navigate | X: Toggle/Select | Circle: Back");
+  }
 
   // === INPUT HANDLING ===
 
@@ -3453,22 +3555,26 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 /// Main Profile & Registration screen
 /// @return next screen type to display
 UIScreenType draw_profile_screen() {
-  // Render particle background and navigation sidebar
+  // Render particle background
   update_particles();
   render_particles();
-  render_wave_navigation();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, false))
     return nav_screen;
 
-  // Main content area
-  int content_x = WAVE_NAV_WIDTH + 40;
+  // Main content area (nav is overlay - content centered on full screen)
+  int content_w = 800;  // Fixed width for content
+  int content_x = (VITA_WIDTH - content_w) / 2;  // Center on screen
   int content_y = 60;
-  int content_w = VITA_WIDTH - WAVE_NAV_WIDTH - 80;
 
-  // Title
-  vita2d_font_draw_text(font, content_x, 50, UI_COLOR_TEXT_PRIMARY, 26, "Profile & Connection");
+  // Title (centered on full screen width)
+  const char* title = "Profile & Connection";
+  int title_width = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_x = (VITA_WIDTH - title_width) / 2;
+  int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
+  if (title_x < min_title_x) title_x = min_title_x;
+  vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   // Layout: Profile card (left), Connection info (right) - registration removed
   int card_spacing = 15;
@@ -3483,11 +3589,10 @@ UIScreenType draw_profile_screen() {
   draw_connection_info_card(content_x + card_w + card_spacing, content_y, card_w, card_h,
                              profile_state.current_section == PROFILE_SECTION_CONNECTION);
 
-  // Control hints at bottom
-  int hint_y = VITA_HEIGHT - 25;
-  int hint_x = WAVE_NAV_WIDTH + 20;
-  vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, 16,
-    "Left/Right: Switch Card | Circle: Back");
+  // Select button shows hints popup
+  if (btn_pressed(SCE_CTRL_SELECT)) {
+    trigger_hints_popup("Left/Right: Switch Card | Circle: Back");
+  }
 
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
 
@@ -3775,22 +3880,26 @@ static void draw_controller_settings_tab(int content_x, int content_y, int conte
 
 /// Main Controller Configuration screen with tabs
 UIScreenType draw_controller_config_screen() {
-  // Render particle background and navigation sidebar
+  // Render particle background
   update_particles();
   render_particles();
-  render_wave_navigation();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, false))
     return nav_screen;
 
-  // Main content area (avoiding wave nav sidebar)
-  int content_x = WAVE_NAV_WIDTH + 40;
+  // Main content area (nav is overlay - content centered on full screen)
+  int content_w = 800;  // Fixed width for content
+  int content_x = (VITA_WIDTH - content_w) / 2;  // Center on screen
   int content_y = 100;
-  int content_w = VITA_WIDTH - WAVE_NAV_WIDTH - 80;
 
-  // Controller title
-  vita2d_font_draw_text(font, content_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, "Controller Configuration");
+  // Controller title (centered on full screen width)
+  const char* title = "Controller Configuration";
+  int title_width = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_x = (VITA_WIDTH - title_width) / 2;
+  int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
+  if (title_x < min_title_x) title_x = min_title_x;
+  vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   // Tab bar
   int tab_bar_y = 70;
@@ -3814,13 +3923,13 @@ UIScreenType draw_controller_config_screen() {
       break;
   }
 
-  // Control hints at bottom
-  int hint_y = VITA_HEIGHT - 25;
-  int hint_x = WAVE_NAV_WIDTH + 20;
-  const char* hints = (controller_state.current_tab == CONTROLLER_TAB_MAPPINGS) ?
-    "L1/R1: Switch Tab | Left/Right: Change Scheme | Circle: Back" :
-    "L1/R1: Switch Tab | Up/Down: Navigate | X: Toggle | Circle: Back";
-  vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hints);
+  // Select button shows hints popup (different hint per tab)
+  if (btn_pressed(SCE_CTRL_SELECT)) {
+    const char* hint = (controller_state.current_tab == CONTROLLER_TAB_MAPPINGS) ?
+      "L1/R1: Switch Tab | Left/Right: Change Scheme | Circle: Back" :
+      "L1/R1: Switch Tab | Up/Down: Navigate | X: Toggle | Circle: Back";
+    trigger_hints_popup(hint);
+  }
 
   // === INPUT HANDLING ===
 
@@ -4576,18 +4685,17 @@ void draw_ui() {
         vita2d_start_drawing();
         vita2d_clear_screen();
 
-        // Draw background with separate wave and content areas
-        // Wave navigation area gets dark teal base (waves draw on top)
-        vita2d_draw_rectangle(0, 0, WAVE_NAV_WIDTH, VITA_HEIGHT, RGBA8(20, 40, 50, 255));
-
-        // Content area gets normal background
+        // Draw full-screen background - nav is a pure overlay
         if (background_gradient) {
-          // Draw gradient only in content area
-          vita2d_draw_texture_part(background_gradient, WAVE_NAV_WIDTH, 0,
-                                   WAVE_NAV_WIDTH, 0, CONTENT_AREA_WIDTH, VITA_HEIGHT);
+          vita2d_draw_texture_part(background_gradient, 0, 0,
+                                   0, 0, VITA_WIDTH, VITA_HEIGHT);
         } else {
-          vita2d_draw_rectangle(WAVE_NAV_WIDTH, 0, CONTENT_AREA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
+          vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
         }
+
+        // Wave navigation area removed - nav is a pure overlay with no background
+
+        // Focus overlay moved to after screen rendering for correct z-order
 
         // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
         if (vita_rps5_logo) {
@@ -4643,9 +4751,20 @@ void draw_ui() {
 
         if (next_screen != prev_screen) {
           block_inputs_for_transition();
-          nav_reset_to_expanded();  // Reset sidebar to expanded on screen transition
+          // Menu stays in current state - user controls collapse via Triangle or content tap
         }
         screen = next_screen;
+
+        // Render focus overlay after all screen content (correct z-order)
+        render_content_focus_overlay();
+
+        // Render navigation menu overlay (on top of tint)
+        render_wave_navigation();
+
+        // Render hints system (indicator + popup)
+        render_hints_indicator();
+        render_hints_popup();
+
         render_loss_indicator_preview();
         render_debug_menu();
         render_error_popup();
@@ -4653,6 +4772,5 @@ void draw_ui() {
         vita2d_common_dialog_update();
         vita2d_swap_buffers();
       }
-    // }
   }
 }

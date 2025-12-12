@@ -191,7 +191,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
-  cfg->keep_nav_pinned = true;  // Default: navigation stays pinned
+  cfg->keep_nav_pinned = false;  // Default: navigation collapses on content interaction
   vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
@@ -292,7 +292,7 @@ void config_parse(VitaChiakiConfig* cfg) {
       cfg->clamp_soft_restart_bitrate = datum.ok ? datum.u.b : true;
 
       datum = toml_bool_in(settings, "keep_nav_pinned");
-      cfg->keep_nav_pinned = datum.ok ? datum.u.b : true;
+      cfg->keep_nav_pinned = datum.ok ? datum.u.b : false;
 
       datum = toml_string_in(settings, "latency_mode");
       if (datum.ok) {
