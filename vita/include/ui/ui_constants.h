@@ -43,12 +43,12 @@
 #define UI_COLOR_SHADOW             0x3C000000  // Semi-transparent black for shadows
 
 // ============================================================================
-// Particle Colors (ABGR with alpha - 80% opacity = 0xCC)
+// Particle Colors (ABGR with alpha - 0xCC = 80% opaque / 20% transparent)
 // ============================================================================
-#define PARTICLE_COLOR_RED          0xCCFF5555  // 80% transparent red
-#define PARTICLE_COLOR_GREEN        0xCC55FF55  // 80% transparent green
-#define PARTICLE_COLOR_BLUE         0xCC5555FF  // 80% transparent blue
-#define PARTICLE_COLOR_ORANGE       0xCC55AAFF  // 80% transparent orange
+#define PARTICLE_COLOR_RED          0xCCFF5555  // 80% opaque red
+#define PARTICLE_COLOR_GREEN        0xCC55FF55  // 80% opaque green
+#define PARTICLE_COLOR_BLUE         0xCC5555FF  // 80% opaque blue
+#define PARTICLE_COLOR_ORANGE       0xCC55AAFF  // 80% opaque orange
 
 // ============================================================================
 // Typography (from docs/ai/UI_FINAL_SPECIFICATION.md)
@@ -183,3 +183,16 @@
 #ifndef VIDEO_LOSS_ALERT_DEFAULT_US
 #define VIDEO_LOSS_ALERT_DEFAULT_US     (5 * 1000 * 1000ULL)
 #endif
+
+// ============================================================================
+// Graphics Primitives (ui_graphics.c)
+// ============================================================================
+#define UI_SHADOW_OFFSET_PX             4       // Drop shadow offset in pixels
+#define UI_SPINNER_SEGMENTS             32      // Segments for smooth spinner arc
+#define UI_CIRCLE_OUTLINE_SEGMENTS      48      // Segments for circle outlines
+#define UI_OFFSCREEN_MARGIN             100     // Margin for offscreen culling
+
+// Loss indicator badge
+#define UI_LOSS_INDICATOR_MARGIN        18      // Margin from screen edge
+#define UI_LOSS_INDICATOR_PADDING_X     18      // Horizontal padding
+#define UI_LOSS_INDICATOR_PADDING_Y     6       // Vertical padding

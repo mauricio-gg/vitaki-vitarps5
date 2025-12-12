@@ -18,6 +18,8 @@
 #include "ui.h"
 #include "util.h"
 #include "video.h"
+#include "ui/ui_graphics.h"
+#include "ui/ui_animation.h"
 
 #ifndef VIDEO_LOSS_ALERT_DEFAULT_US
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
@@ -136,10 +138,6 @@ vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
 vita2d_texture *background_gradient, *vita_rps5_logo;
 vita2d_texture *vita_front, *ps5_logo;
 
-// Particle system state
-static Particle particles[PARTICLE_COUNT];
-static bool particles_initialized = false;
-static int particle_update_frame = 0;  // Frame counter for 30fps updates
 static uint32_t button_block_mask = 0;
 static bool touch_block_active = false;
 static bool touch_block_pending_clear = false;  // Delayed clear to prevent icon tap collapse
@@ -187,7 +185,8 @@ typedef struct {
   uint64_t toast_start_us;        // Toast display start time
 } NavCollapseState;
 
-static NavCollapseState nav_collapse = {
+// Removed 'static' to allow access from ui_graphics.c during refactoring
+NavCollapseState nav_collapse = {
   .state = NAV_STATE_COLLAPSED,
   .anim_start_us = 0,
   .anim_progress = 0.0f,
@@ -300,8 +299,6 @@ static void close_debug_menu(void);
 static void open_debug_menu(void);
 static void ensure_active_host_for_debug(void);
 static void render_loss_indicator_preview(void);
-static void draw_rounded_rectangle(int x, int y, int width, int height, int radius, uint32_t color);
-static void draw_circle(int center_x, int center_y, int radius, uint32_t color);
 
 // Procedural navigation icon forward declarations
 void draw_play_icon(int center_x, int center_y, int size);
@@ -393,20 +390,6 @@ static int connection_thread_func(SceSize args, void *argp) {
   connection_thread_id = -1;
   sceKernelExitDeleteThread(0);
   return 0;
-}
-
-static void draw_circle_outline_simple(int cx, int cy, int radius, uint32_t color) {
-  const int segments = 48;
-  float step = (2.0f * M_PI) / (float)segments;
-  for (int i = 0; i < segments; i++) {
-    float angle1 = i * step;
-    float angle2 = (i + 1) * step;
-    float x1 = cx + cosf(angle1) * radius;
-    float y1 = cy + sinf(angle1) * radius;
-    float x2 = cx + cosf(angle2) * radius;
-    float y2 = cy + sinf(angle2) * radius;
-    vita2d_draw_line(x1, y1, x2, y2, color);
-  }
 }
 
 static bool start_connection_thread(VitaChiakiHost *host) {
@@ -732,12 +715,12 @@ static void render_nav_pill(void) {
   bool pill_focused = (nav_collapse.state == NAV_STATE_COLLAPSED &&
                        current_focus == FOCUS_NAV_BAR);
   if (pill_focused) {
-    draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, r + 2,
+    ui_draw_rounded_rect(x - 2, y - 2, w + 4, h + 4, r + 2,
                            UI_COLOR_PRIMARY_BLUE);
   }
 
   // Pill background
-  draw_rounded_rectangle(x, y, w, h, r, bg_color);
+  ui_draw_rounded_rect(x, y, w, h, r, bg_color);
 
   // Hamburger icon + "Menu" text (centered together as a single unit)
   if (w > 50) {
@@ -810,7 +793,7 @@ static void render_hints_popup(void) {
   int pill_y = VITA_HEIGHT - pill_h - 20;
 
   uint8_t alpha = (uint8_t)(opacity * 200);
-  draw_rounded_rectangle(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
+  ui_draw_rounded_rect(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
 
   int text_x = pill_x + 20;
   int text_y = pill_y + pill_h / 2 + 5;
@@ -880,7 +863,7 @@ static void render_nav_collapse_toast(void) {
   uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
   uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
 
-  draw_rounded_rectangle(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
+  ui_draw_rounded_rect(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
   vita2d_font_draw_text(font, toast_x + 12, toast_y + toast_h / 2 + 4,
                         text_color, FONT_SIZE_SMALL, text);
 }
@@ -901,41 +884,6 @@ static bool pill_touch_hit(float touch_x, float touch_y) {
           touch_y >= y - pad && touch_y <= y + h + pad);
 }
 
-// Modern rendering helpers (extracted from VitaRPS5)
-
-/// Draw a circle at the given position with the given radius and color
-static void draw_circle(int cx, int cy, int radius, uint32_t color) {
-  // Bounds checking
-  if (cx < -100 || cx > 1060 || cy < -100 || cy > 644 || radius <= 0 || radius > 1000) {
-    return;
-  }
-
-  // Fix problematic color values
-  if (color == 0xFFFFFFFF) {
-    color = RGBA8(254, 254, 254, 255);
-  }
-
-  // Ensure alpha channel is set
-  if ((color & 0xFF000000) == 0) {
-    color |= 0xFF000000;
-  }
-
-  for (int y = -radius; y <= radius; y++) {
-    for (int x = -radius; x <= radius; x++) {
-      if (x * x + y * y <= radius * radius) {
-        int draw_x = cx + x;
-        int draw_y = cy + y;
-
-        if (draw_x < 0 || draw_x >= 960 || draw_y < 0 || draw_y >= 544) {
-          continue;
-        }
-
-        vita2d_draw_rectangle(draw_x, draw_y, 1, 1, color);
-      }
-    }
-  }
-}
-
 static void render_error_popup(void) {
   if (!context.ui_state.error_popup_active)
     return;
@@ -946,7 +894,7 @@ static void render_error_popup(void) {
   const int popup_h = 280;
   int popup_x = (VITA_WIDTH - popup_w) / 2;
   int popup_y = (VITA_HEIGHT - popup_h) / 2;
-  draw_rounded_rectangle(popup_x, popup_y, popup_w, popup_h, 16,
+  ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16,
                          RGBA8(0x14, 0x16, 0x1C, 240));
 
   const char *message = context.ui_state.error_popup_text[0]
@@ -1100,7 +1048,7 @@ static void render_loss_indicator_preview(void) {
   uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
   if (bg_alpha < 40)
     bg_alpha = 40;
-  draw_rounded_rectangle(box_x, box_y, box_w, box_h, box_h / 2,
+  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2,
                          RGBA8(0, 0, 0, bg_alpha));
 
   int dot_x = box_x + padding_x;
@@ -1126,7 +1074,7 @@ static void render_debug_menu(void) {
   const int panel_h = 240;
   int panel_x = (VITA_WIDTH - panel_w) / 2;
   int panel_y = (VITA_HEIGHT - panel_h) / 2;
-  draw_rounded_rectangle(panel_x, panel_y, panel_w, panel_h, 18,
+  ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18,
                          RGBA8(0x14, 0x16, 0x1C, 240));
 
   const char *title = "Debug Actions";
@@ -1146,7 +1094,7 @@ static void render_debug_menu(void) {
     }
     int row_h = 44;
     int row_margin = 6;
-    draw_rounded_rectangle(panel_x + 30,
+    ui_draw_rounded_rect(panel_x + 30,
                            list_y + i * (row_h + row_margin),
                            panel_w - 60,
                            row_h,
@@ -1195,59 +1143,6 @@ static void handle_debug_menu_input(void) {
   if ((buttons & SCE_CTRL_CROSS) && !(prev_buttons & SCE_CTRL_CROSS)) {
     debug_menu_apply_action(context.ui_state.debug_menu_selection);
   }
-}
-
-/// Draw a rounded rectangle with the given parameters
-static void draw_rounded_rectangle(int x, int y, int width, int height, int radius, uint32_t color) {
-  if (radius <= 0) {
-    vita2d_draw_rectangle(x, y, width, height, color);
-    return;
-  }
-
-  int max_radius = MIN(width, height) / 2;
-  if (radius > max_radius)
-    radius = max_radius;
-
-  // Main rectangle body (center cross)
-  int body_w = width - 2 * radius;
-  int body_h = height - 2 * radius;
-  if (body_w > 0)
-    vita2d_draw_rectangle(x + radius, y, body_w, height, color);
-  if (body_h > 0)
-    vita2d_draw_rectangle(x, y + radius, width, body_h, color);
-
-  // Draw curved corners row-by-row (O(radius) draw calls instead of O(radius^2))
-  const int radius_sq = radius * radius;
-  for (int dy = 0; dy < radius; ++dy) {
-    int dist = radius - dy;
-    int inside = radius_sq - dist * dist;
-    if (inside <= 0)
-      continue;
-    int dx = (int)ceilf(sqrtf((float)inside));
-    if (dx <= 0)
-      continue;
-
-    int top_y = y + dy;
-    int bottom_y = y + height - dy - 1;
-    int left_start = x + radius - dx;
-    int right_start = x + width - radius;
-
-    vita2d_draw_rectangle(left_start, top_y, dx, 1, color);
-    vita2d_draw_rectangle(right_start, top_y, dx, 1, color);
-    vita2d_draw_rectangle(left_start, bottom_y, dx, 1, color);
-    vita2d_draw_rectangle(right_start, bottom_y, dx, 1, color);
-  }
-}
-
-/// Draw a card with a shadow effect
-static void draw_card_with_shadow(int x, int y, int width, int height, int radius, uint32_t color) {
-  // Render shadow first (offset by a few pixels)
-  int shadow_offset = 4;
-  uint32_t shadow_color = UI_COLOR_SHADOW;
-  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, width, height, radius, shadow_color);
-
-  // Render the actual card on top
-  draw_rounded_rectangle(x, y, width, height, radius, color);
 }
 
 // ============================================================================
@@ -1327,16 +1222,16 @@ static void draw_toggle_switch(int x, int y, int width, int height, float anim_v
   // Enhanced selection highlight with glow
   if (selected) {
     // Outer glow
-    draw_rounded_rectangle(x - 3, y - 3, width + 6, height + 6, height/2 + 2, RGBA8(0x34, 0x90, 0xFF, 60));
+    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, height/2 + 2, RGBA8(0x34, 0x90, 0xFF, 60));
     // Border
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, height/2 + 1, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, height/2 + 1, UI_COLOR_PRIMARY_BLUE);
   }
 
   // Track shadow for depth
-  draw_rounded_rectangle(x + 1, y + 1, width, height, height/2, RGBA8(0x00, 0x00, 0x00, 40));
+  ui_draw_rounded_rect(x + 1, y + 1, width, height, height/2, RGBA8(0x00, 0x00, 0x00, 40));
 
   // Track (background)
-  draw_rounded_rectangle(x, y, width, height, height/2, track_color);
+  ui_draw_rounded_rect(x, y, width, height, height/2, track_color);
 
   // Knob (circular button) - smoothly animated position
   int knob_radius = (height - 4) / 2;
@@ -1346,9 +1241,9 @@ static void draw_toggle_switch(int x, int y, int width, int height, float anim_v
   int knob_y = y + height/2;
 
   // Knob shadow
-  draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
+  ui_draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
   // Knob
-  draw_circle(knob_x, knob_y, knob_radius, knob_color);
+  ui_draw_circle(knob_x, knob_y, knob_radius, knob_color);
 }
 
 /// Draw a dropdown control
@@ -1368,18 +1263,18 @@ static void draw_dropdown(int x, int y, int width, int height, const char* label
   // Enhanced selection with shadow and glow
   if (selected && !expanded) {
     // Shadow
-    draw_rounded_rectangle(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
+    ui_draw_rounded_rect(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
     // Outer glow
-    draw_rounded_rectangle(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
+    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
     // Border
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
   } else {
     // Subtle shadow for depth
-    draw_rounded_rectangle(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
+    ui_draw_rounded_rect(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
   }
 
   // Background
-  draw_rounded_rectangle(x, y, width, height, 8, bg_color);
+  ui_draw_rounded_rect(x, y, width, height, 8, bg_color);
 
   // Label text (left) - use defined constant
   vita2d_font_draw_text(font, x + 15, y + height/2 + 6, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
@@ -1418,7 +1313,7 @@ static void draw_tab_bar(int x, int y, int width, int height,
     int tab_x = x + (i * tab_width);
 
     // Tab background - flat color, no dimming
-    draw_rounded_rectangle(tab_x, y, tab_width - 4, height, 8, colors[i]);
+    ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
 
     // Tab text (centered) - use subheader font size
     int text_width = vita2d_font_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
@@ -1462,7 +1357,7 @@ static void draw_status_dot(int x, int y, int radius, StatusType status) {
       color = RGBA8(0x80, 0x80, 0x80, 255); // Gray
   }
 
-  draw_circle(x, y, radius, color);
+  ui_draw_circle(x, y, radius, color);
 }
 
 /// Draw a styled section header (for single-section screens like Settings)
@@ -1473,7 +1368,7 @@ static void draw_status_dot(int x, int y, int radius, StatusType status) {
 static void draw_section_header(int x, int y, int width, const char* title) {
   // Subtle gradient background bar
   int header_h = 40;
-  draw_rounded_rectangle(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
+  ui_draw_rounded_rect(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
 
   // Bottom accent line (PlayStation Blue)
   vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
@@ -1524,109 +1419,6 @@ static void draw_spinner(int cx, int cy, int radius, int thickness, float rotati
   }
 }
 
-// Particle system functions
-
-/// Initialize particle system with random positions and velocities
-void init_particles() {
-  if (particles_initialized) return;
-
-  srand((unsigned int)sceKernelGetProcessTimeWide());
-
-  for (int i = 0; i < PARTICLE_COUNT; i++) {
-    // Constrain particles to content area only (not in wave navigation area)
-    particles[i].x = CONTENT_AREA_X + (float)(rand() % CONTENT_AREA_WIDTH);
-    particles[i].y = -(float)(rand() % 200);  // Start above screen (0 to -200)
-    particles[i].vx = ((float)(rand() % 100) / 100.0f - 0.5f) * 0.5f;  // Slight horizontal drift
-    particles[i].vy = ((float)(rand() % 100) / 100.0f + 0.3f) * 1.2f;  // Downward (positive Y, gravity)
-    particles[i].scale = 0.30f + ((float)(rand() % 100) / 100.0f) * 0.50f;  // 2x bigger: 0.30 to 0.80
-    particles[i].rotation = (float)(rand() % 360);
-    particles[i].rotation_speed = ((float)(rand() % 100) / 100.0f - 0.5f) * 1.0f;  // Half speed: -0.5 to +0.5
-    particles[i].symbol_type = rand() % 4;
-
-    // Assign color based on symbol
-    switch (particles[i].symbol_type) {
-      case 0: particles[i].color = PARTICLE_COLOR_RED; break;
-      case 1: particles[i].color = PARTICLE_COLOR_BLUE; break;
-      case 2: particles[i].color = PARTICLE_COLOR_GREEN; break;
-      case 3: particles[i].color = PARTICLE_COLOR_ORANGE; break;
-    }
-    particles[i].active = true;
-
-    // Batch 3: Initialize layer and sway animation parameters
-    particles[i].layer = (rand() % 2);  // 50/50 split between background (0) and foreground (1)
-    particles[i].sway_phase = ((float)(rand() % 360)) * (M_PI / 180.0f);  // Random starting phase
-    particles[i].sway_speed = PARTICLE_SWAY_SPEED_MIN +
-                              ((float)(rand() % 100) / 100.0f) *
-                              (PARTICLE_SWAY_SPEED_MAX - PARTICLE_SWAY_SPEED_MIN);
-  }
-
-  particles_initialized = true;
-}
-
-/// Update particle positions and rotation
-/// Optimized: Updates at 30fps instead of 60fps (50% CPU reduction, imperceptible for background)
-void update_particles() {
-  if (!particles_initialized) return;
-
-  // Update particles every other frame (30fps instead of 60fps)
-  particle_update_frame++;
-  if (particle_update_frame % 2 != 0) return;
-
-  for (int i = 0; i < PARTICLE_COUNT; i++) {
-    if (!particles[i].active) continue;
-
-    // Batch 3: Apply layer-based speed multiplier
-    float layer_speed = (particles[i].layer == 0) ? PARTICLE_LAYER_BG_SPEED : PARTICLE_LAYER_FG_SPEED;
-
-    // Update position with layer speed (doubled for 30fps compensation)
-    particles[i].x += particles[i].vx * 2.0f * layer_speed;
-    particles[i].y += particles[i].vy * 2.0f * layer_speed;
-    particles[i].rotation += particles[i].rotation_speed * 2.0f;
-
-    // Batch 3: Update sway phase (30fps updates)
-    particles[i].sway_phase += particles[i].sway_speed * (1.0f / 30.0f);
-
-    // Wrap around screen edges (respawn at top when falling off bottom)
-    // Keep particles constrained to content area only
-    if (particles[i].y > VITA_HEIGHT + 50) {
-      particles[i].y = -(float)(rand() % 100);  // Respawn at top
-      particles[i].x = CONTENT_AREA_X + (float)(rand() % CONTENT_AREA_WIDTH);
-    }
-    if (particles[i].x < CONTENT_AREA_X - 50) particles[i].x = VITA_WIDTH + 50;
-    if (particles[i].x > VITA_WIDTH + 50) particles[i].x = CONTENT_AREA_X - 50;
-  }
-}
-
-/// Render all active particles
-void render_particles() {
-  if (!particles_initialized) return;
-
-  vita2d_texture* symbol_textures[4] = {
-    symbol_triangle, symbol_circle, symbol_ex, symbol_square
-  };
-
-  for (int i = 0; i < PARTICLE_COUNT; i++) {
-    if (!particles[i].active) continue;
-
-    vita2d_texture* tex = symbol_textures[particles[i].symbol_type];
-    if (!tex) continue;
-
-    // Batch 3: Calculate sway offset for horizontal motion
-    float sway_offset = sinf(particles[i].sway_phase) * PARTICLE_SWAY_AMPLITUDE;
-    float render_x = particles[i].x + sway_offset;
-
-    // Draw with scale, rotation, and sway
-    vita2d_draw_texture_scale_rotate(tex,
-      render_x, particles[i].y,
-      particles[i].scale, particles[i].scale,
-      particles[i].rotation);
-
-    // Note: Color tinting would require custom shader
-    // For now particles use texture colors
-  }
-}
-
-/// Render VitaRPS5 navigation sidebar with simple colored bar
 /// Update wave animation phases (call once per frame)
 static void update_wave_animation() {
   uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -1732,7 +1524,7 @@ void render_wave_navigation() {
       int highlight_x = WAVE_NAV_ICON_X - highlight_size / 2;
       int highlight_y = y - highlight_size / 2;
       // White at 20% alpha as specified
-      draw_rounded_rectangle(highlight_x, highlight_y, highlight_size, highlight_size, 8, RGBA8(255, 255, 255, 51));
+      ui_draw_rounded_rect(highlight_x, highlight_y, highlight_size, highlight_size, 8, RGBA8(255, 255, 255, 51));
     }
 
     // Draw icon with scale increase when selected
@@ -1983,13 +1775,13 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
 
   // Draw status border
   if (!selected || is_unpaired) {
-    draw_rounded_rectangle(draw_x - 3, draw_y - 3, card_w + 6, card_h + 6, 12, border_color);
+    ui_draw_rounded_rect(draw_x - 3, draw_y - 3, card_w + 6, card_h + 6, 12, border_color);
   }
 
   // Enhanced selection highlight with 2px glow stroke (only for paired consoles)
   if (selected && !is_unpaired) {
     // 2px outline glow
-    draw_rounded_rectangle(draw_x - 2, draw_y - 2, card_w + 4, card_h + 4, 14, CONSOLE_CARD_GLOW_COLOR);
+    ui_draw_rounded_rect(draw_x - 2, draw_y - 2, card_w + 4, card_h + 4, 14, CONSOLE_CARD_GLOW_COLOR);
   }
 
   // Card background (greyed out for unpaired consoles, slightly lighter neutral grey when selected)
@@ -2001,8 +1793,8 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
   // Enhanced shadow for selected cards
   int shadow_offset = selected ? 6 : 4;
   uint32_t shadow_color = selected ? RGBA8(0x00, 0x00, 0x00, 80) : UI_COLOR_SHADOW;
-  draw_rounded_rectangle(draw_x + shadow_offset, draw_y + shadow_offset, card_w, card_h, 12, shadow_color);
-  draw_rounded_rectangle(draw_x, draw_y, card_w, card_h, 12, card_bg);
+  ui_draw_rounded_rect(draw_x + shadow_offset, draw_y + shadow_offset, card_w, card_h, 12, shadow_color);
+  ui_draw_rounded_rect(draw_x, draw_y, card_w, card_h, 12, card_bg);
 
   // PS5 logo (centered, with max width and top padding per spec)
   bool is_ps5 = console->host && chiaki_target_is_ps5(console->host->target);
@@ -2057,7 +1849,7 @@ void render_console_card(ConsoleCardInfo* console, int x, int y, bool selected, 
   int name_bar_h = (int)(40 * scale);
   int name_bar_y = draw_y + card_h - (int)(CARD_NAME_BAR_BOTTOM_OFFSET * scale);  // Position name bar near bottom of card
   int name_bar_padding = (int)(12 * scale);
-  draw_rounded_rectangle(draw_x + name_bar_padding, name_bar_y, card_w - name_bar_padding * 2, name_bar_h, (int)(8 * scale),
+  ui_draw_rounded_rect(draw_x + name_bar_padding, name_bar_y, card_w - name_bar_padding * 2, name_bar_h, (int)(8 * scale),
     RGBA8(70, 75, 80, 255));
 
   // Console name text (centered in bar)
@@ -2361,7 +2153,7 @@ void draw_settings_icon(int center_x, int center_y, int size) {
   int tooth_count = 8;
 
   // Draw center circle
-  draw_circle(center_x, center_y, inner_r, white);
+  ui_draw_circle(center_x, center_y, inner_r, white);
 
   // Draw gear teeth as small rectangles around the perimeter
   for (int i = 0; i < tooth_count; i++) {
@@ -2394,15 +2186,15 @@ void draw_controller_icon(int center_x, int center_y, int size) {
   // Main body (rounded rectangle approximation)
   int body_x = center_x - w / 2;
   int body_y = center_y - h / 3;
-  draw_rounded_rectangle(body_x, body_y, w, h, 4, white);
+  ui_draw_rounded_rect(body_x, body_y, w, h, 4, white);
 
   // Left handle
   int handle_w = w / 4;
   int handle_h = h / 2;
-  draw_rounded_rectangle(body_x - handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+  ui_draw_rounded_rect(body_x - handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
 
   // Right handle
-  draw_rounded_rectangle(body_x + w - handle_w + handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+  ui_draw_rounded_rect(body_x + w - handle_w + handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
 
   // D-pad (left side) - draw as cross
   int dpad_x = body_x + w / 4;
@@ -2414,10 +2206,10 @@ void draw_controller_icon(int center_x, int center_y, int size) {
   // Buttons (right side) - draw as small circles
   int btn_x = body_x + w * 3 / 4;
   int btn_y = body_y + h / 2;
-  draw_circle(btn_x, btn_y - 3, 2, UI_COLOR_CARD_BG);
-  draw_circle(btn_x, btn_y + 3, 2, UI_COLOR_CARD_BG);
-  draw_circle(btn_x - 3, btn_y, 2, UI_COLOR_CARD_BG);
-  draw_circle(btn_x + 3, btn_y, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x, btn_y - 3, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x, btn_y + 3, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x - 3, btn_y, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x + 3, btn_y, 2, UI_COLOR_CARD_BG);
 }
 
 /// Draw a profile/user icon (procedural)
@@ -2427,14 +2219,14 @@ void draw_profile_icon(int center_x, int center_y, int size) {
   // Head (circle at top)
   int head_r = size / 4;
   int head_y = center_y - size / 6;
-  draw_circle(center_x, head_y, head_r, white);
+  ui_draw_circle(center_x, head_y, head_r, white);
 
   // Body (arc/shoulders) - approximate with rounded rectangle
   int body_w = size * 2 / 3;
   int body_h = size / 3;
   int body_x = center_x - body_w / 2;
   int body_y = center_y + size / 8;
-  draw_rounded_rectangle(body_x, body_y, body_w, body_h, body_h / 2, white);
+  ui_draw_rounded_rect(body_x, body_y, body_w, body_h, body_h / 2, white);
 }
 
 /// Load all textures required for rendering the UI
@@ -2617,9 +2409,9 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
   // Draw card with shadow for modern look
   if (is_active) {
     // Active selection border with glow effect
-    draw_rounded_rectangle(x - 3, y - 3, HOST_SLOT_W + 6, HOST_SLOT_H + 6, 8, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x - 3, y - 3, HOST_SLOT_W + 6, HOST_SLOT_H + 6, 8, UI_COLOR_PRIMARY_BLUE);
   }
-  draw_card_with_shadow(x, y, HOST_SLOT_W, HOST_SLOT_H, 8, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(x, y, HOST_SLOT_W, HOST_SLOT_H, 8, UI_COLOR_CARD_BG);
 
   // Draw host name (nickname) and host id (mac)
   if (discovered) {
@@ -2807,8 +2599,8 @@ void load_psn_id_if_needed() {
 /// @return the screen to draw during the next cycle
 UIScreenType draw_main_menu() {
   // Update and render VitaRPS5 particle background
-  update_particles();
-  render_particles();
+  ui_particles_update();
+  ui_particles_render();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, true))
@@ -3170,8 +2962,8 @@ static void draw_settings_controller_tab(int content_x, int content_y, int conte
 /// @return next screen to display
 UIScreenType draw_settings() {
   // Render particle background
-  update_particles();
-  render_particles();
+  ui_particles_update();
+  ui_particles_render();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, true))
@@ -3310,11 +3102,11 @@ static ProfileState profile_state = {0};
 /// Draw profile card (left side)
 static void draw_profile_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
-  draw_card_with_shadow(x, y, width, height, 12, card_color);
+  ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
 
   if (selected) {
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
-    draw_rounded_rectangle(x, y, width, height, 12, card_color);
+    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x, y, width, height, 12, card_color);
   }
 
   int content_x = x + 20;
@@ -3324,7 +3116,7 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
   int icon_size = 50;
   int icon_x = content_x;
   int icon_y = content_y;
-  draw_circle(icon_x + icon_size/2, icon_y + icon_size/2, icon_size/2, UI_COLOR_PRIMARY_BLUE);
+  ui_draw_circle(icon_x + icon_size/2, icon_y + icon_size/2, icon_size/2, UI_COLOR_PRIMARY_BLUE);
 
   // Profile icon (placeholder until PSN login retrieves actual user avatar)
   if (icon_profile) {
@@ -3362,11 +3154,11 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
 /// Draw connection info card (right side) - two-column layout
 static void draw_connection_info_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
-  draw_card_with_shadow(x, y, width, height, 12, card_color);
+  ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
 
   if (selected) {
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
-    draw_rounded_rectangle(x, y, width, height, 12, card_color);
+    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x, y, width, height, 12, card_color);
   }
 
   int content_x = x + 15;
@@ -3500,11 +3292,11 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 /// Draw PSN Authentication section (bottom) - modern design with status indicators
 static void draw_registration_section(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
-  draw_card_with_shadow(x, y, width, height, 12, card_color);
+  ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
 
   if (selected) {
-    draw_rounded_rectangle(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
-    draw_rounded_rectangle(x, y, width, height, 12, card_color);
+    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 14, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x, y, width, height, 12, card_color);
   }
 
   int content_x = x + 15;
@@ -3538,7 +3330,7 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
   int btn_y = content_y;
 
   uint32_t btn_color = selected ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x50, 0x70, 0xA0, 255);
-  draw_rounded_rectangle(btn_x, btn_y, btn_w, btn_h, 6, btn_color);
+  ui_draw_rounded_rect(btn_x, btn_y, btn_w, btn_h, 6, btn_color);
 
   int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, "Add New");
   vita2d_font_draw_text(font, btn_x + (btn_w - text_w) / 2, btn_y + btn_h / 2 + 5,
@@ -3556,8 +3348,8 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 /// @return next screen type to display
 UIScreenType draw_profile_screen() {
   // Render particle background
-  update_particles();
-  render_particles();
+  ui_particles_update();
+  ui_particles_render();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, false))
@@ -3753,7 +3545,7 @@ static void draw_controller_mappings_tab(int content_x, int content_y, int conte
   int selector_h = 50;
 
   // Draw scheme selector card
-  draw_card_with_shadow(content_x, selector_y, content_w, selector_h, 8, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(content_x, selector_y, content_w, selector_h, 8, UI_COLOR_CARD_BG);
 
   // Left arrow
   vita2d_font_draw_text(font, content_x + 30, selector_y + selector_h/2 + 8,
@@ -3785,7 +3577,7 @@ static void draw_controller_mappings_tab(int content_x, int content_y, int conte
 
   // Button mapping table (left panel)
   int table_x = content_x;
-  draw_card_with_shadow(table_x, panel_y, panel_w, panel_h, 8, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(table_x, panel_y, panel_w, panel_h, 8, UI_COLOR_CARD_BG);
 
   vita2d_font_draw_text(font, table_x + 15, panel_y + 30,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER, "Button Mappings");
@@ -3826,7 +3618,7 @@ static void draw_controller_mappings_tab(int content_x, int content_y, int conte
 
   // Vita diagram (right panel) - professional assets with white background
   int diagram_x = content_x + panel_w + panel_spacing;
-  draw_card_with_shadow(diagram_x, panel_y, panel_w, panel_h, 8, RGBA8(255, 255, 255, 255));
+  ui_draw_card_with_shadow(diagram_x, panel_y, panel_w, panel_h, 8, RGBA8(255, 255, 255, 255));
 
   vita2d_font_draw_text(font, diagram_x + 15, panel_y + 30,
                         RGBA8(0, 0, 0, 255), FONT_SIZE_SUBHEADER, "Vita Layout");
@@ -3881,8 +3673,8 @@ static void draw_controller_settings_tab(int content_x, int content_y, int conte
 /// Main Controller Configuration screen with tabs
 UIScreenType draw_controller_config_screen() {
   // Render particle background
-  update_particles();
-  render_particles();
+  ui_particles_update();
+  ui_particles_render();
 
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(&nav_screen, false))
@@ -4053,15 +3845,15 @@ void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_va
   // Enhanced visual feedback for current digit
   if (is_current) {
     // Outer glow effect for better visibility
-    draw_rounded_rectangle(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6, RGBA8(0x34, 0x90, 0xFF, 60));
+    ui_draw_rounded_rect(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6, RGBA8(0x34, 0x90, 0xFF, 60));
   }
 
   // Digit box background with shadow
   int shadow_offset = is_current ? 3 : 2;
-  draw_rounded_rectangle(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, RGBA8(0x00, 0x00, 0x00, 60));  // Shadow
+  ui_draw_rounded_rect(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, RGBA8(0x00, 0x00, 0x00, 60));  // Shadow
 
   uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
-  draw_rounded_rectangle(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
+  ui_draw_rounded_rect(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
 
   // Digit text or cursor
   if (has_value && digit <= 9) {
@@ -4095,7 +3887,7 @@ bool draw_registration_dialog() {
   int card_x = (VITA_WIDTH - PIN_CARD_WIDTH) / 2;
   int card_y = (VITA_HEIGHT - PIN_CARD_HEIGHT) / 2;
 
-  draw_card_with_shadow(card_x, card_y, PIN_CARD_WIDTH, PIN_CARD_HEIGHT, 12, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(card_x, card_y, PIN_CARD_WIDTH, PIN_CARD_HEIGHT, 12, UI_COLOR_CARD_BG);
 
   // Title
   vita2d_font_draw_text(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, 28,
@@ -4315,7 +4107,7 @@ UIScreenType draw_waking_screen() {
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
   // Draw card with enhanced shadow (consistent with Phase 1 & 2 polish)
-  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
 
   // Draw PlayStation Blue accent borders (top and bottom)
   vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
@@ -4371,7 +4163,7 @@ UIScreenType draw_waking_screen() {
   // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
   int cancel_center_y = card_y + card_h - 45;
   int cancel_center_x = card_x + card_w / 2 - 40;
-  draw_circle_outline_simple(cancel_center_x, cancel_center_y, 12, UI_COLOR_TEXT_TERTIARY);
+  ui_draw_circle_outline(cancel_center_x, cancel_center_y, 12, UI_COLOR_TEXT_TERTIARY);
   vita2d_font_draw_text(font, cancel_center_x + 20, cancel_center_y + 6,
                         UI_COLOR_TEXT_TERTIARY, FONT_SIZE_BODY, "Cancel");
 
@@ -4414,7 +4206,7 @@ UIScreenType draw_reconnecting_screen() {
   int card_y = (VITA_HEIGHT - card_h) / 2;
 
   // Draw card with enhanced shadow (Phase 1 & 2 style)
-  draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
+  ui_draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
 
   // PlayStation Blue accent borders
   vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
@@ -4593,7 +4385,7 @@ void init_ui() {
   vita2d_init();
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
   load_textures();
-  init_particles();  // Initialize VitaRPS5 particle background
+  ui_particles_init();  // Initialize VitaRPS5 particle background
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
   vita2d_set_vblank_wait(true);

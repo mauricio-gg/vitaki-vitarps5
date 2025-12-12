@@ -72,13 +72,19 @@ typedef enum nav_sidebar_state_t {
 
 /**
  * Connection overlay stages
+ *
+ * Note: This is also defined in ui.h for backwards compatibility.
+ * During refactoring, if ui.h is included (via context.h), we skip this definition.
  */
+#ifndef UI_CONNECTION_STAGE_DEFINED
+#define UI_CONNECTION_STAGE_DEFINED
 typedef enum ui_connection_stage_t {
     UI_CONNECTION_STAGE_NONE = 0,
     UI_CONNECTION_STAGE_WAKING,
     UI_CONNECTION_STAGE_CONNECTING,
     UI_CONNECTION_STAGE_STARTING_STREAM,
 } UIConnectionStage;
+#endif
 
 // ============================================================================
 // Animation State Structures
@@ -232,7 +238,12 @@ typedef struct text_width_cache_entry_t {
 
 /**
  * Identifiers of various widgets on the screen
+ *
+ * Note: This is also defined in ui.h for backwards compatibility.
+ * During refactoring, if ui.h is included (via context.h), we skip this definition.
  */
+#ifndef UI_MAIN_WIDGET_ID_DEFINED
+#define UI_MAIN_WIDGET_ID_DEFINED
 typedef enum ui_main_widget_id_t {
     UI_MAIN_WIDGET_ADD_HOST_BTN,
     UI_MAIN_WIDGET_REGISTER_BTN,
@@ -242,3 +253,4 @@ typedef enum ui_main_widget_id_t {
     UI_MAIN_WIDGET_HOST_TILE = 1 << 3,
     UI_MAIN_WIDGET_TEXT_INPUT = 1 << 6,
 } MainWidgetId;
+#endif

@@ -21,7 +21,11 @@
 
 #include "ui_constants.h"
 #include "ui_types.h"
-#include "context.h"
+
+// Forward declaration to avoid circular include (context.h includes ui.h)
+// Actual context will be available in ui.c and other implementation files
+struct vita_chiaki_context_t;
+typedef struct vita_chiaki_context_t VitaChiakiContext;
 
 // ============================================================================
 // Shared Texture Pointers (defined in ui.c, will move to ui_main.c)
@@ -66,11 +70,16 @@ extern char* cancel_btn_str;
 // Tooltip buffer
 extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
 
+// Navigation state (defined in ui.c, will move to ui_navigation.c)
+extern NavCollapseState nav_collapse;
+
 // ============================================================================
 // Shared Context Access
 // ============================================================================
 
 // Global app context (defined in context.c)
+// Note: Full definition is in context.h, but we forward declare here
+// to avoid circular include issues (context.h includes ui.h)
 extern VitaChiakiContext context;
 
 // ============================================================================
@@ -135,9 +144,14 @@ static inline int ui_get_dynamic_content_center_x(void) {
 // Input handling (ui_input.c)
 bool btn_pressed(SceCtrlButtons btn);
 
-// Graphics primitives (ui_graphics.c - will be created)
-// void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
-// void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
+// Graphics primitives (ui_graphics.c)
+void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
+void ui_draw_card_with_shadow(int x, int y, int w, int h, int radius, uint32_t color);
+void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
+void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
+void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color);
+void ui_draw_content_focus_overlay(void);
+void ui_draw_loss_indicator(void);
 
 // Navigation (ui_navigation.c - will be created)
 // void ui_nav_render(void);
@@ -146,9 +160,12 @@ bool btn_pressed(SceCtrlButtons btn);
 // Console cards (ui_console_cards.c - will be created)
 // void ui_cards_render_grid(int x, int y);
 
-// Animation (ui_animation.c - will be created)
-// void ui_particles_render(void);
-// void ui_particles_update(void);
+// Animation (ui_animation.c)
+void ui_particles_init(void);
+void ui_particles_update(void);
+void ui_particles_render(void);
+uint64_t ui_anim_now_us(void);
+float ui_anim_elapsed_ms(uint64_t start_us);
 
 // State (ui_state.c - will be created)
 // void ui_connection_begin(UIConnectionStage stage);
