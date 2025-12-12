@@ -179,9 +179,10 @@ bool ui_nav_handle_pill_touch(float x, float y);
  * Handle global navigation shortcuts (Triangle button, D-pad navigation)
  * @param out_screen Output parameter for selected screen type (can be NULL)
  * @param allow_dpad True to enable D-pad navigation handling
+ * @param allow_left_right True to intercept Left/Right for nav focus (false for screens with internal L/R nav)
  * @return true if navigation action was taken (screen change)
  */
-bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad);
+bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad, bool allow_left_right);
 
 // ============================================================================
 // Update Functions

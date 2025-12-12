@@ -392,35 +392,35 @@ UIScreenType draw_main_menu() {
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
   // === D-PAD NAVIGATION (moves between ALL UI elements) ===
+  // Note: Nav bar Up/Down handled in handle_global_nav_shortcuts() to avoid double-increment
+  // Block content D-pad when nav overlay is visible (nav has input priority)
+  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
+                      nav_collapse.state == NAV_STATE_EXPANDING);
 
-  if (btn_pressed(SCE_CTRL_UP)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move up within nav bar
-      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-      // Move up within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
-    }
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move down within nav bar
-      selected_nav_icon = (selected_nav_icon + 1) % 4;
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-      // Move down within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-    }
-  } else if (btn_pressed(SCE_CTRL_LEFT)) {
-    if (current_focus == FOCUS_CONSOLE_CARDS) {
-      // Move left to nav bar
-      last_console_selection = ui_cards_get_selected_index();
-      current_focus = FOCUS_NAV_BAR;
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move right from nav bar to console cards/discovery card
-      current_focus = FOCUS_CONSOLE_CARDS;
-      if (num_hosts > 0) {
-        ui_cards_set_selected_index(last_console_selection);
+  if (!nav_visible) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+        // Move up within console cards (cycle through)
+        ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
+      }
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+        // Move down within console cards (cycle through)
+        ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
+      }
+    } else if (btn_pressed(SCE_CTRL_LEFT)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS) {
+        // Move left to nav bar
+        last_console_selection = ui_cards_get_selected_index();
+        current_focus = FOCUS_NAV_BAR;
+      }
+    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+      if (current_focus == FOCUS_NAV_BAR) {
+        // Move right from nav bar to console cards/discovery card
+        current_focus = FOCUS_CONSOLE_CARDS;
+        if (num_hosts > 0) {
+          ui_cards_set_selected_index(last_console_selection);
+        }
       }
     }
   }
@@ -693,14 +693,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                      settings_state.selected_item == 8);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
-  y += item_h + item_spacing;
-
-  // Keep navigation pinned toggle (prevents auto-collapse on content interaction)
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(9, context.config.keep_nav_pinned),
-                     settings_state.selected_item == 9);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Keep Navigation Pinned");
 }
 
 /// Draw Controller Settings tab content
@@ -772,7 +764,7 @@ UIScreenType draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
+  int max_items = 9; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen
 
   // Up/Down: Navigate items
   if (btn_pressed(SCE_CTRL_UP)) {
@@ -841,11 +833,7 @@ UIScreenType draw_settings() {
           context.config.stretch_video = !context.config.stretch_video;
           start_toggle_animation(6, context.config.stretch_video);
           config_serialize(&context.config);
-        } else if (settings_state.selected_item == 9) {
-          context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
-          start_toggle_animation(9, context.config.keep_nav_pinned);
-          config_serialize(&context.config);
-    }
+        }
   }
 
   // Circle: Back to main menu
@@ -1126,7 +1114,8 @@ UIScreenType draw_profile_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  // Use _no_lr variant: Profile has internal Left/Right for card switching
+  if (handle_global_nav_shortcuts_no_lr(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1166,7 +1155,12 @@ UIScreenType draw_profile_screen() {
 
   // Left/Right: Navigate between Profile and Connection cards
   if (btn_pressed(SCE_CTRL_LEFT)) {
-    profile_state.current_section = PROFILE_SECTION_INFO;
+    if (profile_state.current_section == PROFILE_SECTION_INFO) {
+      // Already at leftmost card - focus nav pill
+      current_focus = FOCUS_NAV_BAR;
+    } else {
+      profile_state.current_section = PROFILE_SECTION_INFO;
+    }
   } else if (btn_pressed(SCE_CTRL_RIGHT)) {
     profile_state.current_section = PROFILE_SECTION_CONNECTION;
   }
@@ -1451,7 +1445,8 @@ UIScreenType draw_controller_config_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  // Use _no_lr variant: Controller has internal Left/Right for scheme cycling
+  if (handle_global_nav_shortcuts_no_lr(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1543,6 +1538,11 @@ UIScreenType draw_controller_config_screen() {
       controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
     } else if (btn_pressed(SCE_CTRL_DOWN)) {
       controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+    }
+
+    // Left: Focus nav pill (Settings tab has no internal L/R navigation)
+    if (btn_pressed(SCE_CTRL_LEFT)) {
+      current_focus = FOCUS_NAV_BAR;
     }
 
     // X: Toggle selected item

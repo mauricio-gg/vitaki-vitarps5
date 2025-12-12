@@ -187,7 +187,8 @@ void ui_draw_loss_indicator(void);
 #define nav_screen_for_index(i) ui_nav_screen_for_icon(i)
 #define nav_touch_hit(x, y, out) ui_nav_handle_touch(x, y, out)
 #define pill_touch_hit(x, y) ui_nav_handle_pill_touch(x, y)
-#define handle_global_nav_shortcuts(out, dpad) ui_nav_handle_shortcuts(out, dpad)
+#define handle_global_nav_shortcuts(out, dpad) ui_nav_handle_shortcuts(out, dpad, true)
+#define handle_global_nav_shortcuts_no_lr(out, dpad) ui_nav_handle_shortcuts(out, dpad, false)
 
 // Procedural icon drawing (available globally)
 #define draw_play_icon(cx, cy, sz) ui_nav_draw_play_icon(cx, cy, sz)

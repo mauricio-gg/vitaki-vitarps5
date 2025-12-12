@@ -104,10 +104,7 @@ void ui_nav_init(void) {
 // ============================================================================
 
 void ui_nav_request_collapse(bool from_content_interaction) {
-    // If from content interaction, check if pinned setting blocks it
-    if (from_content_interaction && context.config.keep_nav_pinned) {
-        return;
-    }
+    (void)from_content_interaction;  // Parameter unused after removing keep_nav_pinned setting
 
     // Only collapse from expanded state
     if (nav_collapse.state != NAV_STATE_EXPANDED) {
@@ -492,7 +489,8 @@ void ui_nav_render_toast(void) {
 }
 
 void ui_nav_render_content_overlay(void) {
-    if (nav_collapse.state != NAV_STATE_EXPANDED) {
+    // Only skip when fully collapsed - render during EXPANDED, EXPANDING, and COLLAPSING
+    if (nav_collapse.state == NAV_STATE_COLLAPSED) {
         return;
     }
     vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT,
@@ -739,7 +737,7 @@ bool ui_nav_handle_pill_touch(float touch_x, float touch_y) {
             touch_y >= y - pad && touch_y <= y + h + pad);
 }
 
-bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
+bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad, bool allow_left_right) {
     // Triangle button toggles sidebar collapse (global, works anywhere)
     if (btn_pressed(SCE_CTRL_TRIANGLE)) {
         ui_nav_toggle();
@@ -798,16 +796,17 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
         // When collapsed, D-pad Left focuses pill (already focused by default)
         // Cross/Confirm on pill expands sidebar
         if (current_focus == FOCUS_NAV_BAR) {
+            // Left always expands nav when collapsed (even on screens with internal L/R nav)
             if (btn_pressed(SCE_CTRL_CROSS) || btn_pressed(SCE_CTRL_LEFT)) {
                 ui_nav_request_expand();
                 return false;
             }
             // D-pad Right moves to content and keeps sidebar collapsed
-            if (btn_pressed(SCE_CTRL_RIGHT)) {
+            if (allow_left_right && btn_pressed(SCE_CTRL_RIGHT)) {
                 current_focus = FOCUS_CONSOLE_CARDS;
             }
-        } else {
-            // Focus is on content - D-pad Left focuses pill
+        } else if (allow_left_right) {
+            // Focus is on content - D-pad Left focuses pill (only if allow_left_right)
             if (btn_pressed(SCE_CTRL_LEFT)) {
                 current_focus = FOCUS_NAV_BAR;
             }
@@ -815,23 +814,26 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
         return false;
     }
 
-    // Normal expanded state D-pad handling
-    if (btn_pressed(SCE_CTRL_LEFT)) {
-        current_focus = FOCUS_NAV_BAR;
-    } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
-        current_focus = FOCUS_CONSOLE_CARDS;
-        // Moving focus to content triggers collapse
-        ui_nav_request_collapse(true);
+    // Normal expanded state D-pad handling (Left/Right only if allowed)
+    if (allow_left_right) {
+        if (btn_pressed(SCE_CTRL_LEFT)) {
+            current_focus = FOCUS_NAV_BAR;
+        } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
+            current_focus = FOCUS_CONSOLE_CARDS;
+            // Moving focus to content triggers collapse
+            ui_nav_request_collapse(true);
+        }
     }
 
     if (current_focus == FOCUS_NAV_BAR) {
+        // Up/Down automatically navigates AND changes screen (no X required)
         if (btn_pressed(SCE_CTRL_UP)) {
             selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+            if (out_screen)
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+            return true;
         } else if (btn_pressed(SCE_CTRL_DOWN)) {
             selected_nav_icon = (selected_nav_icon + 1) % 4;
-        }
-
-        if (btn_pressed(SCE_CTRL_CROSS)) {
             if (out_screen)
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
             return true;
