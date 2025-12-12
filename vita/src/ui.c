@@ -554,10 +554,7 @@ static void block_inputs_for_transition(void) {
 static inline float ease_in_out_cubic(float t);
 
 static void nav_request_collapse(bool from_content_interaction) {
-  // If from content interaction, check if pinned setting blocks it
-  if (from_content_interaction && context.config.keep_nav_pinned) {
-    return;
-  }
+  (void)from_content_interaction;  // Parameter unused after removing keep_nav_pinned setting
 
   // Only collapse from expanded state
   if (nav_collapse.state != NAV_STATE_EXPANDED) {
@@ -589,6 +586,9 @@ static void nav_request_expand(void) {
   nav_collapse.state = NAV_STATE_EXPANDING;
   nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
   nav_collapse.anim_progress = 0.0f;
+
+  // Move focus to nav bar so D-pad Right can trigger collapse
+  current_focus = FOCUS_NAV_BAR;
 }
 
 static void nav_toggle_collapse(void) {
@@ -1859,6 +1859,13 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
     }
   }
 
+  // Global: D-pad Right collapses expanded nav (works on ALL screens, even allow_dpad=false)
+  if (nav_collapse.state == NAV_STATE_EXPANDED && btn_pressed(SCE_CTRL_RIGHT)) {
+    current_focus = FOCUS_CONSOLE_CARDS;
+    nav_request_collapse(true);
+    return false;
+  }
+
   if (!allow_dpad)
     return false;
 
@@ -1894,12 +1901,20 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
   }
 
   if (current_focus == FOCUS_NAV_BAR) {
+    // Up/Down automatically navigates AND changes screen (no X required)
     if (btn_pressed(SCE_CTRL_UP)) {
       selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+      if (out_screen)
+        *out_screen = nav_screen_for_index(selected_nav_icon);
+      return true;
     } else if (btn_pressed(SCE_CTRL_DOWN)) {
       selected_nav_icon = (selected_nav_icon + 1) % 4;
+      if (out_screen)
+        *out_screen = nav_screen_for_index(selected_nav_icon);
+      return true;
     }
 
+    // X also selects (for consistency)
     if (btn_pressed(SCE_CTRL_CROSS)) {
       if (out_screen)
         *out_screen = nav_screen_for_index(selected_nav_icon);
@@ -2826,35 +2841,35 @@ UIScreenType draw_main_menu() {
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
   // === D-PAD NAVIGATION (moves between ALL UI elements) ===
+  // Note: Nav bar Up/Down handled in handle_global_nav_shortcuts() to avoid double-increment
+  // Block content D-pad when nav overlay is visible (nav has input priority)
+  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
+                      nav_collapse.state == NAV_STATE_EXPANDING);
 
-  if (btn_pressed(SCE_CTRL_UP)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move up within nav bar
-      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-      // Move up within console cards (cycle through)
-      selected_console_index = (selected_console_index - 1 + num_hosts) % num_hosts;
-    }
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move down within nav bar
-      selected_nav_icon = (selected_nav_icon + 1) % 4;
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-      // Move down within console cards (cycle through)
-      selected_console_index = (selected_console_index + 1) % num_hosts;
-    }
-  } else if (btn_pressed(SCE_CTRL_LEFT)) {
-    if (current_focus == FOCUS_CONSOLE_CARDS) {
-      // Move left to nav bar
-      last_console_selection = selected_console_index;
-      current_focus = FOCUS_NAV_BAR;
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move right from nav bar to console cards/discovery card
-      current_focus = FOCUS_CONSOLE_CARDS;
-      if (num_hosts > 0) {
-        selected_console_index = last_console_selection;
+  if (!nav_visible) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+        // Move up within console cards (cycle through)
+        selected_console_index = (selected_console_index - 1 + num_hosts) % num_hosts;
+      }
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+        // Move down within console cards (cycle through)
+        selected_console_index = (selected_console_index + 1) % num_hosts;
+      }
+    } else if (btn_pressed(SCE_CTRL_LEFT)) {
+      if (current_focus == FOCUS_CONSOLE_CARDS) {
+        // Move left to nav bar
+        last_console_selection = selected_console_index;
+        current_focus = FOCUS_NAV_BAR;
+      }
+    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+      if (current_focus == FOCUS_NAV_BAR) {
+        // Move right from nav bar to console cards/discovery card
+        current_focus = FOCUS_CONSOLE_CARDS;
+        if (num_hosts > 0) {
+          selected_console_index = last_console_selection;
+        }
       }
     }
   }
@@ -3127,14 +3142,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                      settings_state.selected_item == 8);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
-  y += item_h + item_spacing;
-
-  // Keep navigation pinned toggle (prevents auto-collapse on content interaction)
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(9, context.config.keep_nav_pinned),
-                     settings_state.selected_item == 9);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Keep Navigation Pinned");
 }
 
 /// Draw Controller Settings tab content
@@ -3204,15 +3211,20 @@ UIScreenType draw_settings() {
   }
 
   // === INPUT HANDLING ===
+  // Block content D-pad when nav overlay is visible (nav has input priority)
+  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
+                      nav_collapse.state == NAV_STATE_EXPANDING);
 
   // No tab switching needed - only one section
-  int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
+  int max_items = 9; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen
 
-  // Up/Down: Navigate items
-  if (btn_pressed(SCE_CTRL_UP)) {
-    settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+  // Up/Down: Navigate items (only when nav is not visible)
+  if (!nav_visible) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+    }
   }
 
   // X: Activate selected item (toggle or cycle dropdown)
@@ -3275,11 +3287,7 @@ UIScreenType draw_settings() {
           context.config.stretch_video = !context.config.stretch_video;
           start_toggle_animation(6, context.config.stretch_video);
           config_serialize(&context.config);
-        } else if (settings_state.selected_item == 9) {
-          context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
-          start_toggle_animation(9, context.config.keep_nav_pinned);
-          config_serialize(&context.config);
-    }
+        }
   }
 
   // Circle: Back to main menu
@@ -3560,7 +3568,7 @@ UIScreenType draw_profile_screen() {
   render_particles();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -3597,12 +3605,22 @@ UIScreenType draw_profile_screen() {
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
 
   // === INPUT HANDLING ===
+  // Block content D-pad when nav overlay is visible (nav has input priority)
+  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
+                      nav_collapse.state == NAV_STATE_EXPANDING);
 
-  // Left/Right: Navigate between Profile and Connection cards
-  if (btn_pressed(SCE_CTRL_LEFT)) {
-    profile_state.current_section = PROFILE_SECTION_INFO;
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    profile_state.current_section = PROFILE_SECTION_CONNECTION;
+  // Left/Right: Navigate between Profile and Connection cards (only when nav is not visible)
+  if (!nav_visible) {
+    if (btn_pressed(SCE_CTRL_LEFT)) {
+      if (profile_state.current_section == PROFILE_SECTION_INFO) {
+        // Already at leftmost, expand nav
+        nav_request_expand();
+      } else {
+        profile_state.current_section = PROFILE_SECTION_INFO;
+      }
+    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+      profile_state.current_section = PROFILE_SECTION_CONNECTION;
+    }
   }
 
   // Circle: Back to main menu
@@ -3885,7 +3903,7 @@ UIScreenType draw_controller_config_screen() {
   render_particles();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -3932,8 +3950,11 @@ UIScreenType draw_controller_config_screen() {
   }
 
   // === INPUT HANDLING ===
+  // Block content D-pad when nav overlay is visible (nav has input priority)
+  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
+                      nav_collapse.state == NAV_STATE_EXPANDING);
 
-  // L1/R1: Switch tabs
+  // L1/R1: Switch tabs (always available)
   if (btn_pressed(SCE_CTRL_LTRIGGER)) {
     controller_state.current_tab = (controller_state.current_tab - 1 + CONTROLLER_TAB_COUNT) % CONTROLLER_TAB_COUNT;
     controller_state.selected_item = 0;
@@ -3942,44 +3963,53 @@ UIScreenType draw_controller_config_screen() {
     controller_state.selected_item = 0;
   }
 
-  // Tab-specific navigation
-  if (controller_state.current_tab == CONTROLLER_TAB_MAPPINGS) {
-    // Left/Right: Cycle through schemes
-    if (btn_pressed(SCE_CTRL_LEFT)) {
-      int current_id = context.config.controller_map_id;
-      if (current_id == 0) {
-        context.config.controller_map_id = 99;
-      } else if (current_id == 25) {
-        context.config.controller_map_id = 7;
-      } else if (current_id == 99) {
-        context.config.controller_map_id = 25;
-      } else if (current_id > 0 && current_id <= 7) {
-        context.config.controller_map_id = current_id - 1;
+  // Tab-specific D-pad navigation (only when nav is not visible)
+  if (!nav_visible) {
+    if (controller_state.current_tab == CONTROLLER_TAB_MAPPINGS) {
+      // Left/Right: Cycle through schemes
+      if (btn_pressed(SCE_CTRL_LEFT)) {
+        int current_id = context.config.controller_map_id;
+        if (current_id == 0) {
+          context.config.controller_map_id = 99;
+        } else if (current_id == 25) {
+          context.config.controller_map_id = 7;
+        } else if (current_id == 99) {
+          context.config.controller_map_id = 25;
+        } else if (current_id > 0 && current_id <= 7) {
+          context.config.controller_map_id = current_id - 1;
+        }
+        config_serialize(&context.config);
+      } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+        int current_id = context.config.controller_map_id;
+        if (current_id < 7) {
+          context.config.controller_map_id = current_id + 1;
+        } else if (current_id == 7) {
+          context.config.controller_map_id = 25;
+        } else if (current_id == 25) {
+          context.config.controller_map_id = 99;
+        } else {
+          context.config.controller_map_id = 0;
+        }
+        config_serialize(&context.config);
       }
-      config_serialize(&context.config);
-    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-      int current_id = context.config.controller_map_id;
-      if (current_id < 7) {
-        context.config.controller_map_id = current_id + 1;
-      } else if (current_id == 7) {
-        context.config.controller_map_id = 25;
-      } else if (current_id == 25) {
-        context.config.controller_map_id = 99;
-      } else {
-        context.config.controller_map_id = 0;
+    } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
+      // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
+      int max_items = 2;
+      if (btn_pressed(SCE_CTRL_UP)) {
+        controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
+      } else if (btn_pressed(SCE_CTRL_DOWN)) {
+        controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
       }
-      config_serialize(&context.config);
-    }
-  } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
-    // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
-    int max_items = 2;
-    if (btn_pressed(SCE_CTRL_UP)) {
-      controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
-    }
 
-    // X: Toggle selected item
+      // Left: Expand nav (Settings tab has no left/right navigation)
+      if (btn_pressed(SCE_CTRL_LEFT)) {
+        nav_request_expand();
+      }
+    }
+  }
+
+  // X: Toggle selected item (only in Settings tab, always available)
+  if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
     if (btn_pressed(SCE_CTRL_CROSS)) {
       if (controller_state.selected_item == 0) {
         // Circle button confirm toggle
