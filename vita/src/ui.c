@@ -22,6 +22,7 @@
 #include "ui/ui_animation.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
+#include "ui/ui_components.h"
 #include "ui/ui_internal.h"
 
 #ifndef VIDEO_LOSS_ALERT_DEFAULT_US
@@ -179,11 +180,7 @@ NavCollapseState nav_collapse = {
 };
 
 // HintsPopupState type moved to ui_types.h
-
-static HintsPopupState hints_popup = {0};
-
-#define HINTS_POPUP_DURATION_MS 7000
-#define HINTS_FADE_DURATION_MS 500
+// HintsPopupState instance moved to ui_components.c
 
 // Console card system (updated per UI spec)
 #define CONSOLE_CARD_WIDTH 200          // Reverted to original 200px for better layout
@@ -231,22 +228,13 @@ static ConsoleCardCache card_cache = {0};
 #define CARD_CACHE_UPDATE_INTERVAL_US (10 * 1000000)  // 10 seconds in microseconds
 
 // ToggleAnimationState type moved to ui_types.h
-#define TOGGLE_ANIMATION_DURATION_MS 180  // 180ms for smooth feel
-
-static ToggleAnimationState toggle_anim = {-1, false, 0};
+// ToggleAnimationState instance moved to ui_components.c
 
 // CardFocusAnimState type moved to ui_types.h
 
 static CardFocusAnimState card_focus_anim = {-1, CONSOLE_CARD_FOCUS_SCALE_MIN, 0, -1, 0};
 
-static void render_error_popup(void);
-static void handle_error_popup_input(void);
-static void render_debug_menu(void);
-static void handle_debug_menu_input(void);
-static void debug_menu_apply_action(int action_index);
-static void close_debug_menu(void);
-static void open_debug_menu(void);
-static void ensure_active_host_for_debug(void);
+// Component functions moved to ui_components.c (accessible via ui_internal.h)
 static void render_loss_indicator_preview(void);
 
 // Procedural navigation icon forward declarations
@@ -255,15 +243,7 @@ void draw_settings_icon(int center_x, int center_y, int size);
 void draw_controller_icon(int center_x, int center_y, int size);
 void draw_profile_icon(int center_x, int center_y, int size);
 
-const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
-const uint32_t DEBUG_MENU_COMBO_MASK =
-    SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_START;
-const char *debug_menu_options[] = {
-    "Show Remote Play error popup",
-    "Simulate disconnect banner",
-    "Trigger network unstable badge",
-};
-#define DEBUG_MENU_OPTION_COUNT (sizeof(debug_menu_options) / sizeof(debug_menu_options[0]))
+// Debug menu configuration moved to ui_components.c
 
 // Connection overlay, cooldown, thread management, and text cache moved to ui_state.c
 
@@ -272,7 +252,7 @@ const char *debug_menu_options[] = {
 // PinEntryState type moved to ui_types.h
 
 static PinEntryState pin_entry_state = {0};
-static bool show_cursor = false;
+bool show_cursor = false;  // Used by PIN entry digit rendering
 static uint32_t cursor_blink_timer = 0;
 static bool pin_entry_initialized = false;
 
@@ -527,71 +507,7 @@ static void render_content_focus_overlay(void) {
                         RGBA8(0, 0, 0, 80));
 }
 
-/**
- * render_hints_popup() - Render the hints popup at bottom of screen
- *
- * Displays a semi-transparent pill with control hints that fades in, stays
- * visible for HINTS_POPUP_DURATION_MS, then fades out over HINTS_FADE_DURATION_MS.
- */
-static void render_hints_popup(void) {
-  if (!hints_popup.active || !hints_popup.current_hint) return;
-
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - hints_popup.start_time_us;
-  float elapsed_ms = elapsed_us / 1000.0f;
-
-  float opacity = 1.0f;
-  if (elapsed_ms > HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS) {
-    float fade_progress = (elapsed_ms - (HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS)) / HINTS_FADE_DURATION_MS;
-    opacity = 1.0f - fade_progress;
-    if (opacity < 0.0f) opacity = 0.0f;
-  }
-
-  if (elapsed_ms >= HINTS_POPUP_DURATION_MS) {
-    hints_popup.active = false;
-    return;
-  }
-
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
-  int pill_w = text_width + 40;
-  int pill_h = 36;
-  int pill_x = (VITA_WIDTH - pill_w) / 2;
-  int pill_y = VITA_HEIGHT - pill_h - 20;
-
-  uint8_t alpha = (uint8_t)(opacity * 200);
-  ui_draw_rounded_rect(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
-
-  int text_x = pill_x + 20;
-  int text_y = pill_y + pill_h / 2 + 5;
-  vita2d_font_draw_text(font, text_x, text_y, RGBA8(255, 255, 255, alpha), FONT_SIZE_SMALL, hints_popup.current_hint);
-}
-
-/**
- * render_hints_indicator() - Show "(Select) Hints" indicator in top-right
- *
- * Displays a subtle text indicator to inform users they can press Select
- * to view control hints for the current screen.
- */
-static void render_hints_indicator(void) {
-  const char* indicator = "(Select) Hints";
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, indicator);
-  int text_x = VITA_WIDTH - text_width - 100;  // Left of logo
-  int text_y = 35;
-  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
-}
-
-/**
- * trigger_hints_popup() - Activate hints popup with specified text
- * @param hint_text The hint text to display
- *
- * Triggers the hints popup animation, showing the provided hint text
- * at the bottom of the screen with fade in/out animations.
- */
-static void trigger_hints_popup(const char* hint_text) {
-  hints_popup.active = true;
-  hints_popup.start_time_us = sceKernelGetProcessTimeWide();
-  hints_popup.current_hint = hint_text;
-}
+// Hints popup functions moved to ui_components.c
 
 static void render_nav_collapse_toast(void) {
   if (!nav_collapse.toast_active) {
@@ -650,135 +566,7 @@ static bool pill_touch_hit(float touch_x, float touch_y) {
           touch_y >= y - pad && touch_y <= y + h + pad);
 }
 
-static void render_error_popup(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
-
-  const int popup_w = 520;
-  const int popup_h = 280;
-  int popup_x = (VITA_WIDTH - popup_w) / 2;
-  int popup_y = (VITA_HEIGHT - popup_h) / 2;
-  ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16,
-                         RGBA8(0x14, 0x16, 0x1C, 240));
-
-  const char *message = context.ui_state.error_popup_text[0]
-                            ? context.ui_state.error_popup_text
-                            : "Connection error";
-  int message_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, message);
-  int message_x = popup_x + (popup_w - message_w) / 2;
-  int message_y = popup_y + popup_h / 2;
-  vita2d_font_draw_text(font, message_x, message_y,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, message);
-
-  const char *hint = "Tap anywhere to dismiss";
-  int hint_w = vita2d_font_text_width(font, FONT_SIZE_BODY, hint);
-  int hint_x = popup_x + (popup_w - hint_w) / 2;
-  int hint_y = popup_y + popup_h - 40;
-  vita2d_font_draw_text(font, hint_x, hint_y,
-                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
-}
-
-static void handle_error_popup_input(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  uint32_t dismiss_mask = SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT;
-  bool button_dismiss =
-      (context.ui_state.button_state & dismiss_mask) &&
-      !(context.ui_state.old_button_state & dismiss_mask);
-  bool touch_dismiss = context.ui_state.touch_state_front.reportNum > 0;
-
-  if (button_dismiss || touch_dismiss) {
-    context.ui_state.error_popup_active = false;
-    context.ui_state.error_popup_text[0] = '\0';
-    *button_block_mask |= context.ui_state.button_state;
-    *touch_block_active = true;
-  }
-}
-
-static void ensure_active_host_for_debug(void) {
-  if (context.active_host)
-    return;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
-    if (context.hosts[i]) {
-      context.active_host = context.hosts[i];
-      break;
-    }
-  }
-}
-
-static void open_debug_menu(void) {
-  if (!debug_menu_enabled)
-    return;
-  if (context.ui_state.debug_menu_active)
-    return;
-  context.ui_state.debug_menu_active = true;
-  context.ui_state.debug_menu_selection = 0;
-  *button_block_mask |= context.ui_state.button_state;
-  *touch_block_active = true;
-}
-
-static void close_debug_menu(void) {
-  if (!context.ui_state.debug_menu_active)
-    return;
-  context.ui_state.debug_menu_active = false;
-  context.ui_state.debug_menu_selection = 0;
-  *button_block_mask |= context.ui_state.button_state;
-  *touch_block_active = true;
-}
-
-static void debug_menu_apply_action(int action_index) {
-  if (!debug_menu_enabled)
-    return;
-  if (action_index < 0 || action_index >= (int)DEBUG_MENU_OPTION_COUNT)
-    return;
-
-  switch (action_index) {
-    case 0: {
-      context.ui_state.error_popup_active = true;
-      sceClibSnprintf(context.ui_state.error_popup_text,
-                      sizeof(context.ui_state.error_popup_text),
-                      "Remote Play already active on console");
-      LOGD("Debug menu: forced Remote Play error popup");
-      break;
-    }
-    case 1: {
-      ensure_active_host_for_debug();
-      uint64_t now_us = sceKernelGetProcessTimeWide();
-      const uint64_t demo_duration_us = 4 * 1000 * 1000ULL;
-      sceClibSnprintf(context.stream.disconnect_reason,
-                      sizeof(context.stream.disconnect_reason),
-                      "Connection interrupted (debug)");
-      context.stream.disconnect_banner_until_us = now_us + demo_duration_us;
-      context.stream.next_stream_allowed_us = now_us + demo_duration_us;
-      context.stream.takion_cooldown_overlay_active = true;
-      if (context.stream.takion_overflow_backoff_until_us <
-          context.stream.next_stream_allowed_us) {
-        context.stream.takion_overflow_backoff_until_us =
-            context.stream.next_stream_allowed_us;
-      }
-      LOGD("Debug menu: simulated disconnect banner for %llums",
-           (unsigned long long)(demo_duration_us / 1000ULL));
-      break;
-    }
-    case 2: {
-      uint64_t now_us = sceKernelGetProcessTimeWide();
-      const uint64_t alert_duration_us = 3 * 1000 * 1000ULL;
-      context.stream.loss_alert_duration_us = alert_duration_us;
-      context.stream.loss_alert_until_us = now_us + alert_duration_us;
-      vitavideo_show_poor_net_indicator();
-      LOGD("Debug menu: triggered network unstable indicator for %llums",
-           (unsigned long long)(alert_duration_us / 1000ULL));
-      break;
-    }
-    default:
-      break;
-  }
-
-  close_debug_menu();
-}
+// Error popup and debug menu functions moved to ui_components.c
 
 static void render_loss_indicator_preview(void) {
   if (context.stream.is_streaming)
@@ -830,90 +618,12 @@ static void render_loss_indicator_preview(void) {
                         headline);
 }
 
-static void render_debug_menu(void) {
-  if (!context.ui_state.debug_menu_active)
-    return;
-
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
-
-  const int panel_w = 560;
-  const int panel_h = 240;
-  int panel_x = (VITA_WIDTH - panel_w) / 2;
-  int panel_y = (VITA_HEIGHT - panel_h) / 2;
-  ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18,
-                         RGBA8(0x14, 0x16, 0x1C, 240));
-
-  const char *title = "Debug Actions";
-  int title_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
-  vita2d_font_draw_text(font,
-                        panel_x + (panel_w - title_w) / 2,
-                        panel_y + 40,
-                        UI_COLOR_TEXT_PRIMARY,
-                        FONT_SIZE_HEADER,
-                        title);
-
-  int list_y = panel_y + 70;
-  for (int i = 0; i < (int)DEBUG_MENU_OPTION_COUNT; i++) {
-    uint32_t row_color = RGBA8(0x30, 0x35, 0x40, 255);
-    if (i == context.ui_state.debug_menu_selection) {
-      row_color = RGBA8(0x34, 0x90, 0xFF, 160);
-    }
-    int row_h = 44;
-    int row_margin = 6;
-    ui_draw_rounded_rect(panel_x + 30,
-                           list_y + i * (row_h + row_margin),
-                           panel_w - 60,
-                           row_h,
-                           10,
-                           row_color);
-    vita2d_font_draw_text(font,
-                          panel_x + 50,
-                          list_y + i * (row_h + row_margin) + row_h / 2 + 6,
-                          UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_BODY,
-                          debug_menu_options[i]);
-  }
-
-  const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
-  int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
-  vita2d_font_draw_text(font,
-                        panel_x + (panel_w - hint_w) / 2,
-                        panel_y + panel_h - 20,
-                        UI_COLOR_TEXT_SECONDARY,
-                        FONT_SIZE_SMALL,
-                        hint);
-}
-
-static void handle_debug_menu_input(void) {
-  if (!context.ui_state.debug_menu_active)
-    return;
-
-  uint32_t buttons = context.ui_state.button_state;
-  uint32_t prev_buttons = context.ui_state.old_button_state;
-
-  if ((buttons & SCE_CTRL_UP) && !(prev_buttons & SCE_CTRL_UP)) {
-    context.ui_state.debug_menu_selection--;
-    if (context.ui_state.debug_menu_selection < 0)
-      context.ui_state.debug_menu_selection = DEBUG_MENU_OPTION_COUNT - 1;
-  } else if ((buttons & SCE_CTRL_DOWN) && !(prev_buttons & SCE_CTRL_DOWN)) {
-    context.ui_state.debug_menu_selection++;
-    if (context.ui_state.debug_menu_selection >= (int)DEBUG_MENU_OPTION_COUNT)
-      context.ui_state.debug_menu_selection = 0;
-  }
-
-  if ((buttons & SCE_CTRL_CIRCLE) && !(prev_buttons & SCE_CTRL_CIRCLE)) {
-    close_debug_menu();
-    return;
-  }
-
-  if ((buttons & SCE_CTRL_CROSS) && !(prev_buttons & SCE_CTRL_CROSS)) {
-    debug_menu_apply_action(context.ui_state.debug_menu_selection);
-  }
-}
+// Debug menu render and input functions moved to ui_components.c
 
 // ============================================================================
 // ANIMATION HELPERS
 // ============================================================================
+// Toggle animation functions moved to ui_components.c
 
 /// Linear interpolation between two values
 static inline float lerp(float a, float b, float t) {
@@ -925,223 +635,11 @@ static inline float ease_in_out_cubic(float t) {
   return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
 }
 
-/// Start toggle animation
-static void start_toggle_animation(int toggle_index, bool target_state) {
-  toggle_anim.animating_index = toggle_index;
-  toggle_anim.target_state = target_state;
-  toggle_anim.start_time_us = sceKernelGetProcessTimeWide();
-}
-
-/// Get current toggle animation value (0.0 = OFF, 1.0 = ON)
-static float get_toggle_animation_value(int toggle_index, bool current_state) {
-  // If not animating this toggle, return static value
-  if (toggle_anim.animating_index != toggle_index) {
-    return current_state ? 1.0f : 0.0f;
-  }
-
-  // Calculate animation progress
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - toggle_anim.start_time_us;
-  float progress = (float)elapsed_us / (TOGGLE_ANIMATION_DURATION_MS * 1000.0f);
-
-  // Clamp to 0.0-1.0
-  if (progress >= 1.0f) {
-    toggle_anim.animating_index = -1;  // Animation complete
-    return toggle_anim.target_state ? 1.0f : 0.0f;
-  }
-
-  // Apply easing for smooth motion
-  float eased = ease_in_out_cubic(progress);
-
-  // Interpolate from start to end
-  float start_val = toggle_anim.target_state ? 0.0f : 1.0f;
-  float end_val = toggle_anim.target_state ? 1.0f : 0.0f;
-
-  return lerp(start_val, end_val, eased);
-}
-
 // ============================================================================
 // PHASE 2: REUSABLE UI COMPONENTS
 // ============================================================================
-
-/// Draw a toggle switch with smooth animation support
-/// @param x X position
-/// @param y Y position
-/// @param width Total width of switch
-/// @param height Total height of switch
-/// @param anim_value Animation value (0.0 = OFF, 1.0 = ON)
-/// @param selected true if this control is currently selected
-static void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
-  // Interpolate track color based on animation value
-  uint32_t color_off = RGBA8(0x60, 0x60, 0x68, 200);
-  uint32_t color_on = UI_COLOR_PRIMARY_BLUE;
-
-  // Blend between OFF and ON colors
-  uint8_t r = (uint8_t)lerp(0x60, 0x34, anim_value);
-  uint8_t g = (uint8_t)lerp(0x60, 0x90, anim_value);
-  uint8_t b = (uint8_t)lerp(0x68, 0xFF, anim_value);
-  uint8_t a = (uint8_t)lerp(200, 255, anim_value);
-  uint32_t track_color = RGBA8(r, g, b, a);
-
-  uint32_t knob_color = UI_COLOR_TEXT_PRIMARY;
-
-  // Enhanced selection highlight with glow
-  if (selected) {
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, height/2 + 2, RGBA8(0x34, 0x90, 0xFF, 60));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, height/2 + 1, UI_COLOR_PRIMARY_BLUE);
-  }
-
-  // Track shadow for depth
-  ui_draw_rounded_rect(x + 1, y + 1, width, height, height/2, RGBA8(0x00, 0x00, 0x00, 40));
-
-  // Track (background)
-  ui_draw_rounded_rect(x, y, width, height, height/2, track_color);
-
-  // Knob (circular button) - smoothly animated position
-  int knob_radius = (height - 4) / 2;
-  int knob_x_off = x + knob_radius + 2;
-  int knob_x_on = x + width - knob_radius - 2;
-  int knob_x = (int)lerp((float)knob_x_off, (float)knob_x_on, anim_value);
-  int knob_y = y + height/2;
-
-  // Knob shadow
-  ui_draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
-  // Knob
-  ui_draw_circle(knob_x, knob_y, knob_radius, knob_color);
-}
-
-/// Draw a dropdown control
-/// @param x X position
-/// @param y Y position
-/// @param width Width of dropdown
-/// @param height Height of dropdown
-/// @param label Label text (left side)
-/// @param value Current value text (right side)
-/// @param expanded true if dropdown is expanded
-/// @param selected true if this control is currently selected
-static void draw_dropdown(int x, int y, int width, int height, const char* label,
-                          const char* value, bool expanded, bool selected) {
-  // Modern card colors with subtle variation for selection
-  uint32_t bg_color = selected ? RGBA8(0x40, 0x42, 0x50, 255) : UI_COLOR_CARD_BG;
-
-  // Enhanced selection with shadow and glow
-  if (selected && !expanded) {
-    // Shadow
-    ui_draw_rounded_rect(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
-  } else {
-    // Subtle shadow for depth
-    ui_draw_rounded_rect(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
-  }
-
-  // Background
-  ui_draw_rounded_rect(x, y, width, height, 8, bg_color);
-
-  // Label text (left) - use defined constant
-  vita2d_font_draw_text(font, x + 15, y + height/2 + 6, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
-
-  // Value text (right) - use defined constant
-  int value_width = vita2d_font_text_width(font, FONT_SIZE_BODY, value);
-  vita2d_font_draw_text(font, x + width - value_width - 30, y + height/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, value);
-
-  // Down arrow indicator - enhanced with PlayStation Blue when selected
-  int arrow_x = x + width - 18;
-  int arrow_y = y + height/2;
-  int arrow_size = 6;
-  uint32_t arrow_color = selected ? UI_COLOR_PRIMARY_BLUE : UI_COLOR_TEXT_SECONDARY;
-
-  // Draw downward pointing triangle
-  for (int i = 0; i < arrow_size; i++) {
-    vita2d_draw_rectangle(arrow_x - i, arrow_y + i, 1 + i*2, 1, arrow_color);
-  }
-}
-
-/// Draw a tab bar with colored sections
-/// @param x X position
-/// @param y Y position
-/// @param width Total width
-/// @param height Height of tab bar
-/// @param tabs Array of tab label strings
-/// @param colors Array of colors for each tab
-/// @param num_tabs Number of tabs
-/// @param selected Index of currently selected tab
-static void draw_tab_bar(int x, int y, int width, int height,
-                         const char* tabs[], uint32_t colors[], int num_tabs, int selected) {
-  int tab_width = width / num_tabs;
-
-  for (int i = 0; i < num_tabs; i++) {
-    int tab_x = x + (i * tab_width);
-
-    // Tab background - flat color, no dimming
-    ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
-
-    // Tab text (centered) - use subheader font size
-    int text_width = vita2d_font_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
-    int text_x = tab_x + (tab_width - text_width) / 2;
-    int text_y = y + height/2 + 6;
-
-    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER, tabs[i]);
-
-    // Selection indicator (bottom bar) - only visual difference
-    if (i == selected) {
-      vita2d_draw_rectangle(tab_x + 2, y + height - 3, tab_width - 8, 3, UI_COLOR_PRIMARY_BLUE);
-    }
-  }
-}
-
-/// Status dot colors
-typedef enum {
-  STATUS_ACTIVE = 0,    // Green
-  STATUS_STANDBY = 1,   // Yellow
-  STATUS_ERROR = 2      // Red
-} StatusType;
-
-/// Draw a status indicator dot
-/// @param x X position (center)
-/// @param y Y position (center)
-/// @param radius Radius of dot
-/// @param status Status type (determines color)
-static void draw_status_dot(int x, int y, int radius, StatusType status) {
-  uint32_t color;
-  switch (status) {
-    case STATUS_ACTIVE:
-      color = RGBA8(0x2D, 0x8A, 0x3E, 255); // Green
-      break;
-    case STATUS_STANDBY:
-      color = RGBA8(0xD9, 0x77, 0x06, 255); // Orange/Yellow
-      break;
-    case STATUS_ERROR:
-      color = RGBA8(0xDC, 0x26, 0x26, 255); // Red
-      break;
-    default:
-      color = RGBA8(0x80, 0x80, 0x80, 255); // Gray
-  }
-
-  ui_draw_circle(x, y, radius, color);
-}
-
-/// Draw a styled section header (for single-section screens like Settings)
-/// @param x X position
-/// @param y Y position
-/// @param width Width of header
-/// @param title Title text
-static void draw_section_header(int x, int y, int width, const char* title) {
-  // Subtle gradient background bar
-  int header_h = 40;
-  ui_draw_rounded_rect(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
-
-  // Bottom accent line (PlayStation Blue)
-  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title text (centered vertically in header)
-  vita2d_font_draw_text(font, x + 15, y + (header_h / 2) + 8, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
-}
+// Widget drawing functions (toggle, dropdown, tabs, status_dot, section_header) moved to ui_components.c
+// StatusType enum moved to ui_components.h as UIStatusType
 
 /// Draw a rotating spinner animation (for loading/waiting states)
 /// @param cx Center X position
@@ -3073,7 +2571,7 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
   bool authenticated = num_registered > 0;
 
   // Status indicator 1: Not authenticated (red X) or authenticated (green checkmark)
-  draw_status_dot(content_x, content_y - 3, 6, authenticated ? STATUS_ACTIVE : STATUS_ERROR);
+  draw_status_dot(content_x, content_y - 3, 6, authenticated ? UI_STATUS_ACTIVE : UI_STATUS_ERROR);
   vita2d_font_draw_text(font, content_x + 15, content_y,
                         authenticated ? RGBA8(0x4C, 0xAF, 0x50, 255) : RGBA8(0xF4, 0x43, 0x36, 255),
                         FONT_SIZE_SMALL, authenticated ? "Authenticated" : "Not authenticated");
@@ -3596,37 +3094,7 @@ uint32_t pin_to_number() {
   return pin;
 }
 
-/// Helper: Render single PIN digit box
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Enhanced visual feedback for current digit
-  if (is_current) {
-    // Outer glow effect for better visibility
-    ui_draw_rounded_rect(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6, RGBA8(0x34, 0x90, 0xFF, 60));
-  }
-
-  // Digit box background with shadow
-  int shadow_offset = is_current ? 3 : 2;
-  ui_draw_rounded_rect(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, RGBA8(0x00, 0x00, 0x00, 60));  // Shadow
-
-  uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
-  ui_draw_rounded_rect(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
-
-  // Digit text or cursor
-  if (has_value && digit <= 9) {
-    char digit_text[2] = {'0' + digit, '\0'};
-    int text_w = vita2d_font_text_width(font, 40, digit_text);
-    int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
-    int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
-    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 40, digit_text);
-  } else if (is_current && show_cursor) {
-    // Enhanced blinking cursor (wider and more visible)
-    int cursor_w = 3;  // Thicker cursor
-    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
-    int cursor_y1 = y + 15;
-    int cursor_h = PIN_DIGIT_HEIGHT - 30;
-    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
-  }
-}
+// render_pin_digit() moved to ui_components.c
 
 /// Draw VitaRPS5-style PIN entry registration screen
 /// @return whether the dialog should keep rendering
