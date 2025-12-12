@@ -143,6 +143,12 @@ static inline int ui_get_dynamic_content_center_x(void) {
 
 // Input handling (ui_input.c)
 bool btn_pressed(SceCtrlButtons btn);
+void block_inputs_for_transition(void);
+bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
+bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh);
+uint32_t* ui_input_get_button_block_mask_ptr(void);
+bool* ui_input_get_touch_block_active_ptr(void);
+bool* ui_input_get_touch_block_pending_clear_ptr(void);
 
 // Graphics primitives (ui_graphics.c)
 void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
@@ -167,9 +173,15 @@ void ui_particles_render(void);
 uint64_t ui_anim_now_us(void);
 float ui_anim_elapsed_ms(uint64_t start_us);
 
-// State (ui_state.c - will be created)
-// void ui_connection_begin(UIConnectionStage stage);
-// void ui_connection_complete(void);
+// State management (ui_state.c)
+bool stream_cooldown_active(void);
+uint64_t stream_cooldown_until_us(void);
+bool takion_cooldown_gate_active(void);
+bool start_connection_thread(VitaChiakiHost *host);
+int get_text_width_cached(const char* text, int font_size);
+bool ui_connection_overlay_active(void);
+UIConnectionStage ui_connection_stage(void);
+void ui_clear_waking_wait(void);
 
 // ============================================================================
 // Debug Menu Configuration

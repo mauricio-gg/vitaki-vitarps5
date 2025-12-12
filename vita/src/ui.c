@@ -20,6 +20,9 @@
 #include "video.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
+#include "ui/ui_input.h"
+#include "ui/ui_state.h"
+#include "ui/ui_internal.h"
 
 #ifndef VIDEO_LOSS_ALERT_DEFAULT_US
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
@@ -100,20 +103,7 @@
 #define HOST_SLOT_W 400
 #define HOST_SLOT_H 190
 
-// Particle structure for background animation
-typedef struct {
-  float x, y;
-  float vx, vy;
-  float scale;
-  float rotation;
-  float rotation_speed;
-  int symbol_type;  // 0=triangle, 1=circle, 2=x, 3=square
-  uint32_t color;
-  bool active;
-  int layer;           // 0=background (0.7x speed), 1=foreground (1.0x speed)
-  float sway_phase;    // for horizontal sway animation
-  float sway_speed;    // radians per second
-} Particle;
+// Particle type moved to ui_types.h
 
 #define TEXTURE_PATH "app0:/assets/"
 #define IMG_PS4_PATH TEXTURE_PATH "ps4.png"
@@ -138,9 +128,23 @@ vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
 vita2d_texture *background_gradient, *vita_rps5_logo;
 vita2d_texture *vita_front, *ps5_logo;
 
-static uint32_t button_block_mask = 0;
-static bool touch_block_active = false;
-static bool touch_block_pending_clear = false;  // Delayed clear to prevent icon tap collapse
+// Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
+static uint32_t *button_block_mask = NULL;
+static bool *touch_block_active = NULL;
+static bool *touch_block_pending_clear = NULL;
+
+// State management convenience macros (for legacy code compatibility)
+#define waking_start_time ui_state_get_waking_start_time_us()
+#define SET_waking_start_time(val) ui_state_set_waking_start_time_us(val)
+#define waking_wait_for_stream_us ui_state_get_waking_wait_for_stream_us()
+#define SET_waking_wait_for_stream_us(val) ui_state_set_waking_wait_for_stream_us(val)
+#define reconnect_start_time ui_state_get_reconnect_start_time()
+#define SET_reconnect_start_time(val) ui_state_set_reconnect_start_time(val)
+#define reconnect_animation_frame ui_state_get_reconnect_animation_frame()
+#define SET_reconnect_animation_frame(val) ui_state_set_reconnect_animation_frame(val)
+#define connection_overlay_active ui_connection_overlay_active()
+#define connection_overlay_stage ui_connection_stage()
+#define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
 
 // Wave navigation state
 #define WAVE_NAV_ICON_SIZE 32       // Per spec: 32x32px icons
@@ -153,37 +157,11 @@ static bool touch_block_pending_clear = false;  // Delayed clear to prevent icon
 
 static int selected_nav_icon = 0;   // 0=Play, 1=Settings, 2=Controller, 3=Profile
 
-// Wave animation state
-typedef struct {
-  float phase;      // Current phase (radians, accumulates)
-  float speed;      // radians per second
-} WaveLayerState;
+// WaveLayerState, NavSidebarState, NavCollapseState types moved to ui_types.h
 
 static WaveLayerState wave_bottom_state = {0.0f, WAVE_SPEED_BOTTOM};
 static WaveLayerState wave_top_state = {0.0f, WAVE_SPEED_TOP};
 static uint64_t wave_last_update_us = 0;  // For delta time calculation
-
-// Navigation sidebar collapse state machine
-typedef enum {
-  NAV_STATE_EXPANDED = 0,    // Full sidebar visible (130px), waves animating
-  NAV_STATE_COLLAPSING,      // Animation: 130px -> 0px -> pill reveal
-  NAV_STATE_COLLAPSED,       // Pill visible at top-left (120x36px), waves paused
-  NAV_STATE_EXPANDING        // Animation: pill -> 0px -> 130px sidebar
-} NavSidebarState;
-
-typedef struct {
-  NavSidebarState state;          // Current state
-  uint64_t anim_start_us;         // Animation start timestamp
-  float anim_progress;            // 0.0 to 1.0 animation progress
-  float stored_wave_bottom_phase; // For resume after collapse
-  float stored_wave_top_phase;    // For resume after collapse
-  float current_width;            // 0.0 to 130.0 animated sidebar width
-  float pill_width;               // 36 to 120 animated pill width
-  float pill_opacity;             // 0.0 to 1.0 pill visibility
-  bool toast_shown_this_session;  // Only show toast once per app launch
-  bool toast_active;              // Currently displaying toast
-  uint64_t toast_start_us;        // Toast display start time
-} NavCollapseState;
 
 // Removed 'static' to allow access from ui_graphics.c during refactoring
 NavCollapseState nav_collapse = {
@@ -200,12 +178,7 @@ NavCollapseState nav_collapse = {
   .toast_start_us = 0
 };
 
-// Hints popup system
-typedef struct {
-  bool active;
-  uint64_t start_time_us;
-  const char* current_hint;
-} HintsPopupState;
+// HintsPopupState type moved to ui_types.h
 
 static HintsPopupState hints_popup = {0};
 
@@ -247,46 +220,22 @@ static inline int get_dynamic_content_center_x(void) {
     return VITA_WIDTH / 2;  // 480px
 }
 
-typedef struct {
-  char name[32];           // "PS5 - 024"
-  char ip_address[16];     // "192.168.1.100"
-  int status;              // 0=Available, 1=Unavailable, 2=Connecting
-  int state;               // 0=Unknown, 1=Ready, 2=Standby
-  bool is_registered;      // Has valid credentials
-  bool is_discovered;      // From network discovery
-  VitaChiakiHost* host;    // Original vitaki host reference
-} ConsoleCardInfo;
+// ConsoleCardInfo type moved to ui_types.h
 
 static int selected_console_index = 0;
 
 // Console card cache to prevent flickering during discovery updates
-typedef struct {
-  ConsoleCardInfo cards[MAX_NUM_HOSTS];
-  int num_cards;
-  uint64_t last_update_time;  // Microseconds since epoch
-} ConsoleCardCache;
+// ConsoleCardCache type moved to ui_types.h
 
 static ConsoleCardCache card_cache = {0};
 #define CARD_CACHE_UPDATE_INTERVAL_US (10 * 1000000)  // 10 seconds in microseconds
 
-// Toggle switch animation state - smooth lerp-based transitions
+// ToggleAnimationState type moved to ui_types.h
 #define TOGGLE_ANIMATION_DURATION_MS 180  // 180ms for smooth feel
-typedef struct {
-  int animating_index;      // Which toggle is animating (-1 = none)
-  bool target_state;        // Target state (true = ON, false = OFF)
-  uint64_t start_time_us;   // Animation start time
-} ToggleAnimationState;
 
 static ToggleAnimationState toggle_anim = {-1, false, 0};
 
-// Card focus animation state
-typedef struct {
-  int focused_card_index;       // Which card is currently focused (-1 = none)
-  float current_scale;          // Current scale (0.95 to 1.0)
-  uint64_t focus_start_us;      // When focus started
-  int previous_focused_card_index;  // Previous focused card for scale-down animation (-1 = none)
-  uint64_t unfocus_start_us;    // When unfocus animation started
-} CardFocusAnimState;
+// CardFocusAnimState type moved to ui_types.h
 
 static CardFocusAnimState card_focus_anim = {-1, CONSOLE_CARD_FOCUS_SCALE_MIN, 0, -1, 0};
 
@@ -306,177 +255,28 @@ void draw_settings_icon(int center_x, int center_y, int size);
 void draw_controller_icon(int center_x, int center_y, int size);
 void draw_profile_icon(int center_x, int center_y, int size);
 
-static const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
-static const uint32_t DEBUG_MENU_COMBO_MASK =
+const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
+const uint32_t DEBUG_MENU_COMBO_MASK =
     SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_START;
-static const char *debug_menu_options[] = {
+const char *debug_menu_options[] = {
     "Show Remote Play error popup",
     "Simulate disconnect banner",
     "Trigger network unstable badge",
 };
 #define DEBUG_MENU_OPTION_COUNT (sizeof(debug_menu_options) / sizeof(debug_menu_options[0]))
 
-// Connection overlay state (covers waking + fast connect flows)
-typedef struct {
-  bool active;
-  UIConnectionStage stage;
-  uint64_t stage_updated_us;
-} ConnectionOverlayState;
-
-static ConnectionOverlayState connection_overlay = {0};
-
-// Connection worker thread (kicks off host_stream asynchronously)
-static SceUID connection_thread_id = -1;
-static VitaChiakiHost *connection_thread_host = NULL;
-
-static bool stream_cooldown_active(void) {
-  uint64_t until_us = 0;
-
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us > until_us) {
-    until_us = context.stream.takion_overflow_backoff_until_us;
-  }
-
-  if (context.stream.next_stream_allowed_us > until_us) {
-    until_us = context.stream.next_stream_allowed_us;
-  }
-
-  if (!until_us)
-    return false;
-
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (now_us >= until_us) {
-    if (context.stream.takion_cooldown_overlay_active &&
-        context.stream.takion_overflow_backoff_until_us <= now_us) {
-      context.stream.takion_cooldown_overlay_active = false;
-      context.stream.takion_overflow_backoff_until_us = 0;
-    }
-    if (context.stream.next_stream_allowed_us <= now_us)
-      context.stream.next_stream_allowed_us = 0;
-    return false;
-  }
-
-  return true;
-}
-
-static uint64_t stream_cooldown_until_us(void) {
-  uint64_t until_us = 0;
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us > until_us) {
-    until_us = context.stream.takion_overflow_backoff_until_us;
-  }
-  if (context.stream.next_stream_allowed_us > until_us) {
-    until_us = context.stream.next_stream_allowed_us;
-  }
-  return until_us;
-}
-
-static bool takion_cooldown_gate_active(void) {
-  return stream_cooldown_active();
-}
-
-// Waking / reconnect state
-static uint32_t waking_start_time = 0;
-static uint32_t waking_wait_for_stream_us = 0;
-static uint32_t reconnect_start_time = 0;
-static int reconnect_animation_frame = 0;
-
-static int connection_thread_func(SceSize args, void *argp) {
-  VitaChiakiHost *host = connection_thread_host;
-  if (!host)
-    host = context.active_host;
-  host_stream(host);
-  connection_thread_host = NULL;
-  connection_thread_id = -1;
-  sceKernelExitDeleteThread(0);
-  return 0;
-}
-
-static bool start_connection_thread(VitaChiakiHost *host) {
-  if (connection_thread_id >= 0)
-    return true;  // Already running
-  connection_thread_host = host;
-  connection_thread_id = sceKernelCreateThread(
-      "VitaConnWorker",
-      connection_thread_func,
-      0x40,
-      0x10000,
-      0,
-      0,
-      NULL);
-  if (connection_thread_id < 0) {
-    LOGE("Failed to create connection worker thread (%d)", connection_thread_id);
-    connection_thread_host = NULL;
-    connection_thread_id = -1;
-    return false;
-  }
-  int status = sceKernelStartThread(connection_thread_id, 0, NULL);
-  if (status < 0) {
-    LOGE("Failed to start connection worker thread (%d)", status);
-    sceKernelDeleteThread(connection_thread_id);
-    connection_thread_id = -1;
-    connection_thread_host = NULL;
-    return false;
-  }
-  return true;
-}
-
-// Text width cache for static strings (simple optimization, avoids over-engineering full texture cache)
-#define TEXT_WIDTH_CACHE_SIZE 16
-typedef struct {
-  const char* text;
-  int font_size;
-  int width;
-  bool valid;
-} TextWidthCacheEntry;
-
-static TextWidthCacheEntry text_width_cache[TEXT_WIDTH_CACHE_SIZE] = {0};
-
-/// Get text width with simple caching for static strings
-static int get_text_width_cached(const char* text, int font_size) {
-  // Try to find in cache
-  for (int i = 0; i < TEXT_WIDTH_CACHE_SIZE; i++) {
-    if (text_width_cache[i].valid &&
-        text_width_cache[i].text == text &&  // Pointer comparison for static strings
-        text_width_cache[i].font_size == font_size) {
-      return text_width_cache[i].width;
-    }
-  }
-
-  // Not in cache, calculate and store
-  int width = vita2d_font_text_width(font, font_size, text);
-
-  // Find empty slot or replace oldest (simple FIFO)
-  static int next_cache_slot = 0;
-  text_width_cache[next_cache_slot].text = text;
-  text_width_cache[next_cache_slot].font_size = font_size;
-  text_width_cache[next_cache_slot].width = width;
-  text_width_cache[next_cache_slot].valid = true;
-  next_cache_slot = (next_cache_slot + 1) % TEXT_WIDTH_CACHE_SIZE;
-
-  return width;
-}
+// Connection overlay, cooldown, thread management, and text cache moved to ui_state.c
 
 // Wave navigation sidebar uses simple colored bar (no animation)
 
-// PIN entry state for VitaRPS5-style registration
-typedef struct {
-  uint32_t pin_digits[8];  // Each digit 0-9, or 10 for empty
-  int current_digit;        // Which digit cursor is on (0-7)
-  bool pin_complete;        // All 8 digits entered
-  uint32_t complete_pin;    // Final 8-digit number
-} PinEntryState;
+// PinEntryState type moved to ui_types.h
 
 static PinEntryState pin_entry_state = {0};
 static bool show_cursor = false;
 static uint32_t cursor_blink_timer = 0;
 static bool pin_entry_initialized = false;
 
-// Focus system for D-pad navigation
-typedef enum {
-  FOCUS_NAV_BAR = 0,      // Wave navigation sidebar
-  FOCUS_CONSOLE_CARDS = 1  // Console cards area (includes discovery card when empty)
-} FocusArea;
+// FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
 
 static FocusArea current_focus = FOCUS_CONSOLE_CARDS;
 static int last_console_selection = 0;  // Remember last selected console when moving away
@@ -484,29 +284,8 @@ static int last_console_selection = 0;  // Remember last selected console when m
 #define MAX_TOOLTIP_CHARS 200
 char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
 
-/// Types of actions that can be performed on hosts
-typedef enum ui_host_action_t {
-  UI_HOST_ACTION_NONE = 0,
-  UI_HOST_ACTION_WAKEUP,  // Only for at-rest hosts
-  UI_HOST_ACTION_STREAM,  // Only for online hosts
-  UI_HOST_ACTION_DELETE,  // Only for manually added hosts
-  UI_HOST_ACTION_EDIT,    // Only for registered/manually added hosts
-  UI_HOST_ACTION_REGISTER,    // Only for discovered hosts
-} UIHostAction;
-
 /// Types of screens that can be rendered
-typedef enum ui_screen_type_t {
-  UI_SCREEN_TYPE_MAIN = 0,
-  UI_SCREEN_TYPE_REGISTER,
-  UI_SCREEN_TYPE_REGISTER_HOST,
-  UI_SCREEN_TYPE_STREAM,
-  UI_SCREEN_TYPE_WAKING,         // Waking up console screen
-  UI_SCREEN_TYPE_RECONNECTING,   // Reconnecting after packet loss
-  UI_SCREEN_TYPE_SETTINGS,
-  UI_SCREEN_TYPE_MESSAGES,
-  UI_SCREEN_TYPE_PROFILE,        // Phase 2: Profile & Registration screen
-  UI_SCREEN_TYPE_CONTROLLER,     // Phase 2: Controller Configuration screen
-} UIScreenType;
+// UIScreenType enum moved to ui_types.h (included via ui_state.h)
 
 // Initialize Yes and No button from settings (will be updated in init_ui)
 int SCE_CTRL_CONFIRM = SCE_CTRL_CROSS;
@@ -514,20 +293,7 @@ int SCE_CTRL_CANCEL  = SCE_CTRL_CIRCLE;
 char* confirm_btn_str = "Cross";
 char* cancel_btn_str  = "Circle";
 
-/// Check if a button has been newly pressed
-bool btn_pressed(SceCtrlButtons btn) {
-  if (button_block_mask & btn)
-    return false;
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
-    return false;
-  return (context.ui_state.button_state & btn) &&
-         !(context.ui_state.old_button_state & btn);
-}
-
-static void block_inputs_for_transition(void) {
-  button_block_mask |= context.ui_state.button_state;
-  touch_block_active = true;
-}
+// btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
 // ============================================================================
 // Navigation Collapse State Machine (per SCOPING_NAV_COLLAPSIBLE_BAR.md)
@@ -927,8 +693,8 @@ static void handle_error_popup_input(void) {
   if (button_dismiss || touch_dismiss) {
     context.ui_state.error_popup_active = false;
     context.ui_state.error_popup_text[0] = '\0';
-    button_block_mask |= context.ui_state.button_state;
-    touch_block_active = true;
+    *button_block_mask |= context.ui_state.button_state;
+    *touch_block_active = true;
   }
 }
 
@@ -950,8 +716,8 @@ static void open_debug_menu(void) {
     return;
   context.ui_state.debug_menu_active = true;
   context.ui_state.debug_menu_selection = 0;
-  button_block_mask |= context.ui_state.button_state;
-  touch_block_active = true;
+  *button_block_mask |= context.ui_state.button_state;
+  *touch_block_active = true;
 }
 
 static void close_debug_menu(void) {
@@ -959,8 +725,8 @@ static void close_debug_menu(void) {
     return;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_selection = 0;
-  button_block_mask |= context.ui_state.button_state;
-  touch_block_active = true;
+  *button_block_mask |= context.ui_state.button_state;
+  *touch_block_active = true;
 }
 
 static void debug_menu_apply_action(int action_index) {
@@ -1588,7 +1354,7 @@ static UIScreenType nav_screen_for_index(int index) {
   }
 }
 
-static bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
+// is_point_in_circle() moved to ui_input.c (non-static, declared in ui_internal.h)
 
 static bool nav_touch_hit(float touch_x, float touch_y, UIScreenType *out_screen) {
   for (int i = 0; i < 4; i++) {
@@ -1614,11 +1380,11 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
 
   SceTouchData nav_touch = {};
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
-  if (touch_block_active) {
+  if (*touch_block_active) {
     if (nav_touch.reportNum == 0) {
       // Finger lifted - clear the block
-      touch_block_active = false;
-      touch_block_pending_clear = false;
+      *touch_block_active = false;
+      *touch_block_pending_clear = false;
     } else {
       return false;  // Still blocking while finger is down
     }
@@ -1631,23 +1397,23 @@ static bool handle_global_nav_shortcuts(UIScreenType *out_screen, bool allow_dpa
     // Check pill touch first when collapsed
     if (pill_touch_hit(tx, ty)) {
       nav_request_expand();
-      touch_block_active = true;  // Prevent immediate re-collapse
+      *touch_block_active = true;  // Prevent immediate re-collapse
       return false;
     }
 
     // If expanded, check nav icon touch
     if (nav_collapse.state == NAV_STATE_EXPANDED) {
       if (nav_touch_hit(tx, ty, out_screen)) {
-        touch_block_active = true;
+        *touch_block_active = true;
         return true;
       }
     }
 
     // Touch in content area triggers collapse (if not pinned)
     // Content area is to the right of the nav bar
-    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !touch_block_active) {
+    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !*touch_block_active) {
       nav_request_collapse(true);  // From content interaction
-      touch_block_active = true;   // Prevent double-processing of this touch
+      *touch_block_active = true;   // Prevent double-processing of this touch
     }
   }
 
@@ -2275,17 +2041,7 @@ bool is_touched(int x, int y, int width, int height) {
          tdf->report->y > y && tdf->report->y <= y + height;
 }
 
-/// Check if a point is inside a circle (for wave navigation icons)
-bool is_point_in_circle(float px, float py, int cx, int cy, int radius) {
-  float dx = px - cx;
-  float dy = py - cy;
-  return (dx*dx + dy*dy) <= (radius*radius);
-}
-
-/// Check if a point is inside a rectangle (for cards and buttons)
-bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
-  return (px >= rx && px <= rx + rw && py >= ry && py <= ry + rh);
-}
+// is_point_in_circle() and is_point_in_rect() moved to ui_input.c
 
 /// Handle VitaRPS5 touch screen input
 UIScreenType handle_vitarps5_touch_input(int num_hosts) {
@@ -2296,11 +2052,11 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
     return UI_SCREEN_TYPE_MAIN;
   }
 
-  if (touch_block_active) {
+  if (*touch_block_active) {
     if (touch.reportNum == 0) {
       // Finger lifted - clear the block
-      touch_block_active = false;
-      touch_block_pending_clear = false;
+      *touch_block_active = false;
+      *touch_block_pending_clear = false;
     } else {
       return UI_SCREEN_TYPE_MAIN;  // Still blocking while finger is down
     }
@@ -2351,7 +2107,7 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
                     ui_connection_cancel();
                     return UI_SCREEN_TYPE_MAIN;
                   }
-                  waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+                  SET_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
                   return UI_SCREEN_TYPE_WAKING;
                 } else if (at_rest) {
                   LOGD("Touch wake gesture on dormant console");
@@ -2554,7 +2310,7 @@ UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
           ui_connection_cancel();
           return UI_HOST_ACTION_NONE;
         }
-        waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+        SET_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
         return UI_HOST_ACTION_STREAM;
       }
     } else if (!registered && !added && discovered && btn_pressed(SCE_CTRL_CONFIRM)){
@@ -2697,7 +2453,7 @@ UIScreenType draw_main_menu() {
                 ui_connection_cancel();
                 next_screen = UI_SCREEN_TYPE_MAIN;
               } else {
-                waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+                SET_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
               }
             }
             break;
@@ -3994,71 +3750,28 @@ bool draw_stream() {
   return false;
 }
 
-void ui_connection_begin(UIConnectionStage stage) {
-  connection_overlay.active = true;
-  connection_overlay.stage = stage;
-  connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
-  waking_start_time = 0;
-  waking_wait_for_stream_us = 0;
-}
-
-void ui_connection_set_stage(UIConnectionStage stage) {
-  if (!connection_overlay.active || connection_overlay.stage == stage)
-    return;
-  connection_overlay.stage = stage;
-  connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
-}
-
-void ui_connection_complete(void) {
-  connection_overlay.active = false;
-  waking_start_time = 0;
-  waking_wait_for_stream_us = 0;
-}
-
-void ui_connection_cancel(void) {
-  connection_overlay.active = false;
-  waking_start_time = 0;
-  waking_wait_for_stream_us = 0;
-  connection_thread_host = NULL;
-  if (connection_thread_id >= 0) {
-    sceKernelWaitThreadEnd(connection_thread_id, NULL, NULL);
-    sceKernelDeleteThread(connection_thread_id);
-    connection_thread_id = -1;
-  }
-}
-
-bool ui_connection_overlay_active(void) {
-  return connection_overlay.active;
-}
-
-UIConnectionStage ui_connection_stage(void) {
-  return connection_overlay.stage;
-}
-
-void ui_clear_waking_wait(void) {
-  waking_wait_for_stream_us = 0;
-}
+// ui_connection_* functions moved to ui_state.c
 
 /// Draw the "Waking up console..." screen with spinner animation
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
 UIScreenType draw_waking_screen() {
-  if (!connection_overlay.active) {
-    waking_start_time = 0;
-    waking_wait_for_stream_us = 0;
+  if (!connection_overlay_active) {
+    SET_waking_start_time(0);
+    SET_waking_wait_for_stream_us(0);
     return UI_SCREEN_TYPE_MAIN;
   }
 
   // Initialize timer on first call
   if (waking_start_time == 0) {
-    waking_start_time = sceKernelGetProcessTimeLow() / 1000;  // Convert to milliseconds
+    SET_waking_start_time(sceKernelGetProcessTimeLow() / 1000);  // Convert to milliseconds
   }
 
   // Get current time for animations
   uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
 
   // If we're in the wake stage, poll discovery state until the console is ready
-  if (connection_overlay.stage == UI_CONNECTION_STAGE_WAKING && context.active_host) {
+  if (connection_overlay_stage == UI_CONNECTION_STAGE_WAKING && context.active_host) {
     bool ready = (context.active_host->type & REGISTERED) &&
                  !(context.active_host->discovery_state &&
                    context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
@@ -4074,7 +3787,7 @@ UIScreenType draw_waking_screen() {
         ui_connection_cancel();
         return UI_SCREEN_TYPE_MAIN;
       }
-      waking_wait_for_stream_us = sceKernelGetProcessTimeWide();
+      SET_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
     }
   }
 
@@ -4090,8 +3803,8 @@ UIScreenType draw_waking_screen() {
   };
   const int stage_count = sizeof(stage_titles) / sizeof(stage_titles[0]);
   int stage_index = 0;
-  if (connection_overlay.stage >= UI_CONNECTION_STAGE_WAKING)
-    stage_index = connection_overlay.stage - UI_CONNECTION_STAGE_WAKING;
+  if (connection_overlay_stage >= UI_CONNECTION_STAGE_WAKING)
+    stage_index = connection_overlay_stage - UI_CONNECTION_STAGE_WAKING;
   if (stage_index < 0)
     stage_index = 0;
   if (stage_index >= stage_count)
@@ -4114,7 +3827,7 @@ UIScreenType draw_waking_screen() {
   vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
   // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
-  const char* title = (connection_overlay.stage == UI_CONNECTION_STAGE_WAKING) ?
+  const char* title = (connection_overlay_stage == UI_CONNECTION_STAGE_WAKING) ?
       "Waking Console" : "Starting Remote Play";
   int title_size = 28;
   int title_w = get_text_width_cached(title, title_size);
@@ -4184,13 +3897,13 @@ UIScreenType draw_waking_screen() {
 UIScreenType draw_reconnecting_screen() {
   // Check if we should still be showing this screen
   if (!context.stream.reconnect_overlay_active) {
-    reconnect_start_time = 0;
+    SET_reconnect_start_time(0);
     return UI_SCREEN_TYPE_MAIN;
   }
 
   // Initialize timer on first call
   if (reconnect_start_time == 0) {
-    reconnect_start_time = sceKernelGetProcessTimeLow() / 1000;
+    SET_reconnect_start_time(sceKernelGetProcessTimeLow() / 1000);
   }
 
   // Get current time for animations
@@ -4400,6 +4113,15 @@ void init_ui() {
   SCE_CTRL_CANCEL  = context.config.circle_btn_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
   confirm_btn_str = context.config.circle_btn_confirm ? "Circle" : "Cross";
   cancel_btn_str  = context.config.circle_btn_confirm ? "Cross" : "Circle";
+
+  // Initialize UI modules
+  ui_input_init();
+  ui_state_init();
+
+  // Get pointers to input state for direct manipulation (legacy compatibility)
+  button_block_mask = ui_input_get_button_block_mask_ptr();
+  touch_block_active = ui_input_get_touch_block_active_ptr();
+  touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
 }
 
 /// Main UI loop
@@ -4424,7 +4146,7 @@ void draw_ui() {
     }
     context.ui_state.old_button_state = context.ui_state.button_state;
     context.ui_state.button_state = ctrl.buttons;
-    button_block_mask &= context.ui_state.button_state;
+    *button_block_mask &= context.ui_state.button_state;
 
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
