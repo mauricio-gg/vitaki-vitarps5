@@ -5,62 +5,76 @@ Transform vitaki-fork's basic UI into vitarps5's professional PlayStation-inspir
 
 ## Development Phases
 
-### Phase 1: UI Framework Migration (Foundation) - CURRENT PHASE
-**Goal**: Replace basic UI infrastructure with modern modular system
+### Phase 1-4: Core UI Refactoring (Modularization) - COMPLETE ✅
+**Goal**: Split monolithic ui.c into focused, reusable modules
 
-#### Subphase 1.1: Documentation & Analysis ✅
-- [x] Analyze vitaki-fork current architecture
-- [x] Analyze vitarps5 modern UI system
-- [x] Document migration strategy
-- [x] Create development roadmap
+#### Phase 1: Framework Setup ✅ (Commit 260b163)
+- [x] Create vita/src/ui/ and vita/include/ui/ directories
+- [x] Create ui_constants.h, ui_types.h, ui_internal.h headers
+- [x] Set up modular architecture foundation
+- [x] Build verification completed
 
-#### Subphase 1.2: Framework Foundation - IN PROGRESS
-- [ ] Set up modern UI module structure in vita/src/ui/
-- [ ] Copy core UI framework files from vitarps5
-- [ ] Update build system for new modular architecture
-- [ ] Backup original UI implementation
+#### Phase 2: Graphics & Animation Extraction ✅ (Commit 97c4033)
+- [x] Extract ui_graphics.c - drawing primitives
+- [x] Extract ui_animation.c - easing and particles
+- [x] Update ui.c includes
+- [x] Build and test passed
 
-#### Subphase 1.3: Asset Integration
-- [ ] Copy modern asset system from vitarps5
-- [ ] Update asset loading for new textures and icons
-- [ ] Integrate PlayStation symbol particles
-- [ ] Test asset loading and rendering
+#### Phase 3: Input & State Management ✅ (Commit ad89b6d)
+- [x] Extract ui_input.c - button/touch input handling
+- [x] Extract ui_state.c - connection overlay, cooldowns, text cache
+- [x] Reduce ui.c by ~360 lines
+- [x] Build and test passed
 
-#### Subphase 1.4: Core UI Replacement
-- [ ] Replace vita/include/ui.h with modern architecture
-- [ ] Update main.c to use new UI system
-- [ ] Implement basic modern rendering loop
-- [ ] Test basic UI compilation and display
+#### Phase 4: Reusable Components ✅ (Commit d28046e)
+- [x] Extract ui_components.c - toggles, dropdowns, tabs, dialogs
+- [x] Extract error/hints popups and debug menu
+- [x] Implement toggle animation with cubic easing
+- [x] Reduce ui.c by ~550 lines
+- [x] Build and test passed
 
-### Phase 2: Navigation System Upgrade
-**Goal**: Replace header buttons with wave navigation sidebar
+### Phase 5: Navigation System Extraction - PENDING
+**Goal**: Extract wave navigation, collapse animation, and navigation pills
 
-#### Subphase 2.1: Wave Navigation Implementation
-- [ ] Implement PlayStation symbol particle system
-- [ ] Add wave-based sidebar navigation
-- [ ] Create smooth state transitions
-- [ ] Add touch navigation support
+#### Subphase 5.1: Navigation Module Creation
+- [ ] Extract ui_navigation.c - wave sidebar, collapse state machine, pills
+- [ ] Implement nav_collapse state management
+- [ ] Create public navigation API in ui_navigation.h
+- [ ] Build and test
 
-#### Subphase 2.2: Modern Console Dashboard
-- [ ] Replace basic host tiles with modern console cards
-- [ ] Add console status indicators (available/connecting/unavailable)
-- [ ] Implement touch-optimized grid layout
-- [ ] Add console management interactions
+#### Subphase 5.2: Integration
+- [ ] Update ui.c to use new navigation module
+- [ ] Wire all navigation input handlers
+- [ ] Test wave animation and collapse/expand transitions
+- [ ] Verify touch and controller parity
 
-### Phase 3: Settings & Features Integration
-**Goal**: Replace simple forms with tabbed modern interface
+### Phase 6: Console Cards Extraction - PENDING
+**Goal**: Extract console card rendering, caching, and host mapping
 
-#### Subphase 3.1: Tabbed Settings Interface
-- [ ] Implement 4-tab settings system (Streaming/Video/Network/Controller)
-- [ ] Create modern UI components (toggles, dropdowns, sliders)
-- [ ] Add real-time settings updates
-- [ ] Migrate existing settings to new interface
+#### Subphase 6.1: Cards Module Creation
+- [ ] Extract ui_console_cards.c - card rendering, cache, focus animation
+- [ ] Implement card selection and scaling
+- [ ] Create public cards API in ui_console_cards.h
+- [ ] Build and test
 
-#### Subphase 3.2: Enhanced Registration Flow
-- [ ] Integrate modern console pairing workflow
-- [ ] Add visual feedback and progress indicators
-- [ ] Implement profile management features
-- [ ] Add PSN integration capabilities
+#### Subphase 6.2: Integration
+- [ ] Update ui.c to use new cards module
+- [ ] Wire card selection and navigation
+- [ ] Test focus animation and scaling effects
+
+### Phase 7: Screen Implementations Extraction - PENDING
+**Goal**: Extract all 9 screen rendering functions into dedicated module
+
+#### Subphase 7.1: Screens Module Creation
+- [ ] Extract ui_screens.c - main menu, settings, profile, controller config, overlays
+- [ ] Implement screen dispatch logic
+- [ ] Create public screens API in ui_screens.h
+- [ ] Build and test
+
+#### Subphase 7.2: Integration
+- [ ] Update ui.c with new screens module
+- [ ] Wire all screen transitions
+- [ ] Test all 9 screens render correctly
 
 ### Phase 4: Integration & Testing
 **Goal**: Ensure all functionality works seamlessly
@@ -84,9 +98,10 @@ Transform vitaki-fork's basic UI into vitarps5's professional PlayStation-inspir
 - [ ] Documentation updates
 
 ## Current Status
-- **Active Phase**: Phase 2 Complete - Modern UI Screens Implemented ✅
+- **Active Epic**: UI Refactoring - Phases 1-4 Complete ✅
+- **Progress**: 50% complete (4 of 8 phases finished)
 - **Latest Version**: v0.1.77
-- **Next Phase**: Phase 3 - Settings & Features Integration (Backend Wiring)
+- **Next Phase**: Phase 5 - Extract Navigation System (Medium Risk)
 
 ## Success Criteria
 1. **Visual Transformation**: vitaki-fork displays vitarps5's modern interface

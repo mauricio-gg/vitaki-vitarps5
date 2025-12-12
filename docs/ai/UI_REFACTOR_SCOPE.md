@@ -1,9 +1,9 @@
 # UI.C Refactoring Scope Document
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** December 2025
-**Status:** Planning Phase
-**Target:** `vita/src/ui.c` (4,776 lines → 8 modules)
+**Status:** Phases 1-4 Complete, Phases 5-8 Pending
+**Target:** `vita/src/ui.c` (4,776 lines → ~3,500 lines after Phase 4)
 
 ---
 
@@ -510,49 +510,60 @@ void ui_particles_render(void);
 
 ## Refactoring Phases
 
-### Phase 1: Setup (Low Risk)
+### Phase 1: Setup (Low Risk) ✅ COMPLETED
+**Commit:** 260b163
+**Status:** All directory structure and header files created
 1. Create `vita/src/ui/` and `vita/include/ui/` directories
 2. Create `ui_constants.h` with all `#define` values
 3. Create `ui_types.h` with all type definitions
 4. Create `ui_internal.h` for shared state
 5. Build and verify no changes
 
-### Phase 2: Extract Primitives (Low Risk)
+### Phase 2: Extract Primitives (Low Risk) ✅ COMPLETED
+**Commit:** 97c4033
+**Status:** Graphics and animation modules extracted successfully
 1. Extract `ui_graphics.c` - pure drawing functions
 2. Extract `ui_animation.c` - easing and particles
 3. Update includes in `ui.c`
 4. Build and test
 
-### Phase 3: Extract Utilities (Low Risk)
-1. Extract `ui_input.c` - input handling
-2. Extract `ui_state.c` - state management
+### Phase 3: Extract Utilities (Low Risk) ✅ COMPLETED
+**Commit:** ad89b6d
+**Status:** Input and state management modules extracted
+**Lines Removed from ui.c:** ~360 lines
+1. Extract `ui_input.c` - input handling (button press detection, touch handling, hit testing)
+2. Extract `ui_state.c` - state management (connection overlay, cooldowns, text cache, connection thread)
 3. Update includes in `ui.c`
 4. Build and test
 
-### Phase 4: Extract Components (Medium Risk)
-1. Extract `ui_components.c` - widgets and dialogs
-2. Update function calls in `ui.c`
-3. Build and test
+### Phase 4: Extract Components (Medium Risk) ✅ COMPLETED
+**Commit:** d28046e
+**Status:** Reusable components module extracted
+**Lines Removed from ui.c:** ~550 lines
+1. Extract `ui_components.c` - widgets and dialogs (toggles, dropdowns, tabs, status dots, dialogs)
+2. Error popup, hints popup, debug menu extracted
+3. Toggle animation with cubic easing implemented
+4. Build and test
 
-### Phase 5: Extract Navigation (Medium Risk)
+### Phase 5: Extract Navigation (Medium Risk) 📋 PENDING
 1. Extract `ui_navigation.c` - complex state machine
 2. Create accessor functions for nav state
 3. Update all nav references in `ui.c`
 4. Build and test
 
-### Phase 6: Extract Cards (Medium Risk)
+### Phase 6: Extract Cards (Medium Risk) 📋 PENDING
 1. Extract `ui_console_cards.c`
 2. Create accessor functions for card state
 3. Update card references
 4. Build and test
 
-### Phase 7: Extract Screens (High Risk)
+### Phase 7: Extract Screens (High Risk) 📋 PENDING
 1. Extract `ui_screens.c` - largest module
 2. Wire up all screen dispatch
 3. Update main render loop
 4. Extensive testing
 
-### Phase 8: Cleanup (Low Risk)
+### Phase 8: Cleanup (Low Risk) 📋 PENDING
 1. Rename remaining `ui.c` to `ui_main.c`
 2. Update CMakeLists.txt with all new source files
 3. Remove deprecated code
@@ -625,18 +636,19 @@ After each phase, verify:
 
 ## Timeline
 
-| Phase | Description | Estimated Work |
-|-------|-------------|----------------|
-| 1 | Setup directories and headers | 1 session |
-| 2 | Extract primitives | 1 session |
-| 3 | Extract utilities | 1 session |
-| 4 | Extract components | 1-2 sessions |
-| 5 | Extract navigation | 2 sessions |
-| 6 | Extract cards | 1 session |
-| 7 | Extract screens | 2-3 sessions |
-| 8 | Cleanup and verification | 1 session |
+| Phase | Description | Status | Completion Date |
+|-------|-------------|--------|-----------------|
+| 1 | Setup directories and headers | ✅ Complete | 2025-12-10 |
+| 2 | Extract primitives | ✅ Complete | 2025-12-11 |
+| 3 | Extract utilities | ✅ Complete | 2025-12-12 |
+| 4 | Extract components | ✅ Complete | 2025-12-12 |
+| 5 | Extract navigation | 📋 Pending | TBD |
+| 6 | Extract cards | 📋 Pending | TBD |
+| 7 | Extract screens | 📋 Pending | TBD |
+| 8 | Cleanup and verification | 📋 Pending | TBD |
 
-**Total: 10-12 work sessions**
+**Completed: 4/8 phases**
+**Estimated Remaining: 4-5 work sessions**
 
 ---
 
@@ -649,5 +661,30 @@ After each phase, verify:
 
 ---
 
-**Document Status:** Ready for Review
-**Next Step:** Phase 1 - Create directory structure and header files
+**Document Status:** Updated - Phases 1-4 Complete
+**Current Progress:** 50% of refactoring complete (4 of 8 phases)
+**Next Step:** Phase 5 - Extract Navigation system (ui_navigation.c)
+
+## Completion Summary (as of 2025-12-12)
+
+### Modules Created
+1. **vita/src/ui/ui_graphics.c/h** - Drawing primitives (rounded rectangles, circles, shadows, spinner, focus overlay)
+2. **vita/src/ui/ui_animation.c/h** - Easing functions, timing utilities, particle system
+3. **vita/src/ui/ui_input.c/h** - Button press detection, touch handling, hit testing, input blocking
+4. **vita/src/ui/ui_state.c/h** - Connection overlay state, cooldowns, text cache, connection thread management
+5. **vita/src/ui/ui_components.c/h** - Reusable widgets (toggles, dropdowns, tabs, status dots), dialogs, error/hints popups, debug menu
+
+### Code Metrics
+- **Original ui.c:** 4,776 lines
+- **Current ui.c:** ~3,500 lines (estimated)
+- **Lines Extracted:** ~910 lines
+- **Reduction:** 19% of original file size
+- **Modules Created:** 5 (graphics, animation, input, state, components)
+- **Header Files Created:** 5 corresponding .h files
+
+### Quality Improvements
+- Separated concerns into focused modules
+- Each module under 600 lines (compliant with design target)
+- Clear public interfaces defined in headers
+- Reduced global state dependencies in ui.c
+- Enabled parallel development on remaining phases
