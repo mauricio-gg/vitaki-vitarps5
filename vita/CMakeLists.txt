@@ -19,12 +19,13 @@ add_executable(${VITA_APP_NAME}.elf
     src/message_log.c
     src/logging.c
 
-    # UI modules (Phase 2, 3 & 4 refactoring)
+    # UI modules (Phase 2, 3, 4 & 5 refactoring)
     src/ui/ui_graphics.c
     src/ui/ui_animation.c
     src/ui/ui_input.c
     src/ui/ui_state.c
     src/ui/ui_components.c
+    src/ui/ui_navigation.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c

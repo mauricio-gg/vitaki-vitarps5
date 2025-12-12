@@ -73,8 +73,16 @@ extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
 // PIN entry cursor blink state
 extern bool show_cursor;
 
-// Navigation state (defined in ui.c, will move to ui_navigation.c)
+// Navigation state (defined in ui_navigation.c, exposed for backward compatibility)
+// Note: New code should use ui_nav_* query functions instead of direct access
 extern NavCollapseState nav_collapse;
+
+// Navigation selection and focus (defined in ui_navigation.c)
+// Note: New code should use ui_nav_get/set functions instead of direct access
+// These are exposed for backward compatibility during refactoring
+extern int selected_nav_icon;
+extern FocusArea current_focus;
+extern int last_console_selection;
 
 // ============================================================================
 // Shared Context Access
@@ -162,9 +170,31 @@ void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_d
 void ui_draw_content_focus_overlay(void);
 void ui_draw_loss_indicator(void);
 
-// Navigation (ui_navigation.c - will be created)
-// void ui_nav_render(void);
-// bool ui_nav_is_expanded(void);
+// Navigation (ui_navigation.c)
+#include "ui_navigation.h"
+
+// Legacy compatibility wrappers for ui.c (map to new navigation module)
+#define render_wave_navigation() ui_nav_render()
+#define nav_request_collapse(from_content) ui_nav_request_collapse(from_content)
+#define nav_request_expand() ui_nav_request_expand()
+#define nav_toggle_collapse() ui_nav_toggle()
+#define nav_reset_to_collapsed() ui_nav_reset_collapsed()
+#define update_nav_collapse_animation() ui_nav_update_collapse_animation()
+#define update_wave_animation() ui_nav_update_wave_animation()
+#define show_nav_collapse_toast() ui_nav_update_toast()
+#define render_nav_pill() ui_nav_render_pill()
+#define render_nav_collapse_toast() ui_nav_render_toast()
+#define nav_screen_for_index(i) ui_nav_screen_for_icon(i)
+#define nav_touch_hit(x, y, out) ui_nav_handle_touch(x, y, out)
+#define pill_touch_hit(x, y) ui_nav_handle_pill_touch(x, y)
+#define handle_global_nav_shortcuts(out, dpad) ui_nav_handle_shortcuts(out, dpad)
+
+// Procedural icon drawing (available globally)
+#define draw_play_icon(cx, cy, sz) ui_nav_draw_play_icon(cx, cy, sz)
+#define draw_settings_icon(cx, cy, sz) ui_nav_draw_settings_icon(cx, cy, sz)
+#define draw_controller_icon(cx, cy, sz) ui_nav_draw_controller_icon(cx, cy, sz)
+#define draw_profile_icon(cx, cy, sz) ui_nav_draw_profile_icon(cx, cy, sz)
+#define draw_hamburger_icon(x, cy, sz, col) ui_nav_draw_hamburger_icon(x, cy, sz, col)
 
 // Console cards (ui_console_cards.c - will be created)
 // void ui_cards_render_grid(int x, int y);
