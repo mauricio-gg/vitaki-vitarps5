@@ -130,29 +130,8 @@ void ui_nav_set_selected_icon(int index);
  */
 UIScreenType ui_nav_screen_for_icon(int index);
 
-/**
- * Get current focus area
- * @return Current FocusArea (FOCUS_NAV_BAR or FOCUS_CONSOLE_CARDS)
- */
-FocusArea ui_nav_get_focus(void);
-
-/**
- * Set current focus area
- * @param focus New focus area
- */
-void ui_nav_set_focus(FocusArea focus);
-
-/**
- * Get last console selection index
- * @return Last selected console card index
- */
-int ui_nav_get_last_console_selection(void);
-
-/**
- * Set last console selection index
- * @param index Console card index
- */
-void ui_nav_set_last_console_selection(int index);
+// Legacy focus getters/setters removed in Phase 4
+// Use ui_focus_get_zone()/ui_focus_set_zone() from ui_focus.h instead
 
 // ============================================================================
 // Input Handling

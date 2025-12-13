@@ -19,6 +19,7 @@
 
 #include "ui/ui_state.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_focus.h"
 #include "host.h"
 #include "logging.h"
 
@@ -96,6 +97,9 @@ void ui_connection_begin(UIConnectionStage stage) {
   connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
   waking_start_time = 0;
   waking_wait_for_stream_us = 0;
+
+  // Push modal focus when connection overlay activates
+  ui_focus_push_modal();
 }
 
 void ui_connection_set_stage(UIConnectionStage stage) {
@@ -109,6 +113,11 @@ void ui_connection_complete(void) {
   connection_overlay.active = false;
   waking_start_time = 0;
   waking_wait_for_stream_us = 0;
+
+  // Pop modal focus only if we actually pushed (check if we're in modal state)
+  if (ui_focus_has_modal()) {
+    ui_focus_pop_modal();
+  }
 }
 
 void ui_connection_cancel(void) {
@@ -122,6 +131,11 @@ void ui_connection_cancel(void) {
     sceKernelWaitThreadEnd(connection_thread_id, NULL, NULL);
     sceKernelDeleteThread(connection_thread_id);
     connection_thread_id = -1;
+  }
+
+  // Pop modal focus only if we actually pushed (check if we're in modal state)
+  if (ui_focus_has_modal()) {
+    ui_focus_pop_modal();
   }
 }
 

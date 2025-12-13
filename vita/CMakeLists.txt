@@ -28,6 +28,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_navigation.c
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
+    src/ui/ui_focus.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c

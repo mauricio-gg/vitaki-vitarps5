@@ -50,10 +50,12 @@ typedef enum ui_host_action_t {
 
 /**
  * Focus areas for D-pad navigation
+ * @deprecated Use FocusZone from ui_focus.h instead (Phase 4 cleanup)
+ * Kept only for potential external compatibility
  */
 typedef enum ui_focus_area_t {
-    FOCUS_NAV_BAR = 0,           // Wave navigation sidebar
-    FOCUS_CONSOLE_CARDS = 1      // Console cards area
+    FOCUS_NAV_BAR = 0,           // Wave navigation sidebar (use FOCUS_ZONE_NAV_BAR)
+    FOCUS_CONSOLE_CARDS = 1      // Console cards area (use FOCUS_ZONE_MAIN_CONTENT)
 } FocusArea;
 
 /**

@@ -24,18 +24,17 @@
 #include "ui/ui_constants.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_input.h"
+#include "ui/ui_focus.h"
 #include "context.h"
 
 // ============================================================================
 // Internal State
 // ============================================================================
 
-// Selected navigation icon and focus state
+// Selected navigation icon (intra-zone state)
 // Note: Exposed via ui_internal.h for backward compatibility during refactoring
 // New code should use ui_nav_get/set functions instead
 int selected_nav_icon = 0;   // 0=Play, 1=Settings, 2=Controller, 3=Profile
-FocusArea current_focus = FOCUS_CONSOLE_CARDS;
-int last_console_selection = 0;  // Remember last selected console when moving away
 
 // Wave animation state
 static WaveLayerState wave_bottom_state = {0.0f, WAVE_SPEED_BOTTOM};
@@ -93,10 +92,8 @@ void ui_nav_init(void) {
     wave_top_state.speed = WAVE_SPEED_TOP;
     wave_last_update_us = 0;
 
-    // Initialize selection and focus
+    // Initialize selection
     selected_nav_icon = 0;
-    current_focus = FOCUS_CONSOLE_CARDS;
-    last_console_selection = 0;
 }
 
 // ============================================================================
@@ -418,7 +415,7 @@ void ui_nav_render_pill(void) {
 
     // Focus highlight (if pill is focused while collapsed)
     bool pill_focused = (nav_collapse.state == NAV_STATE_COLLAPSED &&
-                         current_focus == FOCUS_NAV_BAR);
+                         ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
     if (pill_focused) {
         ui_draw_rounded_rect(x - 2, y - 2, w + 4, h + 4, r + 2,
                              UI_COLOR_PRIMARY_BLUE);
@@ -576,7 +573,7 @@ void ui_nav_render(void) {
         // Icons are static (no bobbing animation)
         int y = base_y;
 
-        bool is_selected = (i == selected_nav_icon && current_focus == FOCUS_NAV_BAR);
+        bool is_selected = (i == selected_nav_icon && ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
 
         // Selection highlight (semi-transparent white rounded rect per spec line 76)
         // Only show when not animating and sidebar is expanded
@@ -688,21 +685,7 @@ UIScreenType ui_nav_screen_for_icon(int index) {
     }
 }
 
-FocusArea ui_nav_get_focus(void) {
-    return current_focus;
-}
-
-void ui_nav_set_focus(FocusArea focus) {
-    current_focus = focus;
-}
-
-int ui_nav_get_last_console_selection(void) {
-    return last_console_selection;
-}
-
-void ui_nav_set_last_console_selection(int index) {
-    last_console_selection = index;
-}
+// Legacy focus getters/setters removed - use ui_focus_get_zone()/ui_focus_set_zone() directly
 
 // ============================================================================
 // Input Handling
@@ -714,7 +697,7 @@ bool ui_nav_handle_touch(float touch_x, float touch_y, UIScreenType *out_screen)
         int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
         if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
             selected_nav_icon = i;
-            current_focus = FOCUS_NAV_BAR;
+            ui_focus_set_zone(FOCUS_ZONE_NAV_BAR);
             if (out_screen)
                 *out_screen = ui_nav_screen_for_icon(i);
             return true;
@@ -793,38 +776,11 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
     if (!allow_dpad)
         return false;
 
-    // D-pad handling depends on collapse state
-    if (nav_collapse.state == NAV_STATE_COLLAPSED) {
-        // When collapsed, D-pad Left focuses pill (already focused by default)
-        // Cross/Confirm on pill expands sidebar
-        if (current_focus == FOCUS_NAV_BAR) {
-            if (btn_pressed(SCE_CTRL_CROSS) || btn_pressed(SCE_CTRL_LEFT)) {
-                ui_nav_request_expand();
-                return false;
-            }
-            // D-pad Right moves to content and keeps sidebar collapsed
-            if (btn_pressed(SCE_CTRL_RIGHT)) {
-                current_focus = FOCUS_CONSOLE_CARDS;
-            }
-        } else {
-            // Focus is on content - D-pad Left focuses pill
-            if (btn_pressed(SCE_CTRL_LEFT)) {
-                current_focus = FOCUS_NAV_BAR;
-            }
-        }
-        return false;
-    }
+    // LEFT/RIGHT zone-crossing is now handled by ui_focus_handle_zone_crossing() in ui.c
+    // This function only handles intra-zone navigation (UP/DOWN within nav bar)
 
-    // Normal expanded state D-pad handling
-    if (btn_pressed(SCE_CTRL_LEFT)) {
-        current_focus = FOCUS_NAV_BAR;
-    } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
-        current_focus = FOCUS_CONSOLE_CARDS;
-        // Moving focus to content triggers collapse
-        ui_nav_request_collapse(true);
-    }
-
-    if (current_focus == FOCUS_NAV_BAR) {
+    // D-pad handling: UP/DOWN to navigate icons when focused on nav bar
+    if (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR) {
         if (btn_pressed(SCE_CTRL_UP)) {
             selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
         } else if (btn_pressed(SCE_CTRL_DOWN)) {

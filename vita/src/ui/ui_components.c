@@ -13,6 +13,7 @@
 #include "ui/ui_components.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_graphics.h"
+#include "ui/ui_focus.h"
 #include "video.h"
 
 #include <math.h>
@@ -311,6 +312,9 @@ void ui_error_show(const char* message) {
     } else {
         context.ui_state.error_popup_text[0] = '\0';
     }
+
+    // Push modal focus to trap navigation
+    ui_focus_push_modal();
 }
 
 /**
@@ -319,6 +323,9 @@ void ui_error_show(const char* message) {
 void ui_error_hide(void) {
     context.ui_state.error_popup_active = false;
     context.ui_state.error_popup_text[0] = '\0';
+
+    // Pop modal focus to restore navigation
+    ui_focus_pop_modal();
 }
 
 /**
@@ -545,6 +552,9 @@ void ui_debug_open(void) {
     bool* touch_block_active = ui_input_get_touch_block_active_ptr();
     *button_block_mask |= context.ui_state.button_state;
     *touch_block_active = true;
+
+    // Push modal focus to trap navigation
+    ui_focus_push_modal();
 }
 
 /**
@@ -562,6 +572,9 @@ void ui_debug_close(void) {
     bool* touch_block_active = ui_input_get_touch_block_active_ptr();
     *button_block_mask |= context.ui_state.button_state;
     *touch_block_active = true;
+
+    // Pop modal focus to restore navigation
+    ui_focus_pop_modal();
 }
 
 /**
