@@ -379,7 +379,7 @@ UIScreenType draw_main_menu() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_MAIN, &nav_screen, true))
     return nav_screen;
 
   // Render VitaRPS5 console cards instead of host tiles
@@ -715,7 +715,7 @@ UIScreenType draw_settings() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_SETTINGS, &nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1103,7 +1103,7 @@ UIScreenType draw_profile_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_PROFILE, &nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1428,7 +1428,7 @@ UIScreenType draw_controller_config_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_CONTROLLER, &nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)

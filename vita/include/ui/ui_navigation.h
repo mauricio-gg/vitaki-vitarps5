@@ -130,6 +130,13 @@ void ui_nav_set_selected_icon(int index);
  */
 UIScreenType ui_nav_screen_for_icon(int index);
 
+/**
+ * Map screen type to corresponding icon index
+ * @param screen Screen type
+ * @return Icon index (0=Play, 1=Settings, 2=Controller, 3=Profile)
+ */
+int ui_nav_icon_for_screen(UIScreenType screen);
+
 // Legacy focus getters/setters removed in Phase 4
 // Use ui_focus_get_zone()/ui_focus_set_zone() from ui_focus.h instead
 
@@ -156,11 +163,12 @@ bool ui_nav_handle_pill_touch(float x, float y);
 
 /**
  * Handle global navigation shortcuts (Triangle button, D-pad navigation)
+ * @param current_screen Current screen type (for icon sync on expand)
  * @param out_screen Output parameter for selected screen type (can be NULL)
  * @param allow_dpad True to enable D-pad navigation handling
  * @return true if navigation action was taken (screen change)
  */
-bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad);
+bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen, bool allow_dpad);
 
 // ============================================================================
 // Update Functions
