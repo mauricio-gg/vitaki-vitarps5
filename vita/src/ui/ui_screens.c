@@ -397,6 +397,7 @@ UIScreenType draw_main_menu() {
     if (current_focus == FOCUS_NAV_BAR) {
       // Move up within nav bar
       selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
     } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
       // Move up within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
@@ -405,6 +406,7 @@ UIScreenType draw_main_menu() {
     if (current_focus == FOCUS_NAV_BAR) {
       // Move down within nav bar
       selected_nav_icon = (selected_nav_icon + 1) % 4;
+      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
     } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
       // Move down within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
@@ -428,15 +430,7 @@ UIScreenType draw_main_menu() {
   // === X BUTTON (Activate/Select highlighted element) ===
 
   if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Activate nav bar icon - switch screen
-      switch (selected_nav_icon) {
-        case 0: next_screen = UI_SCREEN_TYPE_MAIN; break;       // Play (console list)
-        case 1: next_screen = UI_SCREEN_TYPE_SETTINGS; break;   // Settings
-        case 2: next_screen = UI_SCREEN_TYPE_CONTROLLER; break; // Controller Configuration
-        case 3: next_screen = UI_SCREEN_TYPE_PROFILE; break;    // Profile & Registration
-      }
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+    if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
       // Connect to selected console
       int host_idx = 0;
       for (int i = 0; i < MAX_NUM_HOSTS; i++) {
