@@ -1107,7 +1107,7 @@ UIScreenType draw_profile_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1432,7 +1432,7 @@ UIScreenType draw_controller_config_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1518,12 +1518,14 @@ UIScreenType draw_controller_config_screen() {
       config_serialize(&context.config);
     }
   } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
-    // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
+    // Up/Down: Navigate items (only when focused on content, not nav bar)
     int max_items = 2;
-    if (btn_pressed(SCE_CTRL_UP)) {
-      controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+    if (current_focus != FOCUS_NAV_BAR) {
+      if (btn_pressed(SCE_CTRL_UP)) {
+        controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
+      } else if (btn_pressed(SCE_CTRL_DOWN)) {
+        controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+      }
     }
 
     // X: Toggle selected item
