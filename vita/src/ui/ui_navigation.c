@@ -685,6 +685,16 @@ UIScreenType ui_nav_screen_for_icon(int index) {
     }
 }
 
+int ui_nav_icon_for_screen(UIScreenType screen) {
+    switch (screen) {
+        case UI_SCREEN_TYPE_MAIN:       return 0;  // Play icon
+        case UI_SCREEN_TYPE_SETTINGS:   return 1;  // Settings icon
+        case UI_SCREEN_TYPE_CONTROLLER: return 2;  // Controller icon
+        case UI_SCREEN_TYPE_PROFILE:    return 3;  // Profile icon
+        default:                        return 0;
+    }
+}
+
 // Legacy focus getters/setters removed - use ui_focus_get_zone()/ui_focus_set_zone() directly
 
 // ============================================================================
@@ -722,9 +732,14 @@ bool ui_nav_handle_pill_touch(float touch_x, float touch_y) {
             touch_y >= y - pad && touch_y <= y + h + pad);
 }
 
-bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
+bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen, bool allow_dpad) {
     // Triangle button toggles sidebar collapse (global, works anywhere)
     if (btn_pressed(SCE_CTRL_TRIANGLE)) {
+        // When expanding, sync icon to current screen and move focus to nav bar
+        if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+            selected_nav_icon = ui_nav_icon_for_screen(current_screen);
+            ui_focus_move_to_nav_bar();
+        }
         ui_nav_toggle();
         // Don't return - let other input processing continue
     }
@@ -783,13 +798,26 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
     if (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR) {
         if (btn_pressed(SCE_CTRL_UP)) {
             selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+            if (out_screen) {
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Page changes but focus stays on nav bar for continued D-pad navigation
+            }
+            return true;
         } else if (btn_pressed(SCE_CTRL_DOWN)) {
             selected_nav_icon = (selected_nav_icon + 1) % 4;
+            if (out_screen) {
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Page changes but focus stays on nav bar for continued D-pad navigation
+            }
+            return true;
         }
 
         if (btn_pressed(SCE_CTRL_CROSS)) {
-            if (out_screen)
+            if (out_screen) {
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Reset focus to content area for the new screen
+                ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
+            }
             return true;
         }
     }
