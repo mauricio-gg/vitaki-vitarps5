@@ -825,12 +825,20 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
     }
 
     if (current_focus == FOCUS_NAV_BAR) {
+        // D-pad UP/DOWN: Navigate nav icons AND auto-switch page
         if (btn_pressed(SCE_CTRL_UP)) {
             selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+            if (out_screen)
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+            return true;  // Consume input and trigger page switch
         } else if (btn_pressed(SCE_CTRL_DOWN)) {
             selected_nav_icon = (selected_nav_icon + 1) % 4;
+            if (out_screen)
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+            return true;  // Consume input and trigger page switch
         }
 
+        // X button: Confirm and switch to current selection
         if (btn_pressed(SCE_CTRL_CROSS)) {
             if (out_screen)
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
