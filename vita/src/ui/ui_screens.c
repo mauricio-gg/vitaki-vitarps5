@@ -393,23 +393,16 @@ UIScreenType draw_main_menu() {
 
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
-  // === D-PAD NAVIGATION (moves between ALL UI elements) ===
+  // === D-PAD NAVIGATION (moves between console cards in content area) ===
+  // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
 
   if (btn_pressed(SCE_CTRL_UP)) {
-    if (ui_focus_is_nav_bar()) {
-      // Move up within nav bar
-      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
-      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (ui_focus_is_content() && num_hosts > 0) {
+    if (ui_focus_is_content() && num_hosts > 0) {
       // Move up within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
     }
   } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (ui_focus_is_nav_bar()) {
-      // Move down within nav bar
-      selected_nav_icon = (selected_nav_icon + 1) % 4;
-      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (ui_focus_is_content() && num_hosts > 0) {
+    if (ui_focus_is_content() && num_hosts > 0) {
       // Move down within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
     }
@@ -1110,7 +1103,7 @@ UIScreenType draw_profile_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1435,7 +1428,7 @@ UIScreenType draw_controller_config_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)

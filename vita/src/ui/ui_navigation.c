@@ -783,13 +783,28 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad) {
     if (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR) {
         if (btn_pressed(SCE_CTRL_UP)) {
             selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+            if (out_screen) {
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Reset focus to content area for the new screen
+                ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
+            }
+            return true;
         } else if (btn_pressed(SCE_CTRL_DOWN)) {
             selected_nav_icon = (selected_nav_icon + 1) % 4;
+            if (out_screen) {
+                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Reset focus to content area for the new screen
+                ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
+            }
+            return true;
         }
 
         if (btn_pressed(SCE_CTRL_CROSS)) {
-            if (out_screen)
+            if (out_screen) {
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+                // Reset focus to content area for the new screen
+                ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
+            }
             return true;
         }
     }
