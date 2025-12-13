@@ -154,6 +154,7 @@ static inline int ui_get_dynamic_content_center_x(void) {
 
 // Input handling (ui_input.c)
 bool btn_pressed(SceCtrlButtons btn);
+bool content_btn_pressed(SceCtrlButtons btn);  // Like btn_pressed but blocks when nav expanded
 void block_inputs_for_transition(void);
 bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
 bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh);

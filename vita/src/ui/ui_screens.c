@@ -394,33 +394,29 @@ UIScreenType draw_main_menu() {
   // === D-PAD NAVIGATION (moves between ALL UI elements) ===
   // Note: Nav bar Up/Down handled in handle_global_nav_shortcuts() to avoid double-increment
   // Block content D-pad when nav overlay is visible (nav has input priority)
-  bool nav_visible = (nav_collapse.state == NAV_STATE_EXPANDED ||
-                      nav_collapse.state == NAV_STATE_EXPANDING);
 
-  if (!nav_visible) {
-    if (btn_pressed(SCE_CTRL_UP)) {
-      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-        // Move up within console cards (cycle through)
-        ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
-      }
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
-        // Move down within console cards (cycle through)
-        ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-      }
-    } else if (btn_pressed(SCE_CTRL_LEFT)) {
-      if (current_focus == FOCUS_CONSOLE_CARDS) {
-        // Move left to nav bar
-        last_console_selection = ui_cards_get_selected_index();
-        current_focus = FOCUS_NAV_BAR;
-      }
-    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-      if (current_focus == FOCUS_NAV_BAR) {
-        // Move right from nav bar to console cards/discovery card
-        current_focus = FOCUS_CONSOLE_CARDS;
-        if (num_hosts > 0) {
-          ui_cards_set_selected_index(last_console_selection);
-        }
+  if (content_btn_pressed(SCE_CTRL_UP)) {
+    if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+      // Move up within console cards (cycle through)
+      ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
+    }
+  } else if (content_btn_pressed(SCE_CTRL_DOWN)) {
+    if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+      // Move down within console cards (cycle through)
+      ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
+    }
+  } else if (content_btn_pressed(SCE_CTRL_LEFT)) {
+    if (current_focus == FOCUS_CONSOLE_CARDS) {
+      // Move left to nav bar
+      last_console_selection = ui_cards_get_selected_index();
+      current_focus = FOCUS_NAV_BAR;
+    }
+  } else if (content_btn_pressed(SCE_CTRL_RIGHT)) {
+    if (current_focus == FOCUS_NAV_BAR) {
+      // Move right from nav bar to console cards/discovery card
+      current_focus = FOCUS_CONSOLE_CARDS;
+      if (num_hosts > 0) {
+        ui_cards_set_selected_index(last_console_selection);
       }
     }
   }
@@ -767,9 +763,9 @@ UIScreenType draw_settings() {
   int max_items = 9; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen
 
   // Up/Down: Navigate items
-  if (btn_pressed(SCE_CTRL_UP)) {
+  if (content_btn_pressed(SCE_CTRL_UP)) {
     settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
+  } else if (content_btn_pressed(SCE_CTRL_DOWN)) {
     settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
   }
 
@@ -1154,14 +1150,15 @@ UIScreenType draw_profile_screen() {
   // === INPUT HANDLING ===
 
   // Left/Right: Navigate between Profile and Connection cards
-  if (btn_pressed(SCE_CTRL_LEFT)) {
+  // Uses content_btn_pressed to block input when nav is expanded
+  if (content_btn_pressed(SCE_CTRL_LEFT)) {
     if (profile_state.current_section == PROFILE_SECTION_INFO) {
       // Already at leftmost card - focus nav pill
       current_focus = FOCUS_NAV_BAR;
     } else {
       profile_state.current_section = PROFILE_SECTION_INFO;
     }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+  } else if (content_btn_pressed(SCE_CTRL_RIGHT)) {
     profile_state.current_section = PROFILE_SECTION_CONNECTION;
   }
 
@@ -1506,7 +1503,7 @@ UIScreenType draw_controller_config_screen() {
   // Tab-specific navigation
   if (controller_state.current_tab == CONTROLLER_TAB_MAPPINGS) {
     // Left/Right: Cycle through schemes
-    if (btn_pressed(SCE_CTRL_LEFT)) {
+    if (content_btn_pressed(SCE_CTRL_LEFT)) {
       int current_id = context.config.controller_map_id;
       if (current_id == 0) {
         context.config.controller_map_id = 99;
@@ -1518,7 +1515,7 @@ UIScreenType draw_controller_config_screen() {
         context.config.controller_map_id = current_id - 1;
       }
       config_serialize(&context.config);
-    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+    } else if (content_btn_pressed(SCE_CTRL_RIGHT)) {
       int current_id = context.config.controller_map_id;
       if (current_id < 7) {
         context.config.controller_map_id = current_id + 1;
@@ -1534,14 +1531,14 @@ UIScreenType draw_controller_config_screen() {
   } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
     // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
     int max_items = 2;
-    if (btn_pressed(SCE_CTRL_UP)) {
+    if (content_btn_pressed(SCE_CTRL_UP)) {
       controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+    } else if (content_btn_pressed(SCE_CTRL_DOWN)) {
       controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
     }
 
     // Left: Focus nav pill (Settings tab has no internal L/R navigation)
-    if (btn_pressed(SCE_CTRL_LEFT)) {
+    if (content_btn_pressed(SCE_CTRL_LEFT)) {
       current_focus = FOCUS_NAV_BAR;
     }
 
@@ -1692,19 +1689,20 @@ bool draw_registration_dialog() {
                         "Left/Right: Move   Up/Down: Change digit   Cross: Confirm   Circle: Cancel");
 
   // Input handling
-  if (btn_pressed(SCE_CTRL_LEFT)) {
+  // Uses content_btn_pressed for d-pad to block when nav is expanded
+  if (content_btn_pressed(SCE_CTRL_LEFT)) {
     if (pin_entry_state.current_digit > 0) {
       pin_entry_state.current_digit--;
     }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+  } else if (content_btn_pressed(SCE_CTRL_RIGHT)) {
     if (pin_entry_state.current_digit < PIN_DIGIT_COUNT - 1) {
       pin_entry_state.current_digit++;
     }
-  } else if (btn_pressed(SCE_CTRL_UP)) {
+  } else if (content_btn_pressed(SCE_CTRL_UP)) {
     uint32_t* digit = &pin_entry_state.pin_digits[pin_entry_state.current_digit];
     if (*digit > 9) *digit = 0;
     else *digit = (*digit + 1) % 10;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
+  } else if (content_btn_pressed(SCE_CTRL_DOWN)) {
     uint32_t* digit = &pin_entry_state.pin_digits[pin_entry_state.current_digit];
     if (*digit > 9) *digit = 9;
     else *digit = (*digit + 9) % 10;

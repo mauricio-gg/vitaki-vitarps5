@@ -54,6 +54,24 @@ void ui_input_init(void);
 bool ui_input_btn_pressed(SceCtrlButtons btn);
 
 /**
+ * Check if a button has been newly pressed AND content area can receive it
+ *
+ * Like ui_input_btn_pressed() but also blocks input when the navigation
+ * menu is expanded or expanding. Use this for content area input (screens,
+ * cards, etc.) to ensure nav menu has exclusive input priority when visible.
+ *
+ * Input priority hierarchy:
+ * 1. Error popup (blocks all)
+ * 2. Debug menu (blocks all)
+ * 3. Nav menu expanded (blocks content, nav receives input)
+ * 4. Content area (receives input when nav collapsed)
+ *
+ * @param btn Button(s) to check
+ * @return true if button was just pressed and content can receive it
+ */
+bool ui_input_content_btn_pressed(SceCtrlButtons btn);
+
+/**
  * Block currently pressed buttons for screen transitions
  *
  * Prevents accidental button presses from carrying over into the next screen.

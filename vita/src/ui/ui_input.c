@@ -72,6 +72,21 @@ bool ui_input_btn_pressed(SceCtrlButtons btn) {
          !(context.ui_state.old_button_state & btn);
 }
 
+bool ui_input_content_btn_pressed(SceCtrlButtons btn) {
+  // All existing blocks still apply
+  if (!ui_input_btn_pressed(btn))
+    return false;
+
+  // Block content input when nav is expanded or expanding
+  // Nav bar has exclusive input priority in these states
+  if (nav_collapse.state == NAV_STATE_EXPANDED ||
+      nav_collapse.state == NAV_STATE_EXPANDING) {
+    return false;
+  }
+
+  return true;
+}
+
 void ui_input_block_for_transition(void) {
   // Block all currently pressed buttons
   button_block_mask |= context.ui_state.button_state;
@@ -145,6 +160,17 @@ bool ui_input_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) 
  */
 bool btn_pressed(SceCtrlButtons btn) {
   return ui_input_btn_pressed(btn);
+}
+
+/**
+ * Check if content area can receive a button press (internal alias)
+ *
+ * Like btn_pressed but also blocks when nav menu is expanded.
+ * Use this for content area input handling (screens, cards, etc.)
+ * Exposed via ui_internal.h for cross-module access.
+ */
+bool content_btn_pressed(SceCtrlButtons btn) {
+  return ui_input_content_btn_pressed(btn);
 }
 
 /**

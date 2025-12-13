@@ -814,15 +814,19 @@ bool ui_nav_handle_shortcuts(UIScreenType *out_screen, bool allow_dpad, bool all
         return false;
     }
 
-    // Normal expanded state D-pad handling (Left/Right only if allowed)
-    if (allow_left_right) {
-        if (btn_pressed(SCE_CTRL_LEFT)) {
-            current_focus = FOCUS_NAV_BAR;
-        } else if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
-            current_focus = FOCUS_CONSOLE_CARDS;
-            // Moving focus to content triggers collapse
-            ui_nav_request_collapse(true);
-        }
+    // Normal expanded state D-pad handling
+    // RIGHT from nav bar ALWAYS collapses and switches focus (even on screens with internal L/R)
+    // This ensures nav menu has exclusive input priority when expanded with focus on nav bar
+    if (btn_pressed(SCE_CTRL_RIGHT) && current_focus == FOCUS_NAV_BAR) {
+        current_focus = FOCUS_CONSOLE_CARDS;
+        // Moving focus to content triggers collapse
+        ui_nav_request_collapse(true);
+        return true;  // Consume input - content handlers should not see this press
+    }
+
+    // LEFT only if allow_left_right (content screens can have internal L/R navigation)
+    if (allow_left_right && btn_pressed(SCE_CTRL_LEFT)) {
+        current_focus = FOCUS_NAV_BAR;
     }
 
     if (current_focus == FOCUS_NAV_BAR) {
