@@ -391,41 +391,24 @@ UIScreenType draw_main_menu() {
 
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
-  // === D-PAD NAVIGATION (moves between ALL UI elements) ===
+  // === D-PAD NAVIGATION (content area only) ===
+  // Note: Nav bar D-pad handling is done in ui_nav_handle_shortcuts() above.
+  // We only handle content area D-pad here to avoid double-processing.
 
-  if (btn_pressed(SCE_CTRL_UP)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move up within nav bar
-      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
-      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+  if (current_focus == FOCUS_CONSOLE_CARDS) {
+    if (btn_pressed(SCE_CTRL_UP) && num_hosts > 0) {
       // Move up within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
-    }
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move down within nav bar
-      selected_nav_icon = (selected_nav_icon + 1) % 4;
-      next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+    } else if (btn_pressed(SCE_CTRL_DOWN) && num_hosts > 0) {
       // Move down within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-    }
-  } else if (btn_pressed(SCE_CTRL_LEFT)) {
-    if (current_focus == FOCUS_CONSOLE_CARDS) {
+    } else if (btn_pressed(SCE_CTRL_LEFT)) {
       // Move left to nav bar
       last_console_selection = ui_cards_get_selected_index();
       current_focus = FOCUS_NAV_BAR;
     }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move right from nav bar to console cards/discovery card
-      current_focus = FOCUS_CONSOLE_CARDS;
-      if (num_hosts > 0) {
-        ui_cards_set_selected_index(last_console_selection);
-      }
-    }
   }
+  // Note: SCE_CTRL_RIGHT from nav bar to content is handled in ui_nav_handle_shortcuts()
 
   // === X BUTTON (Activate/Select highlighted element) ===
 
@@ -764,15 +747,19 @@ UIScreenType draw_settings() {
   }
 
   // === INPUT HANDLING ===
+  // Note: Nav bar D-pad handling is done in ui_nav_handle_shortcuts() above.
+  // We only handle content area D-pad here to avoid double-processing.
 
   // No tab switching needed - only one section
   int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
 
-  // Up/Down: Navigate items
-  if (btn_pressed(SCE_CTRL_UP)) {
-    settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+  // Up/Down: Navigate items (only when focused on content, not nav bar)
+  if (current_focus != FOCUS_NAV_BAR) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+    }
   }
 
   // X: Activate selected item (toggle or cycle dropdown)
@@ -1120,7 +1107,7 @@ UIScreenType draw_profile_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1445,7 +1432,7 @@ UIScreenType draw_controller_config_screen() {
   ui_particles_render();
 
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(&nav_screen, false))
+  if (handle_global_nav_shortcuts(&nav_screen, true))
     return nav_screen;
 
   // Main content area (nav is overlay - content centered on full screen)
@@ -1531,12 +1518,14 @@ UIScreenType draw_controller_config_screen() {
       config_serialize(&context.config);
     }
   } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
-    // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
+    // Up/Down: Navigate items (only when focused on content, not nav bar)
     int max_items = 2;
-    if (btn_pressed(SCE_CTRL_UP)) {
-      controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+    if (current_focus != FOCUS_NAV_BAR) {
+      if (btn_pressed(SCE_CTRL_UP)) {
+        controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
+      } else if (btn_pressed(SCE_CTRL_DOWN)) {
+        controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+      }
     }
 
     // X: Toggle selected item
