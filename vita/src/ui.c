@@ -50,6 +50,8 @@
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
+#include "ui/ui_navigation.h"
+#include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 
 vita2d_font* font;
@@ -391,6 +393,8 @@ void init_ui() {
   ui_input_init();
   ui_screens_init();
   ui_state_init();
+  ui_nav_init();     // Initialize navigation module
+  ui_focus_init();   // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
   button_block_mask = ui_input_get_button_block_mask_ptr();
@@ -520,6 +524,10 @@ void draw_ui() {
         UIScreenType prev_screen = screen;
         UIScreenType next_screen = screen;
 
+        // Handle zone-crossing navigation (LEFT/RIGHT between nav bar and content)
+        // This must happen before screen-specific input handling
+        ui_focus_handle_zone_crossing(screen);
+
         // Render the current screen
         if (screen == UI_SCREEN_TYPE_MAIN) {
           next_screen = ui_screen_draw_main();
@@ -556,6 +564,18 @@ void draw_ui() {
         if (next_screen != prev_screen) {
           block_inputs_for_transition();
           // Menu stays in current state - user controls collapse via Triangle or content tap
+
+          // Handle modal focus for PIN entry screen only
+          // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
+          // Pop modal when leaving PIN entry screen
+          if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST) {
+            ui_focus_pop_modal();
+          }
+
+          // Push modal when entering PIN entry screen
+          if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST) {
+            ui_focus_push_modal();
+          }
         }
         screen = next_screen;
 

@@ -34,6 +34,8 @@
 #include "ui/ui_screens.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
+#include "ui/ui_focus.h"
+#include "ui/ui_state.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -394,43 +396,29 @@ UIScreenType draw_main_menu() {
   // === D-PAD NAVIGATION (moves between ALL UI elements) ===
 
   if (btn_pressed(SCE_CTRL_UP)) {
-    if (current_focus == FOCUS_NAV_BAR) {
+    if (ui_focus_is_nav_bar()) {
       // Move up within nav bar
       selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
       next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+    } else if (ui_focus_is_content() && num_hosts > 0) {
       // Move up within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
     }
   } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (current_focus == FOCUS_NAV_BAR) {
+    if (ui_focus_is_nav_bar()) {
       // Move down within nav bar
       selected_nav_icon = (selected_nav_icon + 1) % 4;
       next_screen = ui_nav_screen_for_icon(selected_nav_icon);
-    } else if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+    } else if (ui_focus_is_content() && num_hosts > 0) {
       // Move down within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-    }
-  } else if (btn_pressed(SCE_CTRL_LEFT)) {
-    if (current_focus == FOCUS_CONSOLE_CARDS) {
-      // Move left to nav bar
-      last_console_selection = ui_cards_get_selected_index();
-      current_focus = FOCUS_NAV_BAR;
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    if (current_focus == FOCUS_NAV_BAR) {
-      // Move right from nav bar to console cards/discovery card
-      current_focus = FOCUS_CONSOLE_CARDS;
-      if (num_hosts > 0) {
-        ui_cards_set_selected_index(last_console_selection);
-      }
     }
   }
 
   // === X BUTTON (Activate/Select highlighted element) ===
 
   if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+    if (ui_focus_is_content() && num_hosts > 0) {
       // Connect to selected console
       int host_idx = 0;
       for (int i = 0; i < MAX_NUM_HOSTS; i++) {
@@ -479,7 +467,7 @@ UIScreenType draw_main_menu() {
   // === OTHER BUTTONS ===
 
   // Square: Re-pair selected console (unregister + register again)
-  if (btn_pressed(SCE_CTRL_SQUARE) && current_focus == FOCUS_CONSOLE_CARDS && num_hosts > 0) {
+  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0) {
     int host_idx = 0;
     for (int i = 0; i < MAX_NUM_HOSTS; i++) {
       if (context.hosts[i]) {
@@ -768,15 +756,17 @@ UIScreenType draw_settings() {
   // No tab switching needed - only one section
   int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
 
-  // Up/Down: Navigate items
-  if (btn_pressed(SCE_CTRL_UP)) {
-    settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+  // Up/Down: Navigate items (only when not in nav bar)
+  if (!ui_focus_is_nav_bar()) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+    }
   }
 
   // X: Activate selected item (toggle or cycle dropdown)
-  if (btn_pressed(SCE_CTRL_CROSS)) {
+  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
     if (settings_state.selected_item == 0) {
           // Cycle resolution: 360p → 540p → 720p → 1080p → 360p
           switch (context.config.resolution) {
@@ -1531,16 +1521,18 @@ UIScreenType draw_controller_config_screen() {
       config_serialize(&context.config);
     }
   } else if (controller_state.current_tab == CONTROLLER_TAB_SETTINGS) {
-    // Up/Down: Navigate items (Circle Button Confirm and Motion Controls)
-    int max_items = 2;
-    if (btn_pressed(SCE_CTRL_UP)) {
-      controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+    // Up/Down: Navigate items (Circle Button Confirm and Motion Controls) - only when not in nav bar
+    if (!ui_focus_is_nav_bar()) {
+      int max_items = 2;
+      if (btn_pressed(SCE_CTRL_UP)) {
+        controller_state.selected_item = (controller_state.selected_item - 1 + max_items) % max_items;
+      } else if (btn_pressed(SCE_CTRL_DOWN)) {
+        controller_state.selected_item = (controller_state.selected_item + 1) % max_items;
+      }
     }
 
-    // X: Toggle selected item
-    if (btn_pressed(SCE_CTRL_CROSS)) {
+    // X: Toggle selected item (only when not in nav bar)
+    if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
       if (controller_state.selected_item == 0) {
         // Circle button confirm toggle
         context.config.circle_btn_confirm = !context.config.circle_btn_confirm;

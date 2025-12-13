@@ -77,12 +77,12 @@ extern bool show_cursor;
 // Note: New code should use ui_nav_* query functions instead of direct access
 extern NavCollapseState nav_collapse;
 
-// Navigation selection and focus (defined in ui_navigation.c)
+// Navigation selection (defined in ui_navigation.c)
 // Note: New code should use ui_nav_get/set functions instead of direct access
-// These are exposed for backward compatibility during refactoring
+// Exposed for backward compatibility during refactoring
 extern int selected_nav_icon;
-extern FocusArea current_focus;
-extern int last_console_selection;
+// Legacy: current_focus and last_console_selection removed in Phase 4
+// Use focus manager (ui_focus.h) instead
 
 // ============================================================================
 // Shared Context Access
@@ -172,6 +172,9 @@ void ui_draw_loss_indicator(void);
 
 // Navigation (ui_navigation.c)
 #include "ui_navigation.h"
+
+// Focus Manager (ui_focus.c)
+#include "ui_focus.h"
 
 // Legacy compatibility wrappers for ui.c (map to new navigation module)
 #define render_wave_navigation() ui_nav_render()

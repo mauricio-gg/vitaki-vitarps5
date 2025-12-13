@@ -13,6 +13,7 @@
 
 #include "ui/ui_internal.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
 
@@ -436,7 +437,7 @@ void ui_cards_render_grid(void) {
     ui_cards_update_cache(false);
 
     // Update card focus animation
-    int focused_index = (current_focus == FOCUS_CONSOLE_CARDS) ? selected_console_index : -1;
+    int focused_index = ui_focus_is_content() ? selected_console_index : -1;
     update_card_focus_animation(focused_index);
 
     // Calculate card position - centered within content area
@@ -492,7 +493,7 @@ void ui_cards_render_grid(void) {
             int this_card_y = card_y + (i * CONSOLE_CARD_SPACING);
 
             // Only show selection highlight if console cards have focus
-            bool selected = (i == selected_console_index && current_focus == FOCUS_CONSOLE_CARDS);
+            bool selected = (i == selected_console_index && ui_focus_is_content());
             bool card_cooldown = cooldown_host &&
                                  card_cache.cards[i].host == cooldown_host;
 
