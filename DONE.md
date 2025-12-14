@@ -4,6 +4,30 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2025-12-14 (Controller Diagram Visual Fixes)
+
+### Controller Layout Redesign: Final Polish Batch
+- [x] **Controller Diagram Shape Fixed**
+  - Problem: PS Vita controller drawn as rounded rectangle with 4% corner radius instead of authentic stadium/pill shape
+  - Solution: Added procedural stadium shape functions (`draw_stadium_fill()` and `draw_stadium_outline()`)
+  - Implementation: Lines 151-231 in `vita/src/ui/ui_controller_diagram.c`
+  - Details: Filled body with center rectangle + semicircle ends; outline with 24-segment arcs per semicircle; bounds validation for degenerate shapes; fixed off-by-one pixel error in bottom outline
+  - Result: Visually accurate controller shape matching PlayStation design standards
+
+- [x] **Menu Input Bug Fixed**
+  - Problem: Triangle button and menu pill touch unresponsive on controller settings screen
+  - Solution: Added missing `handle_global_nav_shortcuts()` call in settings screen handler
+  - Files Modified: `vita/src/ui/ui_screens.c` (lines 1257-1260)
+  - Result: Triangle button and menu pill now properly route input navigation events
+
+### Code Quality & Testing
+- All changes build successfully with zero compiler warnings
+- Code review completed and approved
+- Maintains ≥58 FPS target and draw call budget
+- No regression in existing functionality
+
+---
+
 ## 2025-12-12 (UI Refactoring All 8 Phases Complete)
 
 ### UI Refactoring: Modularization

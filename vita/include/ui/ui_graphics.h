@@ -94,6 +94,23 @@ void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
 void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
 
 /**
+ * Draw a rectangle outline
+ *
+ * Draws a 1-pixel outline around the specified rectangle area.
+ * Useful for borders on controller diagrams, touchpad areas, etc.
+ *
+ * @param x Left edge X coordinate
+ * @param y Top edge Y coordinate
+ * @param width Rectangle width in pixels
+ * @param height Rectangle height in pixels
+ * @param color ABGR color value
+ *
+ * @note Draws four 1-pixel lines for top, bottom, left, right edges
+ * @note No fill - outline only
+ */
+void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t color);
+
+/**
  * Draw a rotating spinner arc
  *
  * Renders a 3/4 circle arc (270 degrees) used for loading indicators.

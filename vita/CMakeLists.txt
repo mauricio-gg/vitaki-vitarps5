@@ -29,6 +29,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
     src/ui/ui_focus.c
+    src/ui/ui_controller_diagram.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -155,5 +156,6 @@ if(CHIAKI_IS_VITA)
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/Vita_Front.png assets/Vita_Front.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
+        # Controller layout screen now uses procedural rendering - PNG outlines removed
     )
 endif()

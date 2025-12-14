@@ -153,6 +153,22 @@ void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color) {
 }
 
 /**
+ * Draw a rectangle outline
+ *
+ * Draws a 1-pixel outline by rendering four 1-pixel lines for each edge.
+ */
+void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t color) {
+  // Top edge
+  vita2d_draw_rectangle(x, y, width, 1, color);
+  // Bottom edge
+  vita2d_draw_rectangle(x, y + height - 1, width, 1, color);
+  // Left edge
+  vita2d_draw_rectangle(x, y, 1, height, color);
+  // Right edge
+  vita2d_draw_rectangle(x + width - 1, y, 1, height, color);
+}
+
+/**
  * Draw a rotating spinner arc
  *
  * Renders a 3/4 circle (270 degrees) with thickness for loading indicators.
