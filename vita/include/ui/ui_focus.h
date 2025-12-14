@@ -21,6 +21,8 @@ typedef enum {
     FOCUS_ZONE_SETTINGS_ITEMS,    // Settings screen item list
     FOCUS_ZONE_PROFILE_CARDS,     // Profile screen info/connection cards
     FOCUS_ZONE_CONTROLLER_CONTENT, // Controller screen content (tabs + items)
+    FOCUS_ZONE_CONTROLLER_TOP_BAR, // Controller screen top bar (menu, preset, view toggle)
+    FOCUS_ZONE_CONTROLLER_LEGEND, // Controller screen mapping legend
     FOCUS_ZONE_MODAL              // Modal overlay (registration, popups, etc.)
 } FocusZone;
 

@@ -46,6 +46,7 @@
 #include "context.h"
 #include "discovery.h"
 #include "ui.h"
+#include "ui/ui_controller_diagram.h"
 
 static int vita_init() {
   // Overclock various aspects of the vita
@@ -151,6 +152,7 @@ int main(int argc, char* argv[]) {
   draw_ui();
 
   // TODO: Cleanup
+  // Controller diagram now uses procedural rendering - no textures to free
   if (context.mlog) {
     free(context.mlog);
   }

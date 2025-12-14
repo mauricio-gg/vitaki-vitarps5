@@ -97,4 +97,20 @@ typedef struct vitaki_ctrl_map_info_t {
   bool did_init;
 } VitakiCtrlMapInfo;
 
+/**
+ * Controller preset definition for the immersive controller layout
+ * Provides user-friendly names and descriptions for controller map IDs
+ */
+typedef struct controller_preset_def_t {
+    const char* name;           // Display name (e.g., "Default", "Shooter")
+    const char* description;    // Short description for 60px area
+    VitakiControllerMapId map_id;
+} ControllerPresetDef;
+
+/**
+ * 6 presets: Default, Shooter, Racing, Fighting, Remote Play Classic, Custom
+ * Global array defined in controller.c
+ */
+extern const ControllerPresetDef g_controller_presets[6];
+
 void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controller_map_id);

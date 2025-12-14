@@ -1,6 +1,20 @@
 #include "controller.h"
+#include "ui/ui_constants.h"
 #include "context.h"
 #include <stdio.h>
+
+/**
+ * Controller preset definitions for the immersive controller layout
+ * These map user-friendly names and descriptions to VitakiControllerMapId values
+ */
+const ControllerPresetDef g_controller_presets[CTRL_PRESET_COUNT] = {
+    { "Default", "Standard layout with rear touch L2/R2", VITAKI_CONTROLLER_MAP_0 },
+    { "Shooter", "Optimized for FPS games with quick L2/R2", VITAKI_CONTROLLER_MAP_1 },
+    { "Racing", "Front touch zones for triggers", VITAKI_CONTROLLER_MAP_3 },
+    { "Fighting", "Precise face button mapping", VITAKI_CONTROLLER_MAP_4 },
+    { "Classic", "Remote Play default layout", VITAKI_CONTROLLER_MAP_25 },
+    { "Custom", "Your personalized mapping", VITAKI_CONTROLLER_MAP_99 }
+};
 
 void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controller_map_id) {
   // TODO make fully configurable instead of using controller_map_id
