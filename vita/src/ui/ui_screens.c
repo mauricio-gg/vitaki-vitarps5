@@ -1109,7 +1109,7 @@ UIScreenType draw_profile_screen() {
   // Main content area (nav is overlay - content centered on full screen)
   int content_w = 800;  // Fixed width for content
   int content_x = (VITA_WIDTH - content_w) / 2;  // Center on screen
-  int content_y = 60;
+  int content_y = CONTENT_START_Y;  // Use unified content start Y
 
   // Title (centered on full screen width)
   const char* title = "Profile & Connection";

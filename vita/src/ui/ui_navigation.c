@@ -424,22 +424,31 @@ void ui_nav_render_pill(void) {
     // Pill background
     ui_draw_rounded_rect(x, y, w, h, r, bg_color);
 
-    // Hamburger icon + "Menu" text (centered together as a single unit)
+    // Triangle button icon + "Menu" text (centered together as a single unit)
     if (w > 50) {
-        int hamburger_size = 14;
+        int icon_target_size = NAV_PILL_ICON_SIZE;
         int menu_text_width = vita2d_font_text_width(font, FONT_SIZE_BODY, "Menu");
-        int gap = 8;
-        int total_content_width = hamburger_size + gap + menu_text_width;
+        int gap = NAV_PILL_ICON_GAP;
+        int total_content_width = icon_target_size + gap + menu_text_width;
         int content_start_x = x + (w - total_content_width) / 2;
 
-        int icon_cy = y + h / 2;
         uint8_t icon_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-        ui_nav_draw_hamburger_icon(content_start_x, icon_cy, hamburger_size,
-                                    RGBA8(250, 250, 250, icon_alpha));
+
+        // Draw triangle button icon (scaled from source texture)
+        // Triangle replaces hamburger to match PlayStation UI conventions
+        if (icon_button_triangle) {
+            int tex_h = vita2d_texture_get_height(icon_button_triangle);
+            float scale = (float)icon_target_size / (float)tex_h;
+            int icon_y = y + (h - icon_target_size) / 2;
+            vita2d_draw_texture_tint_scale(icon_button_triangle,
+                                           content_start_x, icon_y,
+                                           scale, scale,
+                                           RGBA8(255, 255, 255, icon_alpha));
+        }
 
         if (w >= NAV_PILL_WIDTH - 10) {
             uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-            int text_x = content_start_x + hamburger_size + gap;
+            int text_x = content_start_x + icon_target_size + gap;
             vita2d_font_draw_text(font, text_x, y + h / 2 + 5,
                                   RGBA8(250, 250, 250, text_alpha),
                                   FONT_SIZE_BODY, "Menu");

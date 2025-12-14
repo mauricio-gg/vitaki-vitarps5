@@ -149,6 +149,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icon_controller.png assets/icon_controller.png
         FILE assets/icon_profile.png assets/icon_profile.png
         FILE assets/icon_play.png assets/icon_play.png
+        FILE assets/icon_button_triangle.png assets/icon_button_triangle.png
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png

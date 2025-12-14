@@ -51,6 +51,7 @@ extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 
 // Navigation icons
 extern vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
+extern vita2d_texture *icon_button_triangle;
 
 // Other UI textures
 extern vita2d_texture *button_add_new;

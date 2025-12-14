@@ -65,6 +65,7 @@ vita2d_texture *wave_top, *wave_bottom;
 vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
+vita2d_texture *icon_button_triangle;
 vita2d_texture *background_gradient, *vita_rps5_logo;
 vita2d_texture *vita_front, *ps5_logo;
 
@@ -266,6 +267,7 @@ void load_textures() {
   icon_settings = vita2d_load_PNG_file("app0:/assets/icon_settings.png");
   icon_controller = vita2d_load_PNG_file("app0:/assets/icon_controller.png");
   icon_profile = vita2d_load_PNG_file("app0:/assets/icon_profile.png");
+  icon_button_triangle = vita2d_load_PNG_file("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
   background_gradient = vita2d_load_PNG_file("app0:/assets/background.png");

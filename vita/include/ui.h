@@ -4,11 +4,8 @@
 #include <psp2/touch.h>
 #include <vita2d.h>
 
-// Shared font sizes for VitaRPS5 UI components (docs/ai/UI_FINAL_SPECIFICATION.md)
-#define FONT_SIZE_HEADER 24      // Screen titles, primary headers
-#define FONT_SIZE_SUBHEADER 18   // Section titles, tab labels
-#define FONT_SIZE_BODY 16        // Paragraph/body text
-#define FONT_SIZE_SMALL 14       // Secondary text, hints, status badges
+// Font sizes and UI constants are centralized in ui_constants.h
+#include "ui/ui_constants.h"
 
 typedef struct vita_chiaki_ui_state_t {
   SceTouchData touch_state_front;
