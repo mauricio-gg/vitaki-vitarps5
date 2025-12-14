@@ -615,10 +615,10 @@ void ui_nav_render(void) {
             int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
             int draw_y = y - scaled_h / 2;
 
-            // Apply opacity with slight transparency for UI blending
+            // Apply grayish tint with transparency for UI blending
             uint8_t tint_alpha = (uint8_t)(icon_opacity * WAVE_NAV_ICON_BASE_ALPHA);
             vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
-                                           RGBA8(255, 255, 255, tint_alpha));
+                                           RGBA8(WAVE_NAV_ICON_TINT_R, WAVE_NAV_ICON_TINT_G, WAVE_NAV_ICON_TINT_B, tint_alpha));
         } else {
             // Fallback to procedural icons if texture failed to load
             int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
