@@ -87,14 +87,8 @@ static bool *touch_block_pending_clear = NULL;
 #define connection_overlay_stage ui_connection_stage()
 #define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
 
-// Wave navigation state
-#define WAVE_NAV_ICON_SIZE 32       // Per spec: 32x32px icons
-#define WAVE_NAV_ICON_X 50          // Positioned left of center to avoid overlapping wave edge
-#define WAVE_NAV_ICON_SPACING 80    // Spacing between icon centers
-// Vertically center 4 icons: 3 gaps of 80px = 240px total span between first and last
-// Center Y = VITA_HEIGHT / 2 = 272px
-// First icon Y = 272px - (240px / 2) = 272px - 120px = 152px
-#define WAVE_NAV_ICON_START_Y 152
+// Wave navigation constants moved to vita/include/ui/ui_constants.h
+// (removed duplicate definitions - canonical versions are in ui_constants.h)
 
 // Navigation state moved to ui_navigation.c
 // Access via ui_nav_* functions or extern declarations in ui_internal.h
