@@ -53,7 +53,7 @@
 // ============================================================================
 // Typography (from docs/ai/UI_FINAL_SPECIFICATION.md)
 // ============================================================================
-#define FONT_SIZE_HEADER            24  // Screen titles, primary headers
+#define FONT_SIZE_HEADER            28  // Screen titles, primary headers (increased for clarity)
 #define FONT_SIZE_SUBHEADER         18  // Section titles, tab labels
 #define FONT_SIZE_BODY              16  // Paragraph/body text
 #define FONT_SIZE_SMALL             14  // Secondary text, hints, status badges
@@ -65,6 +65,7 @@
 #define CONTENT_AREA_X              WAVE_NAV_WIDTH
 #define CONTENT_AREA_WIDTH          (VITA_WIDTH - WAVE_NAV_WIDTH)  // 830px
 #define CONTENT_CENTER_X            (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
+#define CONTENT_START_Y             80      // Unified page content start Y (below nav pill)
 
 // Wave navigation icons
 #define WAVE_NAV_ICON_SIZE          32      // Per spec: 32x32px icons
@@ -96,6 +97,8 @@
 #define NAV_COLLAPSE_DURATION_MS    280     // Total animation duration
 #define NAV_PHASE1_END_MS           80      // Preparation phase end
 #define NAV_PHASE2_END_MS           200     // Collapse phase end
+#define NAV_PILL_ICON_SIZE          20      // Icon size for collapsed menu pill
+#define NAV_PILL_ICON_GAP           6       // Gap between icon and text in pill
 #define NAV_PILL_WIDTH              140     // Pill width when fully collapsed
 #define NAV_PILL_HEIGHT             44      // Pill height
 #define NAV_PILL_X                  16      // Pill X position
