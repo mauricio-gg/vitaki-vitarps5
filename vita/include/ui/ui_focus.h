@@ -68,7 +68,9 @@ int ui_focus_get_stack_depth(void);
 // ============================================================================
 
 /**
- * Handle zone-crossing input (LEFT/RIGHT between nav bar and content)
+ * Handle zone-crossing input (RIGHT to exit nav bar to content).
+ * Note: LEFT navigation to open nav bar has been removed to avoid interfering
+ * with content-specific navigation. Nav bar is now accessible only via touch.
  * Call this FIRST in each frame, before screen-specific handling.
  *
  * @param current_screen The currently displayed screen type
