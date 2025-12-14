@@ -68,7 +68,7 @@
 #define CONTENT_START_Y             80      // Unified page content start Y (below nav pill)
 
 // Wave navigation icons
-#define WAVE_NAV_ICON_SIZE          32      // Per spec: 32x32px icons
+#define WAVE_NAV_ICON_SIZE          48      // Increased from 32 for clarity
 #define WAVE_NAV_ICON_X             50      // Positioned left of center
 #define WAVE_NAV_ICON_SPACING       80      // Spacing between icon centers
 #define WAVE_NAV_ICON_START_Y       152     // Vertically centered start

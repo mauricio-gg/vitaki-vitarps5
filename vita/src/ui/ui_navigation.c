@@ -587,7 +587,7 @@ void ui_nav_render(void) {
         // Selection highlight (semi-transparent white rounded rect per spec line 76)
         // Only show when not animating and sidebar is expanded
         if (is_selected && nav_collapse.state == NAV_STATE_EXPANDED) {
-            int highlight_size = 48;
+            int highlight_size = 64;  // Sized for 48px icons with 1.15x scale
             int highlight_x = WAVE_NAV_ICON_X - highlight_size / 2;
             int highlight_y = y - highlight_size / 2;
             // White at 20% alpha as specified
@@ -632,6 +632,25 @@ void ui_nav_render(void) {
                 case 1: ui_nav_draw_settings_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
                 case 2: ui_nav_draw_controller_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
                 case 3: ui_nav_draw_profile_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+            }
+        }
+
+        // Draw text label below icon when setting enabled and icon is selected
+        if (context.config.show_nav_labels && is_selected &&
+            nav_collapse.state == NAV_STATE_EXPANDED) {
+            const char* label = NULL;
+            switch (i) {
+                case 0: label = "Play"; break;
+                case 1: label = "Settings"; break;
+                case 2: label = "Controller"; break;
+                case 3: label = "Profile"; break;
+            }
+            if (label) {
+                int label_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+                int label_x = WAVE_NAV_ICON_X - label_width / 2;
+                int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
+                vita2d_font_draw_text(font, label_x, label_y,
+                                      UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, label);
             }
         }
     }

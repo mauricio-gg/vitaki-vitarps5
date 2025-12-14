@@ -676,6 +676,14 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                      settings_state.selected_item == 9);
   vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Keep Navigation Pinned");
+  y += item_h + item_spacing;
+
+  // Show navigation labels toggle
+  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                     get_toggle_animation_value(10, context.config.show_nav_labels),
+                     settings_state.selected_item == 10);
+  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Navigation Labels");
 }
 
 /// Draw Controller Settings tab content
@@ -747,7 +755,7 @@ UIScreenType draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 10; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned
+  int max_items = 11; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned, Show Nav Labels
 
   // Up/Down: Navigate items (only when not in nav bar)
   if (!ui_focus_is_nav_bar()) {
@@ -822,7 +830,11 @@ UIScreenType draw_settings() {
           context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
           start_toggle_animation(9, context.config.keep_nav_pinned);
           config_serialize(&context.config);
-    }
+        } else if (settings_state.selected_item == 10) {
+          context.config.show_nav_labels = !context.config.show_nav_labels;
+          start_toggle_animation(10, context.config.show_nav_labels);
+          config_serialize(&context.config);
+        }
   }
 
   // Circle: Back to main menu
