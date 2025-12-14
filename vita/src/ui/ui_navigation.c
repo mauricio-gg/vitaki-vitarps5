@@ -587,15 +587,14 @@ void ui_nav_render(void) {
         // Selection highlight (semi-transparent white rounded rect per spec line 76)
         // Only show when not animating and sidebar is expanded
         if (is_selected && nav_collapse.state == NAV_STATE_EXPANDED) {
-            int highlight_size = 48;
-            int highlight_x = WAVE_NAV_ICON_X - highlight_size / 2;
-            int highlight_y = y - highlight_size / 2;
+            int highlight_x = WAVE_NAV_ICON_X - WAVE_NAV_ICON_HIGHLIGHT_SIZE / 2;
+            int highlight_y = y - WAVE_NAV_ICON_HIGHLIGHT_SIZE / 2;
             // White at 20% alpha as specified
-            ui_draw_rounded_rect(highlight_x, highlight_y, highlight_size, highlight_size, 8, RGBA8(255, 255, 255, 51));
+            ui_draw_rounded_rect(highlight_x, highlight_y, WAVE_NAV_ICON_HIGHLIGHT_SIZE, WAVE_NAV_ICON_HIGHLIGHT_SIZE, 8, RGBA8(255, 255, 255, 51));
         }
 
         // Draw icon with scale increase when selected
-        float icon_scale_multiplier = is_selected ? 1.15f : 1.0f;  // 15% larger when selected
+        float icon_scale_multiplier = is_selected ? WAVE_NAV_ICON_SELECTED_SCALE : 1.0f;  // 48px → 72px on selection
 
         // Use texture-based icons (fallback to procedural if NULL)
         vita2d_texture* icon_tex = NULL;
@@ -616,14 +615,10 @@ void ui_nav_render(void) {
             int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
             int draw_y = y - scaled_h / 2;
 
-            // Apply opacity during animation (tint with alpha)
-            if (icon_opacity < 1.0f) {
-                uint8_t tint_alpha = (uint8_t)(icon_opacity * 255);
-                vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
-                                               RGBA8(255, 255, 255, tint_alpha));
-            } else {
-                vita2d_draw_texture_scale(icon_tex, draw_x, draw_y, scale, scale);
-            }
+            // Apply grayish tint with transparency for UI blending
+            uint8_t tint_alpha = (uint8_t)(icon_opacity * WAVE_NAV_ICON_BASE_ALPHA);
+            vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
+                                           RGBA8(WAVE_NAV_ICON_TINT_R, WAVE_NAV_ICON_TINT_G, WAVE_NAV_ICON_TINT_B, tint_alpha));
         } else {
             // Fallback to procedural icons if texture failed to load
             int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
@@ -632,6 +627,25 @@ void ui_nav_render(void) {
                 case 1: ui_nav_draw_settings_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
                 case 2: ui_nav_draw_controller_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
                 case 3: ui_nav_draw_profile_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
+            }
+        }
+
+        // Draw text label below icon when setting enabled and icon is selected
+        if (context.config.show_nav_labels && is_selected &&
+            nav_collapse.state == NAV_STATE_EXPANDED) {
+            const char* label = NULL;
+            switch (i) {
+                case 0: label = "Play"; break;
+                case 1: label = "Settings"; break;
+                case 2: label = "Controller"; break;
+                case 3: label = "Profile"; break;
+            }
+            if (label) {
+                int label_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+                int label_x = WAVE_NAV_ICON_X - label_width / 2;
+                int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
+                vita2d_font_draw_text(font, label_x, label_y,
+                                      UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, label);
             }
         }
     }

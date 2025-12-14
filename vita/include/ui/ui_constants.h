@@ -68,10 +68,16 @@
 #define CONTENT_START_Y             80      // Unified page content start Y (below nav pill)
 
 // Wave navigation icons
-#define WAVE_NAV_ICON_SIZE          32      // Per spec: 32x32px icons
-#define WAVE_NAV_ICON_X             50      // Positioned left of center
-#define WAVE_NAV_ICON_SPACING       80      // Spacing between icon centers
-#define WAVE_NAV_ICON_START_Y       152     // Vertically centered start
+#define WAVE_NAV_ICON_SIZE              48      // Increased from 32 for clarity
+#define WAVE_NAV_ICON_X                 50      // Positioned left of center
+#define WAVE_NAV_ICON_SPACING           80      // Spacing between icon centers
+#define WAVE_NAV_ICON_START_Y           152     // Vertically centered start
+#define WAVE_NAV_ICON_SELECTED_SCALE    1.25f   // Pop on selection (48px → 60px)
+#define WAVE_NAV_ICON_HIGHLIGHT_SIZE    72      // Highlight background size for 60px icons
+#define WAVE_NAV_ICON_BASE_ALPHA        230     // ~90% opacity for icon blending
+#define WAVE_NAV_ICON_TINT_R            200     // Grayish tint RGB (matches profile icon style)
+#define WAVE_NAV_ICON_TINT_G            200
+#define WAVE_NAV_ICON_TINT_B            200
 
 // ============================================================================
 // Particle Animation (Batch 3: Particle Background Enhancements)

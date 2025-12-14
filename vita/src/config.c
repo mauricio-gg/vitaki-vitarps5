@@ -192,6 +192,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->keep_nav_pinned = false;  // Default: navigation collapses on content interaction
+  cfg->show_nav_labels = false;  // Default: no text labels below nav icons
   vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
@@ -293,6 +294,9 @@ void config_parse(VitaChiakiConfig* cfg) {
 
       datum = toml_bool_in(settings, "keep_nav_pinned");
       cfg->keep_nav_pinned = datum.ok ? datum.u.b : false;
+
+      datum = toml_bool_in(settings, "show_nav_labels");
+      cfg->show_nav_labels = datum.ok ? datum.u.b : false;
 
       datum = toml_string_in(settings, "latency_mode");
       if (datum.ok) {
@@ -601,6 +605,8 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->clamp_soft_restart_bitrate ? "true" : "false");
   fprintf(fp, "keep_nav_pinned = %s\n",
           cfg->keep_nav_pinned ? "true" : "false");
+  fprintf(fp, "show_nav_labels = %s\n",
+          cfg->show_nav_labels ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
   fprintf(fp, "\n[logging]\n");
   fprintf(fp, "enabled = %s\n", cfg->logging.enabled ? "true" : "false");

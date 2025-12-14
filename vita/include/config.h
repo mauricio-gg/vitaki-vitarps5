@@ -52,6 +52,7 @@ typedef struct vita_chiaki_config_t {
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
   bool keep_nav_pinned;  // Disable auto-collapse on content interaction (Triangle still works)
+  bool show_nav_labels;  // Show text labels below navigation icons when selected
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig* cfg);
