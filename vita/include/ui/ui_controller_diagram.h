@@ -22,6 +22,14 @@
 #include <stdbool.h>
 #include "ui_types.h"
 #include "controller.h"
+#include <vita2d.h>
+
+// Some translation units include this header before controller.h has defined the
+// touch grid helpers. Provide a defensive fallback so the UI headers still
+// compile even if the include order changes.
+#ifndef VITAKI_FRONT_TOUCH_GRID_COUNT
+#define VITAKI_FRONT_TOUCH_GRID_COUNT (VITAKI_FRONT_TOUCH_GRID_ROWS * VITAKI_FRONT_TOUCH_GRID_COLS)
+#endif
 
 // ============================================================================
 // Types
@@ -94,12 +102,18 @@ typedef struct diagram_state_t {
     VitakiControllerMapId map_id;   // Current controller map ID
     int selected_button;            // Selected button for mapping (-1 = none)
     int selected_zone;              // Selected rear touchpad zone (0-3, -1 = none)
+    bool front_selection[VITAKI_FRONT_TOUCH_GRID_COUNT]; // Active front-grid selection mask
+    int front_selection_count;      // Number of selected front cells
+    int callout_page;               // Current summary callout page index
+    int callout_page_count;         // Total summary callout pages
     float highlight_pulse;          // Callout highlight pulse (0.0-1.0)
     float flip_animation;           // View flip animation progress (0.0-1.0)
     float color_tween;              // Preset change color tween (0.0-1.0)
     uint64_t animation_start_us;    // Animation start timestamp
     bool flip_in_progress;          // Flip animation active
     bool color_tween_active;        // Color tween active
+    vita2d_texture* texture_front;
+    vita2d_texture* texture_back;
 } DiagramState;
 
 // ============================================================================
@@ -134,7 +148,7 @@ void ui_diagram_init_context(DiagramRenderCtx* ctx, int x, int y, int w, int h);
  * @param w Diagram width (typically 500px)
  * @param h Diagram height (typically 228px for 2.2:1 aspect)
  */
-void ui_diagram_render(DiagramState* state, int x, int y, int w, int h);
+void ui_diagram_render(DiagramState* state, const VitakiCtrlMapInfo* map, int x, int y, int w, int h);
 
 /**
  * Draw front view of Vita controller using procedural rendering
@@ -163,6 +177,34 @@ void ui_diagram_draw_highlight(DiagramRenderCtx* ctx, int btn_id, float pulse);
  * @param pulse Pulse factor (0.0-1.0)
  */
 void ui_diagram_draw_zone_highlight(DiagramRenderCtx* ctx, int zone_index, float pulse);
+
+/**
+ * Draw highlight on a front touch zone
+ * @param ctx Initialized render context
+ * @param input Front touch input identifier
+ * @param pulse Pulse factor (0.0-1.0)
+ */
+void ui_diagram_draw_front_zone_highlight(DiagramRenderCtx* ctx, VitakiCtrlIn input, float pulse);
+
+/**
+ * Draw highlight on a rear touch slot (quadrant or grip)
+ * @param ctx Initialized render context
+ * @param input Rear touch input identifier
+ * @param pulse Pulse factor (0.0-1.0)
+ */
+void ui_diagram_draw_back_slot_highlight(DiagramRenderCtx* ctx, VitakiCtrlIn input, float pulse);
+
+/**
+ * Fetch absolute rectangle for a front touch input
+ */
+bool ui_diagram_front_zone_rect(DiagramRenderCtx* ctx, VitakiCtrlIn input,
+                                int* out_x, int* out_y, int* out_w, int* out_h);
+
+/**
+ * Fetch absolute rectangle for a rear touch input
+ */
+bool ui_diagram_back_zone_rect(DiagramRenderCtx* ctx, VitakiCtrlIn input,
+                               int* out_x, int* out_y, int* out_w, int* out_h);
 
 // ============================================================================
 // State Updates
