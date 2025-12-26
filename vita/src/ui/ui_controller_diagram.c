@@ -56,6 +56,7 @@ typedef struct ratio_point_t {
 } RatioPoint;
 
 #define FRONT_GRID_CELL_COUNT (VITAKI_FRONT_TOUCH_GRID_ROWS * VITAKI_FRONT_TOUCH_GRID_COLS)
+#define BACK_GRID_CELL_COUNT  (VITAKI_REAR_TOUCH_GRID_ROWS * VITAKI_REAR_TOUCH_GRID_COLS)
 
 typedef struct diagram_callout_def_t {
     VitakiCtrlIn input;
@@ -168,6 +169,36 @@ static void draw_ratio_circle_outline(DiagramRenderCtx* ctx, float rx, float ry,
     ui_draw_circle_outline(cx, cy, r, color);
 }
 
+static void draw_dashed_rect_outline(int x, int y, int w, int h, uint32_t color, int dash_len, int gap_len) {
+    if (w <= 0 || h <= 0 || dash_len <= 0)
+        return;
+    if (gap_len < 0)
+        gap_len = 0;
+    int step = dash_len + gap_len;
+    if (step <= 0)
+        step = dash_len;
+
+    for (int offset = 0; offset < w; offset += step) {
+        int seg = dash_len;
+        if (offset + seg > w)
+            seg = w - offset;
+        if (seg <= 0)
+            break;
+        vita2d_draw_rectangle(x + offset, y, seg, 1, color);
+        vita2d_draw_rectangle(x + offset, y + h - 1, seg, 1, color);
+    }
+
+    for (int offset = 0; offset < h; offset += step) {
+        int seg = dash_len;
+        if (offset + seg > h)
+            seg = h - offset;
+        if (seg <= 0)
+            break;
+        vita2d_draw_rectangle(x, y + offset, 1, seg, color);
+        vita2d_draw_rectangle(x + w - 1, y + offset, 1, seg, color);
+    }
+}
+
 static void draw_symbol_square(int x, int y, int size, uint32_t color) {
     vita2d_draw_rectangle(x - size, y - size, size * 2, size * 2, color);
     ui_draw_rectangle_outline(x - size - 1, y - size - 1, size * 2 + 2, size * 2 + 2, RGBA8(150, 170, 200, 180));
@@ -275,12 +306,26 @@ bool ui_diagram_front_zone_rect(DiagramRenderCtx* ctx, VitakiCtrlIn input,
     int zone_h = screen_h;
 
     if (vitaki_ctrl_in_is_front_grid(input)) {
-        zone_w /= VITAKI_FRONT_TOUCH_GRID_COLS;
-        zone_h /= VITAKI_FRONT_TOUCH_GRID_ROWS;
         int col = vitaki_ctrl_in_front_grid_col(input);
         int row = vitaki_ctrl_in_front_grid_row(input);
-        zone_x += col * zone_w;
-        zone_y += row * zone_h;
+
+        int base_w = screen_w / VITAKI_FRONT_TOUCH_GRID_COLS;
+        int extra_w = screen_w % VITAKI_FRONT_TOUCH_GRID_COLS;
+        int base_h = screen_h / VITAKI_FRONT_TOUCH_GRID_ROWS;
+        int extra_h = screen_h % VITAKI_FRONT_TOUCH_GRID_ROWS;
+
+        int offset_x = col * base_w + ((col < extra_w) ? col : extra_w);
+        int offset_y = row * base_h + ((row < extra_h) ? row : extra_h);
+        int cell_w = base_w + (col < extra_w ? 1 : 0);
+        int cell_h = base_h + (row < extra_h ? 1 : 0);
+
+        zone_x = screen_x + offset_x;
+        zone_y = screen_y + offset_y;
+        zone_w = cell_w;
+        zone_h = cell_h;
+        if (zone_w < 1) zone_w = 1;
+        if (zone_h < 1) zone_h = 1;
+
         if (out_x) *out_x = zone_x;
         if (out_y) *out_y = zone_y;
         if (out_w) *out_w = zone_w;
@@ -609,64 +654,135 @@ static void draw_front_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapI
     uint32_t mask_color = RGBA8(5, 10, 18, 165);
     vita2d_draw_rectangle(screen_x, screen_y, screen_w, screen_h, mask_color);
 
-    bool cell_has_mapping[FRONT_GRID_CELL_COUNT];
-    memset(cell_has_mapping, 0, sizeof(cell_has_mapping));
-    for (int row = 0; row < VITAKI_FRONT_TOUCH_GRID_ROWS; row++) {
-        for (int col = 0; col < VITAKI_FRONT_TOUCH_GRID_COLS; col++) {
-            int idx = row * VITAKI_FRONT_TOUCH_GRID_COLS + col;
-            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
-            VitakiCtrlOut mapped = controller_map_get_output_for_input(map, input);
-            if (mapped != VITAKI_CTRL_OUT_NONE)
-                cell_has_mapping[idx] = true;
-        }
+    VitakiCtrlOut cell_outputs[FRONT_GRID_CELL_COUNT];
+    memset(cell_outputs, 0, sizeof(cell_outputs));
+    for (int idx = 0; idx < FRONT_GRID_CELL_COUNT; idx++) {
+        VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
+        cell_outputs[idx] = controller_map_get_output_for_input(map, input);
     }
 
     uint32_t grid_color = RGBA8(150, 160, 190, 150);
     for (int row = 1; row < VITAKI_FRONT_TOUCH_GRID_ROWS; row++) {
-        int line_y = screen_y + (screen_h * row) / VITAKI_FRONT_TOUCH_GRID_ROWS;
-        vita2d_draw_line(screen_x, line_y, screen_x + screen_w, line_y, grid_color);
+        bool row_blocked = false;
+        for (int col = 0; col < VITAKI_FRONT_TOUCH_GRID_COLS; col++) {
+            int idx = row * VITAKI_FRONT_TOUCH_GRID_COLS + col;
+            int prev_idx = (row - 1) * VITAKI_FRONT_TOUCH_GRID_COLS + col;
+            if (cell_outputs[idx] != cell_outputs[prev_idx]) {
+                row_blocked = false;
+                int line_y = screen_y + (screen_h * row) / VITAKI_FRONT_TOUCH_GRID_ROWS;
+                vita2d_draw_line(screen_x + (col * screen_w) / VITAKI_FRONT_TOUCH_GRID_COLS,
+                                 line_y,
+                                 screen_x + ((col + 1) * screen_w) / VITAKI_FRONT_TOUCH_GRID_COLS,
+                                 line_y,
+                                 grid_color);
+            } else if (!row_blocked && cell_outputs[idx] == cell_outputs[prev_idx] && cell_outputs[idx] != VITAKI_CTRL_OUT_NONE) {
+                row_blocked = true;
+            }
+        }
     }
     for (int col = 1; col < VITAKI_FRONT_TOUCH_GRID_COLS; col++) {
-        int line_x = screen_x + (screen_w * col) / VITAKI_FRONT_TOUCH_GRID_COLS;
-        vita2d_draw_line(line_x, screen_y, line_x, screen_y + screen_h, grid_color);
+        bool col_blocked = false;
+        for (int row = 0; row < VITAKI_FRONT_TOUCH_GRID_ROWS; row++) {
+            int idx = row * VITAKI_FRONT_TOUCH_GRID_COLS + col;
+            int prev_idx = row * VITAKI_FRONT_TOUCH_GRID_COLS + (col - 1);
+            if (cell_outputs[idx] != cell_outputs[prev_idx]) {
+                col_blocked = false;
+                int line_x = screen_x + (screen_w * col) / VITAKI_FRONT_TOUCH_GRID_COLS;
+                vita2d_draw_line(line_x,
+                                 screen_y + (row * screen_h) / VITAKI_FRONT_TOUCH_GRID_ROWS,
+                                 line_x,
+                                 screen_y + ((row + 1) * screen_h) / VITAKI_FRONT_TOUCH_GRID_ROWS,
+                                 grid_color);
+            } else if (!col_blocked && cell_outputs[idx] == cell_outputs[prev_idx] && cell_outputs[idx] != VITAKI_CTRL_OUT_NONE) {
+                col_blocked = true;
+            }
+        }
     }
 
     uint32_t selection_fill = RGBA8(70, 120, 255, 110);
     uint32_t selection_border = RGBA8(255, 90, 180, 230);
     uint32_t mapped_fill = RGBA8(80, 130, 255, 90);
     uint32_t mapped_border = RGBA8(255, 65, 170, 220);
+    uint32_t dashed_border = RGBA8(255, 255, 255, 190);
+    const int dashed_len = 6;
+    const int dashed_gap = 4;
+    const int mapped_border_thickness = 2;
 
     for (int idx = 0; idx < FRONT_GRID_CELL_COUNT; idx++) {
+        int row = idx / VITAKI_FRONT_TOUCH_GRID_COLS;
+        int col = idx % VITAKI_FRONT_TOUCH_GRID_COLS;
         VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
         int zx, zy, zw, zh;
         if (!ui_diagram_front_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
             continue;
+        int inset_left = (col > 0) ? 1 : 0;
+        int inset_right = (col < VITAKI_FRONT_TOUCH_GRID_COLS - 1) ? 1 : 0;
+        int inset_top = (row > 0) ? 1 : 0;
+        int inset_bottom = (row < VITAKI_FRONT_TOUCH_GRID_ROWS - 1) ? 1 : 0;
+        int fill_x = zx + inset_left;
+        int fill_y = zy + inset_top;
+        int fill_w = zw - inset_left - inset_right;
+        int fill_h = zh - inset_top - inset_bottom;
+        if (fill_w < 1) fill_w = 1;
+        if (fill_h < 1) fill_h = 1;
 
-        if (selection_mask && selection_mask[idx]) {
-            vita2d_draw_rectangle(zx + 1, zy + 1, zw - 2, zh - 2, selection_fill);
+        bool is_selected = selection_mask && selection_mask[idx];
+        bool has_mapping = cell_outputs[idx] != VITAKI_CTRL_OUT_NONE;
+
+        if (is_selected) {
+            vita2d_draw_rectangle(fill_x, fill_y, fill_w, fill_h, selection_fill);
             ui_draw_rectangle_outline(zx, zy, zw, zh, selection_border);
             continue;
         }
 
-        if (cell_has_mapping[idx]) {
-            vita2d_draw_rectangle(zx + 1, zy + 1, zw - 2, zh - 2, mapped_fill);
-            ui_draw_rectangle_outline(zx, zy, zw, zh, mapped_border);
+        if (has_mapping) {
+            vita2d_draw_rectangle(fill_x, fill_y, fill_w, fill_h, mapped_fill);
+            bool same_left = (col > 0) && (cell_outputs[idx - 1] == cell_outputs[idx]);
+            bool same_right = (col < VITAKI_FRONT_TOUCH_GRID_COLS - 1) && (cell_outputs[idx + 1] == cell_outputs[idx]);
+            bool same_top = (row > 0) && (cell_outputs[idx - VITAKI_FRONT_TOUCH_GRID_COLS] == cell_outputs[idx]);
+            bool same_bottom = (row < VITAKI_FRONT_TOUCH_GRID_ROWS - 1) && (cell_outputs[idx + VITAKI_FRONT_TOUCH_GRID_COLS] == cell_outputs[idx]);
+
+            int thick_w = mapped_border_thickness;
+            if (thick_w > zw) thick_w = zw;
+            int thick_h = mapped_border_thickness;
+            if (thick_h > zh) thick_h = zh;
+
+            if (!same_top) {
+                vita2d_draw_rectangle(zx, zy, zw, thick_h, mapped_border);
+            }
+            if (!same_bottom) {
+                int yb = zy + zh - thick_h;
+                if (yb < zy) yb = zy;
+                vita2d_draw_rectangle(zx, yb, zw, thick_h, mapped_border);
+            }
+            if (!same_left) {
+                vita2d_draw_rectangle(zx, zy, thick_w, zh, mapped_border);
+            }
+            if (!same_right) {
+                int xr = zx + zw - thick_w;
+                if (xr < zx) xr = zx;
+                vita2d_draw_rectangle(xr, zy, thick_w, zh, mapped_border);
+            }
+        } else {
+            draw_dashed_rect_outline(zx, zy, zw, zh, dashed_border, dashed_len, dashed_gap);
         }
     }
 
     for (int row = 0; row < VITAKI_FRONT_TOUCH_GRID_ROWS; row++) {
         for (int col = 0; col < VITAKI_FRONT_TOUCH_GRID_COLS; col++) {
             int idx = row * VITAKI_FRONT_TOUCH_GRID_COLS + col;
-            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
+            VitakiCtrlOut mapped = cell_outputs[idx];
+            if (mapped == VITAKI_CTRL_OUT_NONE)
+                continue;
+
             int zx, zy, zw, zh;
+            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
             if (!ui_diagram_front_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
                 continue;
+
             int cx = zx + zw / 2;
             int cy = zy + zh / 2;
-            VitakiCtrlOut mapped = controller_map_get_output_for_input(map, input);
-            if (mapped != VITAKI_CTRL_OUT_NONE) {
-                draw_zone_mapping_text(cx, cy, "", controller_output_symbol(mapped));
-            }
+            draw_zone_mapping_text(cx, cy, "", controller_output_symbol(mapped));
         }
     }
 
@@ -699,15 +815,86 @@ static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapIn
         vita2d_draw_line(pad_x + inset, line_y, pad_x + pad_w - inset, line_y, grid_color);
     }
 
+    VitakiCtrlOut slot_outputs[BACK_GRID_CELL_COUNT];
     for (int row = 0; row < VITAKI_REAR_TOUCH_GRID_ROWS; row++) {
         for (int col = 0; col < VITAKI_REAR_TOUCH_GRID_COLS; col++) {
-            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + row * VITAKI_REAR_TOUCH_GRID_COLS + col);
+            int idx = row * VITAKI_REAR_TOUCH_GRID_COLS + col;
+            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
+            slot_outputs[idx] = controller_map_get_output_for_input(map, input);
+        }
+    }
+
+    uint32_t mapped_fill = RGBA8(80, 130, 255, 90);
+    uint32_t mapped_border = RGBA8(255, 65, 170, 220);
+    uint32_t dashed_border = RGBA8(255, 255, 255, 190);
+    const int dashed_len = 6;
+    const int dashed_gap = 4;
+    const int mapped_border_thickness = 2;
+
+    for (int idx = 0; idx < BACK_GRID_CELL_COUNT; idx++) {
+        int row = idx / VITAKI_REAR_TOUCH_GRID_COLS;
+        int col = idx % VITAKI_REAR_TOUCH_GRID_COLS;
+        VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
+        int zx, zy, zw, zh;
+        if (!ui_diagram_back_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
+            continue;
+
+        int inset_left = (col > 0) ? 1 : 0;
+        int inset_right = (col < VITAKI_REAR_TOUCH_GRID_COLS - 1) ? 1 : 0;
+        int inset_top = (row > 0) ? 1 : 0;
+        int inset_bottom = (row < VITAKI_REAR_TOUCH_GRID_ROWS - 1) ? 1 : 0;
+        int fill_x = zx + inset_left;
+        int fill_y = zy + inset_top;
+        int fill_w = zw - inset_left - inset_right;
+        int fill_h = zh - inset_top - inset_bottom;
+        if (fill_w < 1) fill_w = 1;
+        if (fill_h < 1) fill_h = 1;
+
+        bool has_mapping = slot_outputs[idx] != VITAKI_CTRL_OUT_NONE;
+        if (has_mapping) {
+            vita2d_draw_rectangle(fill_x, fill_y, fill_w, fill_h, mapped_fill);
+
+            bool same_left = (col > 0) && (slot_outputs[idx - 1] == slot_outputs[idx]);
+            bool same_right = (col < VITAKI_REAR_TOUCH_GRID_COLS - 1) && (slot_outputs[idx + 1] == slot_outputs[idx]);
+            bool same_top = (row > 0) && (slot_outputs[idx - VITAKI_REAR_TOUCH_GRID_COLS] == slot_outputs[idx]);
+            bool same_bottom = (row < VITAKI_REAR_TOUCH_GRID_ROWS - 1) && (slot_outputs[idx + VITAKI_REAR_TOUCH_GRID_COLS] == slot_outputs[idx]);
+
+            int thick_w = mapped_border_thickness;
+            if (thick_w > zw) thick_w = zw;
+            int thick_h = mapped_border_thickness;
+            if (thick_h > zh) thick_h = zh;
+
+            if (!same_top) {
+                vita2d_draw_rectangle(zx, zy, zw, thick_h, mapped_border);
+            }
+            if (!same_bottom) {
+                int yb = zy + zh - thick_h;
+                if (yb < zy) yb = zy;
+                vita2d_draw_rectangle(zx, yb, zw, thick_h, mapped_border);
+            }
+            if (!same_left) {
+                vita2d_draw_rectangle(zx, zy, thick_w, zh, mapped_border);
+            }
+            if (!same_right) {
+                int xr = zx + zw - thick_w;
+                if (xr < zx) xr = zx;
+                vita2d_draw_rectangle(xr, zy, thick_w, zh, mapped_border);
+            }
+        } else {
+            draw_dashed_rect_outline(zx, zy, zw, zh, dashed_border, dashed_len, dashed_gap);
+        }
+    }
+
+    for (int row = 0; row < VITAKI_REAR_TOUCH_GRID_ROWS; row++) {
+        for (int col = 0; col < VITAKI_REAR_TOUCH_GRID_COLS; col++) {
+            int idx = row * VITAKI_REAR_TOUCH_GRID_COLS + col;
+            VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
             int zx, zy, zw, zh;
             if (!ui_diagram_back_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
                 continue;
             int cx = zx + zw / 2;
             int cy = zy + zh / 2;
-            VitakiCtrlOut mapped = controller_map_get_output_for_input(map, input);
+            VitakiCtrlOut mapped = slot_outputs[idx];
             const char* label = g_touch_grid_labels[row][col];
             draw_zone_mapping_text(cx, cy, label, controller_output_symbol(mapped));
         }

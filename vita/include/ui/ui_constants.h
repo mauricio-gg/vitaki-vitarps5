@@ -249,10 +249,10 @@
 #define VITA_BODY_RADIUS_RATIO      0.040f
 
 // Screen
-#define VITA_SCREEN_X_RATIO         0.152f
-#define VITA_SCREEN_Y_RATIO         0.175f
-#define VITA_SCREEN_W_RATIO         0.696f
-#define VITA_SCREEN_H_RATIO         0.605f
+#define VITA_SCREEN_X_RATIO         0.205f
+#define VITA_SCREEN_Y_RATIO         0.085f
+#define VITA_SCREEN_W_RATIO         0.596f
+#define VITA_SCREEN_H_RATIO         0.740f
 
 // D-pad
 #define VITA_DPAD_CX_RATIO          0.090f
