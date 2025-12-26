@@ -38,6 +38,12 @@ add_executable(${VITA_APP_NAME}.elf
 )
 
 
+# Disable logging in production (Release) builds by default
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_definitions(-DVITARPS5_LOGGING_DEFAULT_ENABLED=0)
+    add_definitions(-DVITARPS5_DEFAULT_LOG_PROFILE=VITA_LOG_PROFILE_ERRORS)
+endif()
+
 target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC
     CHIAKI_VERSION="${CHIAKI_VERSION}"
 )

@@ -413,8 +413,10 @@ void config_parse(VitaChiakiConfig* cfg) {
         datum = toml_string_in(host_cfg, "server_mac");
         if (datum.ok) {
           parse_b64(datum.u.s, host->server_mac, 6);
+#ifndef NDEBUG
           printf("MAC %X%X%X%X%X%X\n", host->server_mac[0], host->server_mac[1], host->server_mac[2],
                           host->server_mac[3], host->server_mac[4], host->server_mac[5]);
+#endif
           memcpy(&rstate->server_mac, &(host->server_mac), 6);
           free(datum.u.s);
         }
@@ -432,9 +434,13 @@ void config_parse(VitaChiakiConfig* cfg) {
         }
         datum = toml_string_in(host_cfg, "rp_key");
         if (datum.ok) {
+#ifndef NDEBUG
           printf("after rp %s\n", datum.u.s);
+#endif
           parse_b64(datum.u.s, rstate->rp_key, 0x10);
+#ifndef NDEBUG
           hexdump(rstate->rp_key, (size_t)0x10);
+#endif
           free(datum.u.s);
         }
         datum = toml_int_in(host_cfg, "rp_key_type");
