@@ -119,4 +119,42 @@ The current controller screen uses the wave sidebar and dual-column layout defin
 3. Asset source: confirm whether designer can deliver front/back outlines with transparent backgrounds or if engineering should trace simplified shapes.
 
 ---
+
+## Appendix A – Front/Back Touch Grid Remapping (2025‑12‑23)
+
+### Summary
+We now have production-quality PNG outlines for the Vita front/back diagrams plus precise ratio constants that align the touch rectangles with the art. The next step is to replace the current quadrant-based touch mappings with a unified **6 × 3 grid** system on both front and back surfaces. This section documents the UX and technical plan agreed with the maintainer.
+
+### UX Requirements
+1. **Uniform Grid:** Front touch screen adopts the same 6 columns × 3 rows layout already used for the rear panel. Cell bounds scale with each surface (front screen vs. rear touch rectangle) using the ratios defined in `ui_constants.h`.
+2. **Selection Brush:** Users can “paint” one or more cells using either:
+   - Touch: tap-and-drag across cells. Dragging back over already-highlighted cells deselects them.
+   - Controller: hold ✕ while moving the D-pad to extend the selection rectangle; release ✕ to finalize.
+3. **Mapping Modal:** When the selection ends, show a modal (reuse the existing PIN/mapping dialog component if possible) that lists the following PS5 inputs: **L2, L3, R2, R3, Touchpad, PS Button, Share, Options**. Default focus = last used mapping. If the selected cells already have a binding, include a “Remove mapping” option.
+4. **Multiple Cells Per Output:** Users may assign the same PS5 output to any number of grid cells. No validation beyond empty vs. assigned.
+5. **Visual Feedback:**
+   - Idle (unmapped): dashed inner borders and thin outlines per cell.
+   - Selecting (dragging): cells pulse with the PlayStation blue fill used in menu waves.
+   - Mapped: contiguous cells merge into a single shape with a solid magenta perimeter and blue gradient fill. Internal dashed lines disappear for that region. Legend text is centered inside the merged shape.
+6. **Editing Shortcuts:** 
+   - Tapping or focusing an already mapped region reopens the modal with current mapping preselected (and “Remove” available).
+   - Pressing □ while a mapped region is focused removes its mapping immediately.
+   - Pressing Select opens a confirmation sheet to clear **all** touch mappings (front or back, depending on current page).
+
+### Data & Code Changes
+- Extend `VitakiCtrlMapInfo` (and serialized config) to store a per-cell mapping for both front (`front_touch_grid[18]`) and back (`rear_touch_grid[18]`) surfaces. Legacy quadrant/center helpers will translate to grid subsets for backward compatibility.
+- Update `rear_touch_zone_rect()` and introduce `front_touch_zone_rect()` helpers that compute cell rectangles based on the shared grid constants.
+- Enhance `ui_controller_diagram.c`:
+  - Draw selection brush overlay states (dashed vs. solid vs. highlight).
+  - Group contiguous mapped cells via flood-fill or run-length to render the magenta outline as a single polygon.
+  - Hook up the new modal flow after selection ends (touch or controller).
+- Update UI input handlers (front/back mapping pages) to support the drag-selection gesture, square/remove shortcut, and Select→clear-all dialog.
+
+### Open Items
+1. **Modal Component:** Confirm whether the existing remap modal can be reused or if we need a dedicated widget. If new, align it with the PIN dialog styling.
+2. **Persistence Migration:** Decide how to migrate existing quadrant-based configs to the new grid so users don’t lose their custom layouts (e.g., map UL quadrant → cells A1/A2/A3).
+3. **Accessibility:** Determine how to communicate cell selections audibly for screen readers or rumble feedback when painting with the controller.
+
+This appendix will guide the upcoming implementation so we can start coding immediately without re-negotiating scope.
+---
 This scope is ready for assignment. Next steps: assign engineering owner for Tasks 1-6, coordinate with design for assets, and create subtasks in `TODO.md` referencing this document.

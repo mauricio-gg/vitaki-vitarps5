@@ -147,6 +147,23 @@ bool btn_pressed(SceCtrlButtons btn) {
   return ui_input_btn_pressed(btn);
 }
 
+bool btn_down(SceCtrlButtons btn) {
+  if (button_block_mask & btn)
+    return false;
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+    return false;
+  return (context.ui_state.button_state & btn) != 0;
+}
+
+bool btn_released(SceCtrlButtons btn) {
+  if (button_block_mask & btn)
+    return false;
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+    return false;
+  return !(context.ui_state.button_state & btn) &&
+         (context.ui_state.old_button_state & btn);
+}
+
 /**
  * Block inputs for transition (internal alias for compatibility)
  *

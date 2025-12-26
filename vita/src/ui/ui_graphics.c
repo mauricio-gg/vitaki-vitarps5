@@ -168,6 +168,38 @@ void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t col
   vita2d_draw_rectangle(x + width - 1, y, 1, height, color);
 }
 
+void ui_draw_vertical_gradient_rect(int x, int y, int width, int height,
+                                    uint32_t top_color, uint32_t bottom_color,
+                                    int radius) {
+  if (height <= 0 || width <= 0)
+    return;
+
+  if (radius > 0) {
+    ui_draw_rounded_rect(x, y, width, height, radius, top_color);
+    radius = 0;
+  }
+
+  uint8_t top_r = (top_color >> 0) & 0xFF;
+  uint8_t top_g = (top_color >> 8) & 0xFF;
+  uint8_t top_b = (top_color >> 16) & 0xFF;
+  uint8_t top_a = (top_color >> 24) & 0xFF;
+
+  uint8_t bot_r = (bottom_color >> 0) & 0xFF;
+  uint8_t bot_g = (bottom_color >> 8) & 0xFF;
+  uint8_t bot_b = (bottom_color >> 16) & 0xFF;
+  uint8_t bot_a = (bottom_color >> 24) & 0xFF;
+
+  for (int row = 0; row < height; row++) {
+    float t = height > 1 ? (float)row / (float)(height - 1) : 0.0f;
+    uint8_t r = (uint8_t)(top_r + (bot_r - top_r) * t);
+    uint8_t g = (uint8_t)(top_g + (bot_g - top_g) * t);
+    uint8_t b = (uint8_t)(top_b + (bot_b - top_b) * t);
+    uint8_t a = (uint8_t)(top_a + (bot_a - top_a) * t);
+    uint32_t color = RGBA8(r, g, b, a);
+    vita2d_draw_rectangle(x, y + row, width, 1, color);
+  }
+}
+
 /**
  * Draw a rotating spinner arc
  *

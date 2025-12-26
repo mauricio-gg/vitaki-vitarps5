@@ -57,8 +57,90 @@ typedef enum vitaki_ctrl_in_t {
   VITAKI_CTRL_IN_FRONTTOUCH_CENTER,
   VITAKI_CTRL_IN_FRONTTOUCH_ANY,
 
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C0,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C1,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C2,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C3,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C4,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C5,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C0,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C1,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C2,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C3,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C4,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R1C5,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C0,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C1,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C2,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C3,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C4,
+  VITAKI_CTRL_IN_FRONTTOUCH_GRID_R2C5,
+
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C0,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C1,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C2,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C3,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C4,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R0C5,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C0,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C1,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C2,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C3,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C4,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R1C5,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C0,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C1,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C2,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C3,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C4,
+  VITAKI_CTRL_IN_REARTOUCH_GRID_R2C5,
+
   VITAKI_CTRL_IN_COUNT, // final element to count the total number
 } VitakiCtrlIn;
+
+#define VITAKI_REAR_TOUCH_GRID_COLS 6
+#define VITAKI_REAR_TOUCH_GRID_ROWS 3
+#define VITAKI_CTRL_IN_REARTOUCH_GRID_START VITAKI_CTRL_IN_REARTOUCH_GRID_R0C0
+#define VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT (VITAKI_REAR_TOUCH_GRID_COLS * VITAKI_REAR_TOUCH_GRID_ROWS)
+#define VITAKI_CTRL_IN_REARTOUCH_GRID_END (VITAKI_CTRL_IN_REARTOUCH_GRID_START + VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT)
+
+#define VITAKI_FRONT_TOUCH_GRID_COLS 6
+#define VITAKI_FRONT_TOUCH_GRID_ROWS 3
+#define VITAKI_CTRL_IN_FRONTTOUCH_GRID_START VITAKI_CTRL_IN_FRONTTOUCH_GRID_R0C0
+#define VITAKI_CTRL_IN_FRONTTOUCH_GRID_COUNT (VITAKI_FRONT_TOUCH_GRID_COLS * VITAKI_FRONT_TOUCH_GRID_ROWS)
+#define VITAKI_CTRL_IN_FRONTTOUCH_GRID_END (VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + VITAKI_CTRL_IN_FRONTTOUCH_GRID_COUNT)
+
+static inline bool vitaki_ctrl_in_is_rear_grid(VitakiCtrlIn input) {
+  return input >= VITAKI_CTRL_IN_REARTOUCH_GRID_START && input < VITAKI_CTRL_IN_REARTOUCH_GRID_END;
+}
+
+static inline int vitaki_ctrl_in_rear_grid_index(VitakiCtrlIn input) {
+  return (int)(input - VITAKI_CTRL_IN_REARTOUCH_GRID_START);
+}
+
+static inline int vitaki_ctrl_in_rear_grid_row(VitakiCtrlIn input) {
+  return vitaki_ctrl_in_rear_grid_index(input) / VITAKI_REAR_TOUCH_GRID_COLS;
+}
+
+static inline int vitaki_ctrl_in_rear_grid_col(VitakiCtrlIn input) {
+  return vitaki_ctrl_in_rear_grid_index(input) % VITAKI_REAR_TOUCH_GRID_COLS;
+}
+
+static inline bool vitaki_ctrl_in_is_front_grid(VitakiCtrlIn input) {
+  return input >= VITAKI_CTRL_IN_FRONTTOUCH_GRID_START && input < VITAKI_CTRL_IN_FRONTTOUCH_GRID_END;
+}
+
+static inline int vitaki_ctrl_in_front_grid_index(VitakiCtrlIn input) {
+  return (int)(input - VITAKI_CTRL_IN_FRONTTOUCH_GRID_START);
+}
+
+static inline int vitaki_ctrl_in_front_grid_row(VitakiCtrlIn input) {
+  return vitaki_ctrl_in_front_grid_index(input) / VITAKI_FRONT_TOUCH_GRID_COLS;
+}
+
+static inline int vitaki_ctrl_in_front_grid_col(VitakiCtrlIn input) {
+  return vitaki_ctrl_in_front_grid_index(input) % VITAKI_FRONT_TOUCH_GRID_COLS;
+}
 
 typedef enum vitaki_ctrl_out_t {
   VITAKI_CTRL_OUT_UP       = CHIAKI_CONTROLLER_BUTTON_DPAD_UP,
@@ -97,6 +179,12 @@ typedef struct vitaki_ctrl_map_info_t {
   bool did_init;
 } VitakiCtrlMapInfo;
 
+typedef struct controller_map_storage_t {
+  int in_out_btn[VITAKI_CTRL_IN_COUNT];
+  int in_l2;
+  int in_r2;
+} ControllerMapStorage;
+
 /**
  * Controller preset definition for the immersive controller layout
  * Provides user-friendly names and descriptions for controller map IDs
@@ -114,3 +202,9 @@ typedef struct controller_preset_def_t {
 extern const ControllerPresetDef g_controller_presets[6];
 
 void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controller_map_id);
+void controller_map_storage_from_vcmi(ControllerMapStorage* storage, const VitakiCtrlMapInfo* vcmi);
+void controller_map_storage_apply(const ControllerMapStorage* storage, VitakiCtrlMapInfo* vcmi);
+void controller_map_storage_set_defaults(ControllerMapStorage* storage);
+VitakiCtrlOut controller_map_get_output_for_input(const VitakiCtrlMapInfo* vcmi, VitakiCtrlIn input);
+const char* controller_output_name(VitakiCtrlOut button);
+const char* controller_output_symbol(VitakiCtrlOut button);

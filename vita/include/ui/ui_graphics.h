@@ -109,6 +109,9 @@ void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
  * @note No fill - outline only
  */
 void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t color);
+void ui_draw_vertical_gradient_rect(int x, int y, int width, int height,
+                                    uint32_t top_color, uint32_t bottom_color,
+                                    int radius);
 
 /**
  * Draw a rotating spinner arc

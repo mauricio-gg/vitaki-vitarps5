@@ -132,6 +132,8 @@ if(CHIAKI_IS_VITA)
         FILE res/assets/ps5_off.png assets/ps5_off.png
         FILE res/assets/ps5.png assets/ps5.png
         FILE res/assets/ps5_rest.png assets/ps5_rest.png
+        FILE res/assets/controller_front.png assets/controller_front.png
+        FILE res/assets/controller_back.png assets/controller_back.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory

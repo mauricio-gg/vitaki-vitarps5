@@ -1167,6 +1167,26 @@ void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
   }
 }
 
+static VitakiCtrlIn front_grid_input_from_touch(int x, int y, int max_w, int max_h) {
+  if (x < 0 || y < 0)
+    return VITAKI_CTRL_IN_NONE;
+  if (x >= max_w)
+    x = max_w - 1;
+  if (y >= max_h)
+    y = max_h - 1;
+  int col = (x * VITAKI_FRONT_TOUCH_GRID_COLS) / max_w;
+  int row = (y * VITAKI_FRONT_TOUCH_GRID_ROWS) / max_h;
+  if (col < 0)
+    col = 0;
+  if (col >= VITAKI_FRONT_TOUCH_GRID_COLS)
+    col = VITAKI_FRONT_TOUCH_GRID_COLS - 1;
+  if (row < 0)
+    row = 0;
+  if (row >= VITAKI_FRONT_TOUCH_GRID_ROWS)
+    row = VITAKI_FRONT_TOUCH_GRID_ROWS - 1;
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS + col);
+}
+
 static void *input_thread_func(void* user) {
   // Set input thread to highest priority for lowest input lag
   // Pin to CPU1 to avoid contention with video/audio threads on CPU0
@@ -1340,6 +1360,18 @@ static void *input_thread_func(void* user) {
         int x = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].x;
         int y = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].y;
         stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY];
+
+        VitakiCtrlIn grid_input = front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        if (grid_input != VITAKI_CTRL_IN_NONE) {
+          VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
+          if (mapped == VITAKI_CTRL_OUT_L2) {
+            stream->controller_state.l2_state = 0xff;
+          } else if (mapped == VITAKI_CTRL_OUT_R2) {
+            stream->controller_state.r2_state = 0xff;
+          } else if (mapped != VITAKI_CTRL_OUT_NONE) {
+            stream->controller_state.buttons |= mapped;
+          }
+        }
 
         if (x > TOUCH_MAX_WIDTH_BY_2) {
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT);
