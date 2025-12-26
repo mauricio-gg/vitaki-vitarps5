@@ -71,6 +71,18 @@ void ui_input_block_for_transition(void);
  */
 void ui_input_clear_button_blocks(void);
 
+/**
+ * Block a specific button for the rest of this frame
+ *
+ * Prevents the specified button from being detected as pressed by subsequent
+ * handlers in the same frame. Useful when zone crossing or other global
+ * handlers consume a button and want to prevent it from being processed
+ * by screen-specific handlers.
+ *
+ * @param btn Button(s) to block
+ */
+void ui_input_block_button(SceCtrlButtons btn);
+
 // ============================================================================
 // Touch Input
 // ============================================================================
