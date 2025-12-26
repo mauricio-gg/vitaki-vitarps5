@@ -183,9 +183,11 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->disconnect_action = DISCONNECT_ACTION_ASK;
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
-  cfg->controller_map_id = 0;
-  controller_map_storage_set_defaults(&cfg->custom_map);
-  cfg->custom_map_valid = false;
+  cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;  // Default to Custom 1
+  for (int i = 0; i < 3; i++) {
+    controller_map_storage_set_defaults(&cfg->custom_maps[i]);
+    cfg->custom_maps_valid[i] = false;
+  }
   cfg->show_latency = false;  // Default: latency display disabled
   cfg->show_network_indicator = true;
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
@@ -274,23 +276,60 @@ void config_parse(VitaChiakiConfig* cfg) {
         cfg->controller_map_id = datum.u.i;
       }
 
-      toml_table_t* custom_map = toml_table_in(parsed, "controller_custom_map");
-      if (custom_map) {
-        datum = toml_bool_in(custom_map, "valid");
-        cfg->custom_map_valid = datum.ok ? datum.u.b : false;
+      // Load 3 custom map slots
+      for (int slot = 0; slot < 3; slot++) {
+        char section_name[32];
+        snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
+        toml_table_t* custom_map = toml_table_in(parsed, section_name);
+        if (custom_map) {
+          datum = toml_bool_in(custom_map, "valid");
+          cfg->custom_maps_valid[slot] = datum.ok ? datum.u.b : false;
 
-        if (cfg->custom_map_valid) {
-          for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-            char key[24];
-            snprintf(key, sizeof(key), "slot_%d", i);
-            datum = toml_int_in(custom_map, key);
-            cfg->custom_map.in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
+          if (cfg->custom_maps_valid[slot]) {
+            for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+              char key[24];
+              snprintf(key, sizeof(key), "slot_%d", i);
+              datum = toml_int_in(custom_map, key);
+              cfg->custom_maps[slot].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
+            }
+            datum = toml_int_in(custom_map, "in_l2");
+            cfg->custom_maps[slot].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+            datum = toml_int_in(custom_map, "in_r2");
+            cfg->custom_maps[slot].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
           }
-          datum = toml_int_in(custom_map, "in_l2");
-          cfg->custom_map.in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
-          datum = toml_int_in(custom_map, "in_r2");
-          cfg->custom_map.in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
         }
+      }
+
+      // Migration: Check for old [controller_custom_map] section (pre-Custom 1/2/3)
+      // If found and slot 0 is empty, migrate it to Custom 1
+      if (!cfg->custom_maps_valid[0]) {
+        toml_table_t* old_custom_map = toml_table_in(parsed, "controller_custom_map");
+        if (old_custom_map) {
+          datum = toml_bool_in(old_custom_map, "valid");
+          bool old_valid = datum.ok ? datum.u.b : false;
+          if (old_valid) {
+            // Migrate old custom map to Custom 1 (slot 0)
+            for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+              char key[24];
+              snprintf(key, sizeof(key), "slot_%d", i);
+              datum = toml_int_in(old_custom_map, key);
+              cfg->custom_maps[0].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
+            }
+            datum = toml_int_in(old_custom_map, "in_l2");
+            cfg->custom_maps[0].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+            datum = toml_int_in(old_custom_map, "in_r2");
+            cfg->custom_maps[0].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+            cfg->custom_maps_valid[0] = true;
+          }
+        }
+      }
+
+      // Migration: Convert old controller_map_id values to Custom 1
+      // Old values: 0, 1, 3, 4, 25, 99 -> all map to Custom 1 (201)
+      if (cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_1 &&
+          cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_2 &&
+          cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_3) {
+        cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
       }
 
       datum = toml_bool_in(settings, "circle_btn_confirm");
@@ -610,12 +649,15 @@ void config_serialize(VitaChiakiConfig* cfg) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
-  fprintf(fp, "\n[controller_custom_map]\n");
-  fprintf(fp, "valid = %s\n", cfg->custom_map_valid ? "true" : "false");
-  fprintf(fp, "in_l2 = %d\n", cfg->custom_map.in_l2);
-  fprintf(fp, "in_r2 = %d\n", cfg->custom_map.in_r2);
-  for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-    fprintf(fp, "slot_%d = %d\n", i, cfg->custom_map.in_out_btn[i]);
+  // Save 3 custom map slots
+  for (int slot = 0; slot < 3; slot++) {
+    fprintf(fp, "\n[controller_custom_map_%d]\n", slot + 1);
+    fprintf(fp, "valid = %s\n", cfg->custom_maps_valid[slot] ? "true" : "false");
+    fprintf(fp, "in_l2 = %d\n", cfg->custom_maps[slot].in_l2);
+    fprintf(fp, "in_r2 = %d\n", cfg->custom_maps[slot].in_r2);
+    for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+      fprintf(fp, "slot_%d = %d\n", i, cfg->custom_maps[slot].in_out_btn[i]);
+    }
   }
   fprintf(fp, "circle_btn_confirm = %s\n",
           cfg->circle_btn_confirm ? "true" : "false");

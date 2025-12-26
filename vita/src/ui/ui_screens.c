@@ -1597,6 +1597,16 @@ static int find_preset_index_for_map(VitakiControllerMapId map_id) {
     return 0;
 }
 
+// Convert custom map ID to slot index (0, 1, or 2)
+static int custom_slot_for_map_id(VitakiControllerMapId map_id) {
+    switch (map_id) {
+        case VITAKI_CONTROLLER_MAP_CUSTOM_1: return 0;
+        case VITAKI_CONTROLLER_MAP_CUSTOM_2: return 1;
+        case VITAKI_CONTROLLER_MAP_CUSTOM_3: return 2;
+        default: return 0;  // Default to slot 0
+    }
+}
+
 static int controller_layout_center_x(void) {
     float nav_width = ui_nav_get_current_width();
     if (nav_width < 0.0f) {
@@ -1669,10 +1679,24 @@ static void controller_apply_preset(int preset_index) {
     if (preset_index >= CTRL_PRESET_COUNT)
         preset_index = CTRL_PRESET_COUNT - 1;
     ctrl_preset_index = preset_index;
-    context.config.controller_map_id = g_controller_presets[ctrl_preset_index].map_id;
-    init_controller_map(&ctrl_preview_map, context.config.controller_map_id);
-    ui_diagram_set_preset(&ctrl_diagram, context.config.controller_map_id);
-    ctrl_diagram.map_id = context.config.controller_map_id;
+
+    VitakiControllerMapId map_id = g_controller_presets[ctrl_preset_index].map_id;
+    context.config.controller_map_id = map_id;
+
+    // All presets are now custom slots - load from the appropriate slot
+    int slot = custom_slot_for_map_id(map_id);
+    if (context.config.custom_maps_valid[slot]) {
+        // Apply the saved custom mapping
+        controller_map_storage_apply(&context.config.custom_maps[slot], &ctrl_preview_map);
+    } else {
+        // Initialize with defaults for this slot
+        controller_map_storage_set_defaults(&context.config.custom_maps[slot]);
+        context.config.custom_maps_valid[slot] = true;
+        controller_map_storage_apply(&context.config.custom_maps[slot], &ctrl_preview_map);
+    }
+
+    ui_diagram_set_preset(&ctrl_diagram, map_id);
+    ctrl_diagram.map_id = map_id;
 }
 
 static void cycle_controller_preset(int delta) {
@@ -1687,23 +1711,14 @@ static void change_callout_page(int delta) {
     ctrl_diagram.mode = callout_view_for_page(ctrl_diagram.callout_page);
 }
 
-static void ensure_custom_preset_active(void) {
-    if (g_controller_presets[ctrl_preset_index].map_id == VITAKI_CONTROLLER_MAP_99) {
-        if (!context.config.custom_map_valid) {
-            controller_map_storage_set_defaults(&context.config.custom_map);
-            context.config.custom_map_valid = true;
-            controller_map_storage_apply(&context.config.custom_map, &ctrl_preview_map);
-        }
-        return;
-    }
+// Save current mapping changes to the active custom slot
+static void save_current_mapping_to_slot(void) {
+    VitakiControllerMapId map_id = g_controller_presets[ctrl_preset_index].map_id;
+    int slot = custom_slot_for_map_id(map_id);
 
-    controller_map_storage_from_vcmi(&context.config.custom_map, &ctrl_preview_map);
-    context.config.custom_map_valid = true;
-    context.config.controller_map_id = VITAKI_CONTROLLER_MAP_99;
-    ctrl_preset_index = find_preset_index_for_map(VITAKI_CONTROLLER_MAP_99);
-    controller_map_storage_apply(&context.config.custom_map, &ctrl_preview_map);
-    ui_diagram_set_preset(&ctrl_diagram, VITAKI_CONTROLLER_MAP_99);
-    ctrl_diagram.map_id = VITAKI_CONTROLLER_MAP_99;
+    // Save the current preview map to the appropriate custom slot
+    controller_map_storage_from_vcmi(&context.config.custom_maps[slot], &ctrl_preview_map);
+    context.config.custom_maps_valid[slot] = true;
 }
 
 static int find_mapping_option_index(VitakiCtrlOut output) {
@@ -1741,15 +1756,23 @@ static const char* controller_slot_label(VitakiCtrlIn input) {
     return "Mapping Slot";
 }
 
+// Get pointer to current custom slot's map storage
+static ControllerMapStorage* get_current_custom_map(void) {
+    VitakiControllerMapId map_id = g_controller_presets[ctrl_preset_index].map_id;
+    int slot = custom_slot_for_map_id(map_id);
+    return &context.config.custom_maps[slot];
+}
+
 static void controller_sync_trigger_assignments(void) {
-    context.config.custom_map.in_l2 = VITAKI_CTRL_IN_NONE;
-    context.config.custom_map.in_r2 = VITAKI_CTRL_IN_NONE;
+    ControllerMapStorage* custom_map = get_current_custom_map();
+    custom_map->in_l2 = VITAKI_CTRL_IN_NONE;
+    custom_map->in_r2 = VITAKI_CTRL_IN_NONE;
     for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-        VitakiCtrlOut output = context.config.custom_map.in_out_btn[i];
-        if (output == VITAKI_CTRL_OUT_L2 && context.config.custom_map.in_l2 == VITAKI_CTRL_IN_NONE) {
-            context.config.custom_map.in_l2 = i;
-        } else if (output == VITAKI_CTRL_OUT_R2 && context.config.custom_map.in_r2 == VITAKI_CTRL_IN_NONE) {
-            context.config.custom_map.in_r2 = i;
+        VitakiCtrlOut output = custom_map->in_out_btn[i];
+        if (output == VITAKI_CTRL_OUT_L2 && custom_map->in_l2 == VITAKI_CTRL_IN_NONE) {
+            custom_map->in_l2 = i;
+        } else if (output == VITAKI_CTRL_OUT_R2 && custom_map->in_r2 == VITAKI_CTRL_IN_NONE) {
+            custom_map->in_r2 = i;
         }
     }
 }
@@ -1757,18 +1780,22 @@ static void controller_sync_trigger_assignments(void) {
 static void apply_mapping_change_multi(const VitakiCtrlIn* inputs, int count, VitakiCtrlOut output) {
     if (!inputs || count <= 0)
         return;
-    ensure_custom_preset_active();
+
+    ControllerMapStorage* custom_map = get_current_custom_map();
+    VitakiControllerMapId map_id = g_controller_presets[ctrl_preset_index].map_id;
+    int slot = custom_slot_for_map_id(map_id);
 
     for (int i = 0; i < count; i++) {
         VitakiCtrlIn input = inputs[i];
         if (input < 0 || input >= VITAKI_CTRL_IN_COUNT)
             continue;
-        context.config.custom_map.in_out_btn[input] = output;
+        custom_map->in_out_btn[input] = output;
     }
 
     controller_sync_trigger_assignments();
-    controller_map_storage_apply(&context.config.custom_map, &ctrl_preview_map);
-    ctrl_diagram.map_id = VITAKI_CONTROLLER_MAP_99;
+    context.config.custom_maps_valid[slot] = true;
+    controller_map_storage_apply(custom_map, &ctrl_preview_map);
+    ctrl_diagram.map_id = map_id;
 }
 
 static inline void apply_mapping_change_single(VitakiCtrlIn input, VitakiCtrlOut output) {
@@ -2089,7 +2116,10 @@ UIScreenType draw_controller_config_screen() {
     if (ctrl_popup_active) {
         handle_mapping_popup_input();
     } else {
-        if (ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY) {
+        // Only process controller screen input when not focused on nav bar
+        // This prevents input leak when hovering over controller icon in nav
+        if (ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY &&
+            ui_focus_get_zone() != FOCUS_ZONE_NAV_BAR) {
             if (btn_pressed(SCE_CTRL_LEFT)) {
                 cycle_controller_preset(-1);
             } else if (btn_pressed(SCE_CTRL_RIGHT)) {

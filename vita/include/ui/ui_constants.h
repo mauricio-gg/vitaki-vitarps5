@@ -220,7 +220,7 @@
 #define CTRL_LEGEND_WIDTH               250     // Legend panel width
 #define CTRL_LEGEND_X                   (CTRL_DIAGRAM_X + CTRL_DIAGRAM_WIDTH + 20)  // Right of diagram
 #define CTRL_LEGEND_Y                   CTRL_DIAGRAM_Y  // Aligned with diagram
-#define CTRL_PRESET_COUNT               6       // Number of controller presets
+#define CTRL_PRESET_COUNT               3       // Number of controller presets (Custom 1, 2, 3)
 
 // Controller diagram colors (PlayStation Blue tint for PNG outlines)
 #define CTRL_OUTLINE_COLOR              RGBA8(0, 212, 170, 255)   // Teal/cyan #00D4AA

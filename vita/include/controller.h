@@ -25,6 +25,10 @@ typedef enum vitaki_controller_map_id_t {
   VITAKI_CONTROLLER_MAP_107    =  107, // L3, R3 front touchscreen upper corners; no L2 R2; touchpad front middle
   VITAKI_CONTROLLER_MAP_125    = 125, // L3, R3 front touchscreen upper corners; L2, R2 front touchscreen lower corners; no touchpad
   VITAKI_CONTROLLER_MAP_199    = 199, // map ywnico randomly came up with (swap L2R2 <> L3R3)
+  // Custom preset slots - user-configurable mappings
+  VITAKI_CONTROLLER_MAP_CUSTOM_1 = 201,
+  VITAKI_CONTROLLER_MAP_CUSTOM_2 = 202,
+  VITAKI_CONTROLLER_MAP_CUSTOM_3 = 203,
 } VitakiControllerMapId;
 
 // Control buttons (used for array indices => start at 0)
@@ -196,10 +200,10 @@ typedef struct controller_preset_def_t {
 } ControllerPresetDef;
 
 /**
- * 6 presets: Default, Shooter, Racing, Fighting, Remote Play Classic, Custom
+ * 3 custom preset slots: Custom 1, Custom 2, Custom 3
  * Global array defined in controller.c
  */
-extern const ControllerPresetDef g_controller_presets[6];
+extern const ControllerPresetDef g_controller_presets[];
 
 void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controller_map_id);
 void controller_map_storage_from_vcmi(ControllerMapStorage* storage, const VitakiCtrlMapInfo* vcmi);
