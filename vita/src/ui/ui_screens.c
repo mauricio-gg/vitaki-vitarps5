@@ -1774,6 +1774,26 @@ static inline void apply_mapping_change_single(VitakiCtrlIn input, VitakiCtrlOut
     apply_mapping_change_multi(&input, 1, output);
 }
 
+static void controller_front_clear_all_mappings(void) {
+    VitakiCtrlIn inputs[FRONT_GRID_COUNT + 1];
+    int count = 0;
+    for (int i = 0; i < FRONT_GRID_COUNT; i++) {
+        inputs[count++] = controller_front_input_from_index(i);
+    }
+    inputs[count++] = VITAKI_CTRL_IN_FRONTTOUCH_ANY;
+    apply_mapping_change_multi(inputs, count, VITAKI_CTRL_OUT_NONE);
+}
+
+static void controller_back_clear_all_mappings(void) {
+    VitakiCtrlIn inputs[BACK_GRID_COUNT + 1];
+    int count = 0;
+    for (int i = 0; i < BACK_GRID_COUNT; i++) {
+        inputs[count++] = controller_back_input_from_index(i);
+    }
+    inputs[count++] = VITAKI_CTRL_IN_REARTOUCH_ANY;
+    apply_mapping_change_multi(inputs, count, VITAKI_CTRL_OUT_NONE);
+}
+
 static void open_mapping_popup_multi(const VitakiCtrlIn* inputs, int count, bool is_front) {
     if (!inputs || count <= 0)
         return;
@@ -2175,16 +2195,7 @@ UIScreenType draw_controller_config_screen() {
             }
 
             if (btn_pressed(SCE_CTRL_SQUARE)) {
-                VitakiCtrlIn target = controller_front_input_from_index(ctrl_front_cursor_index);
-                apply_mapping_change_single(target, VITAKI_CTRL_OUT_NONE);
-            }
-
-            if (btn_pressed(SCE_CTRL_SELECT)) {
-                VitakiCtrlIn clear_inputs[FRONT_GRID_COUNT];
-                for (int i = 0; i < FRONT_GRID_COUNT; i++) {
-                    clear_inputs[i] = controller_front_input_from_index(i);
-                }
-                apply_mapping_change_multi(clear_inputs, FRONT_GRID_COUNT, VITAKI_CTRL_OUT_NONE);
+                controller_front_clear_all_mappings();
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2248,16 +2259,7 @@ UIScreenType draw_controller_config_screen() {
             }
 
             if (btn_pressed(SCE_CTRL_SQUARE)) {
-                VitakiCtrlIn target = controller_back_input_from_index(ctrl_back_cursor_index);
-                apply_mapping_change_single(target, VITAKI_CTRL_OUT_NONE);
-            }
-
-            if (btn_pressed(SCE_CTRL_SELECT)) {
-                VitakiCtrlIn clear_inputs[BACK_GRID_COUNT];
-                for (int i = 0; i < BACK_GRID_COUNT; i++) {
-                    clear_inputs[i] = controller_back_input_from_index(i);
-                }
-                apply_mapping_change_multi(clear_inputs, BACK_GRID_COUNT, VITAKI_CTRL_OUT_NONE);
+                controller_back_clear_all_mappings();
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2323,7 +2325,7 @@ UIScreenType draw_controller_config_screen() {
         vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20,
                               UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
     } else if (!ctrl_popup_active) {
-        const char* hint = "Move: D-Pad | Hold X + Move: Select | Triangle: Full | Square: Clear | Select: Clear All | Circle: Back";
+        const char* hint = "Move: D-Pad | Hold X + Move: Select | Triangle: Full | Square: Clear View | Circle: Back";
         int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
         int hint_x = layout_center_x - hint_w / 2;
         vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20,
