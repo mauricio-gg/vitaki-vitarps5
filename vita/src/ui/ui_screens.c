@@ -537,11 +537,36 @@ typedef enum {
 typedef struct {
   SettingsTab current_tab;
   int selected_item;
+  int scroll_offset;
   bool dropdown_expanded;
   int dropdown_selected_option;
 } SettingsState;
 
 static SettingsState settings_state = {0};
+
+// Settings scroll constants (item dimensions match original draw code)
+#define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
+#define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
+#define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
+#define SETTINGS_TOTAL_ITEMS        11  // Total settings: 3 dropdowns + 8 toggles
+
+static void settings_update_scroll_for_selection(void) {
+    int max_scroll = SETTINGS_TOTAL_ITEMS - SETTINGS_VISIBLE_ITEMS;
+    if (max_scroll < 0) max_scroll = 0;
+
+    // Clamp scroll
+    if (settings_state.scroll_offset > max_scroll)
+        settings_state.scroll_offset = max_scroll;
+    if (settings_state.scroll_offset < 0)
+        settings_state.scroll_offset = 0;
+
+    // Keep selection visible
+    if (settings_state.selected_item < settings_state.scroll_offset) {
+        settings_state.scroll_offset = settings_state.selected_item;
+    } else if (settings_state.selected_item >= settings_state.scroll_offset + SETTINGS_VISIBLE_ITEMS) {
+        settings_state.scroll_offset = settings_state.selected_item - SETTINGS_VISIBLE_ITEMS + 1;
+    }
+}
 
 // Tab color (Blue) - Only Streaming settings, Video/Network removed (no backend support)
 static uint32_t settings_tab_colors[SETTINGS_TAB_COUNT] = {
@@ -598,93 +623,109 @@ static void apply_force_30fps_runtime(void) {
   context.stream.pacing_accumulator = 0;
 }
 
-/// Draw Streaming Quality tab content
+/// Helper to draw a single settings item (toggle with label)
+static void draw_settings_toggle_item(int x, int y, int w, int h, const char* label,
+                                      int anim_index, bool value, bool selected) {
+  draw_toggle_switch(x + w - 70, y + (h - 30)/2, 60, 30,
+                     get_toggle_animation_value(anim_index, value), selected);
+  vita2d_font_draw_text(font, x + 15, y + h/2 + 6,
+                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
+}
+
+/// Draw Streaming Quality tab content with scrolling
 static void draw_settings_streaming_tab(int content_x, int content_y, int content_w) {
-  int item_h = 50;
-  int item_spacing = 10;
-  int y = content_y;
+  int item_h = SETTINGS_ITEM_HEIGHT;
+  int item_spacing = SETTINGS_ITEM_SPACING;
+  int item_stride = item_h + item_spacing;
 
-  // Quality Preset dropdown
-  draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
-                get_resolution_string(context.config.resolution),
-                false, settings_state.selected_item == 0);
-  y += item_h + item_spacing;
+  // Determine visible range
+  int first_visible = settings_state.scroll_offset;
+  int last_visible = first_visible + SETTINGS_VISIBLE_ITEMS;
+  if (last_visible > SETTINGS_TOTAL_ITEMS) last_visible = SETTINGS_TOTAL_ITEMS;
 
-  // Latency/Bandwidth mode dropdown
-  draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
-                get_latency_mode_string(context.config.latency_mode),
-                false, settings_state.selected_item == 1);
-  y += item_h + item_spacing;
+  // Draw only visible items
+  for (int i = first_visible; i < last_visible; i++) {
+    int y = content_y + (i - first_visible) * item_stride;
+    bool selected = (settings_state.selected_item == i);
 
-  // FPS Target dropdown
-  draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
-                get_fps_string(context.config.fps),
-                false, settings_state.selected_item == 2);
-  y += item_h + item_spacing;
+    switch (i) {
+      case 0:  // Quality Preset
+        draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
+                      get_resolution_string(context.config.resolution),
+                      false, selected);
+        break;
+      case 1:  // Latency Mode
+        draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
+                      get_latency_mode_string(context.config.latency_mode),
+                      false, selected);
+        break;
+      case 2:  // FPS Target
+        draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
+                      get_fps_string(context.config.fps),
+                      false, selected);
+        break;
+      case 3:  // Force 30 FPS
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Force 30 FPS Output", 3,
+                                  context.config.force_30fps, selected);
+        break;
+      case 4:  // Auto Discovery
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Auto Discovery", 4,
+                                  context.config.auto_discovery, selected);
+        break;
+      case 5:  // Show Latency
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Show Latency", 5,
+                                  context.config.show_latency, selected);
+        break;
+      case 6:  // Show Network Alerts
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Show Network Alerts", 8,
+                                  context.config.show_network_indicator, selected);
+        break;
+      case 7:  // Clamp Soft Restart Bitrate
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Clamp Soft Restart Bitrate", 7,
+                                  context.config.clamp_soft_restart_bitrate, selected);
+        break;
+      case 8:  // Fill Screen
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Fill Screen", 6,
+                                  context.config.stretch_video, selected);
+        break;
+      case 9:  // Keep Navigation Pinned
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Keep Navigation Pinned", 9,
+                                  context.config.keep_nav_pinned, selected);
+        break;
+      case 10: // Show Navigation Labels
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Show Navigation Labels", 10,
+                                  context.config.show_nav_labels, selected);
+        break;
+    }
+  }
 
-  // Force 30 FPS toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(3, context.config.force_30fps),
-                     settings_state.selected_item == 3);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Force 30 FPS Output");
-  y += item_h + item_spacing;
+  // Draw scroll indicator if content exceeds visible area
+  if (SETTINGS_TOTAL_ITEMS > SETTINGS_VISIBLE_ITEMS) {
+    int bar_x = content_x + content_w + 8;
+    int content_h = SETTINGS_VISIBLE_ITEMS * item_stride;
+    int thumb_h = (content_h * SETTINGS_VISIBLE_ITEMS) / SETTINGS_TOTAL_ITEMS;
+    if (thumb_h < 20) thumb_h = 20;
 
-  // Auto Discovery toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(4, context.config.auto_discovery),
-                     settings_state.selected_item == 4);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Auto Discovery");
-  y += item_h + item_spacing;
+    int max_scroll = SETTINGS_TOTAL_ITEMS - SETTINGS_VISIBLE_ITEMS;
+    int track_travel = content_h - thumb_h;
+    int thumb_y = content_y;
+    if (max_scroll > 0) {
+      thumb_y = content_y + (track_travel * settings_state.scroll_offset) / max_scroll;
+    }
 
-  // Show Latency toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(5, context.config.show_latency),
-                     settings_state.selected_item == 5);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Latency");
-  y += item_h + item_spacing;
-
-  // Show Network Alerts toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(8, context.config.show_network_indicator),
-                     settings_state.selected_item == 6);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Network Alerts");
-  y += item_h + item_spacing;
-
-  // Clamp soft restart bitrate toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(7, context.config.clamp_soft_restart_bitrate),
-                     settings_state.selected_item == 7);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
-                        "Clamp Soft Restart Bitrate");
-  y += item_h + item_spacing;
-
-  // Video stretch toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(6, context.config.stretch_video),
-                     settings_state.selected_item == 8);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Fill Screen");
-  y += item_h + item_spacing;
-
-  // Keep navigation pinned toggle (prevents auto-collapse on content interaction)
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(9, context.config.keep_nav_pinned),
-                     settings_state.selected_item == 9);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Keep Navigation Pinned");
-  y += item_h + item_spacing;
-
-  // Show navigation labels toggle
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(10, context.config.show_nav_labels),
-                     settings_state.selected_item == 10);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Show Navigation Labels");
+    // Track background
+    ui_draw_rounded_rect(bar_x, content_y, 4, content_h, 2, RGBA8(60, 65, 80, 180));
+    // Thumb
+    ui_draw_rounded_rect(bar_x, thumb_y, 4, thumb_h, 2, RGBA8(150, 200, 255, 220));
+  }
 }
 
 /// Draw Controller Settings tab content
@@ -756,14 +797,16 @@ UIScreenType draw_settings() {
   // === INPUT HANDLING ===
 
   // No tab switching needed - only one section
-  int max_items = 11; // Resolution, Latency Mode, FPS, Force 30 FPS, Auto Discovery, Show Latency, Network Alerts, Clamp, Fill Screen, Keep Nav Pinned, Show Nav Labels
+  int max_items = SETTINGS_TOTAL_ITEMS;
 
   // Up/Down: Navigate items (only when not in nav bar)
   if (!ui_focus_is_nav_bar()) {
     if (btn_pressed(SCE_CTRL_UP)) {
       settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
+      settings_update_scroll_for_selection();
     } else if (btn_pressed(SCE_CTRL_DOWN)) {
       settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
+      settings_update_scroll_for_selection();
     }
   }
 
