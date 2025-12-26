@@ -1203,6 +1203,7 @@ static float ctrl_popup_drag_accum = 0.0f;
 #define MAPPING_OPTION_COUNT (sizeof(k_mapping_options) / sizeof(k_mapping_options[0]))
 #define POPUP_VISIBLE_OPTIONS 4
 #define POPUP_ROW_HEIGHT 44
+#define TOUCH_DEBOUNCE_FRAMES 10  // Debounce frames for touch input (~166ms at 60fps)
 
 static int ctrl_front_cursor_index = 0;
 static int ctrl_front_cursor_row = 0;
@@ -2120,7 +2121,7 @@ UIScreenType draw_controller_config_screen() {
         SceTouchData touch_front;
         sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_front, 1);
         if (touch_front.reportNum > 0 && ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY) {
-            if (current_frame - last_touch_frame >= 10) {
+            if (current_frame - last_touch_frame >= TOUCH_DEBOUNCE_FRAMES) {
                 float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
                 float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (touch_x >= diagram_x && touch_x <= diagram_x + diagram_w &&
