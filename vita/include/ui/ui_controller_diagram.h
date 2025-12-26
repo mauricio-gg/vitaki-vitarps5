@@ -104,6 +104,8 @@ typedef struct diagram_state_t {
     int selected_zone;              // Selected rear touchpad zone (0-3, -1 = none)
     bool front_selection[VITAKI_FRONT_TOUCH_GRID_COUNT]; // Active front-grid selection mask
     int front_selection_count;      // Number of selected front cells
+    bool back_selection[VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT]; // Active rear-grid selection mask
+    int back_selection_count;       // Number of selected rear cells
     int callout_page;               // Current summary callout page index
     int callout_page_count;         // Total summary callout pages
     float highlight_pulse;          // Callout highlight pulse (0.0-1.0)

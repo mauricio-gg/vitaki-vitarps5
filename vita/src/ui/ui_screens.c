@@ -36,6 +36,7 @@
 #include "ui/ui_components.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
+#include "ui/ui_graphics.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -1188,7 +1189,21 @@ static VitakiCtrlIn ctrl_popup_input = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
 static VitakiCtrlIn ctrl_popup_inputs[VITAKI_CTRL_IN_COUNT];
 static int ctrl_popup_input_count = 0;
 static VitakiCtrlOut ctrl_last_mapping_output = VITAKI_CTRL_OUT_L2;
-static int ctrl_back_slot_index = 0;
+static int ctrl_popup_scroll = 0;
+static bool ctrl_popup_touch_down = false;
+static int ctrl_popup_touch_choice = -1;
+static bool ctrl_popup_dragging = false;
+static float ctrl_popup_touch_initial_y = 0.0f;
+static float ctrl_popup_touch_last_y = 0.0f;
+static float ctrl_popup_drag_accum = 0.0f;
+#define FRONT_GRID_COUNT (VITAKI_FRONT_TOUCH_GRID_COUNT)
+#define FRONT_SLOT_COUNT FRONT_GRID_COUNT
+#define BACK_GRID_COUNT (VITAKI_REAR_TOUCH_GRID_ROWS * VITAKI_REAR_TOUCH_GRID_COLS)
+#define BACK_SLOT_COUNT (sizeof(k_back_touch_slots) / sizeof(k_back_touch_slots[0]))
+#define MAPPING_OPTION_COUNT (sizeof(k_mapping_options) / sizeof(k_mapping_options[0]))
+#define POPUP_VISIBLE_OPTIONS 4
+#define POPUP_ROW_HEIGHT 44
+
 static int ctrl_front_cursor_index = 0;
 static int ctrl_front_cursor_row = 0;
 static int ctrl_front_cursor_col = 0;
@@ -1198,6 +1213,15 @@ static bool ctrl_front_selection[VITAKI_FRONT_TOUCH_GRID_COUNT] = {0};
 static int ctrl_front_selection_count = 0;
 static int ctrl_front_drag_path[VITAKI_FRONT_TOUCH_GRID_COUNT] = {0};
 static int ctrl_front_drag_path_len = 0;
+static int ctrl_back_cursor_index = 0;
+static int ctrl_back_cursor_row = 0;
+static int ctrl_back_cursor_col = 0;
+static bool ctrl_back_drag_active = false;
+static bool ctrl_back_touch_active = false;
+static bool ctrl_back_selection[BACK_GRID_COUNT] = {0};
+static int ctrl_back_selection_count = 0;
+static int ctrl_back_drag_path[BACK_GRID_COUNT] = {0};
+static int ctrl_back_drag_path_len = 0;
 
 typedef struct mapping_option_t {
     VitakiCtrlOut output;
@@ -1269,25 +1293,16 @@ static const char* k_back_touch_labels[] = {
 };
 
 static const MappingOption k_mapping_options[] = {
-    { VITAKI_CTRL_OUT_L2 },
-    { VITAKI_CTRL_OUT_R2 },
-    { VITAKI_CTRL_OUT_L3 },
-    { VITAKI_CTRL_OUT_R3 },
-    { VITAKI_CTRL_OUT_TOUCHPAD },
-    { VITAKI_CTRL_OUT_SHARE },
     { VITAKI_CTRL_OUT_OPTIONS },
+    { VITAKI_CTRL_OUT_SHARE },
+    { VITAKI_CTRL_OUT_TOUCHPAD },
+    { VITAKI_CTRL_OUT_L2 },
+    { VITAKI_CTRL_OUT_L3 },
+    { VITAKI_CTRL_OUT_R2 },
+    { VITAKI_CTRL_OUT_R3 },
     { VITAKI_CTRL_OUT_PS },
-    { VITAKI_CTRL_OUT_TRIANGLE },
-    { VITAKI_CTRL_OUT_CIRCLE },
-    { VITAKI_CTRL_OUT_CROSS },
-    { VITAKI_CTRL_OUT_SQUARE },
     { VITAKI_CTRL_OUT_NONE },
 };
-
-#define FRONT_GRID_COUNT (VITAKI_FRONT_TOUCH_GRID_COUNT)
-#define FRONT_SLOT_COUNT FRONT_GRID_COUNT
-#define BACK_SLOT_COUNT (sizeof(k_back_touch_slots) / sizeof(k_back_touch_slots[0]))
-#define MAPPING_OPTION_COUNT (sizeof(k_mapping_options) / sizeof(k_mapping_options[0]))
 
 static inline int controller_front_index_from_row_col(int row, int col) {
     return row * VITAKI_FRONT_TOUCH_GRID_COLS + col;
@@ -1356,6 +1371,36 @@ static void controller_front_drag_visit_cell(int index) {
     }
 }
 
+static void controller_popup_update_scroll_for_selection(void) {
+    int max_scroll = MAX(0, (int)MAPPING_OPTION_COUNT - POPUP_VISIBLE_OPTIONS);
+    if (ctrl_popup_selection < 0)
+        ctrl_popup_selection = 0;
+    if (ctrl_popup_selection >= MAPPING_OPTION_COUNT)
+        ctrl_popup_selection = MAPPING_OPTION_COUNT - 1;
+    if (ctrl_popup_scroll > max_scroll)
+        ctrl_popup_scroll = max_scroll;
+    if (ctrl_popup_selection < ctrl_popup_scroll) {
+        ctrl_popup_scroll = ctrl_popup_selection;
+    } else if (ctrl_popup_selection >= ctrl_popup_scroll + POPUP_VISIBLE_OPTIONS) {
+        ctrl_popup_scroll = ctrl_popup_selection - POPUP_VISIBLE_OPTIONS + 1;
+    }
+    if (ctrl_popup_scroll < 0)
+        ctrl_popup_scroll = 0;
+}
+
+static void controller_popup_reset_scroll(void) {
+    ctrl_popup_scroll = 0;
+    controller_popup_update_scroll_for_selection();
+}
+
+static inline int controller_back_index_from_row_col(int row, int col) {
+    return row * VITAKI_REAR_TOUCH_GRID_COLS + col;
+}
+
+static inline VitakiCtrlIn controller_back_input_from_index(int index) {
+    return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + index);
+}
+
 static void controller_front_screen_rect(int diagram_x, int diagram_y, int diagram_w, int diagram_h,
                                          int* out_x, int* out_y, int* out_w, int* out_h) {
     int sx = diagram_x + (int)((float)diagram_w * VITA_SCREEN_X_RATIO);
@@ -1392,6 +1437,53 @@ static int controller_front_cell_from_point(int diagram_x, int diagram_y, int di
     return controller_front_index_from_row_col(row, col);
 }
 
+static void controller_back_pad_rect(int diagram_x, int diagram_y, int diagram_w, int diagram_h,
+                                     int* out_x, int* out_y, int* out_w, int* out_h) {
+    int px = diagram_x + (int)((float)diagram_w * VITA_RTOUCH_X_RATIO);
+    int py = diagram_y + (int)((float)diagram_h * VITA_RTOUCH_Y_RATIO);
+    int pw = (int)((float)diagram_w * VITA_RTOUCH_W_RATIO);
+    int ph = (int)((float)diagram_h * VITA_RTOUCH_H_RATIO);
+    if (pw < 1) pw = 1;
+    if (ph < 1) ph = 1;
+    if (out_x) *out_x = px;
+    if (out_y) *out_y = py;
+    if (out_w) *out_w = pw;
+    if (out_h) *out_h = ph;
+}
+
+static int controller_back_cell_from_point(int diagram_x, int diagram_y, int diagram_w, int diagram_h,
+                                           float point_x, float point_y) {
+    int pad_x, pad_y, pad_w, pad_h;
+    controller_back_pad_rect(diagram_x, diagram_y, diagram_w, diagram_h, &pad_x, &pad_y, &pad_w, &pad_h);
+    if (point_x < pad_x || point_x >= (float)(pad_x + pad_w) ||
+        point_y < pad_y || point_y >= (float)(pad_y + pad_h)) {
+        return -1;
+    }
+
+    float rel_x = (point_x - (float)pad_x) / (float)pad_w;
+    float rel_y = (point_y - (float)pad_y) / (float)pad_h;
+
+    int col = (int)(rel_x * VITAKI_REAR_TOUCH_GRID_COLS);
+    int row = (int)(rel_y * VITAKI_REAR_TOUCH_GRID_ROWS);
+    if (col < 0) col = 0;
+    if (col >= VITAKI_REAR_TOUCH_GRID_COLS) col = VITAKI_REAR_TOUCH_GRID_COLS - 1;
+    if (row < 0) row = 0;
+    if (row >= VITAKI_REAR_TOUCH_GRID_ROWS) row = VITAKI_REAR_TOUCH_GRID_ROWS - 1;
+    return controller_back_index_from_row_col(row, col);
+}
+
+static int controller_back_selection_collect(VitakiCtrlIn* out_inputs, int max_count) {
+    if (!out_inputs || max_count <= 0)
+        return 0;
+    int count = 0;
+    for (int i = 0; i < BACK_GRID_COUNT && count < max_count; i++) {
+        if (ctrl_back_selection[i]) {
+            out_inputs[count++] = controller_back_input_from_index(i);
+        }
+    }
+    return count;
+}
+
 static int controller_front_selection_collect(VitakiCtrlIn* out_inputs, int max_count) {
     if (!out_inputs || max_count <= 0)
         return 0;
@@ -1418,6 +1510,89 @@ static void controller_front_move_cursor(int delta_row, int delta_col) {
     ctrl_front_cursor_row = (ctrl_front_cursor_row + delta_row + VITAKI_FRONT_TOUCH_GRID_ROWS) % VITAKI_FRONT_TOUCH_GRID_ROWS;
     ctrl_front_cursor_col = (ctrl_front_cursor_col + delta_col + VITAKI_FRONT_TOUCH_GRID_COLS) % VITAKI_FRONT_TOUCH_GRID_COLS;
     controller_front_set_cursor_index(controller_front_index_from_row_col(ctrl_front_cursor_row, ctrl_front_cursor_col));
+}
+
+static inline int controller_back_index_from_row_col(int row, int col) {
+    return row * VITAKI_REAR_TOUCH_GRID_COLS + col;
+}
+
+static inline VitakiCtrlIn controller_back_input_from_index(int index) {
+    return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + index);
+}
+
+static void controller_back_selection_sync_diagram(void) {
+    memcpy(ctrl_diagram.back_selection, ctrl_back_selection, sizeof(ctrl_back_selection));
+    ctrl_diagram.back_selection_count = ctrl_back_selection_count;
+}
+
+static void controller_back_drag_reset_path(void) {
+    ctrl_back_drag_path_len = 0;
+}
+
+static void controller_back_selection_clear(void) {
+    memset(ctrl_back_selection, 0, sizeof(ctrl_back_selection));
+    ctrl_back_selection_count = 0;
+    controller_back_drag_reset_path();
+    controller_back_selection_sync_diagram();
+}
+
+static void controller_back_selection_add_index(int index) {
+    if (index < 0 || index >= BACK_GRID_COUNT)
+        return;
+    if (!ctrl_back_selection[index]) {
+        ctrl_back_selection[index] = true;
+        ctrl_back_selection_count++;
+        controller_back_selection_sync_diagram();
+    }
+}
+
+static void controller_back_selection_remove_index(int index) {
+    if (index < 0 || index >= BACK_GRID_COUNT)
+        return;
+    if (ctrl_back_selection[index]) {
+        ctrl_back_selection[index] = false;
+        if (ctrl_back_selection_count > 0)
+            ctrl_back_selection_count--;
+        controller_back_selection_sync_diagram();
+    }
+}
+
+static void controller_back_drag_visit_cell(int index) {
+    if (index < 0 || index >= BACK_GRID_COUNT)
+        return;
+
+    if (ctrl_back_drag_path_len > 0 && ctrl_back_drag_path[ctrl_back_drag_path_len - 1] == index)
+        return;
+
+    if (ctrl_back_drag_path_len > 1 && ctrl_back_drag_path[ctrl_back_drag_path_len - 2] == index) {
+        int last = ctrl_back_drag_path[ctrl_back_drag_path_len - 1];
+        controller_back_selection_remove_index(last);
+        ctrl_back_drag_path_len--;
+        return;
+    }
+
+    if (!ctrl_back_selection[index]) {
+        controller_back_selection_add_index(index);
+        if (ctrl_back_drag_path_len < BACK_GRID_COUNT) {
+            ctrl_back_drag_path[ctrl_back_drag_path_len++] = index;
+        }
+    }
+}
+
+static void controller_back_set_cursor_index(int index) {
+    if (index < 0)
+        index = 0;
+    if (index >= BACK_GRID_COUNT)
+        index = BACK_GRID_COUNT - 1;
+    ctrl_back_cursor_index = index;
+    ctrl_back_cursor_row = index / VITAKI_REAR_TOUCH_GRID_COLS;
+    ctrl_back_cursor_col = index % VITAKI_REAR_TOUCH_GRID_COLS;
+}
+
+static void controller_back_move_cursor(int delta_row, int delta_col) {
+    ctrl_back_cursor_row = (ctrl_back_cursor_row + delta_row + VITAKI_REAR_TOUCH_GRID_ROWS) % VITAKI_REAR_TOUCH_GRID_ROWS;
+    ctrl_back_cursor_col = (ctrl_back_cursor_col + delta_col + VITAKI_REAR_TOUCH_GRID_COLS) % VITAKI_REAR_TOUCH_GRID_COLS;
+    controller_back_set_cursor_index(controller_back_index_from_row_col(ctrl_back_cursor_row, ctrl_back_cursor_col));
 }
 
 static int find_preset_index_for_map(VitakiControllerMapId map_id) {
@@ -1464,20 +1639,19 @@ static void controller_compute_diagram_rect(ControllerDetailView detail_view,
     int diagram_h;
     int diagram_y;
 
+    int target_width = MIN(720, usable_width);
+    if (target_width <= 0) {
+        target_width = MIN(available_width, 720);
+    }
+
     if (detail_view == CTRL_DETAIL_SUMMARY) {
-        diagram_w = MIN(720, usable_width);
-        if (diagram_w <= 0) {
-            diagram_w = MIN(available_width, 720);
-        }
+        diagram_w = target_width;
         diagram_h = 330;
         diagram_y = CONTENT_START_Y + 60;
     } else {
-        diagram_w = MIN(CTRL_DIAGRAM_WIDTH, usable_width);
-        if (diagram_w <= 0) {
-            diagram_w = MIN(available_width, CTRL_DIAGRAM_WIDTH);
-        }
-        diagram_h = CTRL_DIAGRAM_HEIGHT;
-        diagram_y = CTRL_DIAGRAM_Y;
+        diagram_w = target_width;
+        diagram_h = 330;
+        diagram_y = CONTENT_START_Y + 60;
     }
 
     if (diagram_w > available_width) {
@@ -1612,6 +1786,12 @@ static void open_mapping_popup_multi(const VitakiCtrlIn* inputs, int count, bool
     if (!inputs || count <= 0)
         return;
     ctrl_popup_active = true;
+    ctrl_popup_touch_down = false;
+    ctrl_popup_touch_choice = -1;
+    ctrl_popup_dragging = false;
+    ctrl_popup_touch_initial_y = 0.0f;
+    ctrl_popup_touch_last_y = 0.0f;
+    ctrl_popup_drag_accum = 0.0f;
     ctrl_popup_front = is_front;
     ctrl_popup_input_count = MIN(count, VITAKI_CTRL_IN_COUNT);
     memcpy(ctrl_popup_inputs, inputs, ctrl_popup_input_count * sizeof(VitakiCtrlIn));
@@ -1631,6 +1811,7 @@ static void open_mapping_popup_multi(const VitakiCtrlIn* inputs, int count, bool
     if (initial == VITAKI_CTRL_OUT_NONE)
         initial = ctrl_last_mapping_output;
     ctrl_popup_selection = find_mapping_option_index(initial);
+    controller_popup_reset_scroll();
 }
 
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front) {
@@ -1641,10 +1822,19 @@ static void handle_mapping_popup_input(void) {
     if (!ctrl_popup_active)
         return;
 
+    const int popup_w = 420;
+    const int popup_h = 320;
+    const int popup_x = (VITA_WIDTH - popup_w) / 2;
+    const int popup_y = (VITA_HEIGHT - popup_h) / 2;
+    const int option_y_start = popup_y + 110;
+    const int option_row_height = 36;
+
     if (btn_pressed(SCE_CTRL_UP)) {
         ctrl_popup_selection = (ctrl_popup_selection - 1 + MAPPING_OPTION_COUNT) % MAPPING_OPTION_COUNT;
+        controller_popup_update_scroll_for_selection();
     } else if (btn_pressed(SCE_CTRL_DOWN)) {
         ctrl_popup_selection = (ctrl_popup_selection + 1) % MAPPING_OPTION_COUNT;
+        controller_popup_update_scroll_for_selection();
     } else if (btn_pressed(SCE_CTRL_CIRCLE)) {
         ctrl_popup_active = false;
         ctrl_popup_input_count = 0;
@@ -1654,6 +1844,69 @@ static void handle_mapping_popup_input(void) {
         ctrl_last_mapping_output = output;
         ctrl_popup_active = false;
         ctrl_popup_input_count = 0;
+        ctrl_popup_touch_down = false;
+        ctrl_popup_touch_choice = -1;
+    }
+
+    SceTouchData touch;
+    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
+    if (touch.reportNum > 0) {
+        float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+        float touch_y = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+        bool inside_popup = touch_x >= popup_x && touch_x <= popup_x + popup_w &&
+                            touch_y >= popup_y && touch_y <= popup_y + popup_h;
+        if (inside_popup) {
+            if (!ctrl_popup_touch_down) {
+                ctrl_popup_touch_down = true;
+                ctrl_popup_touch_initial_y = touch_y;
+                ctrl_popup_touch_last_y = touch_y;
+                ctrl_popup_drag_accum = 0.0f;
+                ctrl_popup_dragging = false;
+            }
+
+            float delta_y = touch_y - ctrl_popup_touch_last_y;
+            ctrl_popup_touch_last_y = touch_y;
+
+            if (fabsf(delta_y) > 4.0f) {
+                ctrl_popup_dragging = true;
+                ctrl_popup_drag_accum += delta_y;
+                int scroll_delta = (int)(ctrl_popup_drag_accum / option_row_height);
+                if (scroll_delta != 0) {
+                    ctrl_popup_drag_accum -= scroll_delta * option_row_height;
+                    ctrl_popup_scroll -= scroll_delta;
+                    if (ctrl_popup_scroll < 0)
+                        ctrl_popup_scroll = 0;
+                    int max_scroll = MAX(0, (int)MAPPING_OPTION_COUNT - POPUP_VISIBLE_OPTIONS);
+                    if (ctrl_popup_scroll > max_scroll)
+                        ctrl_popup_scroll = max_scroll;
+                }
+            }
+
+            if (!ctrl_popup_dragging &&
+                touch_y >= option_y_start && touch_y <= option_y_start + POPUP_VISIBLE_OPTIONS * option_row_height) {
+                int row = (int)((touch_y - option_y_start) / (float)option_row_height);
+                int option_index = ctrl_popup_scroll + row;
+                if (option_index >= 0 && option_index < MAPPING_OPTION_COUNT) {
+                    ctrl_popup_selection = option_index;
+                    controller_popup_update_scroll_for_selection();
+                    ctrl_popup_touch_choice = option_index;
+                }
+            }
+        }
+    } else if (ctrl_popup_touch_down) {
+        ctrl_popup_touch_down = false;
+        if (!ctrl_popup_dragging && ctrl_popup_touch_choice >= 0 && ctrl_popup_touch_choice < MAPPING_OPTION_COUNT) {
+            ctrl_popup_selection = ctrl_popup_touch_choice;
+            controller_popup_update_scroll_for_selection();
+            VitakiCtrlOut output = k_mapping_options[ctrl_popup_touch_choice].output;
+            apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
+            ctrl_last_mapping_output = output;
+            ctrl_popup_active = false;
+            ctrl_popup_input_count = 0;
+        }
+        ctrl_popup_touch_choice = -1;
+        ctrl_popup_dragging = false;
+        ctrl_popup_drag_accum = 0.0f;
     }
 }
 
@@ -1663,8 +1916,8 @@ static void render_mapping_popup(void) {
 
     vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 140));
 
-    int popup_w = 420;
-    int popup_h = 320;
+    int popup_w = 360;
+    int popup_h = 340;
     int popup_x = (VITA_WIDTH - popup_w) / 2;
     int popup_y = (VITA_HEIGHT - popup_h) / 2;
     ui_draw_card_with_shadow(popup_x, popup_y, popup_w, popup_h, 12, UI_COLOR_CARD_BG);
@@ -1681,19 +1934,70 @@ static void render_mapping_popup(void) {
     vita2d_font_draw_text(font, popup_x + 20, popup_y + 70, UI_COLOR_TEXT_SECONDARY,
                           FONT_SIZE_SMALL, slot_label);
 
-    int option_y = popup_y + 110;
-    for (int i = 0; i < MAPPING_OPTION_COUNT; i++) {
-        uint32_t row_color = (i == ctrl_popup_selection) ? UI_COLOR_PRIMARY_BLUE : RGBA8(55, 55, 60, 200);
-        uint32_t text_color = (i == ctrl_popup_selection) ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY;
-        ui_draw_rounded_rect(popup_x + 20, option_y - 18, popup_w - 40, 32, 8, row_color);
-        const char* option_name = controller_output_name(k_mapping_options[i].output);
-        vita2d_font_draw_text(font, popup_x + 30, option_y, text_color, FONT_SIZE_SMALL, option_name);
-        option_y += 36;
+    int content_x = popup_x + 24;
+    int content_y = popup_y + 115;
+    int content_w = popup_w - 64;
+    const float option_row_height = (float)POPUP_ROW_HEIGHT;
+    int option_y_start = content_y + 20;
+    int option_y = option_y_start;
+    const float scroll_row_h = option_row_height;
+    uint32_t panel_top = RGBA8(18, 20, 28, 230);
+    uint32_t panel_bottom = RGBA8(30, 34, 44, 245);
+    ui_draw_vertical_gradient_rect(content_x, content_y, content_w,
+                                   POPUP_VISIBLE_OPTIONS * POPUP_ROW_HEIGHT + 40,
+                                   panel_top, panel_bottom, 18);
+    int visible = MIN(POPUP_VISIBLE_OPTIONS, MAPPING_OPTION_COUNT);
+    for (int i = 0; i < visible; i++) {
+        int option_index = ctrl_popup_scroll + i;
+        if (option_index >= MAPPING_OPTION_COUNT)
+            break;
+        bool selected = (option_index == ctrl_popup_selection);
+        uint32_t row_color = selected ? UI_COLOR_PRIMARY_BLUE : RGBA8(55, 55, 60, 200);
+        uint32_t text_color = selected ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY;
+        uint32_t base_color = selected ? RGBA8(90, 120, 220, 255) : RGBA8(60, 60, 70, 200);
+        uint32_t glow_color = selected ? RGBA8(150, 190, 255, 220) : RGBA8(40, 40, 48, 220);
+        ui_draw_rounded_rect(content_x + 12, option_y - 18, content_w - 24, 36, 16, glow_color);
+        ui_draw_rounded_rect(content_x + 12, option_y - 18, content_w - 24, 36, 16, base_color);
+        const char* option_name = controller_output_name(k_mapping_options[option_index].output);
+        int label_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, option_name);
+        int label_x = content_x + (content_w - label_w) / 2;
+        vita2d_font_draw_text(font, label_x, option_y + 2, text_color, FONT_SIZE_SMALL, option_name);
+        option_y += POPUP_ROW_HEIGHT;
     }
 
-    const char* footer = "X: Assign   Circle: Cancel";
-    vita2d_font_draw_text(font, popup_x + 20, popup_y + popup_h - 30, UI_COLOR_TEXT_TERTIARY,
-                          FONT_SIZE_SMALL, footer);
+    if (MAPPING_OPTION_COUNT > POPUP_VISIBLE_OPTIONS) {
+        float content_h = (float)(POPUP_VISIBLE_OPTIONS * option_row_height);
+        float thumb_h = content_h * ((float)POPUP_VISIBLE_OPTIONS / (float)MAPPING_OPTION_COUNT);
+        if (thumb_h < 12.0f)
+            thumb_h = 12.0f;
+        float scroll_ratio = (float)ctrl_popup_scroll / (float)(MAPPING_OPTION_COUNT - POPUP_VISIBLE_OPTIONS);
+        float thumb_y = option_y_start + (content_h - thumb_h) * scroll_ratio;
+        int bar_x = content_x + content_w - 10;
+        ui_draw_rounded_rect(bar_x, option_y_start, 3, (int)content_h, 2, RGBA8(60, 65, 80, 180));
+        ui_draw_rounded_rect(bar_x - 1, (int)thumb_y, 5, (int)thumb_h, 2, RGBA8(150, 200, 255, 220));
+    }
+
+    int hint_y = popup_y + popup_h - 44;
+    const float hint_icon_scale = 0.6f;
+    int hint_spacing = 14;
+    int hint_total_w = (int)((32 * hint_icon_scale) * 2 + hint_spacing + 100);
+    int hint_start_x = popup_x + (popup_w - hint_total_w) / 2;
+    if (symbol_ex && symbol_circle) {
+        int icon_w = (int)(32 * hint_icon_scale);
+        int icon_h = (int)(32 * hint_icon_scale);
+        vita2d_draw_texture_scale(symbol_ex, hint_start_x, hint_y, hint_icon_scale, hint_icon_scale);
+        vita2d_font_draw_text(font, hint_start_x + icon_w + 6, hint_y + icon_h - 4,
+                              UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Assign");
+        int second_x = hint_start_x + icon_w + 70;
+        vita2d_draw_texture_scale(symbol_circle, second_x, hint_y, hint_icon_scale, hint_icon_scale);
+        vita2d_font_draw_text(font, second_x + icon_w + 6, hint_y + icon_h - 4,
+                              UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Cancel");
+    } else {
+        const char* fallback = "X Assign    O Cancel";
+        int fallback_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, fallback);
+        int fallback_x = popup_x + (popup_w - fallback_w) / 2;
+        vita2d_font_draw_text(font, fallback_x, hint_y + 8, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, fallback);
+    }
 }
 
 /**
@@ -1753,7 +2057,8 @@ UIScreenType draw_controller_config_screen() {
         ctrl_diagram.mode = callout_view_for_page(ctrl_diagram.callout_page);
         controller_front_set_cursor_index(0);
         controller_front_selection_clear();
-        ctrl_back_slot_index = 0;
+        controller_back_set_cursor_index(0);
+        controller_back_selection_clear();
         ctrl_preset_index = find_preset_index_for_map(context.config.controller_map_id);
         controller_apply_preset(ctrl_preset_index);
     }
@@ -1804,8 +2109,11 @@ UIScreenType draw_controller_config_screen() {
                     if (callout_view_for_page(ctrl_diagram.callout_page) == CTRL_VIEW_BACK) {
                         ctrl_diagram.detail_view = CTRL_DETAIL_BACK_MAPPING;
                         ctrl_diagram.mode = CTRL_VIEW_BACK;
-                        ctrl_back_slot_index = 0;
-                        ctrl_diagram.selected_zone = k_back_touch_slots[0];
+                        controller_back_set_cursor_index(0);
+                        controller_back_selection_clear();
+                        ctrl_back_drag_active = false;
+                        ctrl_back_touch_active = false;
+                        ctrl_diagram.selected_zone = controller_back_input_from_index(ctrl_back_cursor_index);
                     } else {
                         ctrl_diagram.detail_view = CTRL_DETAIL_FRONT_MAPPING;
                         ctrl_diagram.mode = CTRL_VIEW_FRONT;
@@ -1824,6 +2132,9 @@ UIScreenType draw_controller_config_screen() {
             ctrl_diagram.selected_zone = -1;
             ctrl_front_drag_active = false;
             controller_front_selection_clear();
+            ctrl_back_drag_active = false;
+            ctrl_back_touch_active = false;
+            controller_back_selection_clear();
         }
 
         if (ctrl_diagram.detail_view == CTRL_DETAIL_FRONT_MAPPING) {
@@ -1900,14 +2211,77 @@ UIScreenType draw_controller_config_screen() {
                 }
             }
         } else if (ctrl_diagram.detail_view == CTRL_DETAIL_BACK_MAPPING) {
-            if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN)) {
-                ctrl_back_slot_index = (ctrl_back_slot_index + 1) % BACK_SLOT_COUNT;
-            } else if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP)) {
-                ctrl_back_slot_index = (ctrl_back_slot_index - 1 + BACK_SLOT_COUNT) % BACK_SLOT_COUNT;
+            if (touch_front.reportNum > 0) {
+                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                if (!ctrl_back_touch_active) {
+                    ctrl_back_touch_active = true;
+                    controller_back_selection_clear();
+                    controller_back_drag_reset_path();
+                }
+                int cell_index = controller_back_cell_from_point(diagram_x, diagram_y, diagram_w, diagram_h,
+                                                                 touch_x, touch_y);
+                if (cell_index >= 0) {
+                    controller_back_drag_visit_cell(cell_index);
+                    controller_back_set_cursor_index(cell_index);
+                }
+            } else if (ctrl_back_touch_active) {
+                ctrl_back_touch_active = false;
+                VitakiCtrlIn selection_inputs[BACK_GRID_COUNT];
+                int selection_count = controller_back_selection_collect(selection_inputs, BACK_GRID_COUNT);
+                controller_back_selection_clear();
+                if (selection_count > 0) {
+                    open_mapping_popup_multi(selection_inputs, selection_count, false);
+                }
             }
-            ctrl_diagram.selected_zone = k_back_touch_slots[ctrl_back_slot_index];
+
+            if (btn_pressed(SCE_CTRL_RIGHT)) {
+                controller_back_move_cursor(0, 1);
+            } else if (btn_pressed(SCE_CTRL_LEFT)) {
+                controller_back_move_cursor(0, -1);
+            } else if (btn_pressed(SCE_CTRL_DOWN)) {
+                controller_back_move_cursor(1, 0);
+            } else if (btn_pressed(SCE_CTRL_UP)) {
+                controller_back_move_cursor(-1, 0);
+            }
+
+            if (ctrl_back_drag_active && btn_down(SCE_CTRL_CROSS)) {
+                controller_back_selection_add_index(ctrl_back_cursor_index);
+            }
+
+            ctrl_diagram.selected_zone = controller_back_input_from_index(ctrl_back_cursor_index);
+
+            if (btn_pressed(SCE_CTRL_TRIANGLE)) {
+                open_mapping_popup_single(VITAKI_CTRL_IN_REARTOUCH_ANY, false);
+            }
+
+            if (btn_pressed(SCE_CTRL_SQUARE)) {
+                VitakiCtrlIn target = controller_back_input_from_index(ctrl_back_cursor_index);
+                apply_mapping_change_single(target, VITAKI_CTRL_OUT_NONE);
+            }
+
+            if (btn_pressed(SCE_CTRL_SELECT)) {
+                VitakiCtrlIn clear_inputs[BACK_GRID_COUNT];
+                for (int i = 0; i < BACK_GRID_COUNT; i++) {
+                    clear_inputs[i] = controller_back_input_from_index(i);
+                }
+                apply_mapping_change_multi(clear_inputs, BACK_GRID_COUNT, VITAKI_CTRL_OUT_NONE);
+            }
+
             if (btn_pressed(SCE_CTRL_CROSS)) {
-                open_mapping_popup_single(k_back_touch_slots[ctrl_back_slot_index], false);
+                ctrl_back_drag_active = true;
+                controller_back_selection_clear();
+                controller_back_drag_reset_path();
+                controller_back_selection_add_index(ctrl_back_cursor_index);
+                controller_back_drag_visit_cell(ctrl_back_cursor_index);
+            } else if (ctrl_back_drag_active && btn_released(SCE_CTRL_CROSS)) {
+                ctrl_back_drag_active = false;
+                VitakiCtrlIn selection_inputs[BACK_GRID_COUNT];
+                int selection_count = controller_back_selection_collect(selection_inputs, BACK_GRID_COUNT);
+                controller_back_selection_clear();
+                if (selection_count > 0) {
+                    open_mapping_popup_multi(selection_inputs, selection_count, false);
+                }
             }
         }
     }

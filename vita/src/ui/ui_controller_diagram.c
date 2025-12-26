@@ -791,7 +791,7 @@ static void draw_front_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapI
     draw_zone_mapping_text(screen_x + screen_w / 2, screen_y + FONT_SIZE_SMALL, "Full", full_text);
 }
 
-static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapInfo* map) {
+static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapInfo* map, const bool* selection_mask) {
     if (!ctx || !map)
         return;
 
@@ -824,6 +824,8 @@ static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapIn
         }
     }
 
+    uint32_t selection_fill = RGBA8(70, 120, 255, 110);
+    uint32_t selection_border = RGBA8(255, 90, 180, 230);
     uint32_t mapped_fill = RGBA8(80, 130, 255, 90);
     uint32_t mapped_border = RGBA8(255, 65, 170, 220);
     uint32_t dashed_border = RGBA8(255, 255, 255, 190);
@@ -850,7 +852,13 @@ static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapIn
         if (fill_w < 1) fill_w = 1;
         if (fill_h < 1) fill_h = 1;
 
+        bool is_selected = selection_mask && selection_mask[idx];
         bool has_mapping = slot_outputs[idx] != VITAKI_CTRL_OUT_NONE;
+        if (is_selected) {
+            vita2d_draw_rectangle(fill_x, fill_y, fill_w, fill_h, selection_fill);
+            ui_draw_rectangle_outline(zx, zy, zw, zh, selection_border);
+            continue;
+        }
         if (has_mapping) {
             vita2d_draw_rectangle(fill_x, fill_y, fill_w, fill_h, mapped_fill);
 
@@ -2248,7 +2256,8 @@ void ui_diagram_render(DiagramState* state, const VitakiCtrlMapInfo* map, int x,
         draw_front_touch_overlay(&ctx, map, selection);
     } else if (state->mode == CTRL_VIEW_BACK &&
                (state->detail_view == CTRL_DETAIL_SUMMARY || state->detail_view == CTRL_DETAIL_BACK_MAPPING)) {
-        draw_back_touch_overlay(&ctx, map);
+        const bool* selection = (state->detail_view == CTRL_DETAIL_BACK_MAPPING) ? state->back_selection : NULL;
+        draw_back_touch_overlay(&ctx, map, selection);
     }
 
     // Draw overlays based on detail view
