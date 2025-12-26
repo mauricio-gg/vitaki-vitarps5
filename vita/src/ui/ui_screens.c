@@ -1512,14 +1512,6 @@ static void controller_front_move_cursor(int delta_row, int delta_col) {
     controller_front_set_cursor_index(controller_front_index_from_row_col(ctrl_front_cursor_row, ctrl_front_cursor_col));
 }
 
-static inline int controller_back_index_from_row_col(int row, int col) {
-    return row * VITAKI_REAR_TOUCH_GRID_COLS + col;
-}
-
-static inline VitakiCtrlIn controller_back_input_from_index(int index) {
-    return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + index);
-}
-
 static void controller_back_selection_sync_diagram(void) {
     memcpy(ctrl_diagram.back_selection, ctrl_back_selection, sizeof(ctrl_back_selection));
     ctrl_diagram.back_selection_count = ctrl_back_selection_count;
