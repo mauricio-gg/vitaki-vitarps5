@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2025-12-12 (UI Refactoring Complete - Removed from TODO)
+Last Updated: 2025-12-14 (Controller Diagram Polish Complete - All Controller Layout Work Finished)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.

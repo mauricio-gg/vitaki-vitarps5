@@ -53,6 +53,7 @@
 #include "ui/ui_navigation.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_controller_diagram.h"
 
 vita2d_font* font;
 vita2d_font* font_mono;
@@ -268,6 +269,8 @@ void load_textures() {
   vita_rps5_logo = vita2d_load_PNG_file("app0:/assets/Vita_RPS5_Logo.png");
   vita_front = vita2d_load_PNG_file("app0:/assets/Vita_Front.png");
   ps5_logo = vita2d_load_PNG_file("app0:/assets/PS5_logo.png");
+
+  // Controller diagram now uses procedural rendering - no PNGs to load
 }
 
 // ============================================================================

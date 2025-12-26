@@ -4,6 +4,7 @@
 
 #include "host.h"
 #include "logging.h"
+#include "controller.h"
 
 #define CFG_VERSION 1
 #define CFG_FILENAME "ux0:data/vita-chiaki/chiaki.toml"
@@ -42,6 +43,8 @@ typedef struct vita_chiaki_config_t {
   // TODO: Loglevel
   // controller map id // TODO should probably replace with fully customizable map
   int controller_map_id;
+  ControllerMapStorage custom_map;
+  bool custom_map_valid;
   bool circle_btn_confirm;
   bool show_latency;  // Display real-time latency in Profile screen
   bool show_network_indicator; // Display "Network unstable" overlay in stream HUD

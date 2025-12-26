@@ -184,6 +184,8 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
   cfg->controller_map_id = 0;
+  controller_map_storage_set_defaults(&cfg->custom_map);
+  cfg->custom_map_valid = false;
   cfg->show_latency = false;  // Default: latency display disabled
   cfg->show_network_indicator = true;
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
@@ -270,6 +272,25 @@ void config_parse(VitaChiakiConfig* cfg) {
       datum = toml_int_in(settings, "controller_map_id");
       if (datum.ok) {
         cfg->controller_map_id = datum.u.i;
+      }
+
+      toml_table_t* custom_map = toml_table_in(parsed, "controller_custom_map");
+      if (custom_map) {
+        datum = toml_bool_in(custom_map, "valid");
+        cfg->custom_map_valid = datum.ok ? datum.u.b : false;
+
+        if (cfg->custom_map_valid) {
+          for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+            char key[24];
+            snprintf(key, sizeof(key), "slot_%d", i);
+            datum = toml_int_in(custom_map, key);
+            cfg->custom_map.in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
+          }
+          datum = toml_int_in(custom_map, "in_l2");
+          cfg->custom_map.in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+          datum = toml_int_in(custom_map, "in_r2");
+          cfg->custom_map.in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+        }
       }
 
       datum = toml_bool_in(settings, "circle_btn_confirm");
@@ -589,6 +610,13 @@ void config_serialize(VitaChiakiConfig* cfg) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
+  fprintf(fp, "\n[controller_custom_map]\n");
+  fprintf(fp, "valid = %s\n", cfg->custom_map_valid ? "true" : "false");
+  fprintf(fp, "in_l2 = %d\n", cfg->custom_map.in_l2);
+  fprintf(fp, "in_r2 = %d\n", cfg->custom_map.in_r2);
+  for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+    fprintf(fp, "slot_%d = %d\n", i, cfg->custom_map.in_out_btn[i]);
+  }
   fprintf(fp, "circle_btn_confirm = %s\n",
           cfg->circle_btn_confirm ? "true" : "false");
   fprintf(fp, "show_latency = %s\n",

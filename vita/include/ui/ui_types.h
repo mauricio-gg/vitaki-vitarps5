@@ -235,6 +235,19 @@ typedef struct text_width_cache_entry_t {
 } TextWidthCacheEntry;
 
 // ============================================================================
+// Controller Layout Types
+// ============================================================================
+
+/**
+ * Controller view modes for immersive layout
+ */
+typedef enum controller_view_mode_t {
+    CTRL_VIEW_FRONT = 0,  // Front view (D-pad, face buttons, sticks)
+    CTRL_VIEW_BACK,       // Back view (rear touchpad quadrants)
+    CTRL_VIEW_BOTH        // Both views shown (front above, back below)
+} ControllerViewMode;
+
+// ============================================================================
 // Widget ID Types (for legacy compatibility)
 // ============================================================================
 

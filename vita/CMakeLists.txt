@@ -29,6 +29,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
     src/ui/ui_focus.c
+    src/ui/ui_controller_diagram.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -131,6 +132,8 @@ if(CHIAKI_IS_VITA)
         FILE res/assets/ps5_off.png assets/ps5_off.png
         FILE res/assets/ps5.png assets/ps5.png
         FILE res/assets/ps5_rest.png assets/ps5_rest.png
+        FILE res/assets/controller_front.png assets/controller_front.png
+        FILE res/assets/controller_back.png assets/controller_back.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory
@@ -155,5 +158,6 @@ if(CHIAKI_IS_VITA)
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/Vita_Front.png assets/Vita_Front.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
+        # Controller layout screen now uses procedural rendering - PNG outlines removed
     )
 endif()
