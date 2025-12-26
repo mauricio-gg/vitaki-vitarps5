@@ -790,6 +790,9 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
 
         // Check pill touch first when collapsed
         if (ui_nav_handle_pill_touch(tx, ty)) {
+            // Sync icon to current screen (same as Triangle button behavior)
+            selected_nav_icon = ui_nav_icon_for_screen(current_screen);
+            ui_focus_move_to_nav_bar();
             ui_nav_request_expand();
             *touch_block_active = true;  // Prevent immediate re-collapse
             return false;

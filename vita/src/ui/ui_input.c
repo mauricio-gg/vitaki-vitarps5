@@ -86,6 +86,12 @@ void ui_input_clear_button_blocks(void) {
   button_block_mask &= context.ui_state.button_state;
 }
 
+void ui_input_block_button(SceCtrlButtons btn) {
+  // Block specific button(s) for the rest of this frame
+  // Useful when a button action should not be processed by subsequent handlers
+  button_block_mask |= btn;
+}
+
 // ============================================================================
 // Touch Input Implementation
 // ============================================================================

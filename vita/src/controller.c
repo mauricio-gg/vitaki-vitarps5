@@ -8,12 +8,9 @@
  * These map user-friendly names and descriptions to VitakiControllerMapId values
  */
 const ControllerPresetDef g_controller_presets[CTRL_PRESET_COUNT] = {
-    { "Default", "Standard layout with rear touch L2/R2", VITAKI_CONTROLLER_MAP_0 },
-    { "Shooter", "Optimized for FPS games with quick L2/R2", VITAKI_CONTROLLER_MAP_1 },
-    { "Racing", "Front touch zones for triggers", VITAKI_CONTROLLER_MAP_3 },
-    { "Fighting", "Precise face button mapping", VITAKI_CONTROLLER_MAP_4 },
-    { "Classic", "Remote Play default layout", VITAKI_CONTROLLER_MAP_25 },
-    { "Custom", "Your personalized mapping", VITAKI_CONTROLLER_MAP_99 }
+    { "Custom 1", "Your first custom mapping", VITAKI_CONTROLLER_MAP_CUSTOM_1 },
+    { "Custom 2", "Your second custom mapping", VITAKI_CONTROLLER_MAP_CUSTOM_2 },
+    { "Custom 3", "Your third custom mapping", VITAKI_CONTROLLER_MAP_CUSTOM_3 }
 };
 
 void controller_map_storage_from_vcmi(ControllerMapStorage* storage, const VitakiCtrlMapInfo* vcmi) {
@@ -125,9 +122,16 @@ void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controll
   vcmi->in_out_btn[VITAKI_CTRL_IN_R1]                  = VITAKI_CTRL_OUT_R1;
   vcmi->in_out_btn[VITAKI_CTRL_IN_SELECT_START]        = VITAKI_CTRL_OUT_PS;
 
-  if (controller_map_id == VITAKI_CONTROLLER_MAP_99) {
-    if (context.config.custom_map_valid) {
-      controller_map_storage_apply(&context.config.custom_map, vcmi);
+  // Handle custom preset slots
+  if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_1 ||
+      controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2 ||
+      controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_3) {
+    int slot = 0;
+    if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2) slot = 1;
+    else if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_3) slot = 2;
+
+    if (context.config.custom_maps_valid[slot]) {
+      controller_map_storage_apply(&context.config.custom_maps[slot], vcmi);
       return;
     }
     apply_default_custom_map(vcmi);

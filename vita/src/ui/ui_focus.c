@@ -129,6 +129,9 @@ bool ui_focus_handle_zone_crossing(UIScreenType current_screen) {
     if (ui_input_btn_pressed(SCE_CTRL_RIGHT) && ui_focus_is_nav_bar()) {
         ui_focus_move_to_content(current_screen);
         ui_nav_request_collapse(true);
+        // Block the RIGHT button so screen handlers don't also process it
+        // (e.g., controller preset cycling, settings navigation)
+        ui_input_block_button(SCE_CTRL_RIGHT);
         return true;  // Input consumed
     }
 

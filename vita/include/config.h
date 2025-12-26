@@ -41,10 +41,10 @@ typedef struct vita_chiaki_config_t {
   VitaChiakiHost* registered_hosts[MAX_NUM_HOSTS];
   // TODO: Logfile path
   // TODO: Loglevel
-  // controller map id // TODO should probably replace with fully customizable map
+  // controller map id - corresponds to custom slot index (0, 1, or 2)
   int controller_map_id;
-  ControllerMapStorage custom_map;
-  bool custom_map_valid;
+  ControllerMapStorage custom_maps[3];   // 3 independent custom mapping slots
+  bool custom_maps_valid[3];             // Validity flags for each custom slot
   bool circle_btn_confirm;
   bool show_latency;  // Display real-time latency in Profile screen
   bool show_network_indicator; // Display "Network unstable" overlay in stream HUD
