@@ -846,9 +846,6 @@ static void draw_front_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapI
         draw_zone_mapping_text(regions[r].center_x, regions[r].center_y, "", label);
     }
 
-    VitakiCtrlOut full_touch = controller_map_get_output_for_input(map, VITAKI_CTRL_IN_FRONTTOUCH_ANY);
-    const char* full_text = controller_output_symbol(full_touch);
-    draw_zone_mapping_text(screen_x + screen_w / 2, screen_y + FONT_SIZE_SMALL, "Full", full_text);
 }
 
 static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapInfo* map, const bool* selection_mask) {
@@ -1011,11 +1008,6 @@ static void draw_back_touch_overlay(DiagramRenderCtx* ctx, const VitakiCtrlMapIn
         }
     }
 
-    int full_x, full_y, full_w, full_h;
-    if (ui_diagram_back_zone_rect(ctx, VITAKI_CTRL_IN_REARTOUCH_ANY, &full_x, &full_y, &full_w, &full_h)) {
-        VitakiCtrlOut mapped = controller_map_get_output_for_input(map, VITAKI_CTRL_IN_REARTOUCH_ANY);
-        draw_zone_mapping_text(full_x + full_w / 2, pad_y + FONT_SIZE_SMALL, "Full", controller_output_symbol(mapped));
-    }
 }
 // ============================================================================
 // Procedural Drawing Functions - Front View

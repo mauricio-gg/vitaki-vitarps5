@@ -2099,6 +2099,14 @@ UIScreenType draw_controller_config_screen() {
             } else if (btn_pressed(SCE_CTRL_RTRIGGER)) {
                 change_callout_page(1);
             }
+            if (btn_pressed(SCE_CTRL_SQUARE)) {
+                ControllerViewMode view = callout_view_for_page(ctrl_diagram.callout_page);
+                if (view == CTRL_VIEW_BACK) {
+                    controller_back_clear_all_mappings();
+                } else {
+                    controller_front_clear_all_mappings();
+                }
+            }
         }
 
         static uint64_t last_touch_frame = 0;
@@ -2319,7 +2327,7 @@ UIScreenType draw_controller_config_screen() {
             UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
             g_controller_presets[ctrl_preset_index].description);
 
-        const char* hint = "L/R: Scroll Callouts | D-Pad: Cycle Preset | Tap Diagram to Edit | Triangle: Menu";
+        const char* hint = "L/R: Scroll Callouts | D-Pad: Cycle Preset | Tap Diagram to Edit | Square: Clear View | Triangle: Menu";
         int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
         int hint_x = layout_center_x - hint_w / 2;
         vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20,
