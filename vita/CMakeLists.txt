@@ -37,12 +37,8 @@ add_executable(${VITA_APP_NAME}.elf
 	third_party/h264-bitstream/h264_stream.c
 )
 
-
-# Disable logging in production (Release) builds by default
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_definitions(-DVITARPS5_LOGGING_DEFAULT_ENABLED=0)
-    add_definitions(-DVITARPS5_DEFAULT_LOG_PROFILE=VITA_LOG_PROFILE_ERRORS)
-endif()
+# Logging configuration is controlled via environment files (.env.prod, .env.testing)
+# and passed to CMake via build.sh. No hardcoded defaults here to avoid redefinition warnings.
 
 target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC
     CHIAKI_VERSION="${CHIAKI_VERSION}"

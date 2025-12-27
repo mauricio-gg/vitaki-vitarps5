@@ -28,7 +28,6 @@ typedef struct vita_chiaki_config_t {
   int cfg_version;
   char* psn_account_id;                      // ✅ USED IN UI
   bool auto_discovery;                        // ✅ USED IN UI
-  VitaChiakiDisconnectAction disconnect_action;
   ChiakiVideoResolutionPreset resolution;    // ✅ USED IN UI (540p/360p only)
   ChiakiVideoFPSPreset fps;                  // ✅ USED IN UI (30/60)
   VitaChiakiHost* manual_hosts[MAX];

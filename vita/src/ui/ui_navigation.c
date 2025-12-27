@@ -839,6 +839,10 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
         }
 
         if (btn_pressed(SCE_CTRL_CROSS)) {
+            // Collapse menu when selecting a page (unless pinned)
+            if (nav_collapse.state == NAV_STATE_EXPANDED && !context.config.keep_nav_pinned) {
+                ui_nav_request_collapse(true);
+            }
             if (out_screen) {
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
                 // Reset focus to content area for the new screen
