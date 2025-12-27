@@ -197,6 +197,7 @@ static bool should_drop_frame_for_pacing(void) {
 }
 
 void update_scaling_settings(int width, int height) {
+  // Initialize defaults - full screen
   image_scaling.texture_width = SCREEN_WIDTH;
   image_scaling.texture_height = SCREEN_HEIGHT;
   image_scaling.origin_x = 0;
@@ -206,30 +207,13 @@ void update_scaling_settings(int width, int height) {
   image_scaling.region_x2 = SCREEN_WIDTH;
   image_scaling.region_y2 = SCREEN_HEIGHT;
 
-  double scaled_width = (double) SCREEN_HEIGHT * width / height;
-  double scaled_height = (double) SCREEN_WIDTH * height / width;
-
-  if (context.config.stretch_video) {
-    if (SCREEN_WIDTH * height == SCREEN_HEIGHT * width) {
-      // matches aspect; already fills screen
-      image_scaling.region_x2 = SCREEN_WIDTH;
-      image_scaling.region_y2 = SCREEN_HEIGHT;
-    } else if (SCREEN_WIDTH * height > SCREEN_HEIGHT * width) {
-      image_scaling.texture_width = VITA_DECODER_RESOLUTION(scaled_width);
-      image_scaling.region_x2 = VITA_DECODER_RESOLUTION(scaled_width);
-      image_scaling.origin_x = round((double) (SCREEN_WIDTH - image_scaling.texture_width) / 2);
-      image_scaling.region_y2 = SCREEN_HEIGHT;
-    } else {
-      image_scaling.texture_height = VITA_DECODER_RESOLUTION(scaled_height);
-      image_scaling.region_y2 = VITA_DECODER_RESOLUTION(scaled_height);
-      image_scaling.origin_y = round((double) (SCREEN_HEIGHT - image_scaling.texture_height) / 2);
-      image_scaling.region_x2 = SCREEN_WIDTH;
-    }
-  } else {
-    float scale = 1.0f;
+  // Fill Screen mode uses vita2d_draw_texture_scale in draw_streaming()
+  // so we only need to calculate aspect-preserving layout here
+  if (!context.config.stretch_video) {
+    // Aspect-ratio preserving mode - fit video with letterboxing/pillarboxing
     float scale_w = (float)SCREEN_WIDTH / (float)width;
     float scale_h = (float)SCREEN_HEIGHT / (float)height;
-    scale = scale_w < scale_h ? scale_w : scale_h;
+    float scale = scale_w < scale_h ? scale_w : scale_h;
     if (scale > 1.0f)
       scale = 1.0f;
 
@@ -239,18 +223,8 @@ void update_scaling_settings(int width, int height) {
     image_scaling.origin_y = round((SCREEN_HEIGHT - image_scaling.region_y2) / 2.0f);
   }
 
-  LOGD("update_scaling_settings: width = %u\n", width);
-  LOGD("update_scaling_settings: height = %u\n", height);
-  LOGD("update_scaling_settings: scaled_width = %f\n", scaled_width);
-  LOGD("update_scaling_settings: scaled_height = %f\n", scaled_height);
-  LOGD("update_scaling_settings: image_scaling.texture_width = %u\n", image_scaling.texture_width);
-  LOGD("update_scaling_settings: image_scaling.texture_height = %u\n", image_scaling.texture_height);
-  LOGD("update_scaling_settings: image_scaling.origin_x = %f\n", image_scaling.origin_x);
-  LOGD("update_scaling_settings: image_scaling.origin_y = %f\n", image_scaling.origin_y);
-  LOGD("update_scaling_settings: image_scaling.region_x1 = %f\n", image_scaling.region_x1);
-  LOGD("update_scaling_settings: image_scaling.region_y1 = %f\n", image_scaling.region_y1);
-  LOGD("update_scaling_settings: image_scaling.region_x2 = %f\n", image_scaling.region_x2);
-  LOGD("update_scaling_settings: image_scaling.region_y2 = %f\n", image_scaling.region_y2);
+  LOGD("update_scaling_settings: %dx%d, stretch=%s", width, height,
+       context.config.stretch_video ? "true" : "false");
 }
 
 static int vita_pacer_thread_main(SceSize args, void *argp) {
@@ -932,13 +906,22 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
 void draw_streaming(vita2d_texture *frame_texture) {
   // ui is still rendering in the background, clear the screen first
   vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RGBA8(0, 0, 0, 255));
-  vita2d_draw_texture_part(frame_texture,
-                           image_scaling.origin_x,
-                           image_scaling.origin_y,
-                           image_scaling.region_x1,
-                           image_scaling.region_y1,
-                           image_scaling.region_x2,
-                           image_scaling.region_y2);
+
+  if (context.config.stretch_video) {
+    // Fill Screen: Scale texture to fill entire screen (distorts aspect ratio)
+    float scale_x = (float)SCREEN_WIDTH / (float)vita2d_texture_get_width(frame_texture);
+    float scale_y = (float)SCREEN_HEIGHT / (float)vita2d_texture_get_height(frame_texture);
+    vita2d_draw_texture_scale(frame_texture, 0, 0, scale_x, scale_y);
+  } else {
+    // Aspect-preserving: Draw with calculated origin and region
+    vita2d_draw_texture_part(frame_texture,
+                             image_scaling.origin_x,
+                             image_scaling.origin_y,
+                             image_scaling.region_x1,
+                             image_scaling.region_y1,
+                             image_scaling.region_x2,
+                             image_scaling.region_y2);
+  }
 }
 
 extern vita2d_font* font;

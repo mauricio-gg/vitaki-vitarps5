@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2025-12-14 (Controller Layout Redesign Phase 2 Code Review Complete)
+**Last Updated:** 2025-12-27 (Settings Audit Documentation)
 **Status:** Generated from codebase analysis
 
 ---
@@ -436,6 +436,65 @@ UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "(Coming Soon)");
 
 ---
 
+### 26. Rest Mode Assets (Unused)
+**File:** `vita/src/ui.c`
+**Status:** Cosmetic incomplete
+**Priority:** Low
+**Description:** `img_ps4_rest` and `img_ps5_rest` textures are loaded at startup but never displayed in the UI. These were intended to show a visual indicator when a console is in Rest Mode state.
+
+**Impact:** No functional impact - purely cosmetic. The textures use memory but serve no purpose until the Rest Mode visual indicator is implemented.
+
+**Notes:**
+- Related to console state display in the home screen console cards
+- Would complement the existing `img_ps4_on`/`img_ps5_on` and `img_ps4_off`/`img_ps5_off` textures
+
+---
+
+## Code Cleanup Notes
+
+This section documents dead code that has been removed and the rationale behind its removal.
+
+### disconnect_action Config Field (Removed)
+**Status:** ✅ Removed (2025-12-27)
+**Original Files:** `vita/src/config.c`, `vita/include/config.h`
+**Description:** The `disconnect_action` configuration field was designed to control console behavior when a Remote Play stream disconnects. Supported values were:
+- `DISCONNECT_ACTION_REST` - Put console in Rest Mode
+- `DISCONNECT_ACTION_NOTHING` - Leave console running
+- `DISCONNECT_ACTION_ASK` - Prompt user for action
+
+**Reason for Removal:** This feature was never implemented beyond the config infrastructure:
+- No runtime code checked or used the value
+- No UI controls existed to configure it
+- The PS5/PS4 Remote Play protocol handles disconnect behavior server-side
+
+**Impact:** Reduces code complexity and config file clutter. No functionality was lost since the feature never worked.
+
+---
+
+## Design Notes & Clarifications
+
+This section clarifies intentional design decisions that may appear as limitations.
+
+### FPS Behavior (Intentional)
+**Status:** By Design
+**Related Files:** `vita/src/video.c`, `vita/src/ui.c` (Settings)
+**Description:** The "Force 30 FPS Output" setting in Video Settings may cause confusion. Here's how FPS handling actually works:
+
+**Technical Details:**
+- **PS5 always streams at 60fps** regardless of what the client requests in the initial handshake
+- The `fps_30` config option does NOT request 30fps from the console
+- Instead, the Vita client uses **local frame pacing** to drop every other frame, achieving 30fps display
+- This is controlled by the "Force 30 FPS Output" toggle in Settings > Video
+
+**Why this exists:**
+- The PS Vita hardware benefits from 30fps rendering due to CPU/GPU constraints
+- Lower frame rate reduces decode workload and can improve streaming stability
+- Users can disable this to receive full 60fps if their network/hardware supports it
+
+**This is NOT a bug** - it's an intentional performance optimization for the Vita platform.
+
+---
+
 ## Summary by Priority
 
 ### High Priority (1 item)
@@ -452,7 +511,7 @@ UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "(Coming Soon)");
 11. Manual Host Deletion
 12. Connection Abort
 
-### Low Priority (14 items)
+### Low Priority (15 items)
 13. Main Cleanup
 14. Dynamic Version Configuration
 15. Registered Host Storage Optimization
@@ -466,9 +525,40 @@ UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "(Coming Soon)");
 23. Profile Screen Scrolling
 24. PSN Profile Picture
 25. Settings Features (Coming Soon)
+26. Rest Mode Assets (Unused)
 
 ### Out of Scope (1 item)
 - PSTV Touch Support
+
+---
+
+## Future Enhancements
+
+These are ideas for future development that would enhance the user experience but are not currently planned for immediate implementation.
+
+### In-Stream Overlay Menu
+**Priority:** Medium
+**Description:** Add an overlay menu accessible during streaming that allows users to adjust settings without disconnecting.
+
+**Current Behavior:**
+- During streaming, all controller inputs go directly to the PS5/PS4
+- The only way to access the VitaRPS5 menu is to hold **L + R + Start** for ~1 second to stop the stream
+- No on-screen HUD or overlay exists during streaming
+
+**Proposed Enhancement:**
+- Add a button combo (e.g., **L + R + Triangle**) to toggle an overlay menu during streaming
+- Overlay would pause input forwarding while open
+- Quick access to commonly changed settings:
+  - Fill Screen toggle
+  - Latency Mode adjustment
+  - Show/Hide Latency stats
+  - Disconnect option
+- Semi-transparent overlay that doesn't fully obscure the stream
+
+**Implementation Notes:**
+- Would require changes to `vita/src/host.c` input thread to intercept combo
+- New overlay rendering in `vita/src/video.c` or separate overlay module
+- Need to handle input state carefully to avoid sending menu inputs to console
 
 ---
 

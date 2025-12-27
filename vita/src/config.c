@@ -103,15 +103,6 @@ void zero_pad(char* buf, size_t size) {
   }
 }
 
-VitaChiakiDisconnectAction parse_disconnect_action(char* action) {
-  if (strcmp(action, "ask") == 0) {
-    return DISCONNECT_ACTION_ASK;
-  } else if (strcmp(action, "rest") == 0) {
-    return DISCONNECT_ACTION_REST;
-  }
-  return DISCONNECT_ACTION_NOTHING;
-}
-
 ChiakiVideoResolutionPreset parse_resolution_preset(char* preset) {
   if (strcmp(preset, "360p") == 0)
     return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
@@ -180,7 +171,6 @@ bool get_circle_btn_confirm_default() {
 void config_parse(VitaChiakiConfig* cfg) {
   cfg->psn_account_id = NULL;
   cfg->auto_discovery = true;
-  cfg->disconnect_action = DISCONNECT_ACTION_ASK;
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
   cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;  // Default to Custom 1
@@ -244,13 +234,6 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (settings) {
       datum = toml_bool_in(settings, "auto_discovery");
       cfg->auto_discovery = datum.ok ? datum.u.b : true;
-      datum = toml_string_in(settings, "disconnect_action");
-      if (datum.ok) {
-        cfg->disconnect_action = parse_disconnect_action(datum.u.s);
-        free(datum.u.s);
-      } else {
-        cfg->disconnect_action = DISCONNECT_ACTION_ASK;
-      }
       datum = toml_string_in(settings, "resolution");
       if (datum.ok) {
         cfg->resolution = parse_resolution_preset(datum.u.s);
@@ -413,8 +396,10 @@ void config_parse(VitaChiakiConfig* cfg) {
         datum = toml_string_in(host_cfg, "server_mac");
         if (datum.ok) {
           parse_b64(datum.u.s, host->server_mac, 6);
+#ifndef NDEBUG
           printf("MAC %X%X%X%X%X%X\n", host->server_mac[0], host->server_mac[1], host->server_mac[2],
                           host->server_mac[3], host->server_mac[4], host->server_mac[5]);
+#endif
           memcpy(&rstate->server_mac, &(host->server_mac), 6);
           free(datum.u.s);
         }
@@ -432,9 +417,13 @@ void config_parse(VitaChiakiConfig* cfg) {
         }
         datum = toml_string_in(host_cfg, "rp_key");
         if (datum.ok) {
+#ifndef NDEBUG
           printf("after rp %s\n", datum.u.s);
+#endif
           parse_b64(datum.u.s, rstate->rp_key, 0x10);
+#ifndef NDEBUG
           hexdump(rstate->rp_key, (size_t)0x10);
+#endif
           free(datum.u.s);
         }
         datum = toml_int_in(host_cfg, "rp_key_type");
@@ -560,17 +549,6 @@ void config_free(VitaChiakiConfig* cfg) {
   free(cfg);
 }
 
-char* serialize_disconnect_action(VitaChiakiDisconnectAction action) {
-  switch (action) {
-    case DISCONNECT_ACTION_ASK:
-      return "ask";
-    case DISCONNECT_ACTION_REST:
-      return "rest";
-    case DISCONNECT_ACTION_NOTHING:
-      return "nothing";
-  }
-}
-
 char* serialize_resolution_preset(ChiakiVideoResolutionPreset preset) {
   switch (preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
@@ -640,8 +618,6 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "[settings]\n");
   fprintf(fp, "auto_discovery = %s\n",
           cfg->auto_discovery ? "true" : "false");
-  fprintf(fp, "disconnect_action = \"%s\"\n",
-          serialize_disconnect_action(cfg->disconnect_action));
   fprintf(fp, "resolution = \"%s\"\n",
           serialize_resolution_preset(cfg->resolution));
   fprintf(fp, "fps = %d\n", cfg->fps);

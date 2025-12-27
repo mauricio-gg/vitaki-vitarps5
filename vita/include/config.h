@@ -9,13 +9,6 @@
 #define CFG_VERSION 1
 #define CFG_FILENAME "ux0:data/vita-chiaki/chiaki.toml"
 
-/// Action to perform after terminating a session
-typedef enum vita_chiaki_disconnect_action_t {
-  DISCONNECT_ACTION_ASK,      // Let the user decide each time
-  DISCONNECT_ACTION_REST,     // Put the console into Rest Mode
-  DISCONNECT_ACTION_NOTHING,  // Just leave the console running
-} VitaChiakiDisconnectAction;
-
 typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_ULTRA_LOW = 0,   // Minimum bandwidth (≈1.2 Mbps)
   VITA_LATENCY_MODE_LOW,             // Low bandwidth (≈1.8 Mbps)
@@ -32,7 +25,6 @@ typedef struct vita_chiaki_config_t {
   char* psn_account_id;
   /// Whether discovery is enabled by default
   bool auto_discovery;
-  VitaChiakiDisconnectAction disconnect_action;
   ChiakiVideoResolutionPreset resolution;
   ChiakiVideoFPSPreset fps;
   size_t num_manual_hosts;

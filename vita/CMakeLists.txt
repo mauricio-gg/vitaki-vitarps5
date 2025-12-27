@@ -37,6 +37,8 @@ add_executable(${VITA_APP_NAME}.elf
 	third_party/h264-bitstream/h264_stream.c
 )
 
+# Logging configuration is controlled via environment files (.env.prod, .env.testing)
+# and passed to CMake via build.sh. No hardcoded defaults here to avoid redefinition warnings.
 
 target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC
     CHIAKI_VERSION="${CHIAKI_VERSION}"

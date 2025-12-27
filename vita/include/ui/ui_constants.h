@@ -248,10 +248,12 @@
 #define VITA_BODY_H_RATIO           0.737f
 #define VITA_BODY_RADIUS_RATIO      0.040f
 
-// Screen
+// Screen (ratios relative to diagram dimensions)
+// Note: W_RATIO adjusted from 0.596f to 0.598f to compensate for integer
+// truncation in RATIO_W macro causing 1-2px right edge drift
 #define VITA_SCREEN_X_RATIO         0.205f
 #define VITA_SCREEN_Y_RATIO         0.085f
-#define VITA_SCREEN_W_RATIO         0.596f
+#define VITA_SCREEN_W_RATIO         0.598f
 #define VITA_SCREEN_H_RATIO         0.740f
 
 // D-pad
