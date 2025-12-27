@@ -645,10 +645,8 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
   int item_spacing = SETTINGS_ITEM_SPACING;
   int item_stride = item_h + item_spacing;
 
-  // Determine visible range
-  int total_items = (settings_state.current_tab == SETTINGS_TAB_STREAMING)
-                    ? SETTINGS_STREAMING_ITEMS
-                    : SETTINGS_CONTROLLER_ITEMS;
+  // Determine visible range (streaming tab always has SETTINGS_STREAMING_ITEMS)
+  int total_items = SETTINGS_STREAMING_ITEMS;
   int first_visible = settings_state.scroll_offset;
   int last_visible = first_visible + SETTINGS_VISIBLE_ITEMS;
   if (last_visible > total_items) last_visible = total_items;
