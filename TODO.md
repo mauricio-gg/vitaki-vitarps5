@@ -22,28 +22,36 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Expose low-bandwidth profile in config/UI**
+1. **Implement adaptive jitter buffer** ⭐ **HIGH PRIORITY**
+   - *Goal:* Replace static reorder queue timeout with adaptive algorithm that adjusts playout delay based on measured network jitter
+   - *Files:* `lib/src/reorderqueue.c`, `lib/include/chiaki/reorderqueue.h`, `lib/src/takion.c`
+   - *Algorithm:* Measure inter-arrival jitter using EWMA (α=0.125), calculate dynamic threshold (2.5× jitter + safety margin), skip gaps after adaptive timeout instead of blocking indefinitely
+   - *Expected:* 10-25ms latency reduction on good WiFi (3-5ms threshold), fewer drops on bad networks (auto-scales to 30-50ms), eliminates head-of-line blocking
+   - *References:* RFC 5764 (RTP jitter buffer), WebRTC NetEq, `docs/LATENCY_ANALYSIS.md`
+   - *Next Step:* Add `JitterStats` struct, implement measurement in `push()`, modify `pull()` with adaptive timeout
+
+2. **Expose low-bandwidth profile in config/UI**
    - Allow selecting 360p / <2 Mbps preset through the modern settings once backend supports it.
 
-2. **Graceful mid-stream packet-loss fallback**
+3. **Graceful mid-stream packet-loss fallback**
    - Automatically lower bitrate without tearing down the whole UI when Ultra Low still drops frames.
    - Keep discovery paused, show a "reconnecting" overlay, and restart video/audio while preserving ctrl state.
 
-3. **Preserve controller responsiveness through fallbacks**
+4. **Preserve controller responsiveness through fallbacks**
    - Instrument `input_thread_func()` to log when pad packets stall, then cache/synchronize pad state so restarts don't add extra lag.
    - Investigate keeping ctrl alive while video/audio reconnect to avoid input gaps.
    - Latest telemetry (`vitarps5.log:11302-11324`) shows the controller gate stays closed for ~6.3 s during packet-loss retries despite gameplay resuming, so we need to re-arm `inputs_ready` (or keep ctrl alive) much earlier in the reconnect flow.
 
-4. **Calibrate loss-detection thresholds**
+5. **Calibrate loss-detection thresholds**
    - Tune `LOSS_EVENT_MIN_FRAMES`, `LOSS_RETRY_DELAY_US`, and related constants in `vita/src/host.c:34-210` so the soft reconnect only fires after sustained loss bursts, preventing extra latency from single-frame hiccups.
 
-5. **Keep controller thread alive during soft restarts**
+6. **Keep controller thread alive during soft restarts**
    - Augment `request_stream_restart()`/Chiaki restart handling so controller packets continue flowing while the stream connection rebuilds, preventing the brief input pause currently logged around `context.stream.fast_restart_active` in `vita/src/host.c:129-234`.
 
-6. **Instrument soft-reconnect metrics**
+7. **Instrument soft-reconnect metrics**
    - Add log hooks or UI indicators around the new soft restart path and packet-loss counters (`vita/src/host.c:373-520`, `vita/src/video.c`) to correlate lag spikes with the fallback path, supporting the ongoing investigation in `docs/INCOMPLETE_FEATURES.md`.
 
-7. **Upstream protocol support for dynamic bitrate**
+8. **Upstream protocol support for dynamic bitrate**
    - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).
    - Document needed evidence so we can eventually reconfigure without a teardown.
 

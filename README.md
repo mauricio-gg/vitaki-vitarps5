@@ -34,31 +34,49 @@ This fork has been a labor of love for the PS Vita community, developed over 3+ 
 
 This fork adds the following enhancements to ywnico's vitaki-fork:
 
-1. **VitaRPS5-Style UI Redesign**
+1. **Latency & Performance Optimizations**
+   - **Thread priority tuning**: Input thread at priority 96 (highest), audio/video at 64, with CPU affinity to prevent contention
+   - **Faster input polling**: Reduced from 5ms to 2ms (500Hz sampling) for 2.5× faster controller response
+   - **Optimized network queue**: Trimmed Takion reorder buffer from 128 to 64 packets to reduce buffering latency
+   - **Estimated improvement**: 20-40ms total latency reduction, input lag reduced from ~20-30ms to ~10ms
+   - See `docs/LATENCY_QUICK_WINS.md` for full details
+
+2. **Controller Customization**
+   - **3 custom preset slots**: Create and save your own button mappings (Custom 1, Custom 2, Custom 3)
+   - **Immersive controller screen**: Fullscreen PS Vita diagram with procedurally-rendered graphics
+   - **Front/back view navigation**: D-pad or touch to switch between front controls and rear touchpad
+   - **Visual mapping**: See all button assignments on an interactive controller diagram
+   - **Settings integration**: Controller tab in Settings page with L/R navigation
+
+3. **VitaRPS5-Style UI Redesign**
    - Modern card-based console selection interface
    - Professional PlayStation-themed color scheme
+   - Wave-animated navigation sidebar with collapsible menu (Triangle to open/close)
    - Redesigned PIN entry screen with individual digit display
-   - Improved visual feedback and animations
+   - Centralized focus manager for smooth D-pad navigation
+   - Tabbed settings page (Streaming, Controller) with visual polish
 
-2. **Enhanced Console Wake Flow**
+4. **Enhanced Console Wake Flow**
    - "Waking up console..." screen with animated progress
    - 30-second timeout with visual countdown
    - Automatic streaming start when console wakes up
    - No need to press X twice
 
-3. **Fixed Controller Input Issues**
+5. **Fixed Controller Input Issues**
    - Resolved race condition that prevented controller input during streaming
    - Properly separated UI and input thread buffer access
    - Controllers now work reliably during remote play
+   - Input stays responsive during packet-loss fallback recovery
 
-4. **Improved Console Management**
+6. **Improved Console Management**
    - Re-pairing now properly deletes registration data from storage
    - Better console name and IP display formatting
    - Circle button for cancel (PlayStation convention)
 
-5. **Packet-Loss Fallback & Overlay**
-   - When Ultra Low still drops frames, the client now pauses briefly, displays a reconnecting overlay, and restarts streaming at an even lower bitrate instead of crashing back to the menu.
-   - Automatic retries keep discovery paused and resume seamlessly once the link stabilizes.
+7. **Packet-Loss Fallback & Overlay**
+   - When Ultra Low still drops frames, the client now pauses briefly, displays a reconnecting overlay, and restarts streaming at an even lower bitrate instead of crashing back to the menu
+   - Automatic retries keep discovery paused and resume seamlessly once the link stabilizes
+   - Controller input continues flowing during recovery to prevent input gaps
 
 ## Features from ywnico's vitaki-fork
 
@@ -180,6 +198,32 @@ This project uses a GitHub Actions workflow to create releases. **Releases can o
 
 ### In-stream controls
 - Hold **L + R + Start** (Options) for about a second to stop the current Remote Play session and return to the VitaRPS5 menu. This lets you tweak settings (e.g., latency mode) without rebooting the app.
+
+### Controller customization
+VitaRPS5 provides 3 customizable controller preset slots that let you create your own button mappings:
+
+1. **Access Controller Settings**
+   - Open the navigation menu (Triangle button or tap the menu pill)
+   - Select the Controller icon (gamepad)
+   - OR: Go to Settings → Controller tab (press L/R to switch tabs)
+
+2. **Select a Custom Preset**
+   - You'll see 3 slots: Custom 1, Custom 2, Custom 3
+   - Use D-pad LEFT/RIGHT or touch to cycle between presets
+   - Each preset has independent button mappings
+
+3. **View Button Mappings**
+   - The controller diagram shows all current button assignments
+   - **Front View**: D-pad, face buttons (△○×□), analog sticks, L/R shoulders, Start/Select/PS
+   - **Back View**: Rear touchpad zones (4 quadrants: Upper-Left, Upper-Right, Lower-Left, Lower-Right)
+   - Press D-pad UP/DOWN or touch to switch between front and back views
+
+4. **Customize Mappings** (Future Feature)
+   - Currently, you can view and select presets
+   - Per-button customization is planned for a future update
+   - See `docs/INCOMPLETE_FEATURES.md` for roadmap
+
+**Tip**: Each custom slot saves automatically. Switch between them to find what works best for different game types (FPS, racing, fighting games, etc.).
 
 ### Remote connection
 UDP holepunching is not supported. Instead, a remote connection requires a static IP and port forwarding.
