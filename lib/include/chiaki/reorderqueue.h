@@ -123,6 +123,13 @@ CHIAKI_EXPORT bool chiaki_reorder_queue_peek(ChiakiReorderQueue *queue, uint64_t
  */
 CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t index);
 
+/**
+ * Skip a gap at the head of the queue by advancing begin by 1.
+ * Used by adaptive jitter buffer to skip missing packets after timeout.
+ * Safe to call even if the head entry is set (will just advance past it).
+ */
+CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue);
+
 #ifdef __cplusplus
 }
 #endif

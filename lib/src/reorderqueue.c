@@ -186,3 +186,13 @@ CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t
 		}
 	}
 }
+
+CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue)
+{
+	if(queue->count == 0)
+		return;
+
+	// Advance begin by 1, effectively skipping the gap
+	queue->begin = add(queue->begin, 1);
+	queue->count--;
+}

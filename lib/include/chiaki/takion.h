@@ -174,6 +174,15 @@ typedef struct chiaki_takion_t
 		uint64_t last_log_ms;
 		uint64_t last_seq_num;
 	} recv_drop_stats;
+
+	struct
+	{
+		uint64_t jitter_us;              // EWMA jitter estimate (microseconds)
+		uint64_t last_packet_arrival_us; // Last packet timestamp
+		uint64_t last_log_ms;            // Periodic logging timestamp
+		uint64_t gaps_skipped;           // Counter for skipped gaps
+		uint64_t last_skipped_seq_num;   // Last skipped sequence
+	} jitter_stats;
 } ChiakiTakion;
 
 
