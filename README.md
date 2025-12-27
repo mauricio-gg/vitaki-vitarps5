@@ -19,9 +19,11 @@ This is a fork built on top of [@ywnico](https://github.com/ywnico)'s excellent 
 ## Screenshots
 
 <div align="center">
-  <img src="screenshots/main.png" alt="Main Screen" width="45%"/>
-  <img src="screenshots/Settings.png" alt="Settings Screen" width="45%"/>
-  <img src="screenshots/Controller.png" alt="Controller Mapping" width="45%"/>
+  <img src="https://github.com/user-attachments/assets/881bdc80-acde-4690-992c-6785b89300c6" alt="Main Screen" width="45%"/>
+  <img src="https://github.com/user-attachments/assets/f5213d0f-589c-44ad-9234-5e25a8f8ac06" alt="Main Screen with Menu" width="45%"/>
+  <img src="https://github.com/user-attachments/assets/0c5af5c4-e4cf-40e4-b981-03f1ef04c65f" alt="Controller Mapping" width="45%"/>
+<img src="https://github.com/user-attachments/assets/8b6f592e-6f6c-47a4-bc64-fb15ccd973b8" alt="Streaming Settings" width="45%"/>
+
 </div>
 
 ## Support This Project
