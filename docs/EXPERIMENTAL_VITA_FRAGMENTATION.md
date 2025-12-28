@@ -97,7 +97,50 @@ VitaSDK documentation DOES include `SCE_NET_IP_DF (0x4000)` as an IP header flag
     }
 ```
 
-#### 2. lib/src/streamconnection.c (Line 165)
+#### 2. lib/src/takion.c (Lines 391-406) - CRITICAL SECOND LOCATION
+
+**IMPORTANT:** There are TWO socket creation paths in `chiaki_takion_connect()`:
+
+1. **First path (line ~292):** `if(sock)` - Reuses existing socket (Senkusha handshake)
+2. **Second path (line ~391):** `else` - Creates new socket (StreamConnection streaming)
+
+**Both locations must be modified** for the experimental code to work during streaming!
+
+**Before:**
+```c
+#elif defined(IP_PMTUDISC_DO)
+    if(mac_dontfrag) { /* ... */ }
+    else
+        CHIAKI_LOGW(takion->log, "Don't fragment is not supported on this platform...");
+#else
+    CHIAKI_LOGW(takion->log, "Don't fragment is not supported on this platform...");
+#endif
+```
+
+**After (EXPERIMENTAL):**
+```c
+#elif defined(__PSVITA__)
+    // EXPERIMENTAL: Test if Vita BSD stack supports DF even without VitaSDK constant
+    #ifndef IP_DONTFRAG
+        #define IP_DONTFRAG 28  // FreeBSD standard value (empirical test)
+    #endif
+
+    const int dontfrag_val = 1;
+    r = setsockopt(takion->sock, IPPROTO_IP, IP_DONTFRAG,
+                   (const CHIAKI_SOCKET_BUF_TYPE)&dontfrag_val, sizeof(dontfrag_val));
+    if(r < 0) {
+        CHIAKI_LOGW(takion->log, "PS Vita: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
+                    IP_DONTFRAG, r);
+    } else {
+        CHIAKI_LOGI(takion->log, "PS Vita: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
+    }
+#elif defined(IP_PMTUDISC_DO)
+    /* ... rest of original code ... */
+```
+
+**Bug Found During Testing:** Initial implementation only modified the first location, so no log messages appeared because StreamConnection creates a new socket and hits the second path. Fixed in commit `d86e465`.
+
+#### 3. lib/src/streamconnection.c (Line 165)
 
 **Before:**
 ```c
