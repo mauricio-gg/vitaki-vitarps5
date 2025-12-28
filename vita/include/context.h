@@ -4,6 +4,7 @@
 #include <chiaki/discoveryservice.h>
 #include <chiaki/log.h>
 #include <chiaki/opusdecoder.h>
+#include <chiaki/thread.h>
 
 #include "config.h"
 #include "discovery.h"
@@ -46,6 +47,7 @@ typedef struct vita_chiaki_stream_t {
   ChiakiControllerState controller_state;
   VitakiCtrlMapInfo vcmi;
   bool session_init;
+  ChiakiMutex finalization_mutex;  // Protects session_init flag during finalize_session_resources()
   bool is_streaming;
   bool inputs_ready;
   bool stop_requested;

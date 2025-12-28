@@ -202,7 +202,10 @@ static void event_cb(ChiakiEvent *event, void *user) {
       if (should_finalize) {
         finalize_session_resources();
       } else {
+        // Manually clear flag when skipping finalization - MUST use mutex
+        chiaki_mutex_lock(&context.stream.finalization_mutex);
         context.stream.session_init = false;
+        chiaki_mutex_unlock(&context.stream.finalization_mutex);
       }
       uint64_t now_us = sceKernelGetProcessTimeWide();
       uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
@@ -397,13 +400,31 @@ static void shutdown_media_pipeline(void) {
   context.stream.reconnect_overlay_active = false;
 }
 
+/**
+ * Finalizes session resources in a thread-safe manner.
+ *
+ * This function can be called from multiple concurrent threads (quit event handler,
+ * retry failure path, init failure cleanup). The mutex ensures only one thread
+ * performs the actual finalization, preventing double-free and use-after-free bugs.
+ */
 static void finalize_session_resources(void) {
-  if (!context.stream.session_init)
-    return;
+  // Acquire mutex for atomic check-and-set operation
+  chiaki_mutex_lock(&context.stream.finalization_mutex);
 
-  // Set flag immediately after guard check to prevent TOCTOU race
+  if (!context.stream.session_init) {
+    // Already finalized by another thread
+    chiaki_mutex_unlock(&context.stream.finalization_mutex);
+    return;
+  }
+
+  // Mark as finalized immediately while holding mutex
+  // This prevents any other thread from getting past the guard check
   context.stream.session_init = false;
 
+  chiaki_mutex_unlock(&context.stream.finalization_mutex);
+
+  // Perform the actual finalization outside the critical section
+  // Only one thread can reach here due to the atomic check-and-set above
   LOGD("Finalizing session resources");
 
   // Signal input thread to exit
@@ -435,6 +456,13 @@ static void finalize_session_resources(void) {
   // Finalize session
   chiaki_session_fini(&context.stream.session);
   LOGD("Session finalized");
+
+  /*
+   * NOTE: We do NOT destroy the finalization_mutex here.
+   * The mutex is initialized once in vita_chiaki_init_context() and should persist
+   * across multiple streaming sessions. It will be destroyed when the application
+   * exits as part of the overall context cleanup.
+   */
 }
 
 static void update_latency_metrics(void) {
@@ -1635,7 +1663,10 @@ int host_stream(VitaChiakiHost* host) {
     context.discovery_resume_after_stream = true;
   }
 	init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
+	// Mark session as initialized - MUST use mutex
+	chiaki_mutex_lock(&context.stream.finalization_mutex);
  	context.stream.session_init = true;
+	chiaki_mutex_unlock(&context.stream.finalization_mutex);
 	reset_stream_metrics(false);
 	LOGD("Chiaki session initialized successfully, starting media pipeline");
 	ChiakiAudioSink audio_sink;
@@ -1677,9 +1708,8 @@ cleanup:
     // Finalize if session was partially initialized
     if (context.stream.session_init) {
       finalize_session_resources();
-    } else {
-      context.stream.session_init = false;
     }
+    // No else needed - flag is already false or will be cleared by finalize
     context.stream.fast_restart_active = false;
     context.stream.reconnect_overlay_active = false;
     context.stream.loss_retry_active = false;
