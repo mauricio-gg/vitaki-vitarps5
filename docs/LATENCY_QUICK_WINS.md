@@ -244,6 +244,46 @@ From chiaki-ng documentation:
 
 ---
 
+## Abandoned Optimizations
+
+### Dual Callback Architecture (Attempted December 2025)
+
+**Concept:** Split Takion's single callback handler into separate AV (audio/video) fast path and control message path to eliminate serialization bottleneck.
+
+**Expected Benefit:** 0.6-2.5ms latency reduction per AV packet by avoiding mutex contention on the AV path.
+
+**Implementation:**
+- Added separate `av_cb` callback to ChiakiTakion for AV packets
+- AV packets bypass switch statement and state mutex checks
+- Control messages (STREAMINFO, DATA) continue through original callback path
+
+**Issues Discovered:**
+
+1. **Race Condition During Initialization**
+   - AV packets could arrive BEFORE STREAMINFO completes receiver initialization
+   - Video receiver's frame gap detection triggered false "Network Unstable" warnings
+   - On WiFi (with packet reordering), this race occurred frequently
+
+2. **Thread Safety Complexity**
+   - Initial fix using `volatile bool av_ready` flag was insufficient for ARM
+   - Required atomic operations with acquire/release semantics
+   - Added `__atomic_load_n()` / `__atomic_store_n()` with proper memory ordering
+
+3. **Performance Regression**
+   - Even with correct atomic synchronization, performance was laggy
+   - Network stability worse than unified callback approach
+   - Gameplay felt choppy compared to baseline
+
+**Conclusion:** Abandoned in favor of keeping the unified callback architecture. The theoretical latency benefit did not materialize in real-world usage, and the added complexity introduced reliability issues.
+
+**Key Learning:** Lock-free optimizations must be validated on target hardware under realistic conditions. Microbenchmark improvements don't always translate to user-perceivable gains, especially when system complexity increases.
+
+**Branch:** `feature/dual-callback` (preserved for reference, not merged)
+
+**Date Abandoned:** December 28, 2025
+
+---
+
 ## References
 
 - README.md (existing optimizations)
