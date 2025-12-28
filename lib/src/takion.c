@@ -300,11 +300,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			r = setsockopt(takion->sock, IPPROTO_IP, IP_DONTFRAG,
 						   (const CHIAKI_SOCKET_BUF_TYPE)&dontfrag_val, sizeof(dontfrag_val));
 			if(r < 0) {
-				CHIAKI_LOGW(takion->log, "PS Vita: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
+				CHIAKI_LOGE(takion->log, "PS Vita EXPERIMENTAL: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
 							IP_DONTFRAG, r);
 				// Not a fatal error - fragmentation just won't be disabled
 			} else {
-				CHIAKI_LOGI(takion->log, "PS Vita: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
+				CHIAKI_LOGE(takion->log, "PS Vita EXPERIMENTAL: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
 			}
 #elif defined(IP_PMTUDISC_DO)
 			const int mtu_discover_val = IP_PMTUDISC_DO;
@@ -399,10 +399,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			r = setsockopt(takion->sock, IPPROTO_IP, IP_DONTFRAG,
 			               (const CHIAKI_SOCKET_BUF_TYPE)&dontfrag_val, sizeof(dontfrag_val));
 			if(r < 0) {
-				CHIAKI_LOGW(takion->log, "PS Vita: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
+				CHIAKI_LOGE(takion->log, "PS Vita EXPERIMENTAL: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
 				            IP_DONTFRAG, r);
 			} else {
-				CHIAKI_LOGI(takion->log, "PS Vita: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
+				CHIAKI_LOGE(takion->log, "PS Vita EXPERIMENTAL: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
 			}
 #elif defined(IP_PMTUDISC_DO)
 			if(mac_dontfrag)
