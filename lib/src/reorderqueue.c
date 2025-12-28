@@ -186,3 +186,22 @@ CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t
 		}
 	}
 }
+
+CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue)
+{
+	if(queue->count == 0)
+		return;
+
+	// Invoke drop callback before advancing the queue to prevent memory leaks
+	ChiakiReorderQueueEntry *entry = &queue->queue[idx(queue->begin)];
+	if(queue->drop_cb)
+	{
+		// Call drop_cb with the entry's user pointer (NULL if gap, actual pointer if set)
+		queue->drop_cb(queue->begin, entry->set ? entry->user : NULL, queue->drop_cb_user);
+	}
+
+	// Advance begin by 1, effectively skipping the gap
+	queue->begin = add(queue->begin, 1);
+	queue->count--;
+}
+
