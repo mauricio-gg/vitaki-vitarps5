@@ -388,6 +388,22 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 #elif defined(__FreeBSD__) || defined(__SWITCH__) || defined(__APPLE__)
 			const int dontfrag_val = 1;
 			r = setsockopt(takion->sock, IPPROTO_IP, IP_DONTFRAG, (const CHIAKI_SOCKET_BUF_TYPE)&dontfrag_val, sizeof(dontfrag_val));
+#elif defined(__PSVITA__)
+			// EXPERIMENTAL: Test if Vita BSD stack supports DF even without VitaSDK constant
+			// See docs/EXPERIMENTAL_VITA_FRAGMENTATION.md for investigation details
+			#ifndef IP_DONTFRAG
+				#define IP_DONTFRAG 28  // FreeBSD standard value (empirical test)
+			#endif
+
+			const int dontfrag_val = 1;
+			r = setsockopt(takion->sock, IPPROTO_IP, IP_DONTFRAG,
+			               (const CHIAKI_SOCKET_BUF_TYPE)&dontfrag_val, sizeof(dontfrag_val));
+			if(r < 0) {
+				CHIAKI_LOGW(takion->log, "PS Vita: Failed to set IP_DONTFRAG (empirical test, value=%d): error %d",
+				            IP_DONTFRAG, r);
+			} else {
+				CHIAKI_LOGI(takion->log, "PS Vita: Successfully set IP_DONTFRAG (empirical constant %d)", IP_DONTFRAG);
+			}
 #elif defined(IP_PMTUDISC_DO)
 			if(mac_dontfrag)
 			{
