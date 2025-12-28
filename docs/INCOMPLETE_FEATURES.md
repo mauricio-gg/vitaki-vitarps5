@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2025-12-27 (Settings Audit Documentation)
+**Last Updated:** 2025-12-28 (Production Build Logging Security Fix Resolution)
 **Status:** Generated from codebase analysis
 
 ---
@@ -214,7 +214,25 @@ set(VITA_VERSION "00.06")
 
 ## Logging & Debugging
 
-### 10. Configurable Log Level
+### 10. Production Build Logging Security
+**File:** `vita/src/logging.c:12-63`, `vita/src/logging.c:336`
+**Status:** ✅ RESOLVED (2025-12-28)
+**Priority:** High (was critical security issue)
+**Description:** Production builds now use fail-safe fallback defaults instead of fail-open. Changed from DEBUG-friendly (logging enabled, verbose output) to production-safe (logging disabled, errors-only). Added compile-time warnings when CMake configuration flags missing, plus runtime logging of active configuration.
+
+**Resolution Details:**
+- `VITARPS5_LOGGING_DEFAULT_ENABLED`: Changed from `1` to `0` (disabled by default)
+- `VITARPS5_DEFAULT_LOG_PROFILE`: Changed from `STANDARD` to `ERRORS` (error-only logging)
+- Line 336 initialization condition fixed to prevent spurious resource allocation in production
+- Build system chain verified: `.env.prod` → CMake flags → correct production behavior
+
+**Impact:** Production builds are now secure by default. Eliminates risk of verbose logging being silently enabled when build system configuration fails. Both production and testing builds verified working correctly with appropriate logging levels.
+
+**Reference:** `docs/ai/LOGGING_DEFAULTS_FIX.md` (detailed technical documentation and rationale)
+
+---
+
+### 11. Configurable Log Level
 **File:** `vita/src/config.c:194`, `vita/src/logging.c:12`
 **Status:** ✅ Completed (Nov 2025)
 **Priority:** Low
@@ -224,7 +242,7 @@ set(VITA_VERSION "00.06")
 
 ---
 
-### 11. File Logging
+### 12. File Logging
 **File:** `vita/src/context.c:30-120`
 **Status:** ✅ Implemented (Nov 2025)
 **Priority:** Low
@@ -234,7 +252,7 @@ set(VITA_VERSION "00.06")
 
 ## Controller & Input
 
-### 12. L2/R2 Trigger Mapping
+### 13. L2/R2 Trigger Mapping
 **File:** `vita/src/host.c:209`
 **Status:** Not implemented
 **Priority:** Medium
@@ -248,7 +266,7 @@ set(VITA_VERSION "00.06")
 
 ---
 
-### 13. Home Button Handling
+### 14. Home Button Handling
 **File:** `vita/src/host.c:210`
 **Status:** Not implemented
 **Priority:** Medium
@@ -262,7 +280,7 @@ set(VITA_VERSION "00.06")
 
 ---
 
-### 14. Fully Configurable Controller Mapping
+### 15. Fully Configurable Controller Mapping
 **File:** `vita/src/controller.c:6`
 **Status:** Partially implemented
 **Priority:** Medium
@@ -276,7 +294,7 @@ set(VITA_VERSION "00.06")
 
 ---
 
-### 15. Motion Controls (STUB)
+### 16. Motion Controls (STUB)
 **File:** `vita/src/ui.c:1408`
 **Status:** Stub only
 **Priority:** Low
@@ -292,7 +310,7 @@ set(VITA_VERSION "00.06")
 
 ## Network & Discovery
 
-### 16. Discovery Error User Feedback
+### 17. Discovery Error User Feedback
 **File:** `vita/src/discovery.c:59`
 **Status:** Not implemented
 **Priority:** Medium
@@ -306,7 +324,7 @@ set(VITA_VERSION "00.06")
 
 ---
 
-### 17. Manual Host Limit Refinement
+### 18. Manual Host Limit Refinement
 **File:** `vita/src/host.c:499`
 **Status:** Uses MAX_NUM_HOSTS
 **Priority:** Low
@@ -322,7 +340,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ## UI & Graphics
 
-### 18. Wave Background Animation
+### 19. Wave Background Animation
 **File:** `vita/src/ui.c:512`
 **Status:** Removed/Future
 **Priority:** Low
@@ -336,7 +354,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 19. Coordinate System Validation
+### 20. Coordinate System Validation
 **File:** `vita/src/ui.c:814`
 **Status:** Needs verification
 **Priority:** Low
@@ -350,7 +368,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 20. Console Icon Tinting
+### 21. Console Icon Tinting
 **File:** `vita/src/ui.c:978`
 **Status:** Uses separate textures
 **Priority:** Low
@@ -364,7 +382,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 21. Manual Host Deletion
+### 22. Manual Host Deletion
 **File:** `vita/src/ui.c:1058`
 **Status:** Not implemented
 **Priority:** Medium
@@ -378,7 +396,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 22. Profile Screen Scrolling
+### 23. Profile Screen Scrolling
 **File:** `vita/src/ui.c:2465`
 **Status:** Not implemented
 **Priority:** Low
@@ -392,7 +410,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 23. Connection Abort
+### 24. Connection Abort
 **File:** `vita/src/ui.c:2555`
 **Status:** Not implemented
 **Priority:** Medium
@@ -408,7 +426,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ## Placeholders & Coming Soon
 
-### 24. PSN Profile Picture
+### 25. PSN Profile Picture
 **File:** `vita/src/ui.c:1537`
 **Status:** Placeholder
 **Priority:** Low
@@ -422,7 +440,7 @@ if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual
 
 ---
 
-### 25. Settings Features (Coming Soon)
+### 26. Settings Features (Coming Soon)
 **File:** `vita/src/ui.c:2025`
 **Status:** Placeholder
 **Priority:** Low
@@ -436,7 +454,7 @@ UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "(Coming Soon)");
 
 ---
 
-### 26. Rest Mode Assets (Unused)
+### 27. Rest Mode Assets (Unused)
 **File:** `vita/src/ui.c`
 **Status:** Cosmetic incomplete
 **Priority:** Low
@@ -543,30 +561,33 @@ This section clarifies intentional design decisions that may appear as limitatio
 
 ### Medium Priority (8 items)
 4. Power Control Configuration
-5. Input Handling Configuration
+5. Input Handling Configuration (Completed)
 6. Stack Size Optimization
-7. L2/R2 Trigger Mapping
-8. Home Button Handling
-9. Fully Configurable Controller Mapping
-10. Discovery Error User Feedback
-11. Manual Host Deletion
-12. Connection Abort
+13. L2/R2 Trigger Mapping
+14. Home Button Handling
+15. Fully Configurable Controller Mapping
+17. Discovery Error User Feedback
+22. Manual Host Deletion
+24. Connection Abort
 
-### Low Priority (15 items)
-13. Main Cleanup
-14. Dynamic Version Configuration
-15. Registered Host Storage Optimization
-16. Configurable Log Level
-17. File Logging
-18. Motion Controls
-19. Manual Host Limit Refinement
-20. Wave Background Animation
-21. Coordinate System Validation
-22. Console Icon Tinting
+### Resolved Items (3 items)
+10. **Production Build Logging Security** - Resolved (2025-12-28)
+11. **Configurable Log Level** - Resolved (Nov 2025)
+12. **File Logging** - Resolved (Nov 2025)
+
+### Low Priority (14 items)
+3. Main Cleanup
+7. Dynamic Version Configuration
+8. Registered Host Storage Optimization
+16. Motion Controls
+18. Manual Host Limit Refinement
+19. Wave Background Animation
+20. Coordinate System Validation
+21. Console Icon Tinting
 23. Profile Screen Scrolling
-24. PSN Profile Picture
-25. Settings Features (Coming Soon)
-26. Rest Mode Assets (Unused)
+25. PSN Profile Picture
+26. Settings Features (Coming Soon)
+27. Rest Mode Assets (Unused)
 
 ### Out of Scope (1 item)
 - PSTV Touch Support

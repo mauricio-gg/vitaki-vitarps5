@@ -350,6 +350,9 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
 
+    // Security: Only allow runtime TOML to override logging settings if explicitly enabled
+    // In production builds, this is disabled to prevent accidental logging activation
+#if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
     toml_table_t* logging = toml_table_in(parsed, "logging");
     if (logging) {
       datum = toml_bool_in(logging, "enabled");
@@ -383,6 +386,11 @@ void config_parse(VitaChiakiConfig* cfg) {
         free(datum.u.s);
       }
     }
+#else
+    // Production build: Ignore [logging] section in TOML entirely
+    // Compiled defaults are immutable at runtime for security
+    (void)toml_table_in(parsed, "logging");  // Acknowledge section exists but don't parse
+#endif
 
     toml_array_t* regist_hosts = toml_array_in(parsed, "registered_hosts");
     if (regist_hosts && toml_array_kind(regist_hosts) == 't') {
@@ -654,6 +662,9 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "show_nav_labels = %s\n",
           cfg->show_nav_labels ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+
+  // Only serialize [logging] section in testing/debug builds where runtime config is allowed
+#if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
   fprintf(fp, "\n[logging]\n");
   fprintf(fp, "enabled = %s\n", cfg->logging.enabled ? "true" : "false");
   fprintf(fp, "force_error_logging = %s\n",
@@ -663,6 +674,7 @@ void config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "path = \"%s\"\n", cfg->logging.path);
   // SCE libc used on Vita ignores %zu, so cast explicitly for portability.
   fprintf(fp, "queue_depth = %lu\n", (unsigned long)cfg->logging.queue_depth);
+#endif
 
   for (int i = 0; i < cfg->num_manual_hosts; i++) {
     VitaChiakiHost* host = cfg->manual_hosts[i];

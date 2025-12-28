@@ -63,6 +63,11 @@ if(DEFINED VITARPS5_DEBUG_MENU)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_MENU=${VITARPS5_DEBUG_MENU})
 endif()
 
+# Security: Control whether runtime TOML can override compiled logging settings
+if(DEFINED VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG=${VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG})
+endif()
+
 target_include_directories(${VITA_APP_NAME}.elf PRIVATE
     include
     third_party
