@@ -166,9 +166,11 @@ takion_info.ip_dontfrag = true;
 
 ### Build
 
+**CRITICAL:** Use `--env testing` to enable logging. Production builds have logging disabled!
+
 ```bash
 git checkout experimental/vita-fragmentation-control
-./tools/build.sh
+./tools/build.sh --env testing
 ```
 
 ### Deploy to Vita
