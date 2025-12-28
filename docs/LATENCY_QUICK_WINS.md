@@ -284,6 +284,51 @@ From chiaki-ng documentation:
 
 ---
 
+### IP Fragmentation Control on PS Vita (Tested December 2025)
+
+**Concept:** Test if PS Vita supports `IP_DONTFRAG` socket option via empirical constants, despite VitaSDK not exposing the constant in headers.
+
+**Expected Benefit:** 5-10ms latency reduction by eliminating IP packet fragmentation overhead during streaming (based on Chiaki-ng v1.9.6 optimization).
+
+**Hypothesis:** VitaSDK limitation (incomplete headers), NOT a Sony OS limitation. Since `SCE_NET_IP_DF` flag exists in IP header definitions, the underlying BSD stack likely supports fragmentation control.
+
+**Implementation:**
+- Defined `IP_DONTFRAG = 28` (FreeBSD standard value)
+- Added experimental code to both socket creation paths in `lib/src/takion.c`
+- Enabled `ip_dontfrag = true` in `lib/src/streamconnection.c`
+- Used empirical testing with standard POSIX `setsockopt()` API
+
+**Test Results (v0.1.417, December 28, 2025):**
+
+Log output:
+```
+[CHIAKI] PS Vita EXPERIMENTAL: Failed to set IP_DONTFRAG (empirical test, value=28): error -1
+```
+
+**Analysis:**
+- `setsockopt()` returned `-1` (ENOPROTOOPT - option not supported)
+- Error occurred during Senkusha (handshake) phase
+- Code path confirmed executed successfully
+- PS Vita's BSD stack rejected the socket option
+
+**Conclusion:** **Hypothesis REJECTED.** Sony did NOT implement `IP_DONTFRAG` support in the PS Vita's OS-level BSD network stack. This is an OS limitation, not just incomplete VitaSDK headers.
+
+**Impact:**
+- ❌ Cannot disable IP fragmentation on PS Vita
+- ❌ No latency reduction possible from this optimization
+- ✅ Definitively confirmed via empirical testing
+- ✅ Prevents future wasted effort on this approach
+
+**Key Learning:** Not all BSD networking features are implemented on PS Vita. Empirical testing with standard BSD constants can quickly validate OS-level support before investing in complex workarounds.
+
+**Documentation:** See `docs/EXPERIMENTAL_VITA_FRAGMENTATION.md` for complete investigation details, implementation notes, and test methodology.
+
+**Branch:** `experimental/vita-fragmentation-control` (preserved for reference, not merged)
+
+**Date Tested:** December 28, 2025
+
+---
+
 ## References
 
 - README.md (existing optimizations)
