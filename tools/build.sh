@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="410"
+VERSION_ITERATION="428"
 
 # Colors for output
 RED='\033[0;31m'
@@ -78,7 +78,7 @@ load_env_profile() {
 configure_logging_cmake_args() {
     local profile_define=""
     local lowered_profile
-    local enabled_val force_val
+    local enabled_val force_val allow_runtime_val
     local depth_arg path_arg
     local cmake_args=()
 
@@ -113,6 +113,15 @@ configure_logging_cmake_args() {
 
     if [ -n "$VITARPS5_LOG_PATH" ]; then
         cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_PATH=${VITARPS5_LOG_PATH}")
+    fi
+
+    # Security: Control whether runtime TOML can override compiled logging settings
+    allow_runtime_val=$(normalize_bool "$VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG")
+    if [ -n "$allow_runtime_val" ]; then
+        cmake_args+=("-DVITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG=${allow_runtime_val}")
+    else
+        # Default to safe mode: disallow runtime overrides
+        cmake_args+=("-DVITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG=0")
     fi
 
     CMAKE_EXTRA_FLAGS="${cmake_args[*]}"

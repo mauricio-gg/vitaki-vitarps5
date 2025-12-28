@@ -9,24 +9,57 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Production-safe fallback defaults: minimal logging if build system fails to configure.
+// Build scripts (CMakeLists.txt, build.sh) override these via -D flags for debug/testing builds.
+//
+// COMPILE-TIME VALIDATION: If you see warnings below, the build system did not pass explicit
+// logging configuration. This is acceptable (fallbacks are production-safe) but may indicate
+// a build configuration issue. Expected behavior:
+// - build.sh sets these flags based on .env.prod or .env.testing
+// - CMakeLists.txt passes them to the compiler via target_compile_definitions
+//
+// If warnings appear during normal builds, verify:
+// 1. tools/build.sh is reading the correct .env file
+// 2. CMake is receiving the -D flags (check CMAKE_EXTRA_FLAGS in build.sh)
+// 3. The build environment matches expectations (prod/testing/debug)
+
 #ifndef VITARPS5_LOGGING_DEFAULT_ENABLED
-#define VITARPS5_LOGGING_DEFAULT_ENABLED 1  // Default ON for debug, CMakeLists overrides for Release
+#warning "VITARPS5_LOGGING_DEFAULT_ENABLED not defined by build system - using fallback default (0)"
+#define VITARPS5_LOGGING_DEFAULT_ENABLED 0  // Default OFF for production safety
+#define VITARPS5_USING_FALLBACK_ENABLED
 #endif
 
 #ifndef VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS
-#define VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS 1
+#warning "VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS not defined by build system - using fallback default (1)"
+#define VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS 1  // Always log critical errors even when logging disabled
+#define VITARPS5_USING_FALLBACK_FORCE_ERRORS
 #endif
 
 #ifndef VITARPS5_DEFAULT_LOG_PROFILE
-#define VITARPS5_DEFAULT_LOG_PROFILE VITA_LOG_PROFILE_STANDARD  // CMakeLists overrides to ERRORS for Release
+#warning "VITARPS5_DEFAULT_LOG_PROFILE not defined by build system - using fallback default (ERRORS)"
+#define VITARPS5_DEFAULT_LOG_PROFILE VITA_LOG_PROFILE_ERRORS  // Only critical errors by default
+#define VITARPS5_USING_FALLBACK_PROFILE
 #endif
 
 #ifndef VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH
+#warning "VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH not defined by build system - using fallback default"
 #define VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH VITA_LOG_DEFAULT_QUEUE_DEPTH
+#define VITARPS5_USING_FALLBACK_QUEUE_DEPTH
 #endif
 
 #ifndef VITARPS5_LOGGING_DEFAULT_PATH
+#warning "VITARPS5_LOGGING_DEFAULT_PATH not defined by build system - using fallback default"
 #define VITARPS5_LOGGING_DEFAULT_PATH VITA_LOG_DEFAULT_PATH
+#define VITARPS5_USING_FALLBACK_PATH
+#endif
+
+// Compile-time summary: detect if ANY fallbacks are active
+#if defined(VITARPS5_USING_FALLBACK_ENABLED) || \
+    defined(VITARPS5_USING_FALLBACK_FORCE_ERRORS) || \
+    defined(VITARPS5_USING_FALLBACK_PROFILE) || \
+    defined(VITARPS5_USING_FALLBACK_QUEUE_DEPTH) || \
+    defined(VITARPS5_USING_FALLBACK_PATH)
+#define VITARPS5_USING_FALLBACK_CONFIG
 #endif
 
 typedef struct {
@@ -276,6 +309,33 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
   cfg_initialized = true;
   log_path_resolved = false;
   resolved_log_path[0] = '\0';
+
+  // Runtime validation: log active configuration for debugging build issues
+  // This runs once at initialization and helps verify build system behavior.
+  // Output only appears if logging is enabled (testing/debug builds).
+#ifdef VITARPS5_USING_FALLBACK_CONFIG
+  const char *config_source = "FALLBACK (build system did not configure)";
+#else
+  const char *config_source = "build system";
+#endif
+
+  // Format a detailed configuration summary
+  char init_msg[512];
+  sceClibSnprintf(init_msg, sizeof(init_msg),
+                  "[LOGGING] Initialized from %s:\n"
+                  "  enabled=%d, force_errors=%d, profile=%s, queue=%zu, path=%s\n",
+                  config_source,
+                  active_cfg.enabled,
+                  active_cfg.force_error_logging,
+                  vita_logging_profile_to_string(active_cfg.profile),
+                  active_cfg.queue_depth,
+                  active_cfg.path);
+
+  // Log initialization details in testing/debug builds where logging is enabled.
+  // Production builds (enabled=false) will skip this entirely.
+  if (active_cfg.enabled) {
+    vita_log_submit_line(CHIAKI_LOG_INFO, init_msg);
+  }
 }
 
 void vita_log_module_shutdown(void) {
