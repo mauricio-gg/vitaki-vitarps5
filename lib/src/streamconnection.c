@@ -158,7 +158,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		err = set_port(takion_info.sa, htons(STREAM_CONNECTION_PORT));
 		assert(err == CHIAKI_ERR_SUCCESS);
 	}
-	takion_info.ip_dontfrag = false;
+	// EXPERIMENTAL: Disable fragmentation after handshake (Chiaki-ng v1.9.6 optimization)
+	// MTU already negotiated during senkusha, fragmentation adds 5-10ms overhead
+	// Testing if PS Vita BSD stack supports this via empirical IP_DONTFRAG constant
+	// See docs/EXPERIMENTAL_VITA_FRAGMENTATION.md for details
+	takion_info.ip_dontfrag = true;
 
 	takion_info.enable_crypt = true;
 	takion_info.enable_dualsense = session->connect_info.enable_dualsense;
