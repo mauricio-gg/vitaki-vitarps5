@@ -32,6 +32,7 @@ static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 static void shutdown_media_pipeline(void);
+static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
@@ -195,7 +196,14 @@ static void event_cb(ChiakiEvent *event, void *user) {
       shutdown_media_pipeline();
       context.stream.inputs_resume_pending = fallback_active;
       ui_clear_waking_wait();
-      context.stream.session_init = false;
+
+      // Only finalize if not retrying/restarting
+      bool should_finalize = !fallback_active && !context.stream.fast_restart_active;
+      if (should_finalize) {
+        finalize_session_resources();
+      } else {
+        context.stream.session_init = false;
+      }
       uint64_t now_us = sceKernelGetProcessTimeWide();
       uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
       bool takion_cooldown_active = context.stream.takion_cooldown_overlay_active;
@@ -230,10 +238,23 @@ static void event_cb(ChiakiEvent *event, void *user) {
         LOGD("Stream cooldown engaged for %llu ms", wait_ms);
       }
       if (!user_stop_requested) {
-        const char *banner_reason =
-            (event->quit.reason_str && event->quit.reason_str[0])
-                ? event->quit.reason_str
-                : reason_label;
+        bool is_error = chiaki_quit_reason_is_error(event->quit.reason);
+
+        const char *banner_reason;
+        if (!is_error) {
+          // Graceful shutdown - friendly message
+          if (event->quit.reason == CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN) {
+            banner_reason = "Console entered sleep mode";
+          } else {
+            banner_reason = "Console disconnected";
+          }
+        } else {
+          // Actual error - show detailed reason
+          banner_reason = (event->quit.reason_str && event->quit.reason_str[0])
+              ? event->quit.reason_str
+              : reason_label;
+        }
+
         update_disconnect_banner(banner_reason);
       }
       context.stream.stop_requested = false;
@@ -291,6 +312,8 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.reconnect_overlay_active = false;
           context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
           context.stream.restart_failure_active = true;
+          // Finalize session since retry failed
+          finalize_session_resources();
           resume_discovery_if_needed();
         } else {
           context.stream.loss_retry_active = false;
@@ -372,6 +395,46 @@ static void shutdown_media_pipeline(void) {
   context.stream.inputs_ready = false;
   context.stream.fast_restart_active = false;
   context.stream.reconnect_overlay_active = false;
+}
+
+static void finalize_session_resources(void) {
+  if (!context.stream.session_init)
+    return;
+
+  // Set flag immediately after guard check to prevent TOCTOU race
+  context.stream.session_init = false;
+
+  LOGD("Finalizing session resources");
+
+  // Signal input thread to exit
+  context.stream.input_thread_should_exit = true;
+
+  // Join input thread
+  ChiakiErrorCode err = chiaki_thread_join(&context.stream.input_thread, NULL);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Failed to join input thread: %d", err);
+  } else {
+    LOGD("Input thread joined successfully");
+  }
+
+  /*
+   * NOTE: We deliberately DO NOT call chiaki_session_join() here.
+   *
+   * This function is invoked from the CHIAKI_EVENT_QUIT callback, which runs
+   * inside the session thread itself (lib/src/session.c:767, session_thread_func).
+   * Attempting to join the session thread from within that thread would cause
+   * sceKernelWaitThreadEnd() to fail with error code 3 (attempting to wait for
+   * the current thread).
+   *
+   * The session thread will exit naturally after the event callback returns.
+   * chiaki_session_fini() below handles all necessary cleanup without requiring
+   * the session thread to be joined first - it tears down network connections,
+   * frees buffers, and destroys synchronization primitives.
+   */
+
+  // Finalize session
+  chiaki_session_fini(&context.stream.session);
+  LOGD("Session finalized");
 }
 
 static void update_latency_metrics(void) {
@@ -1239,7 +1302,7 @@ static void *input_thread_func(void* user) {
     stream->controller_state = context.stream.cached_controller_state;
     context.stream.cached_controller_valid = false;
   }
-  while (true) {
+  while (!stream->input_thread_should_exit) {
 
     // TODO enable using triggers as L2, R2
     // TODO enable home button, with long hold sent back to Vita?
@@ -1598,6 +1661,7 @@ int host_stream(VitaChiakiHost* host) {
     goto cleanup;
   }
 
+	context.stream.input_thread_should_exit = false;
 	err = chiaki_thread_create(&context.stream.input_thread, input_thread_func, &context.stream);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
@@ -1610,7 +1674,12 @@ cleanup:
   if (result != 0) {
     context.stream.inputs_resume_pending = false;
     shutdown_media_pipeline();
-    context.stream.session_init = false;
+    // Finalize if session was partially initialized
+    if (context.stream.session_init) {
+      finalize_session_resources();
+    } else {
+      context.stream.session_init = false;
+    }
     context.stream.fast_restart_active = false;
     context.stream.reconnect_overlay_active = false;
     context.stream.loss_retry_active = false;

@@ -57,6 +57,7 @@ typedef struct vita_chiaki_stream_t {
   uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator
   ChiakiOpusDecoder opus_decoder;
   ChiakiThread input_thread;
+  volatile bool input_thread_should_exit;    // Signal for clean thread exit (volatile prevents CPU caching on ARM)
   float measured_bitrate_mbps;      // Last measured downstream bitrate
   uint32_t measured_rtt_ms;         // Last measured round-trip time (ms)
   uint64_t metrics_last_update_us;  // Timestamp for latest metrics sample

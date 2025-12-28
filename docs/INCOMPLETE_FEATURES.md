@@ -450,6 +450,47 @@ UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "(Coming Soon)");
 
 ---
 
+## Thread Management & Resource Cleanup
+
+### Input Thread Finalization
+**File:** `vita/src/host.c:1274`, `vita/include/context.h:60`
+**Status:** ✅ RESOLVED (2025-12-28)
+**Priority:** N/A
+**Description:** Input thread now properly exits and is joined when streaming disconnects. Previously, the input thread ran forever with `while(true)`, causing thread leaks and log spam.
+
+**Resolution:** Added `volatile bool input_thread_should_exit` flag to context.h. Input thread now checks this flag in its loop (`while(!stream->input_thread_should_exit)`), allowing graceful shutdown when sessions finalize.
+
+**Impact:** Resolves resource leak (threads never joined) and eliminates log spam after disconnect.
+
+---
+
+### Session Finalization & Resource Cleanup
+**File:** `vita/src/host.c:400-431`
+**Status:** ✅ RESOLVED (2025-12-28)
+**Priority:** N/A
+**Description:** Sessions were not being properly finalized when streams disconnect, especially after PS5 sleep mode. Added `finalize_session_resources()` function to handle cleanup.
+
+**Resolution:** New function properly sets exit flag, waits for thread join, and cleans up session state. Called in:
+- Quit handler (preserves fast restart/retry capability)
+- Retry failure path (Line 316)
+- Init failure path (Lines 1669-1674)
+
+**Impact:** Prevents memory leaks from sessions never being finalized. Proper thread synchronization prevents race conditions.
+
+---
+
+### PS5 Sleep/Shutdown Handling
+**File:** `vita/src/host.c:240-259`
+**Status:** ✅ RESOLVED (2025-12-28)
+**Priority:** N/A
+**Description:** When PS5 entered sleep mode, the VitaRPS5 app showed "PS5 is unreachable" error instead of a friendly message.
+
+**Resolution:** Improved disconnect messages to distinguish graceful shutdowns from errors using `chiaki_quit_reason_is_error()`. PS5 sleep now shows "Console entered sleep mode" instead of error message.
+
+**Impact:** Better user experience - users understand that sleep is intentional, not a failure. Also improved input thread cleanup during this scenario.
+
+---
+
 ## Code Cleanup Notes
 
 This section documents dead code that has been removed and the rationale behind its removal.
