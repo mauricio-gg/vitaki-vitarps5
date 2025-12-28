@@ -224,6 +224,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->gkcrypt_remote = NULL;
 	takion->cb = info->cb;
 	takion->cb_user = info->cb_user;
+	takion->av_cb = info->av_cb;
+	takion->av_cb_user = info->av_cb_user;
 	takion->a_rwnd = TAKION_A_RWND;
 
 	takion->tag_local = chiaki_random_32(); // 0x4823
@@ -1697,13 +1699,17 @@ static void takion_handle_packet_av(ChiakiTakion *takion, uint8_t base_type, uin
 		return;
 	}
 
-	if(takion->cb)
-	{
-		ChiakiTakionEvent event = { 0 };
-		event.type = CHIAKI_TAKION_EVENT_TYPE_AV;
-		event.av = &packet;
+	ChiakiTakionEvent event = { 0 };
+	event.type = CHIAKI_TAKION_EVENT_TYPE_AV;
+	event.av = &packet;
+
+	// Prefer av_cb, fallback to cb for backward compatibility
+	if(takion->av_cb)
+		takion->av_cb(&event, takion->av_cb_user);
+	else if(takion->cb)
 		takion->cb(&event, takion->cb_user);
-	}
+	else
+		CHIAKI_LOGW(takion->log, "Dropping AV packet - no callback registered");
 }
 
 static ChiakiErrorCode av_packet_parse(bool v12, ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size)

@@ -45,6 +45,7 @@ typedef enum {
 void chiaki_session_send_event(ChiakiSession *session, ChiakiEvent *event);
 
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user);
+static void stream_connection_takion_av_cb(ChiakiTakionEvent *event, void *user);
 static void stream_connection_takion_data(ChiakiStreamConnection *stream_connection, ChiakiTakionMessageDataType data_type, uint8_t *buf, size_t buf_size);
 static void stream_connection_takion_data_protobuf(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size);
 static void stream_connection_takion_data_rumble(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size);
@@ -146,6 +147,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	ChiakiErrorCode err;
 
 	ChiakiTakionConnectInfo takion_info;
+	memset(&takion_info, 0, sizeof(takion_info));
 	takion_info.log = stream_connection->log;
 	takion_info.close_socket = true;
 	if(!socket)
@@ -166,6 +168,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 
 	takion_info.cb = stream_connection_takion_cb;
 	takion_info.cb_user = stream_connection;
+	takion_info.av_cb = stream_connection_takion_av_cb;
+	takion_info.av_cb_user = stream_connection;
 
 	err = chiaki_mutex_lock(&stream_connection->state_mutex);
 	assert(err == CHIAKI_ERR_SUCCESS);
@@ -381,6 +385,21 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnecti
 	return err == CHIAKI_ERR_SUCCESS ? unlock_err : err;
 }
 
+/**
+ * Fast path callback for audio/video packets.
+ * Bypasses switch statement and state mutex contention.
+ */
+static void stream_connection_takion_av_cb(ChiakiTakionEvent *event, void *user)
+{
+	ChiakiStreamConnection *stream_connection = user;
+	if(event->type != CHIAKI_TAKION_EVENT_TYPE_AV)
+	{
+		CHIAKI_LOGE(stream_connection->log, "AV callback received non-AV event type: %d", event->type);
+		return;
+	}
+	stream_connection_takion_av(stream_connection, event->av);
+}
+
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;
@@ -399,9 +418,6 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 			break;
 		case CHIAKI_TAKION_EVENT_TYPE_DATA:
 			stream_connection_takion_data(stream_connection, event->data.data_type, event->data.buf, event->data.buf_size);
-			break;
-		case CHIAKI_TAKION_EVENT_TYPE_AV:
-			stream_connection_takion_av(stream_connection, event->av);
 			break;
 		default:
 			break;

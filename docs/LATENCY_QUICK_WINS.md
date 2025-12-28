@@ -47,6 +47,13 @@ Based on code analysis and README.md, these optimizations are already in place:
    - Vita build now uses an 8-packet Takion reorder queue to keep latency tight
    - Overflow logs are rate-limited warnings so we can inspect drops without spamming output
 
+10. ✅ **Dual callback architecture for Takion** (`lib/src/takion.c`, `lib/src/streamconnection.c`)
+   - Split single callback handler into separate AV fast path and control path
+   - Audio/video packets bypass switch statement and state mutex contention
+   - Eliminates serialization bottleneck where control message processing blocks AV dispatch
+   - Expected latency reduction: 0.6-2.5ms per AV packet (18-75ms/second at 30 FPS)
+   - Implementation: December 2025
+
 ---
 
 ## Quick Wins to Implement 🚀

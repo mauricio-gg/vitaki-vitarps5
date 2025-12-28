@@ -105,6 +105,8 @@ typedef struct chiaki_takion_connect_info_t
 	bool ip_dontfrag;
 	ChiakiTakionCallback cb;
 	void *cb_user;
+	ChiakiTakionCallback av_cb;        // AV fast path (optional, NULL = fallback to cb)
+	void *av_cb_user;                  // AV callback context (optional)
 	bool enable_crypt;
 	bool enable_dualsense;
 	uint8_t protocol_version;
@@ -147,6 +149,8 @@ typedef struct chiaki_takion_t
 
 	ChiakiTakionCallback cb;
 	void *cb_user;
+	ChiakiTakionCallback av_cb;        // AV callback (NULL = fallback to cb)
+	void *av_cb_user;                  // AV callback context
 	chiaki_socket_t sock;
 	ChiakiThread thread;
 	ChiakiStopPipe stop_pipe;
