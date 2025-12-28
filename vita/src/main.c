@@ -151,9 +151,13 @@ int main(int argc, char* argv[]) {
   LOGD("Starting to draw UI");
   draw_ui();
 
-  // TODO: Cleanup
+  // Cleanup
   // Controller diagram now uses procedural rendering - no textures to free
   if (context.mlog) {
     free(context.mlog);
   }
+
+  // Clean up finalization mutex
+  chiaki_mutex_fini(&context.stream.finalization_mutex);
+  LOGD("Finalization mutex destroyed");
 }

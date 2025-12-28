@@ -34,6 +34,13 @@ bool vita_chiaki_init_context() {
 
   write_message_log(context.mlog, "----- Debug log start -----"); // debug
 
+  // Initialize stream finalization mutex (prevents race condition in session cleanup)
+  ChiakiErrorCode err = chiaki_mutex_init(&context.stream.finalization_mutex, false);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    chiaki_log(&context.log, CHIAKI_LOG_ERROR, "Failed to initialize finalization mutex: %d", err);
+    return false;
+  }
+
   // add manual hosts to context
   update_context_hosts();
 
