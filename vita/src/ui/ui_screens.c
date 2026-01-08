@@ -1983,6 +1983,8 @@ static void handle_mapping_popup_input(void) {
         VitakiCtrlOut output = k_mapping_options[ctrl_popup_selection].output;
         apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
         ctrl_last_mapping_output = output;
+        // BUG FIX: Persist mapping changes immediately
+        config_serialize(&context.config);
         ctrl_popup_active = false;
         ctrl_popup_input_count = 0;
         ctrl_popup_touch_down = false;
@@ -2042,6 +2044,8 @@ static void handle_mapping_popup_input(void) {
             VitakiCtrlOut output = k_mapping_options[ctrl_popup_touch_choice].output;
             apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
             ctrl_last_mapping_output = output;
+            // BUG FIX: Persist mapping changes immediately
+            config_serialize(&context.config);
             ctrl_popup_active = false;
             ctrl_popup_input_count = 0;
         }
@@ -2210,7 +2214,6 @@ UIScreenType draw_controller_config_screen() {
 
     UIScreenType nav_screen;
     if (!ctrl_popup_active && handle_global_nav_shortcuts(UI_SCREEN_TYPE_CONTROLLER, &nav_screen, true)) {
-        config_serialize(&context.config);
         return nav_screen;
     }
 
@@ -2223,8 +2226,12 @@ UIScreenType draw_controller_config_screen() {
             ui_focus_get_zone() != FOCUS_ZONE_NAV_BAR) {
             if (btn_pressed(SCE_CTRL_LEFT)) {
                 cycle_controller_preset(-1);
+                // BUG FIX: Persist preset selection immediately
+                config_serialize(&context.config);
             } else if (btn_pressed(SCE_CTRL_RIGHT)) {
                 cycle_controller_preset(1);
+                // BUG FIX: Persist preset selection immediately
+                config_serialize(&context.config);
             }
             if (btn_pressed(SCE_CTRL_LTRIGGER)) {
                 change_callout_page(-1);
@@ -2238,6 +2245,8 @@ UIScreenType draw_controller_config_screen() {
                 } else {
                     controller_front_clear_all_mappings();
                 }
+                // BUG FIX: Persist mapping changes immediately
+                config_serialize(&context.config);
             }
         }
 
@@ -2336,6 +2345,8 @@ UIScreenType draw_controller_config_screen() {
 
             if (btn_pressed(SCE_CTRL_SQUARE)) {
                 controller_front_clear_all_mappings();
+                // BUG FIX: Persist mapping changes immediately
+                config_serialize(&context.config);
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2400,6 +2411,8 @@ UIScreenType draw_controller_config_screen() {
 
             if (btn_pressed(SCE_CTRL_SQUARE)) {
                 controller_back_clear_all_mappings();
+                // BUG FIX: Persist mapping changes immediately
+                config_serialize(&context.config);
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {
