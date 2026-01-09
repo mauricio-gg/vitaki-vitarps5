@@ -1464,6 +1464,7 @@ static void *input_thread_func(void* user) {
 
         // Track left/right zones for L1+rear / R1+rear combo mappings
         // (used at lines 1540-1551 for REARTOUCH_LEFT_L1 and REARTOUCH_RIGHT_R1)
+        // Note: Center line (x == TOUCH_MAX_WIDTH_BY_2) intentionally excluded from both zones
         if (x > TOUCH_MAX_WIDTH_BY_2) {
           reartouch_right = true;
         } else if (x < TOUCH_MAX_WIDTH_BY_2) {
@@ -1472,8 +1473,10 @@ static void *input_thread_func(void* user) {
 
         // Map touch coordinates to user-configured grid cell
         VitakiCtrlIn grid_input = rear_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
-        if (grid_input != VITAKI_CTRL_IN_NONE) {
+        if (grid_input != VITAKI_CTRL_IN_NONE && grid_input < VITAKI_CTRL_IN_COUNT) {
           VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
+          // Note: L2/R2 treated as digital (full press = 0xff) not analog
+          // Multi-touch will set to 0xff - no pressure accumulation
           if (mapped == VITAKI_CTRL_OUT_L2) {
             stream->controller_state.l2_state = 0xff;
           } else if (mapped == VITAKI_CTRL_OUT_R2) {
