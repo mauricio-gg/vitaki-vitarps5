@@ -1278,6 +1278,39 @@ static VitakiCtrlIn front_grid_input_from_touch(int x, int y, int max_w, int max
   return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS + col);
 }
 
+/**
+ * Convert rear touchpad coordinates to a grid-based input.
+ *
+ * Maps rear touch (x,y) coordinates to a specific grid cell index based on the
+ * configured rear touch grid dimensions (VITAKI_REAR_TOUCH_GRID_COLS x VITAKI_REAR_TOUCH_GRID_ROWS).
+ * This allows flexible, user-configurable rear panel input mapping.
+ *
+ * @param x Horizontal touch coordinate
+ * @param y Vertical touch coordinate
+ * @param max_w Maximum width of the touch area
+ * @param max_h Maximum height of the touch area
+ * @return Grid-based VitakiCtrlIn enum for the touched cell, or VITAKI_CTRL_IN_NONE if invalid
+ */
+static VitakiCtrlIn rear_grid_input_from_touch(int x, int y, int max_w, int max_h) {
+  if (x < 0 || y < 0)
+    return VITAKI_CTRL_IN_NONE;
+  if (x >= max_w)
+    x = max_w - 1;
+  if (y >= max_h)
+    y = max_h - 1;
+  int col = (x * VITAKI_REAR_TOUCH_GRID_COLS) / max_w;
+  int row = (y * VITAKI_REAR_TOUCH_GRID_ROWS) / max_h;
+  if (col < 0)
+    col = 0;
+  if (col >= VITAKI_REAR_TOUCH_GRID_COLS)
+    col = VITAKI_REAR_TOUCH_GRID_COLS - 1;
+  if (row < 0)
+    row = 0;
+  if (row >= VITAKI_REAR_TOUCH_GRID_ROWS)
+    row = VITAKI_REAR_TOUCH_GRID_ROWS - 1;
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + row * VITAKI_REAR_TOUCH_GRID_COLS + col);
+}
+
 static void *input_thread_func(void* user) {
   // Set input thread to highest priority for lowest input lag
   // Pin to CPU1 to avoid contention with video/audio threads on CPU0
@@ -1422,27 +1455,31 @@ static void *input_thread_func(void* user) {
       bool reartouch_right = false;
       bool reartouch_left = false;
 
+      // Process rear touchpad input with grid-based mapping
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_BACK].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_BACK].report[touch_i].x;
         int y = touch[SCE_TOUCH_PORT_BACK].report[touch_i].y;
 
         stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_ANY];
 
+        // Track left/right zones for L1+rear / R1+rear combo mappings
+        // (used at lines 1540-1551 for REARTOUCH_LEFT_L1 and REARTOUCH_RIGHT_R1)
         if (x > TOUCH_MAX_WIDTH_BY_2) {
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT);
           reartouch_right = true;
-          if (y > TOUCH_MAX_HEIGHT_BY_2) {
-            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LR);
-          } else {
-            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_UR);
-          }
         } else if (x < TOUCH_MAX_WIDTH_BY_2) {
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT);
           reartouch_left = true;
-          if (y > TOUCH_MAX_HEIGHT_BY_2) {
-            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LL);
-          } else {
-            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_UL);
+        }
+
+        // Map touch coordinates to user-configured grid cell
+        VitakiCtrlIn grid_input = rear_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        if (grid_input != VITAKI_CTRL_IN_NONE) {
+          VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
+          if (mapped == VITAKI_CTRL_OUT_L2) {
+            stream->controller_state.l2_state = 0xff;
+          } else if (mapped == VITAKI_CTRL_OUT_R2) {
+            stream->controller_state.r2_state = 0xff;
+          } else if (mapped != VITAKI_CTRL_OUT_NONE) {
+            stream->controller_state.buttons |= mapped;
           }
         }
       }
