@@ -2,14 +2,65 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2025-12-28 (Production Build Logging Security Fix Resolution)
+**Last Updated:** 2025-12-29 (Internet Remote Play Infrastructure Documentation)
 **Status:** Generated from codebase analysis
 
 ---
 
 ## Critical TODOs
 
-### 1. Latency Optimization
+### 1. Internet Remote Play (Infrastructure Exists - Disabled)
+**File:** `lib/src/remote/holepunch.c` (5,047 lines), `lib/src/remote/rudp.c`, `lib/src/remote/stun.h`
+**Status:** Fully implemented but disabled for PS Vita with `#if !(defined(__PSVITA__))` guards
+**Priority:** Future Feature (7-12 weeks effort)
+**Description:** Complete internet remote play infrastructure exists from upstream vitaki/Chiaki but is deliberately disabled for PS Vita. Includes UDP hole-punching, STUN/UPnP NAT traversal, RUDP protocol, and full PSN API integration.
+
+**What Exists:**
+- 5,000+ lines of production-ready hole-punching code
+- STUN client for external IP discovery (multiple servers)
+- RUDP (Reliable UDP) protocol for internet connections
+- UPnP automatic port mapping
+- PSN OAuth2 authentication flow
+- Device discovery via PSN API
+- WebSocket session management
+- All dependencies present (libcurl, json-c, miniupnpc, OpenSSL)
+
+**What's Missing:**
+- PSN authentication UI (OAuth2 login screen)
+- Device selection UI (show user's remote consoles)
+- Connection status UI (NAT traversal progress)
+- Platform guard removal (`#if !(defined(__PSVITA__))`)
+- Vita-specific testing (NAT types, network conditions)
+
+**Implementation Roadmap:**
+1. **Phase 1:** Remove platform guards, verify dependencies (2-3 weeks)
+2. **Phase 2:** PSN authentication UI (OAuth2 device code flow) (2-3 weeks)
+3. **Phase 3:** UI integration (device list, connection status) (2-3 weeks)
+4. **Phase 4:** Core wiring (holepunch → RUDP → session) (1-2 weeks)
+5. **Phase 5:** Testing & hardening (multiple NAT types, error handling) (2-4 weeks)
+6. **Phase 6:** Documentation & release (1 week)
+
+**Technical Architecture:**
+- NAT Traversal: UPnP (preferred) → STUN → Manual fallback
+- PSN APIs: Device list, session create/start/delete, WebSocket
+- Connection: PSN Auth → Device Discovery → Hole Punch → RUDP → Stream
+- Estimated latency: +5-50ms vs local network (depends on internet RTT)
+
+**Known Limitations:**
+- Symmetric NAT without UPnP may fail (requires relay server - not implemented)
+- IPv6 disabled for Vita (line 2112 of holepunch.c)
+- PSN account required (cannot work with manually-registered consoles)
+- Latency varies widely based on internet connection
+
+**Documentation:** See `docs/INTERNET_REMOTE_PLAY.md` for comprehensive implementation guide.
+
+**Comment from Code:** `lib/src/remote/holepunch.c:17` states: `// TODO: Make portable for Switch and Vita`
+
+**Impact:** Major feature that would enable remote play from anywhere in the world. All networking complexity already implemented - main work is PSN authentication UI and testing.
+
+---
+
+### 2. Latency Optimization
 **File:** Multiple (entire streaming pipeline)
 **Status:** Known issue - needs improvement
 **Priority:** High
