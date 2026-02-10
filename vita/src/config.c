@@ -402,7 +402,7 @@ void config_parse(VitaChiakiConfig* cfg) {
         cfg->fps = CHIAKI_VIDEO_FPS_PRESET_60;
       } else {
         if (fps_value != 30) {
-          LOGD("Unsupported fps value %d in config, defaulting to 30", fps_value);
+          LOGD("Unsupported fps value %d in config (supported: 30 or 60); defaulting to 30", fps_value);
         }
         cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
       }
@@ -782,7 +782,10 @@ void config_parse(VitaChiakiConfig* cfg) {
         LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
              CFG_FILENAME);
       }
-      config_serialize(cfg);
+      if (!config_serialize(cfg)) {
+        LOGE("Failed to persist migrated config to %s; using in-memory settings for this session",
+             CFG_FILENAME);
+      }
     }
   }
 }
@@ -863,11 +866,11 @@ void serialize_target(FILE* fp, char* field_name, ChiakiTarget* target) {
   fprintf(fp, "\"\n");
 }
 
-void config_serialize(VitaChiakiConfig* cfg) {
+bool config_serialize(VitaChiakiConfig* cfg) {
   FILE *fp = fopen(CFG_FILENAME, "w");
   if (!fp) {
     LOGE("Failed to open %s for writing", CFG_FILENAME);
-    return;
+    return false;
   }
   fprintf(fp, "[general]\nversion = 1\n");
 
@@ -966,5 +969,10 @@ void config_serialize(VitaChiakiConfig* cfg) {
     // fprintf(fp, "ap_ssid = \"%s\"\n", rhost->ap_ssid);
     // fprintf(fp, "ap_name = \"%s\"\n", rhost->ap_name);
   }
-  fclose(fp);
+  bool write_ok = (ferror(fp) == 0) && (fclose(fp) == 0);
+  if (!write_ok) {
+    LOGE("Failed to flush %s", CFG_FILENAME);
+    return false;
+  }
+  return true;
 }

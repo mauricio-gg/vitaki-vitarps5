@@ -52,4 +52,4 @@ typedef struct vita_chiaki_config_t {
 
 void config_parse(VitaChiakiConfig* cfg);
 void config_free(VitaChiakiConfig* cfg);
-void config_serialize(VitaChiakiConfig* cfg);
+bool config_serialize(VitaChiakiConfig* cfg);
