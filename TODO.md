@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2025-12-14 (Controller Diagram Polish Complete - All Controller Layout Work Finished)
+Last Updated: 2026-02-10 (Settings simplification + nav collapse regression fix)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -78,6 +78,11 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### ✅ Done
+- **Settings simplification + navigation collapse behavior fix**
+  - Removed redundant second Settings view and deleted the Settings-side `Controller Map` control; controller mapping now remains only in the dedicated Controller screen (`vita/src/ui/ui_screens.c`).
+  - Moved `Circle Button Confirm` to the bottom of the main scrollable Settings list and removed the `Keep Navigation Pinned` setting/config field (`vita/include/config.h`, `vita/src/config.c`).
+  - Restored deterministic menu close behavior for explicit actions (nav exit to content, tapping content area, and selecting nav items) by removing pin-gating from collapse paths (`vita/src/ui/ui_focus.c`, `vita/src/ui/ui_navigation.c`).
+
 - **Stream retry cooldown + input readiness gate**
   - Added a 3 s cooldown after `CHIAKI_EVENT_QUIT` and require it to expire before `host_stream()` can run again (`vita/src/host.c:110-134`, `vita/include/context.h:46-60`, `vita/src/host.c:470-520`).
   - Introduced `inputs_ready` so the input thread starts sending pad data on `CHIAKI_EVENT_CONNECTED`, not the first video frame (`vita/src/host.c:297-474`).

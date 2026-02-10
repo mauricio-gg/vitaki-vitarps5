@@ -51,7 +51,6 @@ typedef struct vita_chiaki_config_t {
   bool clamp_soft_restart_bitrate; // Keep soft restart bitrate <= ~1.5 Mbps
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
-  bool keep_nav_pinned;  // Disable auto-collapse on content interaction (Triangle still works)
   bool show_nav_labels;  // Show text labels below navigation icons when selected
 } VitaChiakiConfig;
 

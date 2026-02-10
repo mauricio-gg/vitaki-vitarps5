@@ -13,6 +13,26 @@
 #include "ui_types.h"
 
 // ============================================================================
+// Settings Screen Item Indexes
+// ============================================================================
+
+typedef enum ui_settings_streaming_item_t {
+  UI_SETTINGS_ITEM_QUALITY_PRESET = 0,
+  UI_SETTINGS_ITEM_LATENCY_MODE = 1,
+  UI_SETTINGS_ITEM_FPS_TARGET = 2,
+  UI_SETTINGS_ITEM_FORCE_30_FPS = 3,
+  UI_SETTINGS_ITEM_AUTO_DISCOVERY = 4,
+  UI_SETTINGS_ITEM_SHOW_LATENCY = 5,
+  UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS = 6,
+  UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE = 7,
+  UI_SETTINGS_ITEM_FILL_SCREEN = 8,
+  UI_SETTINGS_ITEM_SHOW_NAV_LABELS = 9,
+  UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 10,
+} UISettingsStreamingItem;
+
+#define UI_SETTINGS_STREAMING_ITEM_COUNT 11
+
+// ============================================================================
 // Screen Initialization
 // ============================================================================
 

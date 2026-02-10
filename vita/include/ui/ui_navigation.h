@@ -88,9 +88,8 @@ NavSidebarState ui_nav_get_state(void);
 
 /**
  * Request navigation sidebar to collapse
- * @param from_content True if triggered by content interaction (checks pinned setting)
  */
-void ui_nav_request_collapse(bool from_content);
+void ui_nav_request_collapse(void);
 
 /**
  * Request navigation sidebar to expand

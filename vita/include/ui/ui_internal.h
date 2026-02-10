@@ -181,7 +181,7 @@ void ui_draw_loss_indicator(void);
 
 // Legacy compatibility wrappers for ui.c (map to new navigation module)
 #define render_wave_navigation() ui_nav_render()
-#define nav_request_collapse(from_content) ui_nav_request_collapse(from_content)
+#define nav_request_collapse() ui_nav_request_collapse()
 #define nav_request_expand() ui_nav_request_expand()
 #define nav_toggle_collapse() ui_nav_toggle()
 #define nav_reset_to_collapsed() ui_nav_reset_collapsed()

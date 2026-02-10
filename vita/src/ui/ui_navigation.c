@@ -100,12 +100,7 @@ void ui_nav_init(void) {
 // State Machine Functions
 // ============================================================================
 
-void ui_nav_request_collapse(bool from_content_interaction) {
-    // If from content interaction, check if pinned setting blocks it
-    if (from_content_interaction && context.config.keep_nav_pinned) {
-        return;
-    }
-
+void ui_nav_request_collapse(void) {
     // Only collapse from expanded state
     if (nav_collapse.state != NAV_STATE_EXPANDED) {
         return;
@@ -140,7 +135,7 @@ void ui_nav_request_expand(void) {
 
 void ui_nav_toggle(void) {
     if (nav_collapse.state == NAV_STATE_EXPANDED) {
-        ui_nav_request_collapse(false);  // Not from content interaction
+        ui_nav_request_collapse();
     } else if (nav_collapse.state == NAV_STATE_COLLAPSED) {
         ui_nav_request_expand();
     }
@@ -806,10 +801,10 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
             }
         }
 
-        // Touch in content area triggers collapse (if not pinned)
+        // Touch in content area triggers collapse
         // Content area is to the right of the nav bar
         if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !*touch_block_active) {
-            ui_nav_request_collapse(true);  // From content interaction
+            ui_nav_request_collapse();
             *touch_block_active = true;   // Prevent double-processing of this touch
         }
     }
@@ -839,9 +834,9 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
         }
 
         if (btn_pressed(SCE_CTRL_CROSS)) {
-            // Collapse menu when selecting a page (unless pinned)
-            if (nav_collapse.state == NAV_STATE_EXPANDED && !context.config.keep_nav_pinned) {
-                ui_nav_request_collapse(true);
+            // Collapse menu when selecting a page
+            if (nav_collapse.state == NAV_STATE_EXPANDED) {
+                ui_nav_request_collapse();
             }
             if (out_screen) {
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
