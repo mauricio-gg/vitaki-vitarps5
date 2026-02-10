@@ -208,6 +208,12 @@ bool ui_diagram_front_zone_rect(DiagramRenderCtx* ctx, VitakiCtrlIn input,
 bool ui_diagram_back_zone_rect(DiagramRenderCtx* ctx, VitakiCtrlIn input,
                                int* out_x, int* out_y, int* out_w, int* out_h);
 
+/**
+ * Fetch anchor point used for callout rendering for a given input.
+ */
+bool ui_diagram_anchor_for_input(DiagramRenderCtx* ctx, VitakiCtrlIn input,
+                                 int* out_x, int* out_y);
+
 // ============================================================================
 // State Updates
 // ============================================================================

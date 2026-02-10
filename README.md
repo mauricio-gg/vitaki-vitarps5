@@ -85,7 +85,7 @@ This fork adds the following enhancements to ywnico's vitaki-fork:
 All the features from ywnico's fork are included:
 1. Implemented audio
 2. Implemented controls
-    - Control mappings for L2, R2, L3, R3, and touchpad (trapezoid button), following the official ps4 remote play maps in `vs0:app/NPXS10013/keymap/`. Note that `Select` + `Start` sends the PS (home) button.
+    - Control mappings for L1, R1, L2, R2, L3, R3, and touchpad (trapezoid button), including remappable shoulder triggers in custom presets. Note that `Select` + `Start` sends the PS (home) button.
     - Motion controls (thanks to [@Epicpkmn11](https://github.com/Epicpkmn11), who also contributed some other controller improvements)
 3. Implemented external network remote play (with manually-specified remote IP addresses)
 4. Fixed console wakeup

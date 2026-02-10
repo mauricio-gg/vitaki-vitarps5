@@ -40,12 +40,12 @@ UI Polish: Completed menu icon modernization (triangle replaces hamburger), fixe
 **Goal:** Implement full controller customization and button mapping options
 
 #### Tasks
-- [ ] L2/R2 trigger mapping configuration
+- [x] L2/R2 trigger mapping configuration (includes L1/R1 shoulder remapping in controller UI)
 - [ ] Home button handling with long hold support
 - [ ] Fully configurable controller mapping system
 - [ ] Profile-based input configurations
 
-**Status:** Planned
+**Status:** In Progress (1 of 4 tasks complete)
 **Priority:** Medium - Expands controller accessibility
 
 ### Epic: Power & System Configuration - PLANNED

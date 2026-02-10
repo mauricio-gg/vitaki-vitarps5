@@ -4,7 +4,7 @@
 - [ ] Test D-pad navigation in all content screens to verify no regression
 
 ## Input & Controller
-- [ ] L2/R2 trigger mapping (`vita/src/host.c:209`)
+- [x] L2/R2 trigger mapping (`vita/src/host.c`, `vita/src/ui/ui_screens.c`) - Includes L1/R1 shoulder remapping support in custom presets
 - [ ] Home button handling with long hold (`vita/src/host.c:210`)
 - [ ] Fully configurable controller mapping (`vita/src/controller.c:6`)
 

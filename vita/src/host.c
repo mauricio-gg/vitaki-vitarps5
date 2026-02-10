@@ -1365,7 +1365,7 @@ static void *input_thread_func(void* user) {
   }
   while (!stream->input_thread_should_exit) {
 
-    // TODO enable using triggers as L2, R2
+    // Trigger inputs can be remapped via custom controller mappings (L1/R1/L2/R2/L3/R3/PS/etc.).
     // TODO enable home button, with long hold sent back to Vita?
 
 

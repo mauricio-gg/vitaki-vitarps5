@@ -304,16 +304,12 @@ set(VITA_VERSION "00.06")
 ## Controller & Input
 
 ### 13. L2/R2 Trigger Mapping
-**File:** `vita/src/host.c:209`
-**Status:** Not implemented
+**File:** `vita/src/host.c`, `vita/src/ui/ui_screens.c`
+**Status:** ✅ Completed (Feb 2026)
 **Priority:** Medium
-**Description:** Enable using triggers as L2, R2 buttons.
+**Description:** Trigger mapping is now available through custom controller mappings, including assigning L1/R1 and L2/R2 outputs from controller configuration and remapping shoulder trigger inputs in Summary view.
 
-```c
-// TODO enable using triggers as L2, R2
-```
-
-**Impact:** Limited controller mapping options.
+**Impact:** Expanded controller mapping flexibility with persisted custom trigger/shoulder assignments.
 
 ---
 
