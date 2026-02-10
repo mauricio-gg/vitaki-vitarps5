@@ -550,7 +550,22 @@ static SettingsState settings_state = {0};
 #define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS    11  // Streaming settings: 3 dropdowns + 8 toggles
+#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 7 toggles + 1 circle-confirm toggle
+
+// Shared toggle geometry for settings rows
+#define SETTINGS_TOGGLE_X_OFFSET    70
+#define SETTINGS_TOGGLE_WIDTH       60
+#define SETTINGS_TOGGLE_HEIGHT      30
+
+// Toggle animation IDs
+#define SETTINGS_TOGGLE_ANIM_FORCE_30FPS            3
+#define SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY         4
+#define SETTINGS_TOGGLE_ANIM_SHOW_LATENCY           5
+#define SETTINGS_TOGGLE_ANIM_FILL_SCREEN            6
+#define SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART     7
+#define SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS    8
+#define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS       10
+#define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
 
 static void settings_update_scroll_for_selection(void) {
     int total_items = SETTINGS_STREAMING_ITEMS;
@@ -616,7 +631,8 @@ static void apply_force_30fps_runtime(void) {
 /// Helper to draw a single settings item (toggle with label)
 static void draw_settings_toggle_item(int x, int y, int w, int h, const char* label,
                                       int anim_index, bool value, bool selected) {
-  draw_toggle_switch(x + w - 70, y + (h - 30)/2, 60, 30,
+  draw_toggle_switch(x + w - SETTINGS_TOGGLE_X_OFFSET, y + (h - SETTINGS_TOGGLE_HEIGHT)/2,
+                     SETTINGS_TOGGLE_WIDTH, SETTINGS_TOGGLE_HEIGHT,
                      get_toggle_animation_value(anim_index, value), selected);
   vita2d_font_draw_text(font, x + 15, y + h/2 + 6,
                         UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
@@ -635,69 +651,77 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
   if (last_visible > total_items) last_visible = total_items;
 
   // Draw only visible items
+  static int last_invalid_settings_item = -1;
   for (int i = first_visible; i < last_visible; i++) {
     int y = content_y + (i - first_visible) * item_stride;
     bool selected = (settings_state.selected_item == i);
 
     switch (i) {
-      case 0:  // Quality Preset
+      case UI_SETTINGS_ITEM_QUALITY_PRESET:
         draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
                       get_resolution_string(context.config.resolution),
                       false, selected);
         break;
-      case 1:  // Latency Mode
+      case UI_SETTINGS_ITEM_LATENCY_MODE:
         draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
                       get_latency_mode_string(context.config.latency_mode),
                       false, selected);
         break;
-      case 2:  // FPS Target
+      case UI_SETTINGS_ITEM_FPS_TARGET:
         draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
                       get_fps_string(context.config.fps),
                       false, selected);
         break;
-      case 3:  // Force 30 FPS
+      case UI_SETTINGS_ITEM_FORCE_30_FPS:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Force 30 FPS Output", 3,
+                                  "Force 30 FPS Output", SETTINGS_TOGGLE_ANIM_FORCE_30FPS,
                                   context.config.force_30fps, selected);
         break;
-      case 4:  // Auto Discovery
+      case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Auto Discovery", 4,
+                                  "Auto Discovery", SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY,
                                   context.config.auto_discovery, selected);
         break;
-      case 5:  // Show Latency
+      case UI_SETTINGS_ITEM_SHOW_LATENCY:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Show Latency", 5,
+                                  "Show Latency", SETTINGS_TOGGLE_ANIM_SHOW_LATENCY,
                                   context.config.show_latency, selected);
         break;
-      case 6:  // Show Network Alerts
+      case UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Show Network Alerts", 8,
+                                  "Show Network Alerts", SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
                                   context.config.show_network_indicator, selected);
         break;
-      case 7:  // Clamp Soft Restart Bitrate
+      case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Clamp Soft Restart Bitrate", 7,
+                                  "Clamp Soft Restart Bitrate", SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
                                   context.config.clamp_soft_restart_bitrate, selected);
         break;
-      case 8:  // Fill Screen
+      case UI_SETTINGS_ITEM_FILL_SCREEN:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Fill Screen", 6,
+                                  "Fill Screen", SETTINGS_TOGGLE_ANIM_FILL_SCREEN,
                                   context.config.stretch_video, selected);
         break;
-      case 9:  // Show Navigation Labels
+      case UI_SETTINGS_ITEM_SHOW_NAV_LABELS:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Show Navigation Labels", 10,
+                                  "Show Navigation Labels", SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS,
                                   context.config.show_nav_labels, selected);
         break;
-      case 10: // Circle Button Confirm
-        draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                           get_toggle_animation_value(101, context.config.circle_btn_confirm),
+      case UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM:
+        draw_toggle_switch(content_x + content_w - SETTINGS_TOGGLE_X_OFFSET,
+                           y + (item_h - SETTINGS_TOGGLE_HEIGHT)/2,
+                           SETTINGS_TOGGLE_WIDTH, SETTINGS_TOGGLE_HEIGHT,
+                           get_toggle_animation_value(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
+                                                      context.config.circle_btn_confirm),
                            selected);
         vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                               UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Circle Button Confirm");
         break;
       default:
+        if (last_invalid_settings_item != i) {
+          LOGD("Ignoring unsupported settings item index in renderer: %d", i);
+          last_invalid_settings_item = i;
+        }
         break;
     }
   }
@@ -787,7 +811,7 @@ UIScreenType draw_settings() {
   // X: Activate selected item (toggle or cycle dropdown)
   if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
     // Streaming tab input handling
-    if (settings_state.selected_item == 0) {
+    if (settings_state.selected_item == UI_SETTINGS_ITEM_QUALITY_PRESET) {
       // Cycle resolution: 360p <-> 540p (720p/1080p are unavailable on Vita)
       switch (context.config.resolution) {
         case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
@@ -806,53 +830,56 @@ UIScreenType draw_settings() {
           break;
       }
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 1) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_LATENCY_MODE) {
       // Cycle latency modes
       context.config.latency_mode =
         (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 2) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FPS_TARGET) {
       // Cycle FPS
       context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
         CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 3) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FORCE_30_FPS) {
       context.config.force_30fps = !context.config.force_30fps;
-      start_toggle_animation(3, context.config.force_30fps);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FORCE_30FPS, context.config.force_30fps);
       persist_config_or_warn();
       apply_force_30fps_runtime();
-    } else if (settings_state.selected_item == 4) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_AUTO_DISCOVERY) {
       // Auto discovery toggle
       context.config.auto_discovery = !context.config.auto_discovery;
-      start_toggle_animation(4, context.config.auto_discovery);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY, context.config.auto_discovery);
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 5) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_LATENCY) {
       // Show latency toggle
       context.config.show_latency = !context.config.show_latency;
-      start_toggle_animation(5, context.config.show_latency);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_LATENCY, context.config.show_latency);
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 6) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS) {
       context.config.show_network_indicator = !context.config.show_network_indicator;
-      start_toggle_animation(8, context.config.show_network_indicator);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
+                             context.config.show_network_indicator);
       if (!context.config.show_network_indicator) {
         vitavideo_hide_poor_net_indicator();
       }
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 7) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE) {
       context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
-      start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
+                             context.config.clamp_soft_restart_bitrate);
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 8) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FILL_SCREEN) {
       context.config.stretch_video = !context.config.stretch_video;
-      start_toggle_animation(6, context.config.stretch_video);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FILL_SCREEN, context.config.stretch_video);
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 9) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NAV_LABELS) {
       context.config.show_nav_labels = !context.config.show_nav_labels;
-      start_toggle_animation(10, context.config.show_nav_labels);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS, context.config.show_nav_labels);
       persist_config_or_warn();
-    } else if (settings_state.selected_item == 10) {
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM) {
       context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
-      start_toggle_animation(101, context.config.circle_btn_confirm);
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
+                             context.config.circle_btn_confirm);
       persist_config_or_warn();
     }
   }
