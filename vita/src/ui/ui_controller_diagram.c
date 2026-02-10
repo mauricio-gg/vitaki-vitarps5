@@ -2362,8 +2362,14 @@ void ui_diagram_render(DiagramState* state, const VitakiCtrlMapInfo* map, int x,
     // Draw overlays based on detail view
     if (state->detail_view == CTRL_DETAIL_SUMMARY) {
         if (state->selected_button >= 0) {
-            ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button,
-                                                 sinf(state->highlight_pulse * 2.0f * (float)M_PI));
+            float pulse = sinf(state->highlight_pulse * 2.0f * (float)M_PI);
+            if (state->selected_button == VITAKI_CTRL_IN_L1) {
+                ui_diagram_draw_highlight(&ctx, VITA_BTN_ID_L, pulse);
+            } else if (state->selected_button == VITAKI_CTRL_IN_R1) {
+                ui_diagram_draw_highlight(&ctx, VITA_BTN_ID_R, pulse);
+            } else {
+                ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button, pulse);
+            }
         }
         if (state->selected_zone >= 0) {
             ui_diagram_draw_back_slot_highlight(&ctx, (VitakiCtrlIn)state->selected_zone,

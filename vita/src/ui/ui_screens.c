@@ -1923,8 +1923,8 @@ static const char* controller_slot_label(VitakiCtrlIn input) {
         return label_buf;
     }
     switch (input) {
-        case VITAKI_CTRL_IN_L1: return "Left Trigger (L)";
-        case VITAKI_CTRL_IN_R1: return "Right Trigger (R)";
+        case VITAKI_CTRL_IN_L1: return "Left Shoulder (L1)";
+        case VITAKI_CTRL_IN_R1: return "Right Shoulder (R1)";
         case VITAKI_CTRL_IN_SELECT_START: return "Select + Start";
         case VITAKI_CTRL_IN_LEFT_SQUARE: return "Left + Square";
         case VITAKI_CTRL_IN_RIGHT_CIRCLE: return "Right + Circle";
@@ -2585,7 +2585,7 @@ UIScreenType draw_controller_config_screen() {
             UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
             g_controller_presets[ctrl_preset_index].description);
 
-        const char* hint = "L/R: Scroll Callouts | Up/Down: Select L1/R1 | X: Edit Shoulder | Tap Diagram to Edit | Square: Clear View";
+        const char* hint = "Left/Right: Change Preset | L/R: Scroll Callouts | Up/Down: Select L1/R1 | X: Edit Shoulder | Tap Diagram to Edit | Square: Clear View";
         int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
         int hint_x = layout_center_x - hint_w / 2;
         vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20,
