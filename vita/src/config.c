@@ -103,10 +103,28 @@ void zero_pad(char* buf, size_t size) {
   }
 }
 
-ChiakiVideoResolutionPreset parse_resolution_preset(char* preset) {
+ChiakiVideoResolutionPreset parse_resolution_preset(const char* preset) {
+  if (!preset)
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   if (strcmp(preset, "360p") == 0)
     return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+  if (strcmp(preset, "720p") == 0)
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+  if (strcmp(preset, "1080p") == 0)
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_1080p;
   return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+}
+
+static ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionPreset preset,
+                                                                 bool *was_downgraded) {
+  if (was_downgraded)
+    *was_downgraded = false;
+  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
+    if (was_downgraded)
+      *was_downgraded = true;
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+  }
+  return preset;
 }
 
 VitaChiakiLatencyMode parse_latency_mode(const char* mode) {
@@ -166,6 +184,119 @@ bool get_circle_btn_confirm_default() {
 
   // 0 => circle select; 1 => cross select; other values invalid (so default to false)
   return (button_assign == 0);
+}
+
+static bool parse_legacy_bool_setting(toml_table_t *parsed, const char *key, bool *out) {
+  for (int slot = 0; slot < 3; slot++) {
+    char section_name[32];
+    snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
+    toml_table_t *legacy = toml_table_in(parsed, section_name);
+    if (!legacy)
+      continue;
+    toml_datum_t datum = toml_bool_in(legacy, key);
+    if (datum.ok) {
+      *out = datum.u.b;
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool parse_root_bool_setting(toml_table_t *parsed, const char *key, bool *out) {
+  toml_datum_t datum = toml_bool_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = datum.u.b;
+  return true;
+}
+
+static bool parse_legacy_int_setting(toml_table_t *parsed, const char *key, int *out) {
+  for (int slot = 0; slot < 3; slot++) {
+    char section_name[32];
+    snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
+    toml_table_t *legacy = toml_table_in(parsed, section_name);
+    if (!legacy)
+      continue;
+    toml_datum_t datum = toml_int_in(legacy, key);
+    if (datum.ok) {
+      *out = (int)datum.u.i;
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool parse_root_int_setting(toml_table_t *parsed, const char *key, int *out) {
+  toml_datum_t datum = toml_int_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = (int)datum.u.i;
+  return true;
+}
+
+// Returns allocated string via *out that caller must free.
+static bool parse_legacy_string_setting(toml_table_t *parsed, const char *key, char **out) {
+  for (int slot = 0; slot < 3; slot++) {
+    char section_name[32];
+    snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
+    toml_table_t *legacy = toml_table_in(parsed, section_name);
+    if (!legacy)
+      continue;
+    toml_datum_t datum = toml_string_in(legacy, key);
+    if (datum.ok) {
+      *out = datum.u.s;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Returns allocated string via *out that caller must free.
+static bool parse_root_string_setting(toml_table_t *parsed, const char *key, char **out) {
+  toml_datum_t datum = toml_string_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = datum.u.s;
+  return true;
+}
+
+typedef enum migration_source_t {
+  MIGRATION_SOURCE_NONE = 0,
+  MIGRATION_SOURCE_LEGACY_SECTION,
+  MIGRATION_SOURCE_ROOT
+} MigrationSource;
+
+static bool parse_bool_setting_with_migration(toml_table_t *settings,
+                                              toml_table_t *parsed,
+                                              const char *key,
+                                              bool default_value,
+                                              bool *out_value,
+                                              MigrationSource *out_source) {
+  toml_datum_t datum;
+  bool legacy_value = false;
+  if (out_source)
+    *out_source = MIGRATION_SOURCE_NONE;
+  if (settings) {
+    datum = toml_bool_in(settings, key);
+    if (datum.ok) {
+      *out_value = datum.u.b;
+      return true;
+    }
+  }
+  if (parse_legacy_bool_setting(parsed, key, &legacy_value)) {
+    *out_value = legacy_value;
+    if (out_source)
+      *out_source = MIGRATION_SOURCE_LEGACY_SECTION;
+    return true;
+  }
+  if (parse_root_bool_setting(parsed, key, &legacy_value)) {
+    *out_value = legacy_value;
+    if (out_source)
+      *out_source = MIGRATION_SOURCE_ROOT;
+    return true;
+  }
+  *out_value = default_value;
+  return true;
 }
 
 void config_parse(VitaChiakiConfig* cfg) {
@@ -230,124 +361,248 @@ void config_parse(VitaChiakiConfig* cfg) {
       return;
     }
 
+    bool migrated_legacy_settings = false;
+    bool migrated_root_settings = false;
+    bool migrated_resolution_policy = false;
     toml_table_t* settings = toml_table_in(parsed, "settings");
     if (settings) {
       datum = toml_bool_in(settings, "auto_discovery");
       cfg->auto_discovery = datum.ok ? datum.u.b : true;
+    }
+
+    char *str_value = NULL;
+    MigrationSource source = MIGRATION_SOURCE_NONE;
+    if (settings) {
       datum = toml_string_in(settings, "resolution");
       if (datum.ok) {
-        cfg->resolution = parse_resolution_preset(datum.u.s);
-        free(datum.u.s);
-      } else {
-        cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+        str_value = datum.u.s;
       }
+    }
+    if (!str_value && parse_legacy_string_setting(parsed, "resolution", &str_value))
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    if (!str_value && parse_root_string_setting(parsed, "resolution", &str_value))
+      source = MIGRATION_SOURCE_ROOT;
+    if (str_value) {
+      // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
+      cfg->resolution = parse_resolution_preset(str_value);
+      free(str_value);
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
+    bool downgraded_resolution = false;
+    cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
+    if (downgraded_resolution) {
+      LOGD("Resolution 1080p is not supported on Vita; downgrading to 720p");
+      migrated_resolution_policy = true;
+    }
 
+    int fps_value = 30;
+    bool fps_found = false;
+    source = MIGRATION_SOURCE_NONE;
+    if (settings) {
       datum = toml_int_in(settings, "fps");
-      // set fps to 30 regardless of config file
-      cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
       if (datum.ok) {
-        if (datum.u.i != 30) LOGD("Ignoring config file fps and setting to 30.");
+        fps_value = (int)datum.u.i;
+        fps_found = true;
       }
+    }
+    if (!fps_found && parse_legacy_int_setting(parsed, "fps", &fps_value)) {
+      fps_found = true;
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    }
+    if (!fps_found && parse_root_int_setting(parsed, "fps", &fps_value)) {
+      fps_found = true;
+      source = MIGRATION_SOURCE_ROOT;
+    }
+    if (fps_found) {
+      if (fps_value == 60) {
+        cfg->fps = CHIAKI_VIDEO_FPS_PRESET_60;
+      } else {
+        if (fps_value != 30) {
+          LOGD("Unsupported fps value %d in config (supported: 30 or 60); defaulting to 30", fps_value);
+        }
+        cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
+      }
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
+    if (settings) {
       datum = toml_string_in(settings, "psn_account_id");
       if (datum.ok) {
         cfg->psn_account_id = datum.u.s;
       }
+    }
 
+    if (settings) {
       datum = toml_int_in(settings, "controller_map_id");
       if (datum.ok) {
         cfg->controller_map_id = datum.u.i;
       }
+    }
 
-      // Load 3 custom map slots
-      for (int slot = 0; slot < 3; slot++) {
-        char section_name[32];
-        snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
-        toml_table_t* custom_map = toml_table_in(parsed, section_name);
-        if (custom_map) {
-          datum = toml_bool_in(custom_map, "valid");
-          cfg->custom_maps_valid[slot] = datum.ok ? datum.u.b : false;
+    // Load 3 custom map slots
+    for (int slot = 0; slot < 3; slot++) {
+      char section_name[32];
+      snprintf(section_name, sizeof(section_name), "controller_custom_map_%d", slot + 1);
+      toml_table_t* custom_map = toml_table_in(parsed, section_name);
+      if (custom_map) {
+        datum = toml_bool_in(custom_map, "valid");
+        cfg->custom_maps_valid[slot] = datum.ok ? datum.u.b : false;
 
-          if (cfg->custom_maps_valid[slot]) {
-            for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-              char key[24];
-              snprintf(key, sizeof(key), "slot_%d", i);
-              datum = toml_int_in(custom_map, key);
-              cfg->custom_maps[slot].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
-            }
-            datum = toml_int_in(custom_map, "in_l2");
-            cfg->custom_maps[slot].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
-            datum = toml_int_in(custom_map, "in_r2");
-            cfg->custom_maps[slot].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+        if (cfg->custom_maps_valid[slot]) {
+          for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+            char key[24];
+            snprintf(key, sizeof(key), "slot_%d", i);
+            datum = toml_int_in(custom_map, key);
+            cfg->custom_maps[slot].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
           }
+          datum = toml_int_in(custom_map, "in_l2");
+          cfg->custom_maps[slot].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+          datum = toml_int_in(custom_map, "in_r2");
+          cfg->custom_maps[slot].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
         }
       }
+    }
 
-      // Migration: Check for old [controller_custom_map] section (pre-Custom 1/2/3)
-      // If found and slot 0 is empty, migrate it to Custom 1
-      if (!cfg->custom_maps_valid[0]) {
-        toml_table_t* old_custom_map = toml_table_in(parsed, "controller_custom_map");
-        if (old_custom_map) {
-          datum = toml_bool_in(old_custom_map, "valid");
-          bool old_valid = datum.ok ? datum.u.b : false;
-          if (old_valid) {
-            // Migrate old custom map to Custom 1 (slot 0)
-            for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-              char key[24];
-              snprintf(key, sizeof(key), "slot_%d", i);
-              datum = toml_int_in(old_custom_map, key);
-              cfg->custom_maps[0].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
-            }
-            datum = toml_int_in(old_custom_map, "in_l2");
-            cfg->custom_maps[0].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
-            datum = toml_int_in(old_custom_map, "in_r2");
-            cfg->custom_maps[0].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
-            cfg->custom_maps_valid[0] = true;
+    // Migration: Check for old [controller_custom_map] section (pre-Custom 1/2/3)
+    // If found and slot 0 is empty, migrate it to Custom 1
+    if (!cfg->custom_maps_valid[0]) {
+      toml_table_t* old_custom_map = toml_table_in(parsed, "controller_custom_map");
+      if (old_custom_map) {
+        datum = toml_bool_in(old_custom_map, "valid");
+        bool old_valid = datum.ok ? datum.u.b : false;
+        if (old_valid) {
+          // Migrate old custom map to Custom 1 (slot 0)
+          for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+            char key[24];
+            snprintf(key, sizeof(key), "slot_%d", i);
+            datum = toml_int_in(old_custom_map, key);
+            cfg->custom_maps[0].in_out_btn[i] = datum.ok ? (int)datum.u.i : 0;
           }
+          datum = toml_int_in(old_custom_map, "in_l2");
+          cfg->custom_maps[0].in_l2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+          datum = toml_int_in(old_custom_map, "in_r2");
+          cfg->custom_maps[0].in_r2 = datum.ok ? (int)datum.u.i : VITAKI_CTRL_IN_NONE;
+          cfg->custom_maps_valid[0] = true;
         }
       }
+    }
 
-      // Migration: Convert old controller_map_id values to Custom 1
-      // Old values: 0, 1, 3, 4, 25, 99 -> all map to Custom 1 (201)
-      if (cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_1 &&
-          cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_2 &&
-          cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_3) {
-        cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
-      }
+    // Migration: Convert old controller_map_id values to Custom 1
+    // Old values: 0, 1, 3, 4, 25, 99 -> all map to Custom 1 (201)
+    if (cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_1 &&
+        cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_2 &&
+        cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_3) {
+      cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
+    }
 
-      datum = toml_bool_in(settings, "circle_btn_confirm");
-      cfg->circle_btn_confirm = datum.ok ? datum.u.b : circle_btn_confirm_default;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "circle_btn_confirm", circle_btn_confirm_default,
+                                          &cfg->circle_btn_confirm, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "show_latency");
-      cfg->show_latency = datum.ok ? datum.u.b : false;  // Default: disabled
-      datum = toml_bool_in(settings, "show_network_indicator");
-      cfg->show_network_indicator = datum.ok ? datum.u.b : true;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_latency", false,
+                                          &cfg->show_latency, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "stretch_video");
-      cfg->stretch_video = datum.ok ? datum.u.b : false;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_network_indicator", true,
+                                          &cfg->show_network_indicator, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "force_30fps");
-      cfg->force_30fps = datum.ok ? datum.u.b : false;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "stretch_video", false,
+                                          &cfg->stretch_video, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "send_actual_start_bitrate");
-      cfg->send_actual_start_bitrate = datum.ok ? datum.u.b : true;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "force_30fps", false,
+                                          &cfg->force_30fps, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "clamp_soft_restart_bitrate");
-      cfg->clamp_soft_restart_bitrate = datum.ok ? datum.u.b : true;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "send_actual_start_bitrate", true,
+                                          &cfg->send_actual_start_bitrate, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "keep_nav_pinned");
-      cfg->keep_nav_pinned = datum.ok ? datum.u.b : false;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "clamp_soft_restart_bitrate", true,
+                                          &cfg->clamp_soft_restart_bitrate, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
-      datum = toml_bool_in(settings, "show_nav_labels");
-      cfg->show_nav_labels = datum.ok ? datum.u.b : false;
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "keep_nav_pinned", false,
+                                          &cfg->keep_nav_pinned, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_nav_labels", false,
+                                          &cfg->show_nav_labels, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
+
+    str_value = NULL;
+    source = MIGRATION_SOURCE_NONE;
+    if (settings) {
       datum = toml_string_in(settings, "latency_mode");
-      if (datum.ok) {
-        cfg->latency_mode = parse_latency_mode(datum.u.s);
-        free(datum.u.s);
-      } else {
-        cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
-      }
+      if (datum.ok)
+        str_value = datum.u.s;
+    }
+    if (!str_value && parse_legacy_string_setting(parsed, "latency_mode", &str_value))
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    if (!str_value && parse_root_string_setting(parsed, "latency_mode", &str_value))
+      source = MIGRATION_SOURCE_ROOT;
+    if (str_value) {
+      // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
+      cfg->latency_mode = parse_latency_mode(str_value);
+      free(str_value);
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    } else {
+      cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
     }
 
     // Security: Only allow runtime TOML to override logging settings if explicitly enabled
@@ -538,6 +793,21 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
     toml_free(parsed);
+    if (migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy) {
+      if (migrated_root_settings) {
+        LOGD("Recovered settings via root-level fallback and rewriting %s",
+             CFG_FILENAME);
+      } else if (migrated_resolution_policy) {
+        LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
+      } else {
+        LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
+             CFG_FILENAME);
+      }
+      if (!config_serialize(cfg)) {
+        LOGE("Failed to persist migrated config to %s; using in-memory settings for this session",
+             CFG_FILENAME);
+      }
+    }
   }
 }
 
@@ -557,13 +827,16 @@ void config_free(VitaChiakiConfig* cfg) {
   free(cfg);
 }
 
-char* serialize_resolution_preset(ChiakiVideoResolutionPreset preset) {
+const char* serialize_resolution_preset(ChiakiVideoResolutionPreset preset) {
   switch (preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
       return "360p";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+      return "720p";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+      return "1080p";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
     default:
-      // We don't support solutions higher than 540p on the Vita
-      // TODO: Should we? For PSTV?
       return "540p";
   }
 }
@@ -614,11 +887,17 @@ void serialize_target(FILE* fp, char* field_name, ChiakiTarget* target) {
   fprintf(fp, "\"\n");
 }
 
-void config_serialize(VitaChiakiConfig* cfg) {
+bool config_serialize(VitaChiakiConfig* cfg) {
+  bool downgraded_resolution = false;
+  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
+  if (downgraded_resolution) {
+    LOGD("Refusing to persist unsupported 1080p on Vita; saving 720p instead");
+  }
+
   FILE *fp = fopen(CFG_FILENAME, "w");
   if (!fp) {
     LOGE("Failed to open %s for writing", CFG_FILENAME);
-    return;
+    return false;
   }
   fprintf(fp, "[general]\nversion = 1\n");
 
@@ -633,16 +912,6 @@ void config_serialize(VitaChiakiConfig* cfg) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
-  // Save 3 custom map slots
-  for (int slot = 0; slot < 3; slot++) {
-    fprintf(fp, "\n[controller_custom_map_%d]\n", slot + 1);
-    fprintf(fp, "valid = %s\n", cfg->custom_maps_valid[slot] ? "true" : "false");
-    fprintf(fp, "in_l2 = %d\n", cfg->custom_maps[slot].in_l2);
-    fprintf(fp, "in_r2 = %d\n", cfg->custom_maps[slot].in_r2);
-    for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-      fprintf(fp, "slot_%d = %d\n", i, cfg->custom_maps[slot].in_out_btn[i]);
-    }
-  }
   fprintf(fp, "circle_btn_confirm = %s\n",
           cfg->circle_btn_confirm ? "true" : "false");
   fprintf(fp, "show_latency = %s\n",
@@ -663,6 +932,16 @@ void config_serialize(VitaChiakiConfig* cfg) {
           cfg->show_nav_labels ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
 
+  // Save 3 custom map slots
+  for (int slot = 0; slot < 3; slot++) {
+    fprintf(fp, "\n[controller_custom_map_%d]\n", slot + 1);
+    fprintf(fp, "valid = %s\n", cfg->custom_maps_valid[slot] ? "true" : "false");
+    fprintf(fp, "in_l2 = %d\n", cfg->custom_maps[slot].in_l2);
+    fprintf(fp, "in_r2 = %d\n", cfg->custom_maps[slot].in_r2);
+    for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
+      fprintf(fp, "slot_%d = %d\n", i, cfg->custom_maps[slot].in_out_btn[i]);
+    }
+  }
   // Only serialize [logging] section in testing/debug builds where runtime config is allowed
 #if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
   fprintf(fp, "\n[logging]\n");
@@ -717,5 +996,10 @@ void config_serialize(VitaChiakiConfig* cfg) {
     // fprintf(fp, "ap_ssid = \"%s\"\n", rhost->ap_ssid);
     // fprintf(fp, "ap_name = \"%s\"\n", rhost->ap_name);
   }
-  fclose(fp);
+  bool write_ok = (ferror(fp) == 0) && (fclose(fp) == 0);
+  if (!write_ok) {
+    LOGE("Failed to flush %s", CFG_FILENAME);
+    return false;
+  }
+  return true;
 }

@@ -37,6 +37,7 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
+static void persist_config_or_warn(void);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -73,6 +74,12 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
+
+static void persist_config_or_warn(void) {
+  if (!config_serialize(&context.config)) {
+    LOGE("Failed to persist config changes");
+  }
+}
 
 void host_free(VitaChiakiHost *host) {
   if (host) {
@@ -121,7 +128,7 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
       context.config.registered_hosts[context.config.num_registered_hosts++] = context.active_host;
     }
 
-    config_serialize(&context.config);
+    persist_config_or_warn();
   }
 
   chiaki_regist_stop(&regist);
@@ -1818,7 +1825,7 @@ void save_manual_host(VitaChiakiHost* rhost, char* new_hostname) {
   context.config.manual_hosts[context.config.num_manual_hosts++] = newhost;
 
   // Save config
-  config_serialize(&context.config);
+  persist_config_or_warn();
 
   LOGD("> UPDATE CONTEXT...");
   // update hosts in context
@@ -1850,7 +1857,7 @@ void delete_manual_host(VitaChiakiHost* mhost) {
   }
 
   // Save config
-  config_serialize(&context.config);
+  persist_config_or_warn();
 
   // update hosts in context
   update_context_hosts();
