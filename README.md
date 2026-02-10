@@ -91,8 +91,8 @@ All the features from ywnico's fork are included:
 4. Fixed console wakeup
 5. Made debug logs visible, added tooltips on some buttons
 6. Fixed instant disconnection bug
-7. Disabled `vblank_wait` and set fps to 30 to reduce lag.
-    - NOTE: the fps in the config file (`chiaki.toml`) will be ignored
+7. Disabled `vblank_wait` and set fps to 30 by default to reduce lag.
+    - NOTE: fps is now persisted from settings/config (`chiaki.toml`) and supports 30/60.
 8. Merged in updates from chiaki4deck (improved some connection issues)
 9. Included [ghost's LiveArea icon fixes](https://git.catvibers.me/aa/chiaki/pulls/13)
 10. Many bug and crash fixes
