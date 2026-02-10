@@ -190,6 +190,14 @@ static bool parse_legacy_bool_setting(toml_table_t *parsed, const char *key, boo
   return false;
 }
 
+static bool parse_root_bool_setting(toml_table_t *parsed, const char *key, bool *out) {
+  toml_datum_t datum = toml_bool_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = datum.u.b;
+  return true;
+}
+
 static bool parse_legacy_int_setting(toml_table_t *parsed, const char *key, int *out) {
   for (int slot = 0; slot < 3; slot++) {
     char section_name[32];
@@ -204,6 +212,14 @@ static bool parse_legacy_int_setting(toml_table_t *parsed, const char *key, int 
     }
   }
   return false;
+}
+
+static bool parse_root_int_setting(toml_table_t *parsed, const char *key, int *out) {
+  toml_datum_t datum = toml_int_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = (int)datum.u.i;
+  return true;
 }
 
 // Returns allocated string via *out that caller must free.
@@ -223,26 +239,52 @@ static bool parse_legacy_string_setting(toml_table_t *parsed, const char *key, c
   return false;
 }
 
+// Returns allocated string via *out that caller must free.
+static bool parse_root_string_setting(toml_table_t *parsed, const char *key, char **out) {
+  toml_datum_t datum = toml_string_in(parsed, key);
+  if (!datum.ok)
+    return false;
+  *out = datum.u.s;
+  return true;
+}
+
+typedef enum migration_source_t {
+  MIGRATION_SOURCE_NONE = 0,
+  MIGRATION_SOURCE_LEGACY_SECTION,
+  MIGRATION_SOURCE_ROOT
+} MigrationSource;
+
 static bool parse_bool_setting_with_migration(toml_table_t *settings,
                                               toml_table_t *parsed,
                                               const char *key,
                                               bool default_value,
-                                              bool *out_value) {
+                                              bool *out_value,
+                                              MigrationSource *out_source) {
   toml_datum_t datum;
   bool legacy_value = false;
+  if (out_source)
+    *out_source = MIGRATION_SOURCE_NONE;
   if (settings) {
     datum = toml_bool_in(settings, key);
     if (datum.ok) {
       *out_value = datum.u.b;
-      return false;
+      return true;
     }
   }
   if (parse_legacy_bool_setting(parsed, key, &legacy_value)) {
     *out_value = legacy_value;
+    if (out_source)
+      *out_source = MIGRATION_SOURCE_LEGACY_SECTION;
+    return true;
+  }
+  if (parse_root_bool_setting(parsed, key, &legacy_value)) {
+    *out_value = legacy_value;
+    if (out_source)
+      *out_source = MIGRATION_SOURCE_ROOT;
     return true;
   }
   *out_value = default_value;
-  return false;
+  return true;
 }
 
 void config_parse(VitaChiakiConfig* cfg) {
@@ -308,6 +350,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     }
 
     bool migrated_legacy_settings = false;
+    bool migrated_root_settings = false;
     toml_table_t* settings = toml_table_in(parsed, "settings");
     if (settings) {
       datum = toml_bool_in(settings, "auto_discovery");
@@ -315,7 +358,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     }
 
     char *str_value = NULL;
-    bool from_legacy = false;
+    MigrationSource source = MIGRATION_SOURCE_NONE;
     if (settings) {
       datum = toml_string_in(settings, "resolution");
       if (datum.ok) {
@@ -323,18 +366,22 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
     if (!str_value && parse_legacy_string_setting(parsed, "resolution", &str_value))
-      from_legacy = true;
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    if (!str_value && parse_root_string_setting(parsed, "resolution", &str_value))
+      source = MIGRATION_SOURCE_ROOT;
     if (str_value) {
       // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
       cfg->resolution = parse_resolution_preset(str_value);
       free(str_value);
-      if (from_legacy)
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
     }
 
     int fps_value = 30;
     bool fps_found = false;
-    from_legacy = false;
+    source = MIGRATION_SOURCE_NONE;
     if (settings) {
       datum = toml_int_in(settings, "fps");
       if (datum.ok) {
@@ -344,7 +391,11 @@ void config_parse(VitaChiakiConfig* cfg) {
     }
     if (!fps_found && parse_legacy_int_setting(parsed, "fps", &fps_value)) {
       fps_found = true;
-      from_legacy = true;
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    }
+    if (!fps_found && parse_root_int_setting(parsed, "fps", &fps_value)) {
+      fps_found = true;
+      source = MIGRATION_SOURCE_ROOT;
     }
     if (fps_found) {
       if (fps_value == 60) {
@@ -355,8 +406,10 @@ void config_parse(VitaChiakiConfig* cfg) {
         }
         cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
       }
-      if (from_legacy)
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
     }
 
     if (settings) {
@@ -431,64 +484,104 @@ void config_parse(VitaChiakiConfig* cfg) {
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "circle_btn_confirm", circle_btn_confirm_default,
-                                          &cfg->circle_btn_confirm))
-      migrated_legacy_settings = true;
+                                          &cfg->circle_btn_confirm, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "show_latency", false,
-                                          &cfg->show_latency))
-      migrated_legacy_settings = true;
+                                          &cfg->show_latency, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "show_network_indicator", true,
-                                          &cfg->show_network_indicator))
-      migrated_legacy_settings = true;
+                                          &cfg->show_network_indicator, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "stretch_video", false,
-                                          &cfg->stretch_video))
-      migrated_legacy_settings = true;
+                                          &cfg->stretch_video, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "force_30fps", false,
-                                          &cfg->force_30fps))
-      migrated_legacy_settings = true;
+                                          &cfg->force_30fps, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "send_actual_start_bitrate", true,
-                                          &cfg->send_actual_start_bitrate))
-      migrated_legacy_settings = true;
+                                          &cfg->send_actual_start_bitrate, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "clamp_soft_restart_bitrate", true,
-                                          &cfg->clamp_soft_restart_bitrate))
-      migrated_legacy_settings = true;
+                                          &cfg->clamp_soft_restart_bitrate, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "keep_nav_pinned", false,
-                                          &cfg->keep_nav_pinned))
-      migrated_legacy_settings = true;
+                                          &cfg->keep_nav_pinned, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "show_nav_labels", false,
-                                          &cfg->show_nav_labels))
-      migrated_legacy_settings = true;
+                                          &cfg->show_nav_labels, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
 
     str_value = NULL;
-    from_legacy = false;
+    source = MIGRATION_SOURCE_NONE;
     if (settings) {
       datum = toml_string_in(settings, "latency_mode");
       if (datum.ok)
         str_value = datum.u.s;
     }
     if (!str_value && parse_legacy_string_setting(parsed, "latency_mode", &str_value))
-      from_legacy = true;
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    if (!str_value && parse_root_string_setting(parsed, "latency_mode", &str_value))
+      source = MIGRATION_SOURCE_ROOT;
     if (str_value) {
       // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
       cfg->latency_mode = parse_latency_mode(str_value);
       free(str_value);
-      if (from_legacy)
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
     } else {
       cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
     }
@@ -681,9 +774,14 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
     toml_free(parsed);
-    if (migrated_legacy_settings) {
-      LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
-           CFG_FILENAME);
+    if (migrated_legacy_settings || migrated_root_settings) {
+      if (migrated_root_settings) {
+        LOGD("Recovered settings via root-level fallback and rewriting %s",
+             CFG_FILENAME);
+      } else {
+        LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
+             CFG_FILENAME);
+      }
       config_serialize(cfg);
     }
   }
