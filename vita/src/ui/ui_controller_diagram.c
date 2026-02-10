@@ -673,6 +673,11 @@ static bool callout_anchor_for_input(DiagramRenderCtx* ctx, VitakiCtrlIn input,
     return false;
 }
 
+bool ui_diagram_anchor_for_input(DiagramRenderCtx* ctx, VitakiCtrlIn input,
+                                 int* out_x, int* out_y) {
+    return callout_anchor_for_input(ctx, input, out_x, out_y);
+}
+
 static void draw_anchor_label(const char* text, int x, int y, uint32_t color) {
     if (!text)
         return;
@@ -2356,6 +2361,14 @@ void ui_diagram_render(DiagramState* state, const VitakiCtrlMapInfo* map, int x,
 
     // Draw overlays based on detail view
     if (state->detail_view == CTRL_DETAIL_SUMMARY) {
+        if (state->selected_button >= 0) {
+            ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button,
+                                                 sinf(state->highlight_pulse * 2.0f * (float)M_PI));
+        }
+        if (state->selected_zone >= 0) {
+            ui_diagram_draw_back_slot_highlight(&ctx, (VitakiCtrlIn)state->selected_zone,
+                                                sinf(state->highlight_pulse * 2.0f * (float)M_PI));
+        }
         draw_summary_callouts(state, &ctx, map);
     } else if (state->detail_view == CTRL_DETAIL_FRONT_MAPPING) {
         if (state->selected_button >= 0) {

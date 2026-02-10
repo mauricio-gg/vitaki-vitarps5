@@ -81,6 +81,7 @@ static void update_cursor_blink(void);
 static bool is_pin_complete(void);
 static uint32_t pin_to_number(void);
 static UIScreenType handle_vitarps5_touch_input(int num_hosts);
+static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 
 
 // ============================================================================
@@ -1324,6 +1325,7 @@ static bool ctrl_back_selection[BACK_GRID_COUNT] = {0};
 static int ctrl_back_selection_count = 0;
 static int ctrl_back_drag_path[BACK_GRID_COUNT] = {0};
 static int ctrl_back_drag_path_len = 0;
+static int ctrl_summary_shoulder_index = 0;
 
 typedef struct mapping_option_t {
     VitakiCtrlOut output;
@@ -1398,12 +1400,19 @@ static const MappingOption k_mapping_options[] = {
     { VITAKI_CTRL_OUT_OPTIONS },
     { VITAKI_CTRL_OUT_SHARE },
     { VITAKI_CTRL_OUT_TOUCHPAD },
+    { VITAKI_CTRL_OUT_L1 },
     { VITAKI_CTRL_OUT_L2 },
     { VITAKI_CTRL_OUT_L3 },
+    { VITAKI_CTRL_OUT_R1 },
     { VITAKI_CTRL_OUT_R2 },
     { VITAKI_CTRL_OUT_R3 },
     { VITAKI_CTRL_OUT_PS },
     { VITAKI_CTRL_OUT_NONE },
+};
+
+static const VitakiCtrlIn k_shoulder_inputs[] = {
+    VITAKI_CTRL_IN_L1,
+    VITAKI_CTRL_IN_R1
 };
 
 static inline int controller_front_index_from_row_col(int row, int col) {
@@ -1774,6 +1783,79 @@ static ControllerViewMode callout_view_for_page(int page) {
     return (page == 1) ? CTRL_VIEW_BACK : CTRL_VIEW_FRONT;
 }
 
+static VitakiCtrlIn controller_summary_selected_shoulder_input(void) {
+    int index = ctrl_summary_shoulder_index;
+    if (index < 0 || index >= (int)(sizeof(k_shoulder_inputs) / sizeof(k_shoulder_inputs[0]))) {
+        index = 0;
+    }
+    return k_shoulder_inputs[index];
+}
+
+static void controller_summary_sync_selection(void) {
+    if (ctrl_diagram.detail_view != CTRL_DETAIL_SUMMARY) {
+        return;
+    }
+    if (callout_view_for_page(ctrl_diagram.callout_page) == CTRL_VIEW_FRONT) {
+        ctrl_diagram.selected_button = controller_summary_selected_shoulder_input();
+    } else {
+        ctrl_diagram.selected_button = -1;
+    }
+    ctrl_diagram.selected_zone = -1;
+}
+
+static void controller_summary_select_shoulder(int delta) {
+    int count = (int)(sizeof(k_shoulder_inputs) / sizeof(k_shoulder_inputs[0]));
+    ctrl_summary_shoulder_index = (ctrl_summary_shoulder_index + delta + count) % count;
+    controller_summary_sync_selection();
+}
+
+static bool controller_summary_try_open_shoulder_popup(float touch_x, float touch_y,
+                                                       int diagram_x, int diagram_y,
+                                                       int diagram_w, int diagram_h) {
+    if (callout_view_for_page(ctrl_diagram.callout_page) != CTRL_VIEW_FRONT) {
+        return false;
+    }
+
+    DiagramRenderCtx ctx = {0};
+    ui_diagram_init_context(&ctx, diagram_x, diagram_y, diagram_w, diagram_h);
+
+    int left_anchor_x = 0;
+    int left_anchor_y = 0;
+    int right_anchor_x = 0;
+    int right_anchor_y = 0;
+    bool has_left_anchor = ui_diagram_anchor_for_input(&ctx, VITAKI_CTRL_IN_L1, &left_anchor_x, &left_anchor_y);
+    bool has_right_anchor = ui_diagram_anchor_for_input(&ctx, VITAKI_CTRL_IN_R1, &right_anchor_x, &right_anchor_y);
+    if (!has_left_anchor || !has_right_anchor) {
+        return false;
+    }
+
+    int box_w = MAX(44, (int)((float)diagram_w * 0.22f));
+    int box_h = MAX(32, (int)((float)diagram_h * 0.18f));
+    int box_half_w = box_w / 2;
+    int box_half_h = box_h / 2;
+
+    bool in_left = touch_x >= left_anchor_x - box_half_w && touch_x <= left_anchor_x + box_half_w &&
+                   touch_y >= left_anchor_y - box_half_h && touch_y <= left_anchor_y + box_half_h;
+    bool in_right = touch_x >= right_anchor_x - box_half_w && touch_x <= right_anchor_x + box_half_w &&
+                    touch_y >= right_anchor_y - box_half_h && touch_y <= right_anchor_y + box_half_h;
+
+    if (!in_left && !in_right) {
+        return false;
+    }
+
+    if (in_left && in_right) {
+        float left_dist = fabsf(touch_x - (float)left_anchor_x);
+        float right_dist = fabsf(touch_x - (float)right_anchor_x);
+        ctrl_summary_shoulder_index = (left_dist <= right_dist) ? 0 : 1;
+    } else {
+        ctrl_summary_shoulder_index = in_left ? 0 : 1;
+    }
+
+    controller_summary_sync_selection();
+    open_mapping_popup_single(controller_summary_selected_shoulder_input(), true);
+    return true;
+}
+
 static void controller_apply_preset(int preset_index) {
     if (preset_index < 0)
         preset_index = 0;
@@ -1810,6 +1892,7 @@ static void change_callout_page(int delta) {
         return;
     ctrl_diagram.callout_page = (ctrl_diagram.callout_page + delta + ctrl_diagram.callout_page_count) % ctrl_diagram.callout_page_count;
     ctrl_diagram.mode = callout_view_for_page(ctrl_diagram.callout_page);
+    controller_summary_sync_selection();
 }
 
 // Save current mapping changes to the active custom slot
@@ -1840,6 +1923,11 @@ static const char* controller_slot_label(VitakiCtrlIn input) {
         return label_buf;
     }
     switch (input) {
+        case VITAKI_CTRL_IN_L1: return "Left Trigger (L)";
+        case VITAKI_CTRL_IN_R1: return "Right Trigger (R)";
+        case VITAKI_CTRL_IN_SELECT_START: return "Select + Start";
+        case VITAKI_CTRL_IN_LEFT_SQUARE: return "Left + Square";
+        case VITAKI_CTRL_IN_RIGHT_CIRCLE: return "Right + Circle";
         case VITAKI_CTRL_IN_FRONTTOUCH_ANY: return "Full Front Touch";
         case VITAKI_CTRL_IN_FRONTTOUCH_CENTER: return "Front Center";
         case VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC: return "Front Upper Left";
@@ -1855,6 +1943,17 @@ static const char* controller_slot_label(VitakiCtrlIn input) {
         }
     }
     return "Mapping Slot";
+}
+
+static bool controller_is_shoulder_input(VitakiCtrlIn input) {
+    return input == VITAKI_CTRL_IN_L1 || input == VITAKI_CTRL_IN_R1;
+}
+
+static const char* controller_popup_title_for_input(VitakiCtrlIn input, bool is_front) {
+    if (controller_is_shoulder_input(input)) {
+        return "Shoulder Mapping";
+    }
+    return is_front ? "Front Touch Mapping" : "Rear Touch Mapping";
 }
 
 // Get pointer to current custom slot's map storage
@@ -2067,7 +2166,7 @@ static void render_mapping_popup(void) {
     int popup_y = (VITA_HEIGHT - popup_h) / 2;
     ui_draw_card_with_shadow(popup_x, popup_y, popup_w, popup_h, 12, UI_COLOR_CARD_BG);
 
-    const char* title = ctrl_popup_front ? "Front Touch Mapping" : "Rear Touch Mapping";
+    const char* title = controller_popup_title_for_input(ctrl_popup_input, ctrl_popup_front);
     vita2d_font_draw_text(font, popup_x + 20, popup_y + 40, UI_COLOR_TEXT_PRIMARY,
                           FONT_SIZE_SUBHEADER, title);
     char selection_label[48];
@@ -2206,6 +2305,7 @@ UIScreenType draw_controller_config_screen() {
         controller_back_selection_clear();
         ctrl_preset_index = find_preset_index_for_map(context.config.controller_map_id);
         controller_apply_preset(ctrl_preset_index);
+        controller_summary_sync_selection();
     }
 
     ui_particles_update();
@@ -2238,6 +2338,16 @@ UIScreenType draw_controller_config_screen() {
             } else if (btn_pressed(SCE_CTRL_RTRIGGER)) {
                 change_callout_page(1);
             }
+            if (callout_view_for_page(ctrl_diagram.callout_page) == CTRL_VIEW_FRONT) {
+                if (btn_pressed(SCE_CTRL_UP)) {
+                    controller_summary_select_shoulder(-1);
+                } else if (btn_pressed(SCE_CTRL_DOWN)) {
+                    controller_summary_select_shoulder(1);
+                }
+                if (btn_pressed(SCE_CTRL_CROSS)) {
+                    open_mapping_popup_single(controller_summary_selected_shoulder_input(), true);
+                }
+            }
             if (btn_pressed(SCE_CTRL_SQUARE)) {
                 ControllerViewMode view = callout_view_for_page(ctrl_diagram.callout_page);
                 if (view == CTRL_VIEW_BACK) {
@@ -2267,7 +2377,11 @@ UIScreenType draw_controller_config_screen() {
                 if (touch_x >= diagram_x && touch_x <= diagram_x + diagram_w &&
                     touch_y >= diagram_y && touch_y <= diagram_y + diagram_h) {
                     last_touch_frame = current_frame;
-                    if (callout_view_for_page(ctrl_diagram.callout_page) == CTRL_VIEW_BACK) {
+                    if (controller_summary_try_open_shoulder_popup(touch_x, touch_y,
+                                                                   diagram_x, diagram_y,
+                                                                   diagram_w, diagram_h)) {
+                        // Shoulder mapping handled by popup in summary view.
+                    } else if (callout_view_for_page(ctrl_diagram.callout_page) == CTRL_VIEW_BACK) {
                         ctrl_diagram.detail_view = CTRL_DETAIL_BACK_MAPPING;
                         ctrl_diagram.mode = CTRL_VIEW_BACK;
                         controller_back_set_cursor_index(0);
@@ -2289,8 +2403,7 @@ UIScreenType draw_controller_config_screen() {
         if (btn_pressed(SCE_CTRL_CIRCLE) && ctrl_diagram.detail_view != CTRL_DETAIL_SUMMARY) {
             ctrl_diagram.detail_view = CTRL_DETAIL_SUMMARY;
             ctrl_diagram.mode = callout_view_for_page(ctrl_diagram.callout_page);
-            ctrl_diagram.selected_button = -1;
-            ctrl_diagram.selected_zone = -1;
+            controller_summary_sync_selection();
             ctrl_front_drag_active = false;
             controller_front_selection_clear();
             ctrl_back_drag_active = false;
@@ -2472,7 +2585,7 @@ UIScreenType draw_controller_config_screen() {
             UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
             g_controller_presets[ctrl_preset_index].description);
 
-        const char* hint = "L/R: Scroll Callouts | D-Pad: Cycle Preset | Tap Diagram to Edit | Square: Clear View | Triangle: Menu";
+        const char* hint = "L/R: Scroll Callouts | Up/Down: Select L1/R1 | X: Edit Shoulder | Tap Diagram to Edit | Square: Clear View";
         int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
         int hint_x = layout_center_x - hint_w / 2;
         vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20,
