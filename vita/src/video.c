@@ -934,8 +934,18 @@ void draw_streaming(vita2d_texture *frame_texture) {
 
   float src_w = (float)image_scaling.source_width;
   float src_h = (float)image_scaling.source_height;
-  if (src_w <= 0.0f || src_h <= 0.0f)
+  if (src_w <= 0.0f || src_h <= 0.0f) {
+    static uint64_t last_invalid_source_log_us = 0;
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    if (last_invalid_source_log_us == 0 ||
+        (now_us - last_invalid_source_log_us) >= 1000000ULL) {
+      LOGD("draw_streaming skipped invalid source dimensions (w=%.1f h=%.1f)",
+           src_w,
+           src_h);
+      last_invalid_source_log_us = now_us;
+    }
     return;
+  }
 
   if (context.config.stretch_video) {
     // Fill Screen: scale active decoded source region to full display
@@ -1039,9 +1049,15 @@ static void draw_stream_exit_hint(void) {
   float alpha_ratio = 1.0f;
   if (elapsed_us > STREAM_EXIT_HINT_VISIBLE_US) {
     uint64_t fade_elapsed_us = elapsed_us - STREAM_EXIT_HINT_VISIBLE_US;
-    alpha_ratio = 1.0f - ((float)fade_elapsed_us / (float)STREAM_EXIT_HINT_FADE_US);
+    if (STREAM_EXIT_HINT_FADE_US > 0) {
+      alpha_ratio = 1.0f - ((float)fade_elapsed_us / (float)STREAM_EXIT_HINT_FADE_US);
+    } else {
+      alpha_ratio = 0.0f;
+    }
     if (alpha_ratio < 0.0f)
       alpha_ratio = 0.0f;
+    if (alpha_ratio > 1.0f)
+      alpha_ratio = 1.0f;
   }
 
   const int margin = 18;

@@ -528,14 +528,16 @@ static void update_latency_metrics(void) {
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
   if (refresh_rtt) {
-    uint32_t base_rtt_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
+    uint64_t base_rtt_ms64 = context.stream.session.rtt_us / 1000ULL;
     uint64_t jitter_us = stream_connection->takion.jitter_stats.jitter_us;
-    uint32_t jitter_ms = (uint32_t)(jitter_us / 1000ULL);
-    uint32_t effective_rtt_ms = base_rtt_ms + jitter_ms;
-    if (effective_rtt_ms == 0)
-      effective_rtt_ms = base_rtt_ms;
+    uint64_t jitter_ms64 = jitter_us / 1000ULL;
+    uint64_t effective_rtt_ms64 = base_rtt_ms64 + jitter_ms64;
+    if (effective_rtt_ms64 > UINT32_MAX)
+      effective_rtt_ms64 = UINT32_MAX;
+    if (effective_rtt_ms64 == 0)
+      effective_rtt_ms64 = base_rtt_ms64 > UINT32_MAX ? UINT32_MAX : base_rtt_ms64;
 
-    context.stream.measured_rtt_ms = effective_rtt_ms;
+    context.stream.measured_rtt_ms = (uint32_t)effective_rtt_ms64;
     context.stream.last_rtt_refresh_us = now_us;
     context.stream.metrics_last_update_us = now_us;
   }
