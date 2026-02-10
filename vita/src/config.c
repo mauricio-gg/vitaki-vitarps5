@@ -316,7 +316,6 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
-  cfg->keep_nav_pinned = false;  // Default: navigation collapses on content interaction
   cfg->show_nav_labels = false;  // Default: no text labels below nav icons
   vita_logging_config_set_defaults(&cfg->logging);
 
@@ -558,15 +557,6 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "clamp_soft_restart_bitrate", true,
                                           &cfg->clamp_soft_restart_bitrate, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "keep_nav_pinned", false,
-                                          &cfg->keep_nav_pinned, &source)) {
       if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
       else if (source == MIGRATION_SOURCE_ROOT)
@@ -926,8 +916,6 @@ bool config_serialize(VitaChiakiConfig* cfg) {
           cfg->send_actual_start_bitrate ? "true" : "false");
   fprintf(fp, "clamp_soft_restart_bitrate = %s\n",
           cfg->clamp_soft_restart_bitrate ? "true" : "false");
-  fprintf(fp, "keep_nav_pinned = %s\n",
-          cfg->keep_nav_pinned ? "true" : "false");
   fprintf(fp, "show_nav_labels = %s\n",
           cfg->show_nav_labels ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));

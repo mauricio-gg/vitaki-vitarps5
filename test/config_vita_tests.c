@@ -290,7 +290,6 @@ static void test_root_level_fallback_migration(void) {
   write_config_text(
       "resolution = \"1080p\"\n"
       "fps = 60\n"
-      "keep_nav_pinned = true\n"
       "\n"
       "[general]\n"
       "version = 1\n");
@@ -299,14 +298,12 @@ static void test_root_level_fallback_migration(void) {
   init_cfg(&cfg);
   assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
-  assert(cfg.keep_nav_pinned == true);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
   assert(strstr(rewritten, "resolution = \"720p\"") != NULL);
   assert(strstr(rewritten, "resolution = \"1080p\"") == NULL);
   assert(strstr(rewritten, "fps = 60") != NULL);
-  assert(strstr(rewritten, "keep_nav_pinned = true") != NULL);
   assert(count_occurrences(rewritten, "resolution = \"720p\"") == 1);
   free(rewritten);
 }

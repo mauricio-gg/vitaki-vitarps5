@@ -101,10 +101,7 @@ void ui_nav_init(void) {
 // ============================================================================
 
 void ui_nav_request_collapse(bool from_content_interaction) {
-    // If from content interaction, check if pinned setting blocks it
-    if (from_content_interaction && context.config.keep_nav_pinned) {
-        return;
-    }
+    (void)from_content_interaction;
 
     // Only collapse from expanded state
     if (nav_collapse.state != NAV_STATE_EXPANDED) {
@@ -806,10 +803,10 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
             }
         }
 
-        // Touch in content area triggers collapse (if not pinned)
+        // Touch in content area triggers collapse
         // Content area is to the right of the nav bar
         if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !*touch_block_active) {
-            ui_nav_request_collapse(true);  // From content interaction
+            ui_nav_request_collapse(false);
             *touch_block_active = true;   // Prevent double-processing of this touch
         }
     }
@@ -839,9 +836,9 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
         }
 
         if (btn_pressed(SCE_CTRL_CROSS)) {
-            // Collapse menu when selecting a page (unless pinned)
-            if (nav_collapse.state == NAV_STATE_EXPANDED && !context.config.keep_nav_pinned) {
-                ui_nav_request_collapse(true);
+            // Collapse menu when selecting a page
+            if (nav_collapse.state == NAV_STATE_EXPANDED) {
+                ui_nav_request_collapse(false);
             }
             if (out_screen) {
                 *out_screen = ui_nav_screen_for_icon(selected_nav_icon);

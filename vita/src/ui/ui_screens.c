@@ -537,14 +537,7 @@ UIScreenType draw_main_menu() {
 // PHASE 2: SETTINGS SCREEN
 // ============================================================================
 
-typedef enum {
-  SETTINGS_TAB_STREAMING = 0,
-  SETTINGS_TAB_CONTROLLER = 1,
-  SETTINGS_TAB_COUNT = 2  // Streaming + Controller tabs
-} SettingsTab;
-
 typedef struct {
-  SettingsTab current_tab;
   int selected_item;
   int scroll_offset;
   bool dropdown_expanded;
@@ -558,12 +551,9 @@ static SettingsState settings_state = {0};
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
 #define SETTINGS_STREAMING_ITEMS    11  // Streaming settings: 3 dropdowns + 8 toggles
-#define SETTINGS_CONTROLLER_ITEMS    2  // Controller settings: 1 dropdown (controller map) + 1 toggle (circle confirm)
 
 static void settings_update_scroll_for_selection(void) {
-    int total_items = (settings_state.current_tab == SETTINGS_TAB_STREAMING)
-                      ? SETTINGS_STREAMING_ITEMS
-                      : SETTINGS_CONTROLLER_ITEMS;
+    int total_items = SETTINGS_STREAMING_ITEMS;
     int max_scroll = total_items - SETTINGS_VISIBLE_ITEMS;
     if (max_scroll < 0) max_scroll = 0;
 
@@ -580,21 +570,6 @@ static void settings_update_scroll_for_selection(void) {
         settings_state.scroll_offset = settings_state.selected_item - SETTINGS_VISIBLE_ITEMS + 1;
     }
 }
-
-// Tab colors for settings tabs
-static uint32_t settings_tab_colors[SETTINGS_TAB_COUNT] = {
-  RGBA8(0x00, 0x70, 0xCC, 255),  // Blue - Streaming
-  RGBA8(0xCC, 0x70, 0x00, 255),  // Orange - Controller
-};
-
-static const char* settings_tab_names[SETTINGS_TAB_COUNT] = {
-  "Streaming Quality",
-  "Controller"
-};
-
-// Resolution/FPS option strings for dropdowns
-static const char* resolution_options[] = {"720p"};
-static const char* fps_options[] = {"30 FPS", "60 FPS"};
 
 /// Get resolution string from ChiakiVideoResolutionPreset
 static const char* get_resolution_string(ChiakiVideoResolutionPreset preset) {
@@ -710,15 +685,19 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                                   "Fill Screen", 6,
                                   context.config.stretch_video, selected);
         break;
-      case 9:  // Keep Navigation Pinned
-        draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Keep Navigation Pinned", 9,
-                                  context.config.keep_nav_pinned, selected);
-        break;
-      case 10: // Show Navigation Labels
+      case 9:  // Show Navigation Labels
         draw_settings_toggle_item(content_x, y, content_w, item_h,
                                   "Show Navigation Labels", 10,
                                   context.config.show_nav_labels, selected);
+        break;
+      case 10: // Circle Button Confirm
+        draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
+                           get_toggle_animation_value(101, context.config.circle_btn_confirm),
+                           selected);
+        vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
+                              UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Circle Button Confirm");
+        break;
+      default:
         break;
     }
   }
@@ -753,30 +732,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
   }
 }
 
-/// Draw Controller Settings tab content
-static void draw_settings_controller_tab(int content_x, int content_y, int content_w) {
-  int item_h = 50;
-  int item_spacing = 10;
-  int y = content_y;
-
-  // Controller Map ID dropdown
-  char map_id_str[32];
-  snprintf(map_id_str, sizeof(map_id_str), "Map %d", context.config.controller_map_id);
-  draw_dropdown(content_x, y, content_w, item_h, "Controller Map", map_id_str,
-                false, settings_state.selected_item == 0);
-  y += item_h + item_spacing;
-
-  // Button layout toggle (Circle vs Cross confirm)
-  // Toggle ID 101 is used to avoid collision with streaming toggle IDs (3-10)
-  draw_toggle_switch(content_x + content_w - 70, y + (item_h - 30)/2, 60, 30,
-                     get_toggle_animation_value(101, context.config.circle_btn_confirm),
-                     settings_state.selected_item == 1);
-  vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Circle Button Confirm");
-  y += item_h + item_spacing;
-
-}
-
 /// Main Settings screen rendering function
 /// @return next screen to display
 UIScreenType draw_settings() {
@@ -806,35 +761,16 @@ UIScreenType draw_settings() {
   int tab_content_w = content_w - 40;
   int tab_content_x = content_x + 20;
 
-  // Draw appropriate tab content based on current tab
-  if (settings_state.current_tab == SETTINGS_TAB_STREAMING) {
-    draw_settings_streaming_tab(tab_content_x, tab_content_y, tab_content_w);
-  } else if (settings_state.current_tab == SETTINGS_TAB_CONTROLLER) {
-    draw_settings_controller_tab(tab_content_x, tab_content_y, tab_content_w);
-  }
+  draw_settings_streaming_tab(tab_content_x, tab_content_y, tab_content_w);
 
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("L/R: Switch Tabs | Up/Down: Navigate | X: Toggle/Select | Circle: Back");
+    trigger_hints_popup("Up/Down: Navigate | X: Toggle/Select | Circle: Back");
   }
 
   // === INPUT HANDLING ===
 
-  // L/R: Switch tabs
-  if (btn_pressed(SCE_CTRL_LTRIGGER) && settings_state.current_tab > 0) {
-    settings_state.current_tab--;
-    settings_state.selected_item = 0;
-    settings_state.scroll_offset = 0;
-  } else if (btn_pressed(SCE_CTRL_RTRIGGER) && settings_state.current_tab < SETTINGS_TAB_COUNT - 1) {
-    settings_state.current_tab++;
-    settings_state.selected_item = 0;
-    settings_state.scroll_offset = 0;
-  }
-
-  // Get current tab item count
-  int max_items = (settings_state.current_tab == SETTINGS_TAB_STREAMING)
-                  ? SETTINGS_STREAMING_ITEMS
-                  : SETTINGS_CONTROLLER_ITEMS;
+  int max_items = SETTINGS_STREAMING_ITEMS;
 
   // Up/Down: Navigate items (only when not in nav bar)
   if (!ui_focus_is_nav_bar()) {
@@ -849,111 +785,74 @@ UIScreenType draw_settings() {
 
   // X: Activate selected item (toggle or cycle dropdown)
   if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
-    if (settings_state.current_tab == SETTINGS_TAB_STREAMING) {
-      // Streaming tab input handling
-      if (settings_state.selected_item == 0) {
-        // Cycle resolution: 360p → 540p → 720p → 360p
-        switch (context.config.resolution) {
-          case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-            break;
-          case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
-            break;
-          case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-            // Legacy configs may still carry 1080p; fold them back into supported cycle.
-            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
-            break;
-          case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-          default:
-            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-            break;
-        }
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 1) {
-        // Cycle latency modes
-        context.config.latency_mode =
-          (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 2) {
-        // Cycle FPS
-        context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
-          CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 3) {
-        context.config.force_30fps = !context.config.force_30fps;
-        start_toggle_animation(3, context.config.force_30fps);
-        persist_config_or_warn();
-        apply_force_30fps_runtime();
-      } else if (settings_state.selected_item == 4) {
-        // Auto discovery toggle
-        context.config.auto_discovery = !context.config.auto_discovery;
-        start_toggle_animation(4, context.config.auto_discovery);
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 5) {
-        // Show latency toggle
-        context.config.show_latency = !context.config.show_latency;
-        start_toggle_animation(5, context.config.show_latency);
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 6) {
-        context.config.show_network_indicator = !context.config.show_network_indicator;
-        start_toggle_animation(8, context.config.show_network_indicator);
-        if (!context.config.show_network_indicator) {
-          vitavideo_hide_poor_net_indicator();
-        }
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 7) {
-        context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
-        start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 8) {
-        context.config.stretch_video = !context.config.stretch_video;
-        start_toggle_animation(6, context.config.stretch_video);
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 9) {
-        context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
-        start_toggle_animation(9, context.config.keep_nav_pinned);
-        persist_config_or_warn();
-      } else if (settings_state.selected_item == 10) {
-        context.config.show_nav_labels = !context.config.show_nav_labels;
-        start_toggle_animation(10, context.config.show_nav_labels);
-        persist_config_or_warn();
+    // Streaming tab input handling
+    if (settings_state.selected_item == 0) {
+      // Cycle resolution: 360p → 540p → 720p → 360p
+      switch (context.config.resolution) {
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+          // Legacy configs may still carry 1080p; fold them back into supported cycle.
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+        default:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+          break;
       }
-    } else if (settings_state.current_tab == SETTINGS_TAB_CONTROLLER) {
-      // Controller tab input handling
-      if (settings_state.selected_item == 0) {
-        // Controller Map ID dropdown - cycle through configured custom maps only
-        // Start from next map and cycle until we find a valid one or return to start
-        VitakiControllerMapId start_map = context.config.controller_map_id;
-        VitakiControllerMapId next_map = start_map;
-
-        do {
-          // Cycle to next map
-          if (next_map == VITAKI_CONTROLLER_MAP_CUSTOM_1) {
-            next_map = VITAKI_CONTROLLER_MAP_CUSTOM_2;
-          } else if (next_map == VITAKI_CONTROLLER_MAP_CUSTOM_2) {
-            next_map = VITAKI_CONTROLLER_MAP_CUSTOM_3;
-          } else {
-            next_map = VITAKI_CONTROLLER_MAP_CUSTOM_1;
-          }
-
-          // Check if this custom map slot is valid
-          int slot = (next_map == VITAKI_CONTROLLER_MAP_CUSTOM_1) ? 0 :
-                     (next_map == VITAKI_CONTROLLER_MAP_CUSTOM_2) ? 1 : 2;
-
-          // Accept this map if it's valid, or if we've cycled back to start (no other valid maps)
-          if (context.config.custom_maps_valid[slot] || next_map == start_map) {
-            context.config.controller_map_id = next_map;
-            persist_config_or_warn();
-            break;
-          }
-        } while (next_map != start_map);
-      } else if (settings_state.selected_item == 1) {
-        // Circle Button Confirm toggle
-        context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
-        start_toggle_animation(101, context.config.circle_btn_confirm);
-        persist_config_or_warn();
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 1) {
+      // Cycle latency modes
+      context.config.latency_mode =
+        (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 2) {
+      // Cycle FPS
+      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
+        CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 3) {
+      context.config.force_30fps = !context.config.force_30fps;
+      start_toggle_animation(3, context.config.force_30fps);
+      persist_config_or_warn();
+      apply_force_30fps_runtime();
+    } else if (settings_state.selected_item == 4) {
+      // Auto discovery toggle
+      context.config.auto_discovery = !context.config.auto_discovery;
+      start_toggle_animation(4, context.config.auto_discovery);
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 5) {
+      // Show latency toggle
+      context.config.show_latency = !context.config.show_latency;
+      start_toggle_animation(5, context.config.show_latency);
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 6) {
+      context.config.show_network_indicator = !context.config.show_network_indicator;
+      start_toggle_animation(8, context.config.show_network_indicator);
+      if (!context.config.show_network_indicator) {
+        vitavideo_hide_poor_net_indicator();
       }
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 7) {
+      context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
+      start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 8) {
+      context.config.stretch_video = !context.config.stretch_video;
+      start_toggle_animation(6, context.config.stretch_video);
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 9) {
+      context.config.show_nav_labels = !context.config.show_nav_labels;
+      start_toggle_animation(10, context.config.show_nav_labels);
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == 10) {
+      context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
+      start_toggle_animation(101, context.config.circle_btn_confirm);
+      persist_config_or_warn();
     }
   }
 

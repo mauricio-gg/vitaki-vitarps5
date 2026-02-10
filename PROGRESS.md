@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2025-12-14 (Controller Layout Redesign Complete - All 3 Phases Finished)
+Last Updated: 2026-02-10 (Settings simplification and navigation collapse regression fix)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -107,6 +107,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-02-10 | Settings UX simplified to a single scrollable list (removed extra settings tab, removed Settings-side Controller Map, moved Circle Button Confirm into main settings list) and nav menu close regressions fixed by making explicit collapse actions deterministic | @mauricio-gg |
 | 2025-12-14 | CONTROLLER LAYOUT REDESIGN 100% COMPLETE - Final polish batch: stadium shape fixed with procedural rendering (stadium_fill/outline functions), menu input bug resolved (handle_global_nav_shortcuts), all 3 phases finished | Code Review |
 | 2025-12-14 | CONTROLLER LAYOUT PHASE 3 COMPLETE - Procedural diagram implementation: PNG assets removed, ~97 ratio constants added, all 16 button IDs implemented, 1.3MB VPK reduction (3.9MB → 2.6MB), pixel-perfect scaling enabled | @mauricio-gg |
 | 2025-12-14 | CONTROLLER LAYOUT PHASE 2 CODE REVIEW SIGN-OFF - All fixes verified: color correction (#FF9034), texture cleanup, magic numbers extracted, touch constants added, button highlights complete, zero warnings | Code Review |
