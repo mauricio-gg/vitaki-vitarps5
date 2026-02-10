@@ -51,6 +51,8 @@ typedef struct vita_chiaki_stream_t {
   bool is_streaming;
   bool inputs_ready;
   bool stop_requested;
+  bool stop_requested_by_user;
+  bool teardown_in_progress;
   uint32_t negotiated_fps;          // max_fps requested from the console
   uint32_t target_fps;              // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
@@ -62,6 +64,7 @@ typedef struct vita_chiaki_stream_t {
   volatile bool input_thread_should_exit;    // Signal for clean thread exit (volatile prevents CPU caching on ARM)
   float measured_bitrate_mbps;      // Last measured downstream bitrate
   uint32_t measured_rtt_ms;         // Last measured round-trip time (ms)
+  uint64_t last_rtt_refresh_us;     // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;  // Timestamp for latest metrics sample
   uint64_t next_stream_allowed_us;  // Cooldown gate after quit
   uint32_t frame_loss_events;       // Count of frame loss events reported by Chiaki

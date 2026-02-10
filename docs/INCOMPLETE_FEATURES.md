@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2025-12-29 (Internet Remote Play Infrastructure Documentation)
+**Last Updated:** 2026-02-10 (UX cleanup follow-up: microphone feature planning)
 **Status:** Generated from codebase analysis
 
 ---
@@ -668,6 +668,39 @@ These are ideas for future development that would enhance the user experience bu
 - Would require changes to `vita/src/host.c` input thread to intercept combo
 - New overlay rendering in `vita/src/video.c` or separate overlay module
 - Need to handle input state carefully to avoid sending menu inputs to console
+
+---
+
+### Microphone Support for Game Chat / Party
+**Priority:** Medium  
+**Description:** Add optional microphone input support so users can participate in in-game voice chat and PlayStation Party chat while streaming.
+
+**Current State:**
+- Stream/control protocol already includes microphone-related primitives in Chiaki core:
+  - `lib/src/streamconnection.c:1005` (`stream_connection_enable_microphone`)
+  - `lib/src/session.c:1234` (`chiaki_session_toggle_microphone`, `chiaki_session_connect_microphone`)
+  - `lib/src/audiosender.c` + `lib/src/opusencoder.c` (mic packet sending path)
+- Vita app currently initializes playback-only audio pipeline:
+  - `vita/src/host.c:1729` (`chiaki_opus_decoder_init` + sink setup)
+- No Vita-side microphone capture/input UI wiring exists yet.
+
+**Proposed Enhancement:**
+- Add a user-facing mic toggle (default OFF) in Settings and/or Profile.
+- Add in-stream mute/unmute shortcut with clear HUD indicator.
+- Wire Vita microphone capture to existing opus encoder + mic sender path.
+- Send mic connect/toggle control messages during session lifecycle.
+
+**Implementation Notes / Risks:**
+- Keep this optional and disabled by default to avoid regressions in latency-sensitive scenarios.
+- Validate CPU/network overhead on Vita (audio capture + encode + packet send).
+- Ensure robust fallback behavior if mic init fails (stream should continue without mic).
+- Requires hardware validation for real chat interoperability (PS5/PS4 party and in-game voice).
+
+**Acceptance Criteria (future batch):**
+1. User can enable/disable mic from UI and persist preference.
+2. User can mute/unmute during stream and see current mic state.
+3. Voice reaches remote console party/game chat when enabled.
+4. No measurable regressions in baseline stream stability for mic OFF path.
 
 ---
 

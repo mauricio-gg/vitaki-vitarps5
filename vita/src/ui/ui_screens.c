@@ -550,7 +550,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 7 toggles + 1 circle-confirm toggle
+#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 8 toggles + 1 circle-confirm toggle
 
 // Shared toggle geometry for settings rows
 #define SETTINGS_TOGGLE_X_OFFSET    70
@@ -564,6 +564,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_TOGGLE_ANIM_FILL_SCREEN            6
 #define SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART     7
 #define SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS    8
+#define SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT  9
 #define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS       10
 #define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
 
@@ -693,6 +694,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
         draw_settings_toggle_item(content_x, y, content_w, item_h,
                                   "Show Network Alerts", SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
                                   context.config.show_network_indicator, selected);
+        break;
+      case UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT:
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Show Exit Shortcut Hint", SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT,
+                                  context.config.show_stream_exit_hint, selected);
         break;
       case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
@@ -856,6 +862,11 @@ UIScreenType draw_settings() {
         vitavideo_hide_poor_net_indicator();
       }
       persist_config_or_warn();
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT) {
+      context.config.show_stream_exit_hint = !context.config.show_stream_exit_hint;
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT,
+                             context.config.show_stream_exit_hint);
+      persist_config_or_warn();
     } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE) {
       context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
       start_toggle_animation(SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
@@ -902,6 +913,31 @@ typedef struct {
 
 static ProfileState profile_state = {0};
 
+static VitaChiakiHost* profile_get_reference_host(void) {
+  if (context.active_host) {
+    return context.active_host;
+  }
+
+  int selected = ui_cards_get_selected_index();
+  int host_idx = 0;
+  VitaChiakiHost *first_host = NULL;
+  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    VitaChiakiHost *host = context.hosts[i];
+    if (!host) {
+      continue;
+    }
+    if (!first_host) {
+      first_host = host;
+    }
+    if (host_idx == selected) {
+      return host;
+    }
+    host_idx++;
+  }
+
+  return first_host;
+}
+
 /// Draw profile card (left side)
 static void draw_profile_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
@@ -946,12 +982,11 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
   vita2d_draw_rectangle(content_x, content_y + 70, width - 40, 1,
                         RGBA8(0x50, 0x50, 0x50, 255));
 
-  // "Account ID: xxxx" label at bottom
-  vita2d_font_draw_text(font, content_x, y + height - 30,
-                        UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Account ID");
-  vita2d_font_draw_text(font, content_x, y + height - 12,
-                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        psn_id);
+  if (selected) {
+    vita2d_font_draw_text(font, content_x, y + height - 16,
+                          UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                          "Press X to refresh Account ID");
+  }
 }
 
 /// Draw connection info card (right side) - two-column layout
@@ -974,18 +1009,46 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         "Connection Information");
   content_y += 30;
 
+  VitaChiakiHost *host = profile_get_reference_host();
+  bool has_host = (host != NULL);
+  bool has_discovery = has_host && host->discovery_state;
+  bool has_registered = has_host && host->registered_state;
+  bool is_streaming = context.stream.is_streaming && context.stream.session_init;
+
   // Network Type
+  const char* network_text = "Unavailable";
+  if (has_discovery) {
+    network_text = "Local Wi-Fi";
+  } else if (has_host && (host->type & MANUALLY_ADDED)) {
+    network_text = "Manual Host";
+  }
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Network Type");
   vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        "Local WiFi");
+                        network_text);
+  content_y += line_h;
+
+  // Console Name
+  const char* console_name = "Not selected";
+  if (has_discovery && host->discovery_state->host_name) {
+    console_name = host->discovery_state->host_name;
+  } else if (has_registered && host->registered_state->server_nickname) {
+    console_name = host->registered_state->server_nickname;
+  } else if (has_host && host->hostname) {
+    console_name = host->hostname;
+  }
+  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "Console");
+  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
+                        console_name);
   content_y += line_h;
 
   // Console IP
-  const char* console_ip = "Not Connected";
-  if (context.active_host && context.active_host->discovery_state &&
-      context.active_host->discovery_state->host_addr) {
-    console_ip = context.active_host->discovery_state->host_addr;
+  const char* console_ip = "N/A";
+  if (has_discovery && host->discovery_state->host_addr) {
+    console_ip = host->discovery_state->host_addr;
+  } else if (has_host && host->hostname) {
+    console_ip = host->hostname;
   }
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Console IP");
@@ -1063,8 +1126,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   // Connection status
-  bool is_connected = context.active_host != NULL;
-  const char* connection_text = is_connected ? "Direct" : "None";
+  const char* connection_text = is_streaming ? "Streaming" : (has_host ? "Ready" : "None");
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Connection");
   vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
@@ -1072,7 +1134,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   content_y += line_h;
 
   // Remote Play status
-  const char* remote_play = is_connected ? "Available" : "Unavailable";
+  const char* remote_play = has_registered ? "Available" : "Unavailable";
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Remote Play");
   vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
@@ -1184,7 +1246,7 @@ UIScreenType draw_profile_screen() {
 
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("Left/Right: Switch Card | Circle: Back");
+    trigger_hints_popup("Left/Right: Switch Card | X: Refresh Account ID | Circle: Back");
   }
 
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
@@ -1196,6 +1258,16 @@ UIScreenType draw_profile_screen() {
     profile_state.current_section = PROFILE_SECTION_INFO;
   } else if (btn_pressed(SCE_CTRL_RIGHT)) {
     profile_state.current_section = PROFILE_SECTION_CONNECTION;
+  }
+
+  if (btn_pressed(SCE_CTRL_CROSS) &&
+      profile_state.current_section == PROFILE_SECTION_INFO) {
+    if (ui_reload_psn_account_id()) {
+      persist_config_or_warn();
+      trigger_hints_popup("Account ID refreshed from system profile");
+    } else {
+      trigger_hints_popup("Could not refresh Account ID");
+    }
   }
 
   // Circle: Back to main menu

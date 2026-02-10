@@ -43,6 +43,7 @@ typedef enum ui_main_widget_id_t {
 
 void draw_ui();
 void ui_clear_waking_wait(void);
+bool ui_reload_psn_account_id(void);
 
 #ifndef UI_CONNECTION_STAGE_DEFINED
 #define UI_CONNECTION_STAGE_DEFINED

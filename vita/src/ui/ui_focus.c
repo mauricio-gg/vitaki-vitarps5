@@ -12,12 +12,15 @@
 // Focus stack - supports base state + modal overlays
 static FocusState g_focus_stack[UI_FOCUS_MAX_STACK_DEPTH];
 static int g_stack_depth = 0;
+static uint64_t g_last_underflow_log_us = 0;
+static const uint64_t FOCUS_UNDERFLOW_LOG_INTERVAL_US = 1000000ULL;
 
 // Convenience macro for current focus
 #define CURRENT_FOCUS (g_focus_stack[g_stack_depth])
 
 void ui_focus_init(void) {
     g_stack_depth = 0;
+    g_last_underflow_log_us = 0;
     g_focus_stack[0].zone = FOCUS_ZONE_MAIN_CONTENT;
     g_focus_stack[0].index = 0;
 }
@@ -75,17 +78,23 @@ void ui_focus_push_modal(void) {
         return;
     }
     g_stack_depth++;
+    g_last_underflow_log_us = 0;
     g_focus_stack[g_stack_depth].zone = FOCUS_ZONE_MODAL;
     g_focus_stack[g_stack_depth].index = 0;
 }
 
 void ui_focus_pop_modal(void) {
     if (g_stack_depth <= 0) {
-        // Stack underflow - already at base, log error and return without popping
-        LOGE("Focus stack underflow: cannot pop modal (depth=%d)", g_stack_depth);
+        uint64_t now_us = sceKernelGetProcessTimeWide();
+        if (g_last_underflow_log_us == 0 ||
+            (now_us - g_last_underflow_log_us) >= FOCUS_UNDERFLOW_LOG_INTERVAL_US) {
+            LOGD("Focus pop ignored at base depth (depth=%d)", g_stack_depth);
+            g_last_underflow_log_us = now_us;
+        }
         return;
     }
     g_stack_depth--;
+    g_last_underflow_log_us = 0;
 }
 
 bool ui_focus_has_modal(void) {

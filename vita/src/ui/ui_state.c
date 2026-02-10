@@ -44,6 +44,7 @@ static ConnectionOverlayState connection_overlay = {0};
  */
 static SceUID connection_thread_id = -1;
 static VitaChiakiHost *connection_thread_host = NULL;
+static bool connection_overlay_modal_pushed = false;
 
 /**
  * Waking and reconnect timing state
@@ -76,6 +77,7 @@ void ui_state_init(void) {
   // Reset connection thread
   connection_thread_id = -1;
   connection_thread_host = NULL;
+  connection_overlay_modal_pushed = false;
 
   // Reset timing state
   waking_start_time = 0;
@@ -99,7 +101,10 @@ void ui_connection_begin(UIConnectionStage stage) {
   waking_wait_for_stream_us = 0;
 
   // Push modal focus when connection overlay activates
-  ui_focus_push_modal();
+  if (!connection_overlay_modal_pushed) {
+    ui_focus_push_modal();
+    connection_overlay_modal_pushed = true;
+  }
 }
 
 void ui_connection_set_stage(UIConnectionStage stage) {
@@ -115,9 +120,10 @@ void ui_connection_complete(void) {
   waking_wait_for_stream_us = 0;
 
   // Pop modal focus only if we actually pushed (check if we're in modal state)
-  if (ui_focus_has_modal()) {
+  if (connection_overlay_modal_pushed && ui_focus_has_modal()) {
     ui_focus_pop_modal();
   }
+  connection_overlay_modal_pushed = false;
 }
 
 void ui_connection_cancel(void) {
@@ -134,9 +140,10 @@ void ui_connection_cancel(void) {
   }
 
   // Pop modal focus only if we actually pushed (check if we're in modal state)
-  if (ui_focus_has_modal()) {
+  if (connection_overlay_modal_pushed && ui_focus_has_modal()) {
     ui_focus_pop_modal();
   }
+  connection_overlay_modal_pushed = false;
 }
 
 bool ui_connection_is_active(void) {

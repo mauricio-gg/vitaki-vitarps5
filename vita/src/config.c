@@ -312,6 +312,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   }
   cfg->show_latency = false;  // Default: latency display disabled
   cfg->show_network_indicator = true;
+  cfg->show_stream_exit_hint = true;
   cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
@@ -522,6 +523,15 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "show_network_indicator", true,
                                           &cfg->show_network_indicator, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
+
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_stream_exit_hint", true,
+                                          &cfg->show_stream_exit_hint, &source)) {
       if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
       else if (source == MIGRATION_SOURCE_ROOT)
@@ -909,6 +919,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
           cfg->show_latency ? "true" : "false");
   fprintf(fp, "show_network_indicator = %s\n",
           cfg->show_network_indicator ? "true" : "false");
+  fprintf(fp, "show_stream_exit_hint = %s\n",
+          cfg->show_stream_exit_hint ? "true" : "false");
   fprintf(fp, "stretch_video = %s\n",
           cfg->stretch_video ? "true" : "false");
   fprintf(fp, "force_30fps = %s\n",

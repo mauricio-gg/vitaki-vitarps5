@@ -568,7 +568,6 @@ void ui_nav_render(void) {
     float icon_opacity = width_scale;
     if (icon_opacity > 1.0f) icon_opacity = 1.0f;
     if (icon_opacity < 0.0f) icon_opacity = 0.0f;
-
     // Draw navigation icons (fade during collapse animation)
     for (int i = 0; i < 4; i++) {
         // Base Y position
@@ -577,19 +576,46 @@ void ui_nav_render(void) {
         // Icons are static (no bobbing animation)
         int y = base_y;
 
-        bool is_selected = (i == selected_nav_icon && ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
+        bool is_selected_icon = (i == selected_nav_icon);
+        bool is_nav_focused = (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
+        bool is_focused_selected = is_selected_icon && is_nav_focused;
 
-        // Selection highlight (semi-transparent white rounded rect per spec line 76)
-        // Only show when not animating and sidebar is expanded
-        if (is_selected && nav_collapse.state == NAV_STATE_EXPANDED) {
-            int highlight_x = WAVE_NAV_ICON_X - WAVE_NAV_ICON_HIGHLIGHT_SIZE / 2;
-            int highlight_y = y - WAVE_NAV_ICON_HIGHLIGHT_SIZE / 2;
-            // White at 20% alpha as specified
-            ui_draw_rounded_rect(highlight_x, highlight_y, WAVE_NAV_ICON_HIGHLIGHT_SIZE, WAVE_NAV_ICON_HIGHLIGHT_SIZE, 8, RGBA8(255, 255, 255, 51));
+        // Keep selection visible even when focus moves back to content.
+        float icon_scale_multiplier = 1.0f;
+        if (is_focused_selected) {
+            icon_scale_multiplier = WAVE_NAV_FOCUSED_ICON_SCALE;
+        } else if (is_selected_icon) {
+            icon_scale_multiplier = WAVE_NAV_SELECTED_ICON_SCALE;
         }
 
-        // Draw icon with scale increase when selected
-        float icon_scale_multiplier = is_selected ? WAVE_NAV_ICON_SELECTED_SCALE : 1.0f;  // 48px → 72px on selection
+        if (is_selected_icon && icon_opacity > 0.08f &&
+            nav_collapse.state != NAV_STATE_COLLAPSED) {
+            int glass_radius = WAVE_NAV_GLASS_RADIUS;
+            int base_alpha_i = WAVE_NAV_GLASS_BASE_ALPHA +
+                               (is_focused_selected ? WAVE_NAV_GLASS_FOCUS_BOOST : 0);
+            if (base_alpha_i > 255) {
+                base_alpha_i = 255;
+            }
+            uint8_t base_alpha = (uint8_t)(icon_opacity * base_alpha_i);
+            uint8_t glow_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOW_ALPHA);
+            uint8_t gloss_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOSS_ALPHA);
+
+            // Borderless glass sphere: soft halo + translucent body + small gloss.
+            vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, WAVE_NAV_GLASS_GLOW_RADIUS,
+                                    RGBA8(WAVE_NAV_SELECTION_COLOR_R,
+                                          WAVE_NAV_SELECTION_COLOR_G,
+                                          WAVE_NAV_SELECTION_COLOR_B,
+                                          glow_alpha));
+            vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, glass_radius,
+                                    RGBA8(WAVE_NAV_SELECTION_COLOR_R,
+                                          WAVE_NAV_SELECTION_COLOR_G,
+                                          WAVE_NAV_SELECTION_COLOR_B,
+                                          base_alpha));
+            vita2d_draw_fill_circle(WAVE_NAV_ICON_X - WAVE_NAV_GLASS_GLOSS_OFFSET_X,
+                                    y - WAVE_NAV_GLASS_GLOSS_OFFSET_Y,
+                                    WAVE_NAV_GLASS_GLOSS_RADIUS,
+                                    RGBA8(0xFF, 0xFF, 0xFF, gloss_alpha));
+        }
 
         // Use texture-based icons (fallback to procedural if NULL)
         vita2d_texture* icon_tex = NULL;
@@ -610,8 +636,9 @@ void ui_nav_render(void) {
             int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
             int draw_y = y - scaled_h / 2;
 
-            // Apply grayish tint with transparency for UI blending
-            uint8_t tint_alpha = (uint8_t)(icon_opacity * WAVE_NAV_ICON_BASE_ALPHA);
+            // Apply stronger alpha on selected icon for clarity.
+            uint8_t base_alpha = is_selected_icon ? 245 : WAVE_NAV_ICON_BASE_ALPHA;
+            uint8_t tint_alpha = (uint8_t)(icon_opacity * base_alpha);
             vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
                                            RGBA8(WAVE_NAV_ICON_TINT_R, WAVE_NAV_ICON_TINT_G, WAVE_NAV_ICON_TINT_B, tint_alpha));
         } else {
@@ -626,7 +653,7 @@ void ui_nav_render(void) {
         }
 
         // Draw text label below icon when setting enabled and icon is selected
-        if (context.config.show_nav_labels && is_selected &&
+        if (context.config.show_nav_labels && is_selected_icon &&
             nav_collapse.state == NAV_STATE_EXPANDED) {
             const char* label = NULL;
             switch (i) {

@@ -310,30 +310,53 @@ bool is_touched(int x, int y, int width, int height) {
 // PSN ACCOUNT INITIALIZATION
 // ============================================================================
 
+static bool load_psn_id_from_registry(bool force_reload) {
+  if (!force_reload && context.config.psn_account_id &&
+      strlen(context.config.psn_account_id) > 0) {
+    return true;
+  }
+
+  char acc_id_buf[8];
+  memset(acc_id_buf, 0, sizeof(acc_id_buf));
+
+  int reg_result = sceRegMgrGetKeyBin("/CONFIG/NP/", "account_id",
+                                      acc_id_buf, sizeof(acc_id_buf));
+  if (reg_result < 0) {
+    LOGE("Failed to read PSN account_id from registry: 0x%08X", reg_result);
+    return false;
+  }
+
+  int b64_strlen = get_base64_size(sizeof(acc_id_buf));
+  char *new_psn_id = (char *)malloc((size_t)b64_strlen + 1);
+  if (!new_psn_id) {
+    LOGE("Failed to allocate memory for PSN account ID");
+    return false;
+  }
+
+  new_psn_id[b64_strlen] = '\0';
+  chiaki_base64_encode(acc_id_buf, sizeof(acc_id_buf), new_psn_id,
+                       get_base64_size(sizeof(acc_id_buf)));
+
+  if (context.config.psn_account_id) {
+    free(context.config.psn_account_id);
+  }
+  context.config.psn_account_id = new_psn_id;
+  LOGD("Loaded PSN account ID (base64, len=%d)", (int)strlen(new_psn_id));
+  return true;
+}
+
 /**
- * load_psn_id_if_needed() - Load PSN account ID from Vita registry
- *
- * Queries the system registry for the PlayStation Network account ID and
- * stores it in base64-encoded form in the context config. This is required
- * for PS5/PS4 remote play authentication.
- *
- * Only loads if not already present in config. Called once during UI init.
+ * load_psn_id_if_needed() - Load PSN account ID from Vita registry if missing.
  */
 void load_psn_id_if_needed() {
-  if (context.config.psn_account_id == NULL || strlen(context.config.psn_account_id) < 1) {
-    char accIDBuf[8];
-    memset(accIDBuf, 0, sizeof(accIDBuf));
-    if (context.config.psn_account_id) {
-      free(context.config.psn_account_id);
-    }
-    sceRegMgrGetKeyBin("/CONFIG/NP/", "account_id", accIDBuf, sizeof(accIDBuf));
+  load_psn_id_from_registry(false);
+}
 
-    int b64_strlen = get_base64_size(sizeof(accIDBuf));
-    context.config.psn_account_id = (char*)malloc(b64_strlen+1); // + 1 for null termination
-    context.config.psn_account_id[b64_strlen] = 0; // null terminate
-    chiaki_base64_encode(accIDBuf, sizeof(accIDBuf), context.config.psn_account_id, get_base64_size(sizeof(accIDBuf)));
-    LOGD("size of id %d", strlen(context.config.psn_account_id));
-  }
+/**
+ * ui_reload_psn_account_id() - Force refresh PSN account ID from Vita registry.
+ */
+bool ui_reload_psn_account_id(void) {
+  return load_psn_id_from_registry(true);
 }
 
 // ============================================================================
@@ -568,7 +591,9 @@ void draw_ui() {
           // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
           // Pop modal when leaving PIN entry screen
           if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-            ui_focus_pop_modal();
+            if (ui_focus_has_modal()) {
+              ui_focus_pop_modal();
+            }
           }
 
           // Push modal when entering PIN entry screen
