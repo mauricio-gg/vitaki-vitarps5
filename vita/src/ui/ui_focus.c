@@ -12,12 +12,14 @@
 // Focus stack - supports base state + modal overlays
 static FocusState g_focus_stack[UI_FOCUS_MAX_STACK_DEPTH];
 static int g_stack_depth = 0;
+static bool g_underflow_reported = false;
 
 // Convenience macro for current focus
 #define CURRENT_FOCUS (g_focus_stack[g_stack_depth])
 
 void ui_focus_init(void) {
     g_stack_depth = 0;
+    g_underflow_reported = false;
     g_focus_stack[0].zone = FOCUS_ZONE_MAIN_CONTENT;
     g_focus_stack[0].index = 0;
 }
@@ -75,17 +77,22 @@ void ui_focus_push_modal(void) {
         return;
     }
     g_stack_depth++;
+    g_underflow_reported = false;
     g_focus_stack[g_stack_depth].zone = FOCUS_ZONE_MODAL;
     g_focus_stack[g_stack_depth].index = 0;
 }
 
 void ui_focus_pop_modal(void) {
     if (g_stack_depth <= 0) {
-        // Stack underflow - already at base, log error and return without popping
-        LOGE("Focus stack underflow: cannot pop modal (depth=%d)", g_stack_depth);
+        // Stack underflow - avoid repeated noisy logs once depth is already zero
+        if (!g_underflow_reported) {
+            LOGD("Focus pop ignored at base depth (depth=%d)", g_stack_depth);
+            g_underflow_reported = true;
+        }
         return;
     }
     g_stack_depth--;
+    g_underflow_reported = false;
 }
 
 bool ui_focus_has_modal(void) {

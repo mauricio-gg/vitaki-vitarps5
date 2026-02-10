@@ -200,6 +200,8 @@ This project uses a GitHub Actions workflow to create releases. **Releases can o
 
 ### In-stream controls
 - Hold **L + R + Start** (Options) for about a second to stop the current Remote Play session and return to the VitaRPS5 menu. This lets you tweak settings (e.g., latency mode) without rebooting the app.
+- You can show or hide the top-right shortcut hint in **Settings → Show Exit Shortcut Hint**.
+- Enabling **Settings → Show Latency** now also shows a compact in-stream stats panel (live latency + FPS).
 
 ### Controller customization
 VitaRPS5 provides 3 customizable controller preset slots that let you create your own button mappings:

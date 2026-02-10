@@ -36,6 +36,7 @@ static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
+static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
 static void persist_config_or_warn(void);
 typedef struct {
@@ -185,12 +186,19 @@ static void event_cb(ChiakiEvent *event, void *user) {
 			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
 			break;
 	case CHIAKI_EVENT_QUIT: {
-      bool user_stop_requested = context.stream.stop_requested;
+      bool user_stop_requested =
+          context.stream.stop_requested || context.stream.stop_requested_by_user;
       const char *reason_label = quit_reason_label(event->quit.reason);
 			LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
 				 event->quit.reason_str ? event->quit.reason_str : "unknown",
 				 event->quit.reason,
 				 reason_label);
+      LOGD("Quit classification: user_stop=%d, fast_restart=%d, retry_pending=%d, retry_active=%d, teardown_in_progress=%d",
+           user_stop_requested ? 1 : 0,
+           context.stream.fast_restart_active ? 1 : 0,
+           context.stream.loss_retry_pending ? 1 : 0,
+           context.stream.loss_retry_active ? 1 : 0,
+           context.stream.teardown_in_progress ? 1 : 0);
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -281,17 +289,26 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.loss_retry_active = false;
       context.stream.reconnect_overlay_active = false;
 
+      bool retry_allowed_reason = quit_reason_requires_retry(event->quit.reason);
       bool schedule_retry = restart_failed && context.active_host &&
+          retry_allowed_reason &&
           retry_bitrate > 0 && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
 
       if (schedule_retry) {
         context.stream.loss_retry_attempts = retry_attempts + 1;
         context.stream.loss_retry_pending = true;
-        context.stream.loss_retry_ready_us =
-            now_us + (context.stream.loss_retry_ready_us ? 0 : LOSS_RETRY_DELAY_US);
+        uint64_t retry_delay_target = now_us + LOSS_RETRY_DELAY_US;
+        uint64_t cooldown_target = context.stream.next_stream_allowed_us;
+        uint64_t effective_retry_us = retry_delay_target;
+        if (cooldown_target > effective_retry_us)
+          effective_retry_us = cooldown_target;
+        context.stream.loss_retry_ready_us = effective_retry_us;
         should_resume_discovery = false;
-        LOGD("Soft restart failed — scheduling hard fallback retry #%u",
-             retry_attempts + 1);
+        LOGD("Soft restart failed — scheduling hard fallback retry #%u in %llu ms (cooldown=%llu ms, base_delay=%llu ms)",
+             retry_attempts + 1,
+             (effective_retry_us - now_us) / 1000ULL,
+             cooldown_target > now_us ? (cooldown_target - now_us) / 1000ULL : 0ULL,
+             LOSS_RETRY_DELAY_US / 1000ULL);
       }
 
       if (should_resume_discovery)
@@ -330,7 +347,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.reconnect_overlay_active = false;
           resume_discovery_if_needed();
         }
+      } else if (restart_failed && !retry_allowed_reason) {
+        LOGD("Skipping hard fallback retry for quit reason %d (%s)",
+             event->quit.reason,
+             reason_label);
       }
+      context.stream.stop_requested_by_user = false;
+      context.stream.teardown_in_progress = false;
 			break;
     }
 	}
@@ -339,6 +362,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
+  context.stream.last_rtt_refresh_us = 0;
   context.stream.metrics_last_update_us = 0;
   context.stream.measured_incoming_fps = 0;
   context.stream.fps_window_start_us = 0;
@@ -390,6 +414,8 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.unrecovered_gate_events = 0;
   context.stream.unrecovered_gate_window_start_us = 0;
   context.stream.restart_failure_active = false;
+  context.stream.stop_requested_by_user = false;
+  context.stream.teardown_in_progress = false;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -473,6 +499,8 @@ static void finalize_session_resources(void) {
 }
 
 static void update_latency_metrics(void) {
+  static const uint64_t RTT_REFRESH_INTERVAL_US = 1000000ULL;
+
   if (!context.stream.session_init)
     return;
 
@@ -493,12 +521,24 @@ static void update_latency_metrics(void) {
   ChiakiStreamStats *stats = &receiver->frame_processor.stream_stats;
   uint64_t bitrate_bps = chiaki_stream_stats_bitrate(stats, fps);
   float bitrate_mbps = bitrate_bps > 0 ? ((float)bitrate_bps / 1000000.0f) : 0.0f;
-  uint32_t rtt_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
   uint64_t now_us = sceKernelGetProcessTimeWide();
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
-  context.stream.measured_rtt_ms = rtt_ms;
-  context.stream.metrics_last_update_us = now_us;
+
+  bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
+                     (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
+  if (refresh_rtt) {
+    uint32_t base_rtt_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
+    uint64_t jitter_us = stream_connection->takion.jitter_stats.jitter_us;
+    uint32_t jitter_ms = (uint32_t)(jitter_us / 1000ULL);
+    uint32_t effective_rtt_ms = base_rtt_ms + jitter_ms;
+    if (effective_rtt_ms == 0)
+      effective_rtt_ms = base_rtt_ms;
+
+    context.stream.measured_rtt_ms = effective_rtt_ms;
+    context.stream.last_rtt_refresh_us = now_us;
+    context.stream.metrics_last_update_us = now_us;
+  }
 
   if (!context.config.show_latency)
     return;
@@ -507,8 +547,12 @@ static void update_latency_metrics(void) {
   static uint64_t last_log_us = 0;
   if (now_us - last_log_us >= LOG_INTERVAL_US) {
     float target_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
-    LOGD("Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms",
-         target_mbps, bitrate_mbps, rtt_ms);
+    LOGD("Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms (base %u ms, jitter %llu us)",
+         target_mbps,
+         bitrate_mbps,
+         context.stream.measured_rtt_ms,
+         (uint32_t)(context.stream.session.rtt_us / 1000),
+         (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
     last_log_us = now_us;
   }
 
@@ -543,10 +587,17 @@ static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLat
 static void request_stream_stop(const char *reason) {
   if (!context.stream.session_init)
     return;
+  bool user_stop = false;
+  if (reason && (strcmp(reason, "user cancel") == 0 ||
+                 strcmp(reason, "L+R+Start") == 0)) {
+    user_stop = true;
+  }
   if (!context.stream.stop_requested) {
     LOGD("Stopping stream (%s)", reason ? reason : "user");
     context.stream.stop_requested = true;
+    context.stream.stop_requested_by_user = user_stop;
   }
+  context.stream.teardown_in_progress = true;
   context.stream.next_stream_allowed_us = 0;
   chiaki_session_stop(&context.stream.session);
 }
@@ -927,6 +978,16 @@ static const char *quit_reason_label(ChiakiQuitReason reason) {
     case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED: return "PSN registration failed";
     default:
       return "Unspecified";
+  }
+}
+
+static bool quit_reason_requires_retry(ChiakiQuitReason reason) {
+  switch (reason) {
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
+      return false;
+    default:
+      return true;
   }
 }
 
@@ -1632,6 +1693,8 @@ int host_stream(VitaChiakiHost* host) {
   int result = 1;
   bool resume_inputs = context.stream.inputs_resume_pending;
   context.stream.stop_requested = false;
+  context.stream.stop_requested_by_user = false;
+  context.stream.teardown_in_progress = false;
   context.stream.inputs_ready = false;
   context.stream.is_streaming = false;
   context.stream.media_initialized = false;
@@ -1774,6 +1837,7 @@ cleanup:
     context.stream.loss_retry_pending = false;
     context.stream.is_streaming = false;
     context.stream.inputs_ready = false;
+    context.stream.teardown_in_progress = false;
     resume_discovery_if_needed();
     ui_connection_cancel();
   } else if (resume_inputs) {

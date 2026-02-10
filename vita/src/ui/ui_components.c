@@ -321,11 +321,13 @@ void ui_error_show(const char* message) {
  * Hide the error popup
  */
 void ui_error_hide(void) {
-    context.ui_state.error_popup_active = false;
-    context.ui_state.error_popup_text[0] = '\0';
+  context.ui_state.error_popup_active = false;
+  context.ui_state.error_popup_text[0] = '\0';
 
-    // Pop modal focus to restore navigation
+  // Pop modal focus to restore navigation
+  if (ui_focus_has_modal()) {
     ui_focus_pop_modal();
+  }
 }
 
 /**
@@ -573,8 +575,10 @@ void ui_debug_close(void) {
     *button_block_mask |= context.ui_state.button_state;
     *touch_block_active = true;
 
-    // Pop modal focus to restore navigation
+  // Pop modal focus to restore navigation
+  if (ui_focus_has_modal()) {
     ui_focus_pop_modal();
+  }
 }
 
 /**

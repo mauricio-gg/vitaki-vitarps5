@@ -82,6 +82,20 @@
 #define WAVE_NAV_ICON_TINT_R            200     // Grayish tint RGB (matches profile icon style)
 #define WAVE_NAV_ICON_TINT_G            200
 #define WAVE_NAV_ICON_TINT_B            200
+#define WAVE_NAV_SELECTED_ICON_SCALE    1.05f   // Always-visible selected icon emphasis
+#define WAVE_NAV_FOCUSED_ICON_SCALE     1.10f   // Stronger emphasis when nav has focus
+#define WAVE_NAV_GLASS_RADIUS           34      // Glass sphere radius around selected icon
+#define WAVE_NAV_GLASS_BASE_ALPHA       30      // Transparent base sphere alpha
+#define WAVE_NAV_GLASS_FOCUS_BOOST      12      // Small alpha boost when nav item is focused
+#define WAVE_NAV_GLASS_GLOW_RADIUS      40      // Soft glow halo radius
+#define WAVE_NAV_GLASS_GLOW_ALPHA       10      // Very subtle halo opacity
+#define WAVE_NAV_GLASS_GLOSS_RADIUS     12      // Top gloss highlight radius
+#define WAVE_NAV_GLASS_GLOSS_ALPHA      44      // Gloss highlight alpha
+#define WAVE_NAV_GLASS_GLOSS_OFFSET_X   10      // Gloss center X offset
+#define WAVE_NAV_GLASS_GLOSS_OFFSET_Y   12      // Gloss center Y offset
+#define WAVE_NAV_SELECTION_COLOR_R      0x34    // PlayStation blue selection color
+#define WAVE_NAV_SELECTION_COLOR_G      0x90
+#define WAVE_NAV_SELECTION_COLOR_B      0xFF
 
 // ============================================================================
 // Particle Animation (Batch 3: Particle Background Enhancements)
