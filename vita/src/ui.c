@@ -449,7 +449,10 @@ void draw_ui() {
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
   context.ui_state.debug_menu_active = false;
+  context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
+  context.ui_state.error_popup_modal_pushed = false;
+  context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
 
@@ -590,15 +593,17 @@ void draw_ui() {
           // Handle modal focus for PIN entry screen only
           // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
           // Pop modal when leaving PIN entry screen
-          if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-            if (ui_focus_has_modal()) {
-              ui_focus_pop_modal();
-            }
+          if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
+              context.ui_state.register_host_modal_pushed) {
+            ui_focus_pop_modal();
+            context.ui_state.register_host_modal_pushed = false;
           }
 
           // Push modal when entering PIN entry screen
-          if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST) {
+          if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
+              !context.ui_state.register_host_modal_pushed) {
             ui_focus_push_modal();
+            context.ui_state.register_host_modal_pushed = true;
           }
         }
         screen = next_screen;
