@@ -591,8 +591,10 @@ static const char* get_resolution_string(ChiakiVideoResolutionPreset preset) {
   switch (preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p: return "360p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_540p: return "540p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p: return "720p (Unavailable on Vita)";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p: return "1080p (Unsupported on Vita)";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+      // Legacy/unsupported values are shown as their effective Vita preset.
+      return "540p";
     default: return "540p";
   }
 }
@@ -746,15 +748,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
     ui_draw_rounded_rect(bar_x, thumb_y, 4, thumb_h, 2, RGBA8(150, 200, 255, 220));
   }
 
-  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
-      context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
-    int warning_y = content_y + SETTINGS_VISIBLE_ITEMS * item_stride + 2;
-    int warning_h = 28;
-    ui_draw_rounded_rect(content_x, warning_y, content_w, warning_h, 8, RGBA8(75, 58, 24, 210));
-    vita2d_font_draw_text(font, content_x + 12, warning_y + 19,
-                          RGBA8(0xFF, 0xD9, 0x8A, 255), FONT_SIZE_SMALL,
-                          "Warning: 720p is unavailable on Vita. Using 540p.");
-  }
 }
 
 /// Main Settings screen rendering function
@@ -1087,14 +1080,9 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   content_y += line_h;
 
   // Quality Setting
-  const char* quality_text = "Auto";
+  const char* quality_text = "540p";
   if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
     quality_text = "360p";
-  } else if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p) {
-    quality_text = "540p";
-  } else if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
-             context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
-    quality_text = "720p (Unavailable)";
   }
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Quality Setting");

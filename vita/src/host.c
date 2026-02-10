@@ -1646,11 +1646,11 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   ChiakiVideoResolutionPreset requested_resolution = context.config.resolution;
-  // Vita decoder setup is currently unstable at 720p and can fail before stream start.
-  // Keep the setting available in UI, but negotiate a safe profile to preserve connectivity.
+  // Defensive guardrail: config/UI path should already normalize unsupported values,
+  // but force a safe profile here to preserve stream startup reliability.
   if (requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
       requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
-    LOGE("Requested %s profile is not currently reliable on Vita decoder; forcing 540p fallback",
+    LOGD("Requested legacy unsupported %s profile; forcing 540p fallback",
          requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ? "1080p" : "720p");
     requested_resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   }
