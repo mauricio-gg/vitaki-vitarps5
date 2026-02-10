@@ -1645,9 +1645,19 @@ int host_stream(VitaChiakiHost* host) {
     goto cleanup;
   }
 
+  ChiakiVideoResolutionPreset requested_resolution = context.config.resolution;
+  // Vita decoder setup is currently unstable at 720p and can fail before stream start.
+  // Keep the setting available in UI, but negotiate a safe profile to preserve connectivity.
+  if (requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
+      requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
+    LOGE("Requested %s profile is not currently reliable on Vita decoder; forcing 540p fallback",
+         requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ? "1080p" : "720p");
+    requested_resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+  }
+
   ChiakiConnectVideoProfile profile = {};
 	chiaki_connect_video_profile_preset(&profile,
-		context.config.resolution, context.config.fps);
+			requested_resolution, context.config.fps);
   apply_latency_mode(&profile, context.config.latency_mode);
   if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
     profile.bitrate = context.stream.loss_retry_bitrate_kbps;
@@ -1728,7 +1738,8 @@ int host_stream(VitaChiakiHost* host) {
 
   err = vita_h264_setup(profile.width, profile.height);
   if (err != 0) {
-		LOGE("Error during video start: %d", err);
+		LOGE("Error during video start: %d (0x%08x), profile=%ux%u@%u",
+         err, (unsigned int)err, profile.width, profile.height, profile.max_fps);
     goto cleanup;
   }
   vita_h264_start();

@@ -576,7 +576,7 @@ static const char* get_resolution_string(ChiakiVideoResolutionPreset preset) {
   switch (preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p: return "360p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_540p: return "540p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p: return "720p (Experimental)";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p: return "720p (Unavailable on Vita)";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p: return "1080p (Unsupported on Vita)";
     default: return "540p";
   }
@@ -722,13 +722,14 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
     ui_draw_rounded_rect(bar_x, thumb_y, 4, thumb_h, 2, RGBA8(150, 200, 255, 220));
   }
 
-  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
+  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
+      context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
     int warning_y = content_y + SETTINGS_VISIBLE_ITEMS * item_stride + 2;
     int warning_h = 28;
     ui_draw_rounded_rect(content_x, warning_y, content_w, warning_h, 8, RGBA8(75, 58, 24, 210));
     vita2d_font_draw_text(font, content_x + 12, warning_y + 19,
                           RGBA8(0xFF, 0xD9, 0x8A, 255), FONT_SIZE_SMALL,
-                          "Warning: 720p is experimental and may impact stream stability.");
+                          "Warning: 720p is unavailable on Vita. Using 540p.");
   }
 }
 
@@ -787,19 +788,19 @@ UIScreenType draw_settings() {
   if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
     // Streaming tab input handling
     if (settings_state.selected_item == 0) {
-      // Cycle resolution: 360p → 540p → 720p → 360p
+      // Cycle resolution: 360p <-> 540p (720p/1080p are unavailable on Vita)
       switch (context.config.resolution) {
         case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
           context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
           break;
         case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
           break;
         case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-          // Legacy configs may still carry 1080p; fold them back into supported cycle.
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
-          break;
         case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+          // Legacy/unsupported values are normalized to supported presets on interaction.
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
         default:
           context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
           break;
@@ -1060,8 +1061,13 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   // Quality Setting
   const char* quality_text = "Auto";
-  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
-    quality_text = "720p";
+  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
+    quality_text = "360p";
+  } else if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p) {
+    quality_text = "540p";
+  } else if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
+             context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
+    quality_text = "720p (Unavailable)";
   }
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Quality Setting");

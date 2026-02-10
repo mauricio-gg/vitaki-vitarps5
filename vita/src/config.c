@@ -119,10 +119,11 @@ static ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoReso
                                                                  bool *was_downgraded) {
   if (was_downgraded)
     *was_downgraded = false;
-  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
+  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ||
+      preset == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
     if (was_downgraded)
       *was_downgraded = true;
-    return CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   }
   return preset;
 }
@@ -393,7 +394,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     bool downgraded_resolution = false;
     cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
     if (downgraded_resolution) {
-      LOGD("Resolution 1080p is not supported on Vita; downgrading to 720p");
+      LOGD("Resolution is not supported on Vita; downgrading to 540p");
       migrated_resolution_policy = true;
     }
 
@@ -881,7 +882,7 @@ bool config_serialize(VitaChiakiConfig* cfg) {
   bool downgraded_resolution = false;
   cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
   if (downgraded_resolution) {
-    LOGD("Refusing to persist unsupported 1080p on Vita; saving 720p instead");
+    LOGD("Refusing to persist unsupported resolution on Vita; saving 540p instead");
   }
 
   FILE *fp = fopen(CFG_FILENAME, "w");
