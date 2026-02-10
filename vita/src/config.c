@@ -206,6 +206,7 @@ static bool parse_legacy_int_setting(toml_table_t *parsed, const char *key, int 
   return false;
 }
 
+// Returns allocated string via *out that caller must free.
 static bool parse_legacy_string_setting(toml_table_t *parsed, const char *key, char **out) {
   for (int slot = 0; slot < 3; slot++) {
     char section_name[32];
@@ -219,6 +220,28 @@ static bool parse_legacy_string_setting(toml_table_t *parsed, const char *key, c
       return true;
     }
   }
+  return false;
+}
+
+static bool parse_bool_setting_with_migration(toml_table_t *settings,
+                                              toml_table_t *parsed,
+                                              const char *key,
+                                              bool default_value,
+                                              bool *out_value) {
+  toml_datum_t datum;
+  bool legacy_value = false;
+  if (settings) {
+    datum = toml_bool_in(settings, key);
+    if (datum.ok) {
+      *out_value = datum.u.b;
+      return false;
+    }
+  }
+  if (parse_legacy_bool_setting(parsed, key, &legacy_value)) {
+    *out_value = legacy_value;
+    return true;
+  }
+  *out_value = default_value;
   return false;
 }
 
@@ -302,6 +325,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (!str_value && parse_legacy_string_setting(parsed, "resolution", &str_value))
       from_legacy = true;
     if (str_value) {
+      // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
       cfg->resolution = parse_resolution_preset(str_value);
       free(str_value);
       if (from_legacy)
@@ -327,7 +351,7 @@ void config_parse(VitaChiakiConfig* cfg) {
         cfg->fps = CHIAKI_VIDEO_FPS_PRESET_60;
       } else {
         if (fps_value != 30) {
-          CHIAKI_LOGW(&(context.log), "Unsupported fps value %d in config, defaulting to 30", fps_value);
+          LOGD("Unsupported fps value %d in config, defaulting to 30", fps_value);
         }
         cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
       }
@@ -405,167 +429,49 @@ void config_parse(VitaChiakiConfig* cfg) {
       cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
     }
 
-    bool bool_value = false;
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "circle_btn_confirm");
-      if (datum.ok) {
-        cfg->circle_btn_confirm = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "circle_btn_confirm", &bool_value)) {
-        cfg->circle_btn_confirm = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->circle_btn_confirm = circle_btn_confirm_default;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "circle_btn_confirm", &bool_value)) {
-      cfg->circle_btn_confirm = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "circle_btn_confirm", circle_btn_confirm_default,
+                                          &cfg->circle_btn_confirm))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "show_latency");
-      if (datum.ok) {
-        cfg->show_latency = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "show_latency", &bool_value)) {
-        cfg->show_latency = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->show_latency = false;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "show_latency", &bool_value)) {
-      cfg->show_latency = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_latency", false,
+                                          &cfg->show_latency))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "show_network_indicator");
-      if (datum.ok) {
-        cfg->show_network_indicator = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "show_network_indicator", &bool_value)) {
-        cfg->show_network_indicator = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->show_network_indicator = true;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "show_network_indicator", &bool_value)) {
-      cfg->show_network_indicator = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_network_indicator", true,
+                                          &cfg->show_network_indicator))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "stretch_video");
-      if (datum.ok) {
-        cfg->stretch_video = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "stretch_video", &bool_value)) {
-        cfg->stretch_video = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->stretch_video = false;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "stretch_video", &bool_value)) {
-      cfg->stretch_video = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "stretch_video", false,
+                                          &cfg->stretch_video))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "force_30fps");
-      if (datum.ok) {
-        cfg->force_30fps = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "force_30fps", &bool_value)) {
-        cfg->force_30fps = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->force_30fps = false;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "force_30fps", &bool_value)) {
-      cfg->force_30fps = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "force_30fps", false,
+                                          &cfg->force_30fps))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "send_actual_start_bitrate");
-      if (datum.ok) {
-        cfg->send_actual_start_bitrate = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "send_actual_start_bitrate", &bool_value)) {
-        cfg->send_actual_start_bitrate = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->send_actual_start_bitrate = true;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "send_actual_start_bitrate", &bool_value)) {
-      cfg->send_actual_start_bitrate = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "send_actual_start_bitrate", true,
+                                          &cfg->send_actual_start_bitrate))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "clamp_soft_restart_bitrate");
-      if (datum.ok) {
-        cfg->clamp_soft_restart_bitrate = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "clamp_soft_restart_bitrate", &bool_value)) {
-        cfg->clamp_soft_restart_bitrate = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->clamp_soft_restart_bitrate = true;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "clamp_soft_restart_bitrate", &bool_value)) {
-      cfg->clamp_soft_restart_bitrate = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "clamp_soft_restart_bitrate", true,
+                                          &cfg->clamp_soft_restart_bitrate))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "keep_nav_pinned");
-      if (datum.ok) {
-        cfg->keep_nav_pinned = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "keep_nav_pinned", &bool_value)) {
-        cfg->keep_nav_pinned = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->keep_nav_pinned = false;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "keep_nav_pinned", &bool_value)) {
-      cfg->keep_nav_pinned = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "keep_nav_pinned", false,
+                                          &cfg->keep_nav_pinned))
       migrated_legacy_settings = true;
 
-    from_legacy = false;
-    if (settings) {
-      datum = toml_bool_in(settings, "show_nav_labels");
-      if (datum.ok) {
-        cfg->show_nav_labels = datum.u.b;
-      } else if (parse_legacy_bool_setting(parsed, "show_nav_labels", &bool_value)) {
-        cfg->show_nav_labels = bool_value;
-        from_legacy = true;
-      } else {
-        cfg->show_nav_labels = false;
-      }
-    } else if (parse_legacy_bool_setting(parsed, "show_nav_labels", &bool_value)) {
-      cfg->show_nav_labels = bool_value;
-      from_legacy = true;
-    }
-    if (from_legacy)
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_nav_labels", false,
+                                          &cfg->show_nav_labels))
       migrated_legacy_settings = true;
 
     str_value = NULL;
@@ -578,6 +484,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (!str_value && parse_legacy_string_setting(parsed, "latency_mode", &str_value))
       from_legacy = true;
     if (str_value) {
+      // str_value comes from toml_string_in()/parse_legacy_string_setting(); caller owns it.
       cfg->latency_mode = parse_latency_mode(str_value);
       free(str_value);
       if (from_legacy)
@@ -775,9 +682,8 @@ void config_parse(VitaChiakiConfig* cfg) {
     }
     toml_free(parsed);
     if (migrated_legacy_settings) {
-      CHIAKI_LOGW(&(context.log),
-                  "Recovered misplaced settings from legacy config layout; rewriting %s",
-                  CFG_FILENAME);
+      LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
+           CFG_FILENAME);
       config_serialize(cfg);
     }
   }
