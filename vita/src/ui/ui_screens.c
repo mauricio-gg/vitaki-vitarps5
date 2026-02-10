@@ -82,6 +82,13 @@ static bool is_pin_complete(void);
 static uint32_t pin_to_number(void);
 static UIScreenType handle_vitarps5_touch_input(int num_hosts);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
+static void persist_config_or_warn(void);
+
+static void persist_config_or_warn(void) {
+  if (!config_serialize(&context.config)) {
+    LOGE("Failed to persist config changes");
+  }
+}
 
 
 // ============================================================================
@@ -497,7 +504,7 @@ UIScreenType draw_main_menu() {
             host->type &= ~REGISTERED;
 
             // Save config to persist changes
-            config_serialize(&context.config);
+            persist_config_or_warn();
 
             LOGD("Registration data deleted for console: %s", host->hostname);
 
@@ -586,7 +593,7 @@ static const char* settings_tab_names[SETTINGS_TAB_COUNT] = {
 };
 
 // Resolution/FPS option strings for dropdowns
-static const char* resolution_options[] = {"720p", "1080p"};
+static const char* resolution_options[] = {"720p"};
 static const char* fps_options[] = {"30 FPS", "60 FPS"};
 
 /// Get resolution string from ChiakiVideoResolutionPreset
@@ -595,7 +602,7 @@ static const char* get_resolution_string(ChiakiVideoResolutionPreset preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p: return "360p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_540p: return "540p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_720p: return "720p (Experimental)";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p: return "1080p (Experimental)";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p: return "1080p (Unsupported on Vita)";
     default: return "540p";
   }
 }
@@ -735,6 +742,15 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
     // Thumb
     ui_draw_rounded_rect(bar_x, thumb_y, 4, thumb_h, 2, RGBA8(150, 200, 255, 220));
   }
+
+  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
+    int warning_y = content_y + SETTINGS_VISIBLE_ITEMS * item_stride + 2;
+    int warning_h = 28;
+    ui_draw_rounded_rect(content_x, warning_y, content_w, warning_h, 8, RGBA8(75, 58, 24, 210));
+    vita2d_font_draw_text(font, content_x + 12, warning_y + 19,
+                          RGBA8(0xFF, 0xD9, 0x8A, 255), FONT_SIZE_SMALL,
+                          "Warning: 720p is experimental and may impact stream stability.");
+  }
 }
 
 /// Draw Controller Settings tab content
@@ -836,7 +852,7 @@ UIScreenType draw_settings() {
     if (settings_state.current_tab == SETTINGS_TAB_STREAMING) {
       // Streaming tab input handling
       if (settings_state.selected_item == 0) {
-        // Cycle resolution: 360p → 540p → 720p → 1080p → 360p
+        // Cycle resolution: 360p → 540p → 720p → 360p
         switch (context.config.resolution) {
           case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
             context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
@@ -844,63 +860,64 @@ UIScreenType draw_settings() {
           case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
             context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
             break;
-          case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_1080p;
-            break;
           case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+            // Legacy configs may still carry 1080p; fold them back into supported cycle.
+            context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+            break;
+          case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
           default:
             context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
             break;
         }
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 1) {
         // Cycle latency modes
         context.config.latency_mode =
           (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 2) {
         // Cycle FPS
         context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
           CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 3) {
         context.config.force_30fps = !context.config.force_30fps;
         start_toggle_animation(3, context.config.force_30fps);
-        config_serialize(&context.config);
+        persist_config_or_warn();
         apply_force_30fps_runtime();
       } else if (settings_state.selected_item == 4) {
         // Auto discovery toggle
         context.config.auto_discovery = !context.config.auto_discovery;
         start_toggle_animation(4, context.config.auto_discovery);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 5) {
         // Show latency toggle
         context.config.show_latency = !context.config.show_latency;
         start_toggle_animation(5, context.config.show_latency);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 6) {
         context.config.show_network_indicator = !context.config.show_network_indicator;
         start_toggle_animation(8, context.config.show_network_indicator);
         if (!context.config.show_network_indicator) {
           vitavideo_hide_poor_net_indicator();
         }
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 7) {
         context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
         start_toggle_animation(7, context.config.clamp_soft_restart_bitrate);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 8) {
         context.config.stretch_video = !context.config.stretch_video;
         start_toggle_animation(6, context.config.stretch_video);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 9) {
         context.config.keep_nav_pinned = !context.config.keep_nav_pinned;
         start_toggle_animation(9, context.config.keep_nav_pinned);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       } else if (settings_state.selected_item == 10) {
         context.config.show_nav_labels = !context.config.show_nav_labels;
         start_toggle_animation(10, context.config.show_nav_labels);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       }
     } else if (settings_state.current_tab == SETTINGS_TAB_CONTROLLER) {
       // Controller tab input handling
@@ -927,7 +944,7 @@ UIScreenType draw_settings() {
           // Accept this map if it's valid, or if we've cycled back to start (no other valid maps)
           if (context.config.custom_maps_valid[slot] || next_map == start_map) {
             context.config.controller_map_id = next_map;
-            config_serialize(&context.config);
+            persist_config_or_warn();
             break;
           }
         } while (next_map != start_map);
@@ -935,7 +952,7 @@ UIScreenType draw_settings() {
         // Circle Button Confirm toggle
         context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
         start_toggle_animation(101, context.config.circle_btn_confirm);
-        config_serialize(&context.config);
+        persist_config_or_warn();
       }
     }
   }
@@ -1146,8 +1163,6 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   const char* quality_text = "Auto";
   if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
     quality_text = "720p";
-  } else if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
-    quality_text = "1080p";
   }
   vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Quality Setting");
@@ -2083,7 +2098,7 @@ static void handle_mapping_popup_input(void) {
         apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
         ctrl_last_mapping_output = output;
         // BUG FIX: Persist mapping changes immediately
-        config_serialize(&context.config);
+        persist_config_or_warn();
         ctrl_popup_active = false;
         ctrl_popup_input_count = 0;
         ctrl_popup_touch_down = false;
@@ -2144,7 +2159,7 @@ static void handle_mapping_popup_input(void) {
             apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
             ctrl_last_mapping_output = output;
             // BUG FIX: Persist mapping changes immediately
-            config_serialize(&context.config);
+            persist_config_or_warn();
             ctrl_popup_active = false;
             ctrl_popup_input_count = 0;
         }
@@ -2327,11 +2342,11 @@ UIScreenType draw_controller_config_screen() {
             if (btn_pressed(SCE_CTRL_LEFT)) {
                 cycle_controller_preset(-1);
                 // BUG FIX: Persist preset selection immediately
-                config_serialize(&context.config);
+                persist_config_or_warn();
             } else if (btn_pressed(SCE_CTRL_RIGHT)) {
                 cycle_controller_preset(1);
                 // BUG FIX: Persist preset selection immediately
-                config_serialize(&context.config);
+                persist_config_or_warn();
             }
             if (btn_pressed(SCE_CTRL_LTRIGGER)) {
                 change_callout_page(-1);
@@ -2356,7 +2371,7 @@ UIScreenType draw_controller_config_screen() {
                     controller_front_clear_all_mappings();
                 }
                 // BUG FIX: Persist mapping changes immediately
-                config_serialize(&context.config);
+                persist_config_or_warn();
             }
         }
 
@@ -2459,7 +2474,7 @@ UIScreenType draw_controller_config_screen() {
             if (btn_pressed(SCE_CTRL_SQUARE)) {
                 controller_front_clear_all_mappings();
                 // BUG FIX: Persist mapping changes immediately
-                config_serialize(&context.config);
+                persist_config_or_warn();
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2525,7 +2540,7 @@ UIScreenType draw_controller_config_screen() {
             if (btn_pressed(SCE_CTRL_SQUARE)) {
                 controller_back_clear_all_mappings();
                 // BUG FIX: Persist mapping changes immediately
-                config_serialize(&context.config);
+                persist_config_or_warn();
             }
 
             if (btn_pressed(SCE_CTRL_CROSS)) {

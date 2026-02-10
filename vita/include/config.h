@@ -6,8 +6,13 @@
 #include "logging.h"
 #include "controller.h"
 
+#ifndef CFG_VERSION
 #define CFG_VERSION 1
+#endif
+
+#ifndef CFG_FILENAME
 #define CFG_FILENAME "ux0:data/vita-chiaki/chiaki.toml"
+#endif
 
 typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_ULTRA_LOW = 0,   // Minimum bandwidth (≈1.2 Mbps)

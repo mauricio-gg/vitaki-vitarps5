@@ -115,6 +115,18 @@ ChiakiVideoResolutionPreset parse_resolution_preset(const char* preset) {
   return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
 }
 
+static ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionPreset preset,
+                                                                 bool *was_downgraded) {
+  if (was_downgraded)
+    *was_downgraded = false;
+  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
+    if (was_downgraded)
+      *was_downgraded = true;
+    return CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
+  }
+  return preset;
+}
+
 VitaChiakiLatencyMode parse_latency_mode(const char* mode) {
   if (!mode)
     return VITA_LATENCY_MODE_BALANCED;
@@ -351,6 +363,7 @@ void config_parse(VitaChiakiConfig* cfg) {
 
     bool migrated_legacy_settings = false;
     bool migrated_root_settings = false;
+    bool migrated_resolution_policy = false;
     toml_table_t* settings = toml_table_in(parsed, "settings");
     if (settings) {
       datum = toml_bool_in(settings, "auto_discovery");
@@ -377,6 +390,12 @@ void config_parse(VitaChiakiConfig* cfg) {
         migrated_legacy_settings = true;
       else if (source == MIGRATION_SOURCE_ROOT)
         migrated_root_settings = true;
+    }
+    bool downgraded_resolution = false;
+    cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
+    if (downgraded_resolution) {
+      LOGD("Resolution 1080p is not supported on Vita; downgrading to 720p");
+      migrated_resolution_policy = true;
     }
 
     int fps_value = 30;
@@ -774,10 +793,12 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
     toml_free(parsed);
-    if (migrated_legacy_settings || migrated_root_settings) {
+    if (migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy) {
       if (migrated_root_settings) {
         LOGD("Recovered settings via root-level fallback and rewriting %s",
              CFG_FILENAME);
+      } else if (migrated_resolution_policy) {
+        LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
       } else {
         LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
              CFG_FILENAME);
@@ -867,6 +888,12 @@ void serialize_target(FILE* fp, char* field_name, ChiakiTarget* target) {
 }
 
 bool config_serialize(VitaChiakiConfig* cfg) {
+  bool downgraded_resolution = false;
+  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
+  if (downgraded_resolution) {
+    LOGD("Refusing to persist unsupported 1080p on Vita; saving 720p instead");
+  }
+
   FILE *fp = fopen(CFG_FILENAME, "w");
   if (!fp) {
     LOGE("Failed to open %s for writing", CFG_FILENAME);

@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="436"
+VERSION_ITERATION="437"
 
 # Colors for output
 RED='\033[0;31m'
@@ -355,7 +355,7 @@ run_tests() {
             mkdir -p build && cd build
             
             echo 'Running CMake with test configuration...'
-            cmake .. -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake -DBUILD_TESTS=ON ${cmake_logging_flags}
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake -DCHIAKI_ENABLE_TESTS=ON ${cmake_logging_flags}
             
             echo 'Building test suite...'
             make -j\$(nproc) vitarps5_tests
@@ -366,12 +366,19 @@ run_tests() {
         "
     
     # Check if test executable was created
+    local test_executable=""
     if [ -f "$BUILD_DIR/vitarps5_tests" ]; then
-        log_success "Test executable created: $BUILD_DIR/vitarps5_tests"
+        test_executable="$BUILD_DIR/vitarps5_tests"
+    elif [ -f "$BUILD_DIR/test/vitarps5_tests" ]; then
+        test_executable="$BUILD_DIR/test/vitarps5_tests"
+    fi
+
+    if [ -n "$test_executable" ]; then
+        log_success "Test executable created: $test_executable"
         log_info "Note: Tests are built successfully and ready to run on Vita hardware"
         
         # Show file size
-        local size=$(du -h "$BUILD_DIR/vitarps5_tests" | cut -f1)
+        local size=$(du -h "$test_executable" | cut -f1)
         log_info "Test executable size: $size"
     else
         log_warning "Test executable not found. Build may have failed."
