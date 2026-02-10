@@ -313,8 +313,11 @@ void ui_error_show(const char* message) {
         context.ui_state.error_popup_text[0] = '\0';
     }
 
-    // Push modal focus to trap navigation
-    ui_focus_push_modal();
+    // Push modal focus once per popup activation.
+    if (!context.ui_state.error_popup_modal_pushed) {
+        ui_focus_push_modal();
+        context.ui_state.error_popup_modal_pushed = true;
+    }
 }
 
 /**
@@ -324,9 +327,10 @@ void ui_error_hide(void) {
   context.ui_state.error_popup_active = false;
   context.ui_state.error_popup_text[0] = '\0';
 
-  // Pop modal focus to restore navigation
-  if (ui_focus_has_modal()) {
+  // Pop only if this popup owns a modal push.
+  if (context.ui_state.error_popup_modal_pushed) {
     ui_focus_pop_modal();
+    context.ui_state.error_popup_modal_pushed = false;
   }
 }
 
@@ -555,8 +559,11 @@ void ui_debug_open(void) {
     *button_block_mask |= context.ui_state.button_state;
     *touch_block_active = true;
 
-    // Push modal focus to trap navigation
-    ui_focus_push_modal();
+    // Push modal focus once per debug menu activation.
+    if (!context.ui_state.debug_menu_modal_pushed) {
+        ui_focus_push_modal();
+        context.ui_state.debug_menu_modal_pushed = true;
+    }
 }
 
 /**
@@ -575,9 +582,10 @@ void ui_debug_close(void) {
     *button_block_mask |= context.ui_state.button_state;
     *touch_block_active = true;
 
-  // Pop modal focus to restore navigation
-  if (ui_focus_has_modal()) {
+  // Pop only if this menu owns a modal push.
+  if (context.ui_state.debug_menu_modal_pushed) {
     ui_focus_pop_modal();
+    context.ui_state.debug_menu_modal_pushed = false;
   }
 }
 

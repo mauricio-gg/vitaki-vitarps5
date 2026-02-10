@@ -17,8 +17,11 @@ typedef struct vita_chiaki_ui_state_t {
   int mlog_line_offset;
   uint64_t mlog_last_update;
   bool error_popup_active;
+  bool error_popup_modal_pushed;
   char error_popup_text[128];
   bool debug_menu_active;
+  bool debug_menu_modal_pushed;
+  bool register_host_modal_pushed;
   int debug_menu_selection;
 } VitaChiakiUIState;
 

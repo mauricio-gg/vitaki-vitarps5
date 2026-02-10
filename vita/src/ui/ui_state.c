@@ -119,8 +119,8 @@ void ui_connection_complete(void) {
   waking_start_time = 0;
   waking_wait_for_stream_us = 0;
 
-  // Pop modal focus only if we actually pushed (check if we're in modal state)
-  if (connection_overlay_modal_pushed && ui_focus_has_modal()) {
+  // Pop modal focus only if this overlay owns a modal push.
+  if (connection_overlay_modal_pushed) {
     ui_focus_pop_modal();
   }
   connection_overlay_modal_pushed = false;
@@ -139,8 +139,8 @@ void ui_connection_cancel(void) {
     connection_thread_id = -1;
   }
 
-  // Pop modal focus only if we actually pushed (check if we're in modal state)
-  if (connection_overlay_modal_pushed && ui_focus_has_modal()) {
+  // Pop modal focus only if this overlay owns a modal push.
+  if (connection_overlay_modal_pushed) {
     ui_focus_pop_modal();
   }
   connection_overlay_modal_pushed = false;
