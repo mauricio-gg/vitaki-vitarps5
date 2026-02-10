@@ -18,6 +18,7 @@
  */
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 #include <math.h>
 
 // Vita's sceVideodecInitLibrary only accept resolution that is multiple of 16 on either dimension,
@@ -42,3 +43,4 @@ int vitavideo_initialized();
 int vita_h264_setup(int width, int height);
 void vita_h264_cleanup();
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size);
+bool vita_video_submit_frame(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered);

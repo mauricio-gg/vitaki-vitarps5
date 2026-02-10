@@ -621,6 +621,18 @@ static const char* get_latency_mode_string(VitaChiakiLatencyMode mode) {
   }
 }
 
+static const char* get_quality_fallback_policy_string(VitaChiakiQualityFallbackPolicy mode) {
+  switch (mode) {
+    case VITA_QUALITY_FALLBACK_CLAMP:
+      return "Clamp (Never Auto-Lower)";
+    case VITA_QUALITY_FALLBACK_MANUAL:
+      return "Manual (Hint Only)";
+    case VITA_QUALITY_FALLBACK_AUTO:
+    default:
+      return "Auto (Recommended)";
+  }
+}
+
 static void apply_force_30fps_runtime(void) {
   if (!context.stream.session_init)
     return;
@@ -668,6 +680,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
       case UI_SETTINGS_ITEM_LATENCY_MODE:
         draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
                       get_latency_mode_string(context.config.latency_mode),
+                      false, selected);
+        break;
+      case UI_SETTINGS_ITEM_QUALITY_FALLBACK_POLICY:
+        draw_dropdown(content_x, y, content_w, item_h, "Quality Fallback Policy",
+                      get_quality_fallback_policy_string(context.config.quality_fallback_policy),
                       false, selected);
         break;
       case UI_SETTINGS_ITEM_FPS_TARGET:
@@ -833,6 +850,10 @@ UIScreenType draw_settings() {
       // Cycle latency modes
       context.config.latency_mode =
         (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
+      persist_config_or_warn();
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_QUALITY_FALLBACK_POLICY) {
+      context.config.quality_fallback_policy =
+        (context.config.quality_fallback_policy + 1) % VITA_QUALITY_FALLBACK_COUNT;
       persist_config_or_warn();
     } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FPS_TARGET) {
       // Cycle FPS

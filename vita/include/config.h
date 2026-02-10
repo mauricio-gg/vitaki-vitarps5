@@ -23,6 +23,13 @@ typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_COUNT
 } VitaChiakiLatencyMode;
 
+typedef enum vita_chiaki_quality_fallback_policy_t {
+  VITA_QUALITY_FALLBACK_AUTO = 0,
+  VITA_QUALITY_FALLBACK_CLAMP,
+  VITA_QUALITY_FALLBACK_MANUAL,
+  VITA_QUALITY_FALLBACK_COUNT
+} VitaChiakiQualityFallbackPolicy;
+
 /// Settings for the app
 typedef struct vita_chiaki_config_t {
   int cfg_version;
@@ -51,6 +58,7 @@ typedef struct vita_chiaki_config_t {
   bool send_actual_start_bitrate; // Guard for RP-StartBitrate payload
   bool clamp_soft_restart_bitrate; // Keep soft restart bitrate <= ~1.5 Mbps
   VitaChiakiLatencyMode latency_mode;
+  VitaChiakiQualityFallbackPolicy quality_fallback_policy;
   VitaLoggingConfig logging;
   bool show_nav_labels;  // Show text labels below navigation icons when selected
 } VitaChiakiConfig;

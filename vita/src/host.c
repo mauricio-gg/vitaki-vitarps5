@@ -370,6 +370,18 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.negotiated_fps = 0;
   context.stream.target_fps = 0;
   context.stream.pacing_accumulator = 0;
+  context.stream.decode_queue_high_water = 0;
+  context.stream.decode_queue_drops = 0;
+  context.stream.decode_overload_windows = 0;
+  context.stream.decode_window_start_us = 0;
+  context.stream.decode_window_frames = 0;
+  context.stream.decode_window_decode_us = 0;
+  context.stream.decode_window_render_us = 0;
+  context.stream.decode_overlay_throttled = false;
+  if (!preserve_recovery_state) {
+    context.stream.decode_fallback_pending = false;
+    context.stream.decode_force_360_next_start = false;
+  }
   context.stream.frame_loss_events = 0;
   context.stream.total_frames_lost = 0;
   context.stream.loss_window_start_us = 0;
@@ -524,6 +536,34 @@ static void update_latency_metrics(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
+
+  if (context.stream.decode_fallback_pending) {
+    context.stream.decode_fallback_pending = false;
+    if (context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AUTO) {
+      if (context.config.resolution != CHIAKI_VIDEO_RESOLUTION_PRESET_360p &&
+          !context.stream.fast_restart_active &&
+          !context.stream.stop_requested) {
+        context.stream.decode_force_360_next_start = true;
+        if (context.active_host) {
+          host_set_hint(context.active_host,
+                        "Vita decode overload — restarting at 360p",
+                        true,
+                        7 * 1000 * 1000ULL);
+        }
+        request_stream_stop("decode overload");
+      } else if (context.active_host) {
+        host_set_hint(context.active_host,
+                      "Decode overload detected; already at minimum quality",
+                      true,
+                      7 * 1000 * 1000ULL);
+      }
+    } else if (context.active_host) {
+      const char *msg = context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_MANUAL
+                            ? "Decode overload detected — switch to 360p manually"
+                            : "Decode overload detected — quality is clamped";
+      host_set_hint(context.active_host, msg, true, 7 * 1000 * 1000ULL);
+    }
+  }
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
@@ -735,6 +775,8 @@ static const char *latency_mode_label(VitaChiakiLatencyMode mode) {
 }
 
 static bool auto_downgrade_latency_mode(void) {
+  if (context.config.quality_fallback_policy != VITA_QUALITY_FALLBACK_AUTO)
+    return false;
   if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW)
     return false;
   context.config.latency_mode =
@@ -1285,9 +1327,8 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
     ui_connection_complete();
   if (context.stream.reconnect_overlay_active)
     context.stream.reconnect_overlay_active = false;
-  int err = vita_h264_decode_frame(buf, buf_size);
-  if (err != 0) {
-		LOGE("Error during video decode: %d", err);
+  if (!vita_video_submit_frame(buf, buf_size, frames_lost, frame_recovered)) {
+		LOGE("Error queuing video sample");
     return false;
   }
   update_latency_metrics();
@@ -1711,6 +1752,11 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   ChiakiVideoResolutionPreset requested_resolution = context.config.resolution;
+  if (context.stream.decode_force_360_next_start) {
+    requested_resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+    context.stream.decode_force_360_next_start = false;
+    LOGD("Applying decode-overload fallback resolution: 360p");
+  }
   // Defensive guardrail: config/UI path should already normalize unsupported values,
   // but force a safe profile here to preserve stream startup reliability.
   if (requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||

@@ -59,6 +59,16 @@ typedef struct vita_chiaki_stream_t {
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
   uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator
+  uint32_t decode_queue_high_water; // Peak encoded frame queue depth
+  uint32_t decode_queue_drops;      // Encoded frames dropped while queue was full
+  uint32_t decode_overload_windows; // Consecutive overload windows detected by decoder thread
+  uint64_t decode_window_start_us;  // Rolling decode metrics window start
+  uint32_t decode_window_frames;    // Frames processed in rolling window
+  uint64_t decode_window_decode_us; // Decode time accumulated in rolling window
+  uint64_t decode_window_render_us; // Render time accumulated in rolling window
+  bool decode_overlay_throttled;    // Temporarily suppress non-essential overlays under load
+  bool decode_fallback_pending;     // Request host-side fallback handling on next metrics tick
+  bool decode_force_360_next_start; // Force next stream start at 360p due to decode overload
   ChiakiOpusDecoder opus_decoder;
   ChiakiThread input_thread;
   volatile bool input_thread_should_exit;    // Signal for clean thread exit (volatile prevents CPU caching on ARM)

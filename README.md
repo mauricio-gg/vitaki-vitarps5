@@ -253,6 +253,7 @@ Some configuration lacks a UI but can be set in the config file located at `ux0:
 - `send_actual_start_bitrate = true` sends the requested bitrate (from the latency preset) in the `RP-StartBitrate` header. Flip to `false` to fall back to zeroed headers while A/B testing packet-loss behavior.
   - **PS5 Quirk:** Current PS5 firmware ignores the `RP-StartBitrate` hint and immediately forces ~1.5 Mbps streams even when lower presets or LaunchSpec values are requested. Keep this flag enabled for telemetry and future firmware checks, but expect the console to override the requested rate.
 - `clamp_soft_restart_bitrate = true` forces all Chiaki soft restarts to request ≤1.5 Mbps. Leave this enabled (or toggle “Clamp Soft Restart Bitrate” under Streaming Settings) to keep packet-loss fallbacks from spiking the Vita’s Wi-Fi when PS5 renegotiates.
+- `quality_fallback_policy = "auto"` controls automatic quality reduction when Vita decode throughput is overloaded. Options: `auto` (restart at 360p automatically), `clamp` (never auto-lower), `manual` (show hints only; user decides).
 
 ## Known issues & troubleshooting
 - Latency. On remote connections (not local WLAN), it's especially bad. ([Relevant GitHub issue](https://github.com/ywnico/vitaki-fork/issues/12))

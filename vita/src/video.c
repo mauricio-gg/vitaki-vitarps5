@@ -108,6 +108,11 @@ enum {
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
 #define STREAM_EXIT_HINT_VISIBLE_US (5 * 1000 * 1000ULL)
 #define STREAM_EXIT_HINT_FADE_US    (500 * 1000ULL)
+#define VIDEO_ENCODED_QUEUE_CAPACITY 3
+#define VIDEO_OVERLOAD_WINDOW_US (2 * 1000 * 1000ULL)
+#define VIDEO_OVERLOAD_FRAME_BUDGET_US 28000ULL
+#define VIDEO_OVERLOAD_DROP_THRESHOLD 6
+#define VIDEO_OVERLOAD_WINDOW_THRESHOLD 3
 
 enum VideoStatus {
   NOT_INIT,
@@ -164,6 +169,46 @@ typedef struct {
 
 static image_scaling_settings image_scaling = {0};
 
+typedef struct video_encoded_frame_t {
+  uint8_t *buf;
+  size_t buf_size;
+  int32_t frames_lost;
+  bool frame_recovered;
+} VideoEncodedFrame;
+
+static VideoEncodedFrame video_encoded_queue[VIDEO_ENCODED_QUEUE_CAPACITY];
+static size_t video_encoded_queue_head = 0;
+static size_t video_encoded_queue_count = 0;
+static bool video_queue_running = false;
+static uint32_t video_overload_last_drop_count = 0;
+
+static ChiakiMutex video_queue_mutex;
+static ChiakiCond video_queue_cond;
+static ChiakiThread video_decode_thread;
+static bool video_decode_thread_active = false;
+
+static bool video_queue_has_work(void *user) {
+  (void)user;
+  return !video_queue_running || video_encoded_queue_count > 0;
+}
+
+static void video_clear_encoded_queue_locked(void) {
+  while (video_encoded_queue_count > 0) {
+    VideoEncodedFrame *frame = &video_encoded_queue[video_encoded_queue_head];
+    if (frame->buf) {
+      free(frame->buf);
+      frame->buf = NULL;
+    }
+    frame->buf_size = 0;
+    frame->frames_lost = 0;
+    frame->frame_recovered = false;
+    video_encoded_queue_head =
+        (video_encoded_queue_head + 1) % VIDEO_ENCODED_QUEUE_CAPACITY;
+    video_encoded_queue_count--;
+  }
+  video_encoded_queue_head = 0;
+}
+
 static void record_incoming_frame_sample(void) {
   uint64_t now_us = sceKernelGetSystemTimeWide();
   if (context.stream.fps_window_start_us == 0)
@@ -203,6 +248,49 @@ static bool should_drop_frame_for_pacing(void) {
 
   context.stream.pacing_accumulator -= source;
   return false;
+}
+
+static void video_update_overload_window(uint64_t decode_us, uint64_t render_us) {
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (context.stream.decode_window_start_us == 0)
+    context.stream.decode_window_start_us = now_us;
+
+  context.stream.decode_window_frames++;
+  context.stream.decode_window_decode_us += decode_us;
+  context.stream.decode_window_render_us += render_us;
+
+  if (now_us - context.stream.decode_window_start_us < VIDEO_OVERLOAD_WINDOW_US)
+    return;
+
+  uint32_t frame_count = context.stream.decode_window_frames;
+  uint64_t avg_service_us = 0;
+  if (frame_count > 0) {
+    avg_service_us =
+        (context.stream.decode_window_decode_us + context.stream.decode_window_render_us) /
+        frame_count;
+  }
+
+  uint32_t drop_delta =
+      context.stream.decode_queue_drops - video_overload_last_drop_count;
+  video_overload_last_drop_count = context.stream.decode_queue_drops;
+
+  bool overloaded =
+      avg_service_us > VIDEO_OVERLOAD_FRAME_BUDGET_US ||
+      drop_delta >= VIDEO_OVERLOAD_DROP_THRESHOLD;
+  if (overloaded) {
+    context.stream.decode_overload_windows++;
+    context.stream.decode_overlay_throttled = true;
+    if (context.stream.decode_overload_windows >= VIDEO_OVERLOAD_WINDOW_THRESHOLD)
+      context.stream.decode_fallback_pending = true;
+  } else {
+    context.stream.decode_overload_windows = 0;
+    context.stream.decode_overlay_throttled = false;
+  }
+
+  context.stream.decode_window_start_us = now_us;
+  context.stream.decode_window_frames = 0;
+  context.stream.decode_window_decode_us = 0;
+  context.stream.decode_window_render_us = 0;
 }
 
 void update_scaling_settings(int width, int height) {
@@ -760,6 +848,9 @@ bool vita_h264_process_header(uint8_t *data, size_t data_len) {
 // uint8_t *lbuf;
 // bool infirst_frame = false;
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
+  uint64_t decode_start_us = 0;
+  uint64_t decode_us = 0;
+  uint64_t render_us = 0;
   // Early validation to detect corrupted frames before decoding
   if (buf == NULL || buf_size == 0) {
     LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
@@ -861,7 +952,9 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // au.es.pBuf = decoder_buffer;
   au.es.pBuf = buf;
   au.es.size = buf_size;
+  decode_start_us = sceKernelGetProcessTimeWide();
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
+  decode_us = sceKernelGetProcessTimeWide() - decode_start_us;
   if (ret < 0) {
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret, array_picture.numOfOutput);
     // if (isEdited) free(buf);
@@ -902,13 +995,18 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
       drop_frame = true;
     }
     if (!drop_frame) {
+      uint64_t render_start_us = sceKernelGetProcessTimeWide();
       vita2d_start_drawing();
 
       draw_streaming(frame_texture);
       // draw_fps();
-      draw_stream_exit_hint();
-      draw_stream_stats_panel();
-      draw_indicators();
+      if (!context.stream.decode_overlay_throttled) {
+        draw_stream_exit_hint();
+        draw_stream_stats_panel();
+        draw_indicators();
+      } else {
+        stream_exit_hint_visible_this_frame = false;
+      }
 
       vita2d_end_drawing();
 
@@ -916,6 +1014,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
       vita2d_swap_buffers();
 
       frame_count++;
+      render_us = sceKernelGetProcessTimeWide() - render_start_us;
       // LOGD("frc: %d", frame_count);
     }
   } else {
@@ -925,6 +1024,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // if (numframes++ % 6 == 0)
   //   return DR_NEED_IDR;
   chiaki_mutex_unlock(&mtx);
+  video_update_overload_window(decode_us, render_us);
   return 0;
 }
 
@@ -1148,18 +1248,119 @@ static void draw_stream_stats_panel(void) {
   }
 }
 
+bool vita_video_submit_frame(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered) {
+  if (!active_video_thread || !video_queue_running)
+    return false;
+  if (!buf || buf_size == 0)
+    return false;
+
+  uint8_t *copy = malloc(buf_size);
+  if (!copy)
+    return false;
+  memcpy(copy, buf, buf_size);
+
+  chiaki_mutex_lock(&video_queue_mutex);
+  if (video_encoded_queue_count >= VIDEO_ENCODED_QUEUE_CAPACITY) {
+    VideoEncodedFrame *oldest = &video_encoded_queue[video_encoded_queue_head];
+    if (oldest->buf) {
+      free(oldest->buf);
+      oldest->buf = NULL;
+    }
+    oldest->buf_size = 0;
+    oldest->frames_lost = 0;
+    oldest->frame_recovered = false;
+    video_encoded_queue_head =
+        (video_encoded_queue_head + 1) % VIDEO_ENCODED_QUEUE_CAPACITY;
+    video_encoded_queue_count--;
+    context.stream.decode_queue_drops++;
+  }
+
+  size_t tail =
+      (video_encoded_queue_head + video_encoded_queue_count) % VIDEO_ENCODED_QUEUE_CAPACITY;
+  video_encoded_queue[tail].buf = copy;
+  video_encoded_queue[tail].buf_size = buf_size;
+  video_encoded_queue[tail].frames_lost = frames_lost;
+  video_encoded_queue[tail].frame_recovered = frame_recovered;
+  video_encoded_queue_count++;
+  if (video_encoded_queue_count > context.stream.decode_queue_high_water)
+    context.stream.decode_queue_high_water = (uint32_t)video_encoded_queue_count;
+  chiaki_cond_signal(&video_queue_cond);
+  chiaki_mutex_unlock(&video_queue_mutex);
+  return true;
+}
+
+static void *video_decode_thread_main(void *arg) {
+  (void)arg;
+  while (true) {
+    VideoEncodedFrame frame = {0};
+
+    chiaki_mutex_lock(&video_queue_mutex);
+    chiaki_cond_wait_pred(&video_queue_cond, &video_queue_mutex, video_queue_has_work, NULL);
+    if (!video_queue_running && video_encoded_queue_count == 0) {
+      chiaki_mutex_unlock(&video_queue_mutex);
+      break;
+    }
+
+    if (video_encoded_queue_count > 0) {
+      frame = video_encoded_queue[video_encoded_queue_head];
+      video_encoded_queue[video_encoded_queue_head].buf = NULL;
+      video_encoded_queue[video_encoded_queue_head].buf_size = 0;
+      video_encoded_queue[video_encoded_queue_head].frames_lost = 0;
+      video_encoded_queue[video_encoded_queue_head].frame_recovered = false;
+      video_encoded_queue_head =
+          (video_encoded_queue_head + 1) % VIDEO_ENCODED_QUEUE_CAPACITY;
+      video_encoded_queue_count--;
+    }
+    chiaki_mutex_unlock(&video_queue_mutex);
+
+    if (frame.buf) {
+      (void)frame.frames_lost;
+      (void)frame.frame_recovered;
+      vita_h264_decode_frame(frame.buf, frame.buf_size);
+      free(frame.buf);
+    }
+  }
+
+  return NULL;
+}
+
 void vita_h264_start() {
   active_video_thread = true;
-	chiaki_mutex_init(&mtx, false);
+  chiaki_mutex_init(&mtx, false);
+  chiaki_mutex_init(&video_queue_mutex, false);
+  chiaki_cond_init(&video_queue_cond, &video_queue_mutex);
+  video_clear_encoded_queue_locked();
+  video_queue_running = true;
+  if (chiaki_thread_create(&video_decode_thread, video_decode_thread_main, NULL) !=
+      CHIAKI_ERR_SUCCESS) {
+    video_queue_running = false;
+    LOGE("Failed to create video decode worker thread");
+  } else {
+    video_decode_thread_active = true;
+  }
   vita2d_set_vblank_wait(false);
   stream_exit_hint_start_us = 0;
   stream_exit_hint_visible_this_frame = false;
+  video_overload_last_drop_count = context.stream.decode_queue_drops;
 }
 
 void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
-	chiaki_mutex_fini(&mtx);
+  chiaki_mutex_lock(&video_queue_mutex);
+  video_queue_running = false;
+  chiaki_cond_signal(&video_queue_cond);
+  chiaki_mutex_unlock(&video_queue_mutex);
+  if (video_decode_thread_active) {
+    chiaki_thread_join(&video_decode_thread, NULL);
+    video_decode_thread_active = false;
+  }
+  chiaki_mutex_lock(&video_queue_mutex);
+  video_clear_encoded_queue_locked();
+  chiaki_mutex_unlock(&video_queue_mutex);
+  chiaki_cond_fini(&video_queue_cond);
+  chiaki_mutex_fini(&video_queue_mutex);
+  chiaki_mutex_fini(&mtx);
   stream_exit_hint_start_us = 0;
   stream_exit_hint_visible_this_frame = false;
 }

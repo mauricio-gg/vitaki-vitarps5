@@ -142,7 +142,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 		}
 		frame_processor->frame_buf_size = frame_buf_size_required;
 	}
-	memset(frame_processor->frame_buf, 0, frame_buf_size_required + CHIAKI_VIDEO_BUFFER_PADDING_SIZE);
 
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -217,6 +216,9 @@ static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_pr
 		ChiakiFrameUnit *slot = frame_processor->unit_slots + i;
 		if(!slot->data_size)
 		{
+			memset(frame_processor->frame_buf + i * frame_processor->buf_stride_per_unit,
+			       0,
+			       frame_processor->buf_size_per_unit);
 			if(erasure_index >= erasures_count)
 			{
 				// should never happen by design, but too scary not to check

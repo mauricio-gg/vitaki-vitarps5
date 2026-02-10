@@ -154,6 +154,26 @@ const char* serialize_latency_mode(VitaChiakiLatencyMode mode) {
   }
 }
 
+VitaChiakiQualityFallbackPolicy parse_quality_fallback_policy(const char* mode) {
+  if (!mode)
+    return VITA_QUALITY_FALLBACK_AUTO;
+  if (strcmp(mode, "clamp") == 0)
+    return VITA_QUALITY_FALLBACK_CLAMP;
+  if (strcmp(mode, "manual") == 0)
+    return VITA_QUALITY_FALLBACK_MANUAL;
+  return VITA_QUALITY_FALLBACK_AUTO;
+}
+
+const char* serialize_quality_fallback_policy(VitaChiakiQualityFallbackPolicy mode) {
+  switch (mode) {
+    case VITA_QUALITY_FALLBACK_CLAMP: return "clamp";
+    case VITA_QUALITY_FALLBACK_MANUAL: return "manual";
+    case VITA_QUALITY_FALLBACK_AUTO:
+    default:
+      return "auto";
+  }
+}
+
 ChiakiTarget parse_target(char* target_name) {
   if (strcmp("ps4_unknown", target_name) == 0) {
     return CHIAKI_TARGET_PS4_UNKNOWN;
@@ -318,6 +338,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
+  cfg->quality_fallback_policy = VITA_QUALITY_FALLBACK_AUTO;
   cfg->show_nav_labels = false;  // Default: no text labels below nav icons
   vita_logging_config_set_defaults(&cfg->logging);
 
@@ -604,6 +625,28 @@ void config_parse(VitaChiakiConfig* cfg) {
         migrated_root_settings = true;
     } else {
       cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+    }
+
+    str_value = NULL;
+    source = MIGRATION_SOURCE_NONE;
+    if (settings) {
+      datum = toml_string_in(settings, "quality_fallback_policy");
+      if (datum.ok)
+        str_value = datum.u.s;
+    }
+    if (!str_value && parse_legacy_string_setting(parsed, "quality_fallback_policy", &str_value))
+      source = MIGRATION_SOURCE_LEGACY_SECTION;
+    if (!str_value && parse_root_string_setting(parsed, "quality_fallback_policy", &str_value))
+      source = MIGRATION_SOURCE_ROOT;
+    if (str_value) {
+      cfg->quality_fallback_policy = parse_quality_fallback_policy(str_value);
+      free(str_value);
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    } else {
+      cfg->quality_fallback_policy = VITA_QUALITY_FALLBACK_AUTO;
     }
 
     // Security: Only allow runtime TOML to override logging settings if explicitly enabled
@@ -932,6 +975,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
   fprintf(fp, "show_nav_labels = %s\n",
           cfg->show_nav_labels ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "quality_fallback_policy = \"%s\"\n",
+          serialize_quality_fallback_policy(cfg->quality_fallback_policy));
 
   // Save 3 custom map slots
   for (int slot = 0; slot < 3; slot++) {
