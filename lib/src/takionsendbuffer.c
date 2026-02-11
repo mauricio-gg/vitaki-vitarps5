@@ -5,6 +5,7 @@
 #include <chiaki/takionsendbuffer.h>
 #include <chiaki/takion.h>
 #include <chiaki/time.h>
+#include <chiaki/streamconnection.h>
 
 #include <string.h>
 #include <assert.h>
@@ -90,6 +91,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_buffer_push(ChiakiTakionSendBuf
 	if(send_buffer->packets_count >= send_buffer->packets_size)
 	{
 		CHIAKI_LOGE(send_buffer->log, "Takion Send Buffer overflow");
+		if(send_buffer->takion && send_buffer->takion->cb_user)
+			chiaki_stream_connection_report_sendbuf_overflow((ChiakiStreamConnection *)send_buffer->takion->cb_user);
 		err = CHIAKI_ERR_OVERFLOW;
 		goto beach;
 	}

@@ -60,6 +60,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
+#define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
+#define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 2
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (800 * 1000ULL)
@@ -173,6 +175,9 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	{
 		case CHIAKI_EVENT_CONNECTED:
 			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
+      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
+      context.stream.loss_restart_grace_until_us =
+          context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
       ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
@@ -382,6 +387,8 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_recovery_gate_hits = 0;
   context.stream.loss_recovery_window_start_us = 0;
   context.stream.last_loss_recovery_action_us = 0;
+  context.stream.stream_start_us = 0;
+  context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
   context.stream.logged_loss_events = 0;
@@ -391,6 +398,17 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.logged_drop_events = 0;
   context.stream.takion_drop_last_us = 0;
   context.stream.last_takion_overflow_restart_us = 0;
+  context.stream.av_diag_missing_ref_count = 0;
+  context.stream.av_diag_corrupt_burst_count = 0;
+  context.stream.av_diag_fec_fail_count = 0;
+  context.stream.av_diag_sendbuf_overflow_count = 0;
+  context.stream.av_diag_logged_missing_ref_count = 0;
+  context.stream.av_diag_logged_corrupt_burst_count = 0;
+  context.stream.av_diag_logged_fec_fail_count = 0;
+  context.stream.av_diag_logged_sendbuf_overflow_count = 0;
+  context.stream.av_diag_last_log_us = 0;
+  context.stream.av_diag_last_corrupt_start = 0;
+  context.stream.av_diag_last_corrupt_end = 0;
   if (!preserve_recovery_state) {
   context.stream.takion_overflow_soft_attempts = 0;
   context.stream.takion_overflow_window_start_us = 0;
@@ -518,6 +536,12 @@ static void update_latency_metrics(void) {
   context.stream.takion_drop_packets = stream_connection->drop_packets;
   context.stream.takion_drop_last_us =
       stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
+  context.stream.av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
+  context.stream.av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
+  context.stream.av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
+  context.stream.av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
+  context.stream.av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
+  context.stream.av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
 
   uint32_t fps = context.stream.session.connect_info.video_profile.max_fps;
   if (fps == 0)
@@ -570,6 +594,36 @@ static void update_latency_metrics(void) {
          context.stream.takion_drop_packets);
     context.stream.logged_drop_events = context.stream.takion_drop_events;
     handle_takion_overflow();
+  }
+
+  bool av_diag_changed =
+      context.stream.av_diag_missing_ref_count !=
+          context.stream.av_diag_logged_missing_ref_count ||
+      context.stream.av_diag_corrupt_burst_count !=
+          context.stream.av_diag_logged_corrupt_burst_count ||
+      context.stream.av_diag_fec_fail_count !=
+          context.stream.av_diag_logged_fec_fail_count ||
+      context.stream.av_diag_sendbuf_overflow_count !=
+          context.stream.av_diag_logged_sendbuf_overflow_count;
+  if (av_diag_changed ||
+      (context.stream.av_diag_last_log_us == 0 ||
+       now_us - context.stream.av_diag_last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
+    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, last_corrupt=%u-%u",
+         context.stream.av_diag_missing_ref_count,
+         context.stream.av_diag_corrupt_burst_count,
+         context.stream.av_diag_fec_fail_count,
+         context.stream.av_diag_sendbuf_overflow_count,
+         context.stream.av_diag_last_corrupt_start,
+         context.stream.av_diag_last_corrupt_end);
+    context.stream.av_diag_logged_missing_ref_count =
+        context.stream.av_diag_missing_ref_count;
+    context.stream.av_diag_logged_corrupt_burst_count =
+        context.stream.av_diag_corrupt_burst_count;
+    context.stream.av_diag_logged_fec_fail_count =
+        context.stream.av_diag_fec_fail_count;
+    context.stream.av_diag_logged_sendbuf_overflow_count =
+        context.stream.av_diag_sendbuf_overflow_count;
+    context.stream.av_diag_last_log_us = now_us;
   }
 }
 
@@ -1191,7 +1245,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
   bool hit_event_threshold =
       context.stream.loss_window_event_count >= loss_profile.event_threshold;
-  bool sustained_loss = hit_burst_threshold || hit_frame_threshold || hit_event_threshold;
+  bool sustained_loss =
+      hit_burst_threshold || (hit_event_threshold && hit_frame_threshold);
 
   if (!sustained_loss) {
     // Ignore sub-threshold hiccups; they're common on Vita Wi-Fi.
@@ -1245,6 +1300,20 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     return;
   }
 
+  bool startup_grace_active =
+      context.stream.loss_restart_grace_until_us &&
+      now_us < context.stream.loss_restart_grace_until_us;
+  if (startup_grace_active) {
+    uint64_t remaining_ms =
+        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+    LOGD("Loss recovery action=restart_suppressed_startup_grace trigger=%s remaining=%llums",
+         trigger,
+         (unsigned long long)remaining_ms);
+    context.stream.loss_recovery_gate_hits = 1;
+    request_decoder_resync("packet-loss startup grace");
+    return;
+  }
+
   if (context.stream.last_loss_recovery_action_us &&
       now_us - context.stream.last_loss_recovery_action_us <
           LOSS_RECOVERY_ACTION_COOLDOWN_US) {
@@ -1279,9 +1348,15 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
         context.stream.last_loss_recovery_action_us = now_us;
         context.stream.loss_recovery_gate_hits = 0;
         if (context.config.show_latency) {
-          LOGD("Loss recovery action=restart trigger=%s stage=%u",
+          LOGD("Loss recovery action=restart trigger=%s stage=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u,last=%u-%u}",
                trigger,
-               recovery_stage);
+               recovery_stage,
+               context.stream.av_diag_missing_ref_count,
+               context.stream.av_diag_corrupt_burst_count,
+               context.stream.av_diag_fec_fail_count,
+               context.stream.av_diag_sendbuf_overflow_count,
+               context.stream.av_diag_last_corrupt_start,
+               context.stream.av_diag_last_corrupt_end);
         }
         LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
              context.stream.loss_retry_attempts,

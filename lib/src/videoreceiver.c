@@ -156,6 +156,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		if (flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
+			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, next_frame_expected, video_receiver->frame_index_cur);
 			video_receiver->frames_lost += video_receiver->frame_index_cur - next_frame_expected + 1;
@@ -193,6 +194,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				{
 					succ = false;
 					video_receiver->frames_lost++;
+					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
 				}
 			}

@@ -77,6 +77,8 @@ typedef struct vita_chiaki_stream_t {
   uint32_t loss_recovery_gate_hits; // Number of sustained-loss gates tripped in current recovery window
   uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
   uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
+  uint64_t stream_start_us;         // Timestamp when streaming connection became active
+  uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade
   uint32_t logged_loss_events;      // Last loss event count logged to console
@@ -92,6 +94,17 @@ typedef struct vita_chiaki_stream_t {
   bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
   uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
   uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
+  uint32_t av_diag_missing_ref_count;       // Missing reference-frame events from video receiver
+  uint32_t av_diag_corrupt_burst_count;     // Corrupt-frame requests sent to server
+  uint32_t av_diag_fec_fail_count;          // FEC recovery failures in frame processor
+  uint32_t av_diag_sendbuf_overflow_count;  // Takion control send-buffer overflows
+  uint32_t av_diag_logged_missing_ref_count;
+  uint32_t av_diag_logged_corrupt_burst_count;
+  uint32_t av_diag_logged_fec_fail_count;
+  uint32_t av_diag_logged_sendbuf_overflow_count;
+  uint64_t av_diag_last_log_us;
+  uint32_t av_diag_last_corrupt_start;
+  uint32_t av_diag_last_corrupt_end;
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
