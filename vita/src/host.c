@@ -58,6 +58,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
+#define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
+#define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 2
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (800 * 1000ULL)
@@ -377,6 +379,9 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_window_frame_accum = 0;
   context.stream.loss_burst_frame_accum = 0;
   context.stream.loss_burst_start_us = 0;
+  context.stream.loss_recovery_gate_hits = 0;
+  context.stream.loss_recovery_window_start_us = 0;
+  context.stream.last_loss_recovery_action_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
   context.stream.logged_loss_events = 0;
@@ -1186,8 +1191,10 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
   bool hit_event_threshold =
       context.stream.loss_window_event_count >= loss_profile.event_threshold;
+  bool sustained_loss = hit_burst_threshold ||
+                        (hit_event_threshold && hit_frame_threshold);
 
-  if (!hit_event_threshold && !hit_frame_threshold && !hit_burst_threshold) {
+  if (!sustained_loss) {
     // Ignore sub-threshold hiccups; they're common on Vita Wi-Fi.
     // Keep accumulating so repeated drops can still trip the gate.
     return;
@@ -1202,12 +1209,48 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   if (context.config.show_latency) {
     float window_s = (float)loss_profile.window_us / 1000000.0f;
     const char *trigger = hit_burst_threshold ? "burst threshold" :
-        (hit_frame_threshold ? "frame threshold" : "event threshold");
+        "event+frame threshold";
     LOGD("Loss gate reached (%s, %u events / %u frames in %.1fs)",
          trigger,
          window_events,
          window_frames,
          window_s);
+  }
+
+  if (context.stream.stop_requested || context.stream.fast_restart_active)
+    return;
+
+  if (context.stream.loss_recovery_window_start_us == 0 ||
+      now_us - context.stream.loss_recovery_window_start_us > LOSS_RECOVERY_WINDOW_US) {
+    context.stream.loss_recovery_window_start_us = now_us;
+    context.stream.loss_recovery_gate_hits = 0;
+  }
+
+  context.stream.loss_recovery_gate_hits++;
+  if (context.stream.loss_recovery_gate_hits == 1) {
+    request_decoder_resync("packet-loss gate");
+    if (context.active_host) {
+      host_set_hint(context.active_host,
+                    "Packet loss burst — requesting keyframe",
+                    false,
+                    4 * 1000 * 1000ULL);
+    }
+    return;
+  }
+
+  if (context.stream.last_loss_recovery_action_us &&
+      now_us - context.stream.last_loss_recovery_action_us <
+          LOSS_RECOVERY_ACTION_COOLDOWN_US) {
+    if (context.config.show_latency) {
+      uint64_t remaining_ms =
+          (LOSS_RECOVERY_ACTION_COOLDOWN_US -
+           (now_us - context.stream.last_loss_recovery_action_us)) /
+          1000ULL;
+      LOGD("Loss recovery cooldown active (%llu ms remaining)",
+           (unsigned long long)remaining_ms);
+    }
+    request_decoder_resync("packet-loss cooldown");
+    return;
   }
 
   bool downgraded = false;
@@ -1224,6 +1267,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
         context.stream.loss_retry_attempts++;
         context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
         context.stream.loss_retry_active = true;
+        context.stream.last_loss_recovery_action_us = now_us;
+        context.stream.loss_recovery_gate_hits = 0;
         LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
              context.stream.loss_retry_attempts,
              context.stream.loss_retry_bitrate_kbps);
@@ -1260,6 +1305,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   if (context.active_host) {
     host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
   }
+  context.stream.last_loss_recovery_action_us = now_us;
+  context.stream.loss_recovery_gate_hits = 0;
   context.stream.inputs_resume_pending = true;
   request_stream_stop("packet loss");
 }

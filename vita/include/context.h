@@ -74,6 +74,9 @@ typedef struct vita_chiaki_stream_t {
   uint32_t loss_window_frame_accum; // Frames dropped inside the active loss window
   uint32_t loss_burst_frame_accum;  // Frames dropped within the short-term burst bucket
   uint64_t loss_burst_start_us;     // Timestamp when the current burst started
+  uint32_t loss_recovery_gate_hits; // Number of sustained-loss gates tripped in current recovery window
+  uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
+  uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade
   uint32_t logged_loss_events;      // Last loss event count logged to console

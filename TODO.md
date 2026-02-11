@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-10 (Settings simplification + nav collapse regression fix)
+Last Updated: 2026-02-11 (Stability recovery split-track kickoff: packet-loss baseline first)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -18,6 +18,18 @@ Only move a task to "Done" after the reviewer signs off.
    - *Owner:* Investigation agent
    - *Goal:* Confirm whether the PS5 honors `RP-StartBitrate` and LaunchSpec fields by instrumenting the ctrl request (`lib/src/ctrl.c:1136-1245`) and comparing against the LaunchSpec payload (`lib/src/streamconnection.c:843-887`).
    - *Next Step:* Capture control-plane packets (logs) before/after instrumentation.
+2. **Stability recovery baseline from main (packet-loss first)**
+   - *Owner:* Investigation agent
+   - *Goal:* Reproduce 360p/540p behavior on fresh `main` using `./tools/build.sh --env testing` and capture baseline metrics (pixelation onset, missing/corrupt frame bursts, reconnect count).
+   - *Next Step:* Run a controlled 5-10 minute session matrix at 360p and 540p with Automatic fallback and store logs for A/B comparison.
+3. **Packet/reference-loss mitigation track**
+   - *Owner:* Implementation agent
+   - *Goal:* Instrument receive/reorder/fallback reason paths and tune loss gates/cooldowns so transient bursts request IDR first instead of entering reconnect oscillation.
+   - *Next Step:* Add compact counters and reason tagging around `handle_loss_event()` and stream restart scheduling in `vita/src/host.c`.
+4. **Decode/render split prototype (separate branch after packet track)**
+   - *Owner:* Implementation agent
+   - *Goal:* Decouple decode from present path so `sceAvcdecDecode` is not blocked by `vita2d_wait_rendering_done()`, then validate cadence gains without introducing corruption regressions.
+   - *Next Step:* Create `feat/decode-render-split` from updated `main` after packet-track validation and implement a bounded decoded-frame handoff queue.
 
 ---
 
@@ -54,6 +66,9 @@ Only move a task to "Done" after the reviewer signs off.
 8. **Upstream protocol support for dynamic bitrate**
    - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).
    - Document needed evidence so we can eventually reconfigure without a teardown.
+9. **Classify pixelation root cause from testing logs**
+   - Compare packet-loss indicators (missing references, corrupt frame bursts) against decode pressure indicators (queue depth/drops, decode anomalies) to avoid tuning the wrong subsystem.
+   - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
 ### 📥 In Review
 1. **Instrument PS5 bitrate/latency metrics**

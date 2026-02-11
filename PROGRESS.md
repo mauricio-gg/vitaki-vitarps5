@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-02-10 (Settings resolution policy clarity follow-up)
+Last Updated: 2026-02-11 (Stability recovery split-track kickoff)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -107,6 +107,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-02-11 | Started stability recovery initiative with split tracks: packet/reference-loss mitigation first on fresh `main` baseline, followed by decode/render architecture split on a separate branch; validation standardized on `./tools/build.sh --env testing` + log matrix | @mauricio-gg |
 | 2026-02-10 | Clarified Vita resolution policy in UI/runtime: unsupported legacy 720p/1080p values now display as effective 540p in settings/profile, and stream-start fallback logging is debug-level defensive messaging | @mauricio-gg |
 | 2026-02-10 | Settings UX simplified to a single scrollable list (removed extra settings tab, removed Settings-side Controller Map, moved Circle Button Confirm into main settings list) and nav menu close regressions fixed by making explicit collapse actions deterministic | @mauricio-gg |
 | 2025-12-14 | CONTROLLER LAYOUT REDESIGN 100% COMPLETE - Final polish batch: stadium shape fixed with procedural rendering (stadium_fill/outline functions), menu input bug resolved (handle_global_nav_shortcuts), all 3 phases finished | Code Review |
