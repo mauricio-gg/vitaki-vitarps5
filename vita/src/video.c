@@ -108,11 +108,12 @@ enum {
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
 #define STREAM_EXIT_HINT_VISIBLE_US (5 * 1000 * 1000ULL)
 #define STREAM_EXIT_HINT_FADE_US    (500 * 1000ULL)
-#define VIDEO_ENCODED_QUEUE_CAPACITY 3
+#define VIDEO_ENCODED_QUEUE_CAPACITY 6
 #define VIDEO_OVERLOAD_WINDOW_US (2 * 1000 * 1000ULL)
-#define VIDEO_OVERLOAD_FRAME_BUDGET_US 28000ULL
-#define VIDEO_OVERLOAD_DROP_THRESHOLD 6
-#define VIDEO_OVERLOAD_WINDOW_THRESHOLD 3
+#define VIDEO_OVERLOAD_FRAME_BUDGET_US 24000ULL
+#define VIDEO_OVERLOAD_DROP_THRESHOLD 4
+#define VIDEO_OVERLOAD_WINDOW_THRESHOLD_DEFAULT 3
+#define VIDEO_OVERLOAD_WINDOW_THRESHOLD_AGGRESSIVE 2
 
 enum VideoStatus {
   NOT_INIT,
@@ -171,6 +172,7 @@ static image_scaling_settings image_scaling = {0};
 
 typedef struct video_encoded_frame_t {
   uint8_t *buf;
+  size_t buf_capacity;
   size_t buf_size;
   int32_t frames_lost;
   bool frame_recovered;
@@ -181,6 +183,7 @@ static size_t video_encoded_queue_head = 0;
 static size_t video_encoded_queue_count = 0;
 static bool video_queue_running = false;
 static uint32_t video_overload_last_drop_count = 0;
+static bool sps_header_processed = false;
 
 static ChiakiMutex video_queue_mutex;
 static ChiakiCond video_queue_cond;
@@ -195,10 +198,6 @@ static bool video_queue_has_work(void *user) {
 static void video_clear_encoded_queue_locked(void) {
   while (video_encoded_queue_count > 0) {
     VideoEncodedFrame *frame = &video_encoded_queue[video_encoded_queue_head];
-    if (frame->buf) {
-      free(frame->buf);
-      frame->buf = NULL;
-    }
     frame->buf_size = 0;
     frame->frames_lost = 0;
     frame->frame_recovered = false;
@@ -207,6 +206,25 @@ static void video_clear_encoded_queue_locked(void) {
     video_encoded_queue_count--;
   }
   video_encoded_queue_head = 0;
+}
+
+static void video_release_encoded_buffers(void) {
+  for (size_t i = 0; i < VIDEO_ENCODED_QUEUE_CAPACITY; ++i) {
+    if (video_encoded_queue[i].buf) {
+      free(video_encoded_queue[i].buf);
+      video_encoded_queue[i].buf = NULL;
+    }
+    video_encoded_queue[i].buf_capacity = 0;
+    video_encoded_queue[i].buf_size = 0;
+    video_encoded_queue[i].frames_lost = 0;
+    video_encoded_queue[i].frame_recovered = false;
+  }
+}
+
+static uint32_t video_overload_window_threshold(void) {
+  if (context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AGGRESSIVE)
+    return VIDEO_OVERLOAD_WINDOW_THRESHOLD_AGGRESSIVE;
+  return VIDEO_OVERLOAD_WINDOW_THRESHOLD_DEFAULT;
 }
 
 static void record_incoming_frame_sample(void) {
@@ -280,7 +298,7 @@ static void video_update_overload_window(uint64_t decode_us, uint64_t render_us)
   if (overloaded) {
     context.stream.decode_overload_windows++;
     context.stream.decode_overlay_throttled = true;
-    if (context.stream.decode_overload_windows >= VIDEO_OVERLOAD_WINDOW_THRESHOLD)
+    if (context.stream.decode_overload_windows >= video_overload_window_threshold())
       context.stream.decode_fallback_pending = true;
   } else {
     context.stream.decode_overload_windows = 0;
@@ -781,7 +799,8 @@ bool vita_h264_process_header(uint8_t *data, size_t data_len) {
         return false;
       }
       // h->nal->nal_unit_type = NAL_UNIT_TYPE_SPS;
-      h->sps->num_ref_frames = REF_FRAMES;
+      uint32_t low_latency_refs = REF_FRAMES <= 2 ? REF_FRAMES : 2;
+      h->sps->num_ref_frames = low_latency_refs;
       // h->sps->level_idc = 32; // Max 5 buffered frames at 1280x720x60
       // h->sps->vui.bitstream_restriction_flag = 1;
       // h->sps->vui.max_bits_per_mb_denom = 1;
@@ -814,7 +833,7 @@ bool vita_h264_process_header(uint8_t *data, size_t data_len) {
       // h->sps->vui.chroma_loc_info_present_flag = 0;
 
       // // Some devices throw errors if max_dec_frame_buffering < num_ref_frames
-      h->sps->vui.max_dec_frame_buffering = REF_FRAMES;
+      h->sps->vui.max_dec_frame_buffering = low_latency_refs;
 
       // // These values are the default for the fields, but they are more aggressive
       // // than what GFE sends in 2.5.11, but it doesn't seem to cause picture problems.
@@ -822,7 +841,7 @@ bool vita_h264_process_header(uint8_t *data, size_t data_len) {
       // h->sps->vui.max_bits_per_mb_denom = 1;
 
       LOGD("sps real type %d type %d starts at 0x%x ends at 0x%x length 0x%x buf size 0x%x sps size 0x%x actual size 0x%x", (*(data + sps_start) & 0x1F), h->nal->nal_unit_type, sps_start, sps_end, data_len - sps_start, data_len, sps_size, actual_sps_size);
-      int new_sps_size = write_nal_unit(h, data + sps_start, data_len); // i dont know why we need data_len instead of sps_size but it works and doesnt destroy it lel
+      int new_sps_size = write_nal_unit(h, data + sps_start, data_len);
       LOGD("new size 0x%x or %d", new_sps_size, new_sps_size);
       // bool ret;
       // if (new_sps_size > 0 && new_sps_size <= sps_wiggle_room) {
@@ -867,30 +886,19 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // lbuf = buf;
   chiaki_mutex_lock(&mtx);
   if(!threadSetupComplete) {
-		sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-		sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
-		threadSetupComplete = true;
-	}
-  // if (first_frame) {
-  //   first_frame = false;
-  //   // infirst_frame = true;
-  //   // header_buf = memalign(DECODE_AU_ALIGNMENT, buf_size);
-  //   // if (header_buf == NULL) {
-  //   //   LOGD("not enough memory for header buf\n");
-  //   //   return 1;
-  //   // }
-
-  //   // header_buf_size = buf_size;
-  //   // sceClibMemcpy(header_buf, buf, buf_size);
-
-  //   vita_h264_process_header(buf, buf_size);
-  //   // header_buf = buf;
-  //   // header_buf_size = buf_size;
-  //   // hexdump(buf, buf_size);
-
-  //   // chiaki_mutex_unlock(&mtx);
-  //   // return 0;
-  // }
+			sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+			sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
+			threadSetupComplete = true;
+      LOGD("VIDEO: decode thread priority/affinity configured");
+		}
+  if (!sps_header_processed) {
+    sps_header_processed = true;
+    if (!vita_h264_process_header(buf, buf_size)) {
+      LOGD("VIDEO: SPS low-latency patch skipped for this stream");
+    } else {
+      LOGD("VIDEO: applied low-latency SPS patch");
+    }
+  }
 
 
 
@@ -1254,18 +1262,9 @@ bool vita_video_submit_frame(uint8_t *buf, size_t buf_size, int32_t frames_lost,
   if (!buf || buf_size == 0)
     return false;
 
-  uint8_t *copy = malloc(buf_size);
-  if (!copy)
-    return false;
-  memcpy(copy, buf, buf_size);
-
   chiaki_mutex_lock(&video_queue_mutex);
   if (video_encoded_queue_count >= VIDEO_ENCODED_QUEUE_CAPACITY) {
     VideoEncodedFrame *oldest = &video_encoded_queue[video_encoded_queue_head];
-    if (oldest->buf) {
-      free(oldest->buf);
-      oldest->buf = NULL;
-    }
     oldest->buf_size = 0;
     oldest->frames_lost = 0;
     oldest->frame_recovered = false;
@@ -1277,7 +1276,17 @@ bool vita_video_submit_frame(uint8_t *buf, size_t buf_size, int32_t frames_lost,
 
   size_t tail =
       (video_encoded_queue_head + video_encoded_queue_count) % VIDEO_ENCODED_QUEUE_CAPACITY;
-  video_encoded_queue[tail].buf = copy;
+  VideoEncodedFrame *slot = &video_encoded_queue[tail];
+  if (slot->buf_capacity < buf_size) {
+    uint8_t *grown = realloc(slot->buf, buf_size);
+    if (!grown) {
+      chiaki_mutex_unlock(&video_queue_mutex);
+      return false;
+    }
+    slot->buf = grown;
+    slot->buf_capacity = buf_size;
+  }
+  memcpy(slot->buf, buf, buf_size);
   video_encoded_queue[tail].buf_size = buf_size;
   video_encoded_queue[tail].frames_lost = frames_lost;
   video_encoded_queue[tail].frame_recovered = frame_recovered;
@@ -1303,7 +1312,6 @@ static void *video_decode_thread_main(void *arg) {
 
     if (video_encoded_queue_count > 0) {
       frame = video_encoded_queue[video_encoded_queue_head];
-      video_encoded_queue[video_encoded_queue_head].buf = NULL;
       video_encoded_queue[video_encoded_queue_head].buf_size = 0;
       video_encoded_queue[video_encoded_queue_head].frames_lost = 0;
       video_encoded_queue[video_encoded_queue_head].frame_recovered = false;
@@ -1317,7 +1325,6 @@ static void *video_decode_thread_main(void *arg) {
       (void)frame.frames_lost;
       (void)frame.frame_recovered;
       vita_h264_decode_frame(frame.buf, frame.buf_size);
-      free(frame.buf);
     }
   }
 
@@ -1329,6 +1336,7 @@ void vita_h264_start() {
   chiaki_mutex_init(&mtx, false);
   chiaki_mutex_init(&video_queue_mutex, false);
   chiaki_cond_init(&video_queue_cond, &video_queue_mutex);
+  sps_header_processed = false;
   video_clear_encoded_queue_locked();
   video_queue_running = true;
   if (chiaki_thread_create(&video_decode_thread, video_decode_thread_main, NULL) !=
@@ -1357,6 +1365,7 @@ void vita_h264_stop() {
   }
   chiaki_mutex_lock(&video_queue_mutex);
   video_clear_encoded_queue_locked();
+  video_release_encoded_buffers();
   chiaki_mutex_unlock(&video_queue_mutex);
   chiaki_cond_fini(&video_queue_cond);
   chiaki_mutex_fini(&video_queue_mutex);

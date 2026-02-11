@@ -26,7 +26,8 @@ typedef enum vita_chiaki_latency_mode_t {
 typedef enum vita_chiaki_quality_fallback_policy_t {
   VITA_QUALITY_FALLBACK_AUTO = 0,
   VITA_QUALITY_FALLBACK_CLAMP,
-  VITA_QUALITY_FALLBACK_MANUAL,
+  VITA_QUALITY_FALLBACK_AGGRESSIVE,
+  VITA_QUALITY_FALLBACK_MANUAL = VITA_QUALITY_FALLBACK_AGGRESSIVE, // Backward-compatible alias
   VITA_QUALITY_FALLBACK_COUNT
 } VitaChiakiQualityFallbackPolicy;
 

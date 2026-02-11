@@ -625,8 +625,8 @@ static const char* get_quality_fallback_policy_string(VitaChiakiQualityFallbackP
   switch (mode) {
     case VITA_QUALITY_FALLBACK_CLAMP:
       return "Clamp (Never Auto-Lower)";
-    case VITA_QUALITY_FALLBACK_MANUAL:
-      return "Manual (Hint Only)";
+    case VITA_QUALITY_FALLBACK_AGGRESSIVE:
+      return "Aggressive (Faster Recovery)";
     case VITA_QUALITY_FALLBACK_AUTO:
     default:
       return "Auto (Recommended)";
@@ -2990,6 +2990,9 @@ UIScreenType draw_reconnecting_screen() {
 
   // Subtitle explaining what's happening (centered)
   const char* subtitle = "Recovering from packet loss";
+  if (strstr(context.stream.disconnect_reason, "already in use") != NULL) {
+    subtitle = "Console is finalizing previous session";
+  }
   int subtitle_w = get_text_width_cached(subtitle, FONT_SIZE_BODY);
   int subtitle_x = card_x + (card_w - subtitle_w) / 2;
   vita2d_font_draw_text(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);

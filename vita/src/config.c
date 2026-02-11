@@ -159,15 +159,17 @@ VitaChiakiQualityFallbackPolicy parse_quality_fallback_policy(const char* mode) 
     return VITA_QUALITY_FALLBACK_AUTO;
   if (strcmp(mode, "clamp") == 0)
     return VITA_QUALITY_FALLBACK_CLAMP;
+  if (strcmp(mode, "aggressive") == 0)
+    return VITA_QUALITY_FALLBACK_AGGRESSIVE;
   if (strcmp(mode, "manual") == 0)
-    return VITA_QUALITY_FALLBACK_MANUAL;
+    return VITA_QUALITY_FALLBACK_AGGRESSIVE;
   return VITA_QUALITY_FALLBACK_AUTO;
 }
 
 const char* serialize_quality_fallback_policy(VitaChiakiQualityFallbackPolicy mode) {
   switch (mode) {
     case VITA_QUALITY_FALLBACK_CLAMP: return "clamp";
-    case VITA_QUALITY_FALLBACK_MANUAL: return "manual";
+    case VITA_QUALITY_FALLBACK_AGGRESSIVE: return "aggressive";
     case VITA_QUALITY_FALLBACK_AUTO:
     default:
       return "auto";

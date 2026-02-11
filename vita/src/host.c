@@ -36,6 +36,7 @@ static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
 static const char *quit_reason_label(ChiakiQuitReason reason);
+static uint64_t remote_in_use_retry_delay_us(uint32_t attempt_index);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
 static void persist_config_or_warn(void);
@@ -236,8 +237,10 @@ static void event_cb(ChiakiEvent *event, void *user) {
         host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
       }
       uint64_t retry_delay = STREAM_RETRY_COOLDOWN_US;
-      if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
+      if (!context.stream.stop_requested && remote_crash) {
         retry_delay = 5 * 1000 * 1000ULL;
+      } else if (!context.stream.stop_requested && remote_in_use) {
+        retry_delay = remote_in_use_retry_delay_us(retry_attempts + 1);
       }
       uint64_t throttle_until = now_us + retry_delay;
       if (takion_backoff_until && takion_backoff_until > throttle_until)
@@ -539,7 +542,8 @@ static void update_latency_metrics(void) {
 
   if (context.stream.decode_fallback_pending) {
     context.stream.decode_fallback_pending = false;
-    if (context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AUTO) {
+    if (context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AUTO ||
+        context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AGGRESSIVE) {
       if (context.config.resolution != CHIAKI_VIDEO_RESOLUTION_PRESET_360p &&
           !context.stream.fast_restart_active &&
           !context.stream.stop_requested) {
@@ -552,15 +556,13 @@ static void update_latency_metrics(void) {
         }
         request_stream_stop("decode overload");
       } else if (context.active_host) {
-        host_set_hint(context.active_host,
-                      "Decode overload detected; already at minimum quality",
-                      true,
-                      7 * 1000 * 1000ULL);
+        const char *msg = context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_AGGRESSIVE
+                              ? "Decode overload persists at 360p"
+                              : "Decode overload detected; already at minimum quality";
+        host_set_hint(context.active_host, msg, true, 7 * 1000 * 1000ULL);
       }
     } else if (context.active_host) {
-      const char *msg = context.config.quality_fallback_policy == VITA_QUALITY_FALLBACK_MANUAL
-                            ? "Decode overload detected — switch to 360p manually"
-                            : "Decode overload detected — quality is clamped";
+      const char *msg = "Decode overload detected — quality is clamped";
       host_set_hint(context.active_host, msg, true, 7 * 1000 * 1000ULL);
     }
   }
@@ -1025,9 +1027,16 @@ static const char *quit_reason_label(ChiakiQuitReason reason) {
   }
 }
 
+static uint64_t remote_in_use_retry_delay_us(uint32_t attempt_index) {
+  if (attempt_index <= 1)
+    return 3 * 1000 * 1000ULL;
+  if (attempt_index == 2)
+    return 5 * 1000 * 1000ULL;
+  return 8 * 1000 * 1000ULL;
+}
+
 static bool quit_reason_requires_retry(ChiakiQuitReason reason) {
   switch (reason) {
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
     case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
       return false;
     default:
