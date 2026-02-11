@@ -54,7 +54,6 @@
 #define TAKION_JITTER_MIN_THRESHOLD_US  3000   // 3ms: LAN minimum gap timeout
 #define TAKION_JITTER_MAX_THRESHOLD_US  50000  // 50ms: Remote maximum gap timeout
 #define TAKION_JITTER_LOG_INTERVAL_MS   5000   // Log jitter stats every 5 seconds
-#define TAKION_EXPECTED_FRAME_INTERVAL_US 33333 // 30 FPS = 33.3ms nominal frame time
 
 #define TAKION_MESSAGE_HEADER_SIZE 0x10
 
@@ -967,6 +966,7 @@ static void *takion_thread_func(void *user)
 	// Initialize adaptive jitter buffer stats
 	takion->jitter_stats.jitter_us = 0;
 	takion->jitter_stats.last_packet_arrival_us = 0;
+	takion->jitter_stats.last_inter_arrival_us = 0;
 	takion->jitter_stats.last_log_ms = 0;
 	takion->jitter_stats.gaps_skipped = 0;
 	takion->jitter_stats.last_skipped_seq_num = 0;
@@ -1045,13 +1045,7 @@ static void *takion_thread_func(void *user)
 			free(buf);
 			break;
 		}
-		uint8_t *resized_buf = realloc(buf, received_size);
-		if(!resized_buf)
-		{
-			free(buf);
-			continue;
-		}
-		takion_handle_packet(takion, resized_buf, received_size);
+		takion_handle_packet(takion, buf, received_size);
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();
@@ -1454,16 +1448,28 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 
 	if(takion->jitter_stats.last_packet_arrival_us != 0)
 	{
-		// Calculate inter-arrival time and deviation from expected 30 FPS (33.3ms)
+		// Calculate inter-arrival time and use variation from the prior delta.
+		// This follows RTP-style jitter estimation and avoids assuming packet cadence.
 		uint64_t inter_arrival_us = now_us - takion->jitter_stats.last_packet_arrival_us;
-		uint64_t deviation_us = (inter_arrival_us > TAKION_EXPECTED_FRAME_INTERVAL_US)
-			? (inter_arrival_us - TAKION_EXPECTED_FRAME_INTERVAL_US)
-			: (TAKION_EXPECTED_FRAME_INTERVAL_US - inter_arrival_us);
+		uint64_t previous_inter_arrival_us = takion->jitter_stats.last_inter_arrival_us;
+		uint64_t deviation_us = previous_inter_arrival_us
+			? (inter_arrival_us > previous_inter_arrival_us
+				? (inter_arrival_us - previous_inter_arrival_us)
+				: (previous_inter_arrival_us - inter_arrival_us))
+			: 0;
 
-		// Update EWMA: jitter = (7 * old_jitter + deviation) / 8
-		// Alpha = 0.125 provides good balance between responsiveness and stability
-		takion->jitter_stats.jitter_us =
-			(7 * takion->jitter_stats.jitter_us + deviation_us) / 8;
+		if(previous_inter_arrival_us)
+		{
+			// EWMA: jitter = (7 * old_jitter + deviation) / 8 (alpha=0.125)
+			takion->jitter_stats.jitter_us =
+				(7 * takion->jitter_stats.jitter_us + deviation_us) / 8;
+		}
+
+		takion->jitter_stats.last_inter_arrival_us = inter_arrival_us;
+	}
+	else
+	{
+		takion->jitter_stats.last_inter_arrival_us = 0;
 	}
 	takion->jitter_stats.last_packet_arrival_us = now_us;
 

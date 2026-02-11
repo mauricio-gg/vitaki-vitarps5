@@ -1191,8 +1191,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
   bool hit_event_threshold =
       context.stream.loss_window_event_count >= loss_profile.event_threshold;
-  bool sustained_loss = hit_burst_threshold ||
-                        (hit_event_threshold && hit_frame_threshold);
+  bool sustained_loss = hit_burst_threshold || hit_frame_threshold || hit_event_threshold;
 
   if (!sustained_loss) {
     // Ignore sub-threshold hiccups; they're common on Vita Wi-Fi.
@@ -1206,10 +1205,10 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   context.stream.loss_burst_frame_accum = 0;
   context.stream.loss_burst_start_us = 0;
 
+  const char *trigger = hit_burst_threshold ? "burst threshold" :
+      (hit_frame_threshold ? "frame threshold" : "event threshold");
   if (context.config.show_latency) {
     float window_s = (float)loss_profile.window_us / 1000000.0f;
-    const char *trigger = hit_burst_threshold ? "burst threshold" :
-        "event+frame threshold";
     LOGD("Loss gate reached (%s, %u events / %u frames in %.1fs)",
          trigger,
          window_events,
@@ -1227,7 +1226,15 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   }
 
   context.stream.loss_recovery_gate_hits++;
+  if (context.config.show_latency) {
+    LOGD("Loss recovery gate stage=%u trigger=%s action=inspect",
+         context.stream.loss_recovery_gate_hits,
+         trigger);
+  }
   if (context.stream.loss_recovery_gate_hits == 1) {
+    if (context.config.show_latency) {
+      LOGD("Loss recovery action=idr_only trigger=%s", trigger);
+    }
     request_decoder_resync("packet-loss gate");
     if (context.active_host) {
       host_set_hint(context.active_host,
@@ -1246,7 +1253,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
           (LOSS_RECOVERY_ACTION_COOLDOWN_US -
            (now_us - context.stream.last_loss_recovery_action_us)) /
           1000ULL;
-      LOGD("Loss recovery cooldown active (%llu ms remaining)",
+      LOGD("Loss recovery action=cooldown_skip trigger=%s remaining=%llums",
+           trigger,
            (unsigned long long)remaining_ms);
     }
     request_decoder_resync("packet-loss cooldown");
@@ -1264,11 +1272,17 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
           (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
       bool restart_ok = request_stream_restart(LOSS_RETRY_BITRATE_KBPS);
       if (restart_ok) {
+        uint32_t recovery_stage = context.stream.loss_recovery_gate_hits;
         context.stream.loss_retry_attempts++;
         context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
         context.stream.loss_retry_active = true;
         context.stream.last_loss_recovery_action_us = now_us;
         context.stream.loss_recovery_gate_hits = 0;
+        if (context.config.show_latency) {
+          LOGD("Loss recovery action=restart trigger=%s stage=%u",
+               trigger,
+               recovery_stage);
+        }
         LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
              context.stream.loss_retry_attempts,
              context.stream.loss_retry_bitrate_kbps);
