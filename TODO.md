@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-11 (Stability recovery split-track kickoff: packet-loss baseline first)
+Last Updated: 2026-02-11 (Stability-first split: persistent decode recovery now, startup transport in separate PR)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -30,6 +30,13 @@ Only move a task to "Done" after the reviewer signs off.
    - *Owner:* Implementation agent
    - *Goal:* Decouple decode from present path so `sceAvcdecDecode` is not blocked by `vita2d_wait_rendering_done()`, then validate cadence gains without introducing corruption regressions.
    - *Next Step:* Create `feat/decode-render-split` from updated `main` after packet-track validation and implement a bounded decoded-frame handoff queue.
+5. **Startup transport hardening (separate PR/branch)**
+   - *Owner:* Implementation agent
+   - *Goal:* Isolate initial-session transport failures (early Takion queue overflow and reconnect churn into `RP_IN_USE`) without mixing this work into active-session decode stability tuning.
+   - *Evidence:* `84165791498_vitarps5-testing.log:775-823`, `84165791498_vitarps5-testing.log:917-923`, `84165791498_vitarps5-testing.log:1256-1261`
+   - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
+   - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
+   - *Next Step:* Create `feat/startup-transport-hardening` from updated `main` and run startup-only A/B tests with `./tools/build.sh --env testing`.
 
 ---
 

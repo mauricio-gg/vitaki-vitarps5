@@ -129,6 +129,10 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_frame_streak;
   uint32_t unrecovered_gate_events;
   uint64_t unrecovered_gate_window_start_us;
+  uint32_t unrecovered_persistent_events;      // Rolling unrecovered-loss event count
+  uint64_t unrecovered_persistent_window_start_us;
+  uint32_t unrecovered_idr_requests;           // IDR attempts in rolling window
+  uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
 } VitaChiakiStream;
 
