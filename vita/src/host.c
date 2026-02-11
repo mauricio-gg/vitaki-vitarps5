@@ -32,6 +32,7 @@ static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
 static bool takion_overflow_has_av_distress(const char **reason_out);
+static bool unrecovered_loss_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
@@ -64,18 +65,18 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
-#define UNRECOVERED_FRAME_GATE_THRESHOLD 2
+#define UNRECOVERED_FRAME_GATE_THRESHOLD 4
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (2500 * 1000ULL)
 #define UNRECOVERED_PERSIST_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_PERSIST_THRESHOLD 4
+#define UNRECOVERED_PERSIST_THRESHOLD 6
 #define UNRECOVERED_IDR_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 3
+#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 5
 #define TAKION_OVERFLOW_RESTART_DELAY_US (1500 * 1000ULL)
 #define TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US (12 * 1000 * 1000ULL)
 #define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
 #define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
 #define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
-#define TAKION_OVERFLOW_IGNORE_THRESHOLD 2
+#define TAKION_OVERFLOW_IGNORE_THRESHOLD 4
 #define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
@@ -892,8 +893,31 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   bool persistent_distress =
       context.stream.unrecovered_persistent_events >=
       UNRECOVERED_PERSIST_THRESHOLD;
+  bool startup_grace_active =
+      context.stream.loss_restart_grace_until_us &&
+      now_us < context.stream.loss_restart_grace_until_us;
+  const char *unrecovered_distress_reason = NULL;
+  bool av_distress =
+      unrecovered_loss_has_av_distress(&unrecovered_distress_reason);
 
   if (persistent_distress && idr_ineffective) {
+    if (startup_grace_active) {
+      uint64_t remaining_ms =
+          (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+      LOGD("Unrecovered loss action=restart_suppressed_startup_grace remaining=%llums",
+           (unsigned long long)remaining_ms);
+      context.stream.unrecovered_idr_requests++;
+      request_decoder_resync("unrecovered persistent startup grace");
+      return triggered;
+    }
+    if (!av_distress) {
+      LOGD("Unrecovered loss action=restart_suppressed_no_av_distress events=%u idr=%u",
+           context.stream.unrecovered_persistent_events,
+           context.stream.unrecovered_idr_requests);
+      context.stream.unrecovered_idr_requests++;
+      request_decoder_resync("unrecovered persistent no av distress");
+      return triggered;
+    }
     if (context.stream.last_loss_recovery_action_us &&
         now_us - context.stream.last_loss_recovery_action_us <
             LOSS_RECOVERY_ACTION_COOLDOWN_US) {
@@ -909,11 +933,12 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
            context.stream.unrecovered_idr_requests,
            (unsigned long long)(UNRECOVERED_IDR_WINDOW_US / 1000ULL));
       if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
-        LOGE("Soft restart request failed after persistent unrecovered frames; pausing stream");
-        request_stream_stop("decoder desync persistent");
-        triggered = true;
+        LOGE("Soft restart request failed after persistent unrecovered frames; keeping stream alive (reason=%s)",
+             unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
+        request_decoder_resync("unrecovered persistent restart failed");
         context.stream.last_restart_failure_us = now_us;
         context.stream.restart_failure_active = true;
+        context.stream.last_loss_recovery_action_us = now_us;
       } else if (context.active_host) {
         host_set_hint(context.active_host,
                       "Video desync — rebuilding stream",
@@ -959,14 +984,28 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   context.stream.unrecovered_gate_events = 0;
   context.stream.unrecovered_gate_window_start_us = now_us;
   context.stream.unrecovered_idr_requests++;
+  if (startup_grace_active) {
+    uint64_t remaining_ms =
+        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+    LOGD("Unrecovered streak action=restart_suppressed_startup_grace remaining=%llums",
+         (unsigned long long)remaining_ms);
+    request_decoder_resync("unrecovered streak startup grace");
+    return triggered;
+  }
+  if (!av_distress) {
+    LOGD("Unrecovered streak action=restart_suppressed_no_av_distress");
+    request_decoder_resync("unrecovered streak no av distress");
+    return triggered;
+  }
   request_decoder_resync("unrecovered frame streak");
-  LOGD("Unrecovered frame streak detected — requesting soft restart");
+  LOGD("Unrecovered frame streak detected — requesting soft restart (reason=%s)",
+       unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
   if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
-    LOGE("Soft restart request failed after unrecovered frames; pausing stream");
-    request_stream_stop("decoder desync");
-    triggered = true;
-    context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
+    LOGE("Soft restart request failed after unrecovered frames; keeping stream alive");
+    request_decoder_resync("unrecovered streak restart failed");
+    context.stream.last_restart_failure_us = now_us;
     context.stream.restart_failure_active = true;
+    context.stream.last_loss_recovery_action_us = now_us;
   } else if (context.active_host) {
     host_set_hint(context.active_host,
                   "Video desync — retrying stream",
@@ -1025,6 +1064,42 @@ static bool takion_overflow_has_av_distress(const char **reason_out) {
   return false;
 }
 
+static bool unrecovered_loss_has_av_distress(const char **reason_out) {
+  if (context.stream.av_diag_missing_ref_count >= 2) {
+    if (reason_out)
+      *reason_out = "missing_ref";
+    return true;
+  }
+  if (context.stream.av_diag_corrupt_burst_count >= 4) {
+    if (reason_out)
+      *reason_out = "corrupt_burst";
+    return true;
+  }
+  if (context.stream.av_diag_fec_fail_count > 0) {
+    if (reason_out)
+      *reason_out = "fec_fail";
+    return true;
+  }
+  if (context.stream.av_diag_sendbuf_overflow_count > 0) {
+    if (reason_out)
+      *reason_out = "sendbuf_overflow";
+    return true;
+  }
+
+  uint32_t target_fps = context.stream.target_fps ?
+      context.stream.target_fps : context.stream.negotiated_fps;
+  uint32_t incoming_fps = context.stream.measured_incoming_fps;
+  if (target_fps && incoming_fps && incoming_fps * 100 < target_fps * 70) {
+    if (reason_out)
+      *reason_out = "fps_drop";
+    return true;
+  }
+
+  if (reason_out)
+    *reason_out = "av_healthy";
+  return false;
+}
+
 static void handle_takion_overflow(void) {
   if (context.stream.stop_requested)
     return;
@@ -1040,6 +1115,16 @@ static void handle_takion_overflow(void) {
 
   if (context.stream.fast_restart_active) {
     LOGD("Takion overflow reported while restart active; ignoring");
+    return;
+  }
+
+  if (context.stream.loss_restart_grace_until_us &&
+      now_us < context.stream.loss_restart_grace_until_us) {
+    uint64_t remaining_ms =
+        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+    LOGD("Takion overflow action=restart_suppressed_startup_grace remaining=%llums",
+         (unsigned long long)remaining_ms);
+    request_decoder_resync("takion overflow startup grace");
     return;
   }
 
