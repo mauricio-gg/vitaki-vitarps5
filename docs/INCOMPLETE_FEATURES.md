@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-10 (UX cleanup follow-up: microphone feature planning)
+**Last Updated:** 2026-02-11 (Streaming robustness investigation: reconnect low-FPS degradation)
 **Status:** Generated from codebase analysis
 
 ---
@@ -78,6 +78,14 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
 - Network protocol efficiency
 - Frame pacing improvements
 - Input lag reduction
+
+**Current Failure Signature (2026-02-11):**
+- Hard disconnect frequency improved, but some reconnect/re-entry sessions remain degraded with sustained 19-24 FPS and repeated missing reference bursts.
+- Observed in `87116066464_vitarps5-testing.log` after stop/re-entry flow (`:2920`, `:3082`, `:3357`) with low-FPS windows at `:3918`, `:4019`, `:4483`, `:5169`.
+- Companion run shows persistent transport pressure without immediate quits (`86888155925_vitarps5-testing.log:1658`, `86888155925_vitarps5-testing.log:75011334`).
+
+**Investigation/Design Authority:**
+- `docs/ai/STREAM_PIPELINE_ROBUSTNESS_PLAN.md`
 
 ---
 

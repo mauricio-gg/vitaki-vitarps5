@@ -56,6 +56,11 @@ typedef struct vita_chiaki_stream_t {
   uint32_t negotiated_fps;          // max_fps requested from the console
   uint32_t target_fps;              // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
+  uint32_t session_generation;      // increments for each successfully initialized stream session
+  uint32_t reconnect_generation;    // non-zero when this session is a reconnect/re-entry
+  uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
+  uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
+  uint64_t post_reconnect_window_until_us; // deadline for post-reconnect low-fps tracking
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
   uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator

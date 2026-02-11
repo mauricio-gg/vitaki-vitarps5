@@ -185,11 +185,24 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.stream_start_us = sceKernelGetProcessTimeWide();
       context.stream.loss_restart_grace_until_us =
           context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
+      if (context.stream.reconnect_generation > 0) {
+        context.stream.post_reconnect_window_until_us =
+            context.stream.stream_start_us + 60 * 1000 * 1000ULL;
+      } else {
+        context.stream.post_reconnect_window_until_us = 0;
+      }
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
       context.stream.retry_holdoff_ms = 0;
       context.stream.retry_holdoff_until_us = 0;
       context.stream.retry_holdoff_active = false;
+      LOGD("PIPE/SESSION connected gen=%u reconnect_gen=%u post_window_ms=%llu",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           context.stream.post_reconnect_window_until_us ?
+               (unsigned long long)((context.stream.post_reconnect_window_until_us -
+                                     context.stream.stream_start_us) / 1000ULL)
+               : 0ULL);
       ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
       if (context.stream.fast_restart_active) {
         context.stream.fast_restart_active = false;
@@ -216,6 +229,11 @@ static void event_cb(ChiakiEvent *event, void *user) {
            context.stream.loss_retry_pending ? 1 : 0,
            context.stream.loss_retry_active ? 1 : 0,
            context.stream.teardown_in_progress ? 1 : 0);
+      LOGD("PIPE/SESSION quit gen=%u reconnect_gen=%u fps_low_windows=%u post_reconnect_low=%u",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           context.stream.fps_under_target_windows,
+           context.stream.post_reconnect_low_fps_windows);
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -415,6 +433,9 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.retry_holdoff_until_us = 0;
   context.stream.retry_holdoff_active = false;
   context.stream.measured_incoming_fps = 0;
+  context.stream.fps_under_target_windows = 0;
+  context.stream.post_reconnect_low_fps_windows = 0;
+  context.stream.post_reconnect_window_until_us = 0;
   context.stream.fps_window_start_us = 0;
   context.stream.fps_window_frame_count = 0;
   context.stream.negotiated_fps = 0;
@@ -601,6 +622,20 @@ static void update_latency_metrics(void) {
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
+  uint32_t effective_target_fps =
+      context.stream.target_fps ? context.stream.target_fps :
+      context.stream.negotiated_fps;
+  uint32_t incoming_fps = context.stream.measured_incoming_fps;
+  bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
+      incoming_fps + 2 < effective_target_fps;
+  if (low_fps_window) {
+    context.stream.fps_under_target_windows++;
+    if (context.stream.post_reconnect_window_until_us &&
+        now_us <= context.stream.post_reconnect_window_until_us) {
+      context.stream.post_reconnect_low_fps_windows++;
+    }
+  }
+
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
   if (refresh_rtt) {
@@ -631,6 +666,18 @@ static void update_latency_metrics(void) {
          context.stream.measured_rtt_ms,
          (uint32_t)(context.stream.session.rtt_us / 1000),
          (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
+    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu",
+         context.stream.session_generation,
+         context.stream.reconnect_generation,
+         incoming_fps,
+         effective_target_fps,
+         context.stream.fps_under_target_windows,
+         context.stream.post_reconnect_low_fps_windows,
+         context.stream.post_reconnect_window_until_us &&
+                 now_us < context.stream.post_reconnect_window_until_us
+             ? (unsigned long long)((context.stream.post_reconnect_window_until_us -
+                                     now_us) / 1000ULL)
+             : 0ULL);
     last_log_us = now_us;
   }
 
@@ -2173,6 +2220,15 @@ int host_stream(VitaChiakiHost* host) {
     context.stream.inputs_ready = true;
     context.stream.inputs_resume_pending = false;
   }
+
+  uint32_t new_generation = context.stream.session_generation + 1;
+  context.stream.reconnect_generation =
+      context.stream.session_generation > 0 ? context.stream.session_generation : 0;
+  context.stream.session_generation = new_generation;
+  LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s",
+       context.stream.session_generation,
+       context.stream.reconnect_generation,
+       host->hostname ? host->hostname : "<null>");
 
   if (discovery_was_running) {
     LOGD("Suspending discovery during stream");
