@@ -31,6 +31,7 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
 static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
+static bool takion_overflow_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
@@ -870,6 +871,48 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   return triggered;
 }
 
+static bool takion_overflow_has_av_distress(const char **reason_out) {
+  bool diag_missing_ref =
+      context.stream.av_diag_missing_ref_count >
+      context.stream.av_diag_logged_missing_ref_count;
+  bool diag_corrupt =
+      context.stream.av_diag_corrupt_burst_count >
+      context.stream.av_diag_logged_corrupt_burst_count;
+  bool diag_fec =
+      context.stream.av_diag_fec_fail_count >
+      context.stream.av_diag_logged_fec_fail_count;
+  bool diag_sendbuf =
+      context.stream.av_diag_sendbuf_overflow_count >
+      context.stream.av_diag_logged_sendbuf_overflow_count;
+
+  if (diag_missing_ref || diag_corrupt || diag_fec || diag_sendbuf) {
+    if (reason_out) {
+      if (diag_missing_ref)
+        *reason_out = "missing_ref";
+      else if (diag_corrupt)
+        *reason_out = "corrupt_burst";
+      else if (diag_fec)
+        *reason_out = "fec_fail";
+      else
+        *reason_out = "sendbuf_overflow";
+    }
+    return true;
+  }
+
+  uint32_t target_fps = context.stream.target_fps ?
+      context.stream.target_fps : context.stream.negotiated_fps;
+  uint32_t incoming_fps = context.stream.measured_incoming_fps;
+  if (target_fps && incoming_fps && incoming_fps * 100 < target_fps * 75) {
+    if (reason_out)
+      *reason_out = "fps_drop";
+    return true;
+  }
+
+  if (reason_out)
+    *reason_out = "av_healthy";
+  return false;
+}
+
 static void handle_takion_overflow(void) {
   if (context.stream.stop_requested)
     return;
@@ -925,6 +968,23 @@ static void handle_takion_overflow(void) {
       LOGD("Takion overflow gate flushed reorder queue (ack %#x)", flushed_seq);
     }
     request_decoder_resync("takion overflow gate");
+  }
+
+  const char *distress_reason = NULL;
+  if (!takion_overflow_has_av_distress(&distress_reason)) {
+    LOGD("Takion overflow action=restart_suppressed_av_healthy reason=%s drops=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u} fps=%u/%u",
+         distress_reason ? distress_reason : "unknown",
+         context.stream.takion_overflow_recent_drops,
+         context.stream.av_diag_missing_ref_count,
+         context.stream.av_diag_corrupt_burst_count,
+         context.stream.av_diag_fec_fail_count,
+         context.stream.av_diag_sendbuf_overflow_count,
+         context.stream.measured_incoming_fps,
+         context.stream.target_fps ? context.stream.target_fps :
+             context.stream.negotiated_fps);
+    // Keep the overflow detector armed, but require a fresh drop after suppression.
+    context.stream.takion_overflow_recent_drops = TAKION_OVERFLOW_IGNORE_THRESHOLD;
+    return;
   }
 
   if (context.stream.takion_overflow_backoff_until_us &&
