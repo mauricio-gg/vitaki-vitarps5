@@ -183,6 +183,9 @@ typedef struct chiaki_takion_t
 		uint64_t last_log_ms;            // Periodic logging timestamp
 		uint64_t gaps_skipped;           // Counter for skipped gaps
 		uint64_t last_skipped_seq_num;   // Last skipped sequence
+		uint64_t last_head_gap_age_us;   // Gap age that most recently blocked/triggered skip
+		uint64_t last_first_set_offset;  // Offset from begin to first available packet
+		uint64_t queue_highwater;        // Max queue occupancy seen since last summary
 	} jitter_stats;
 } ChiakiTakion;
 

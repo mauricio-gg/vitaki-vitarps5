@@ -83,6 +83,11 @@ static inline uint64_t chiaki_reorder_queue_count(ChiakiReorderQueue *queue)
 	return queue->count;
 }
 
+static inline uint64_t chiaki_reorder_queue_begin_seq(ChiakiReorderQueue *queue)
+{
+	return queue->begin;
+}
+
 /**
  * Push a packet into the queue.
  *
@@ -115,6 +120,19 @@ CHIAKI_EXPORT bool chiaki_reorder_queue_pull(ChiakiReorderQueue *queue, uint64_t
  * @return true if an element was peeked, false if there is no element at index.
  */
 CHIAKI_EXPORT bool chiaki_reorder_queue_peek(ChiakiReorderQueue *queue, uint64_t index, uint64_t *seq_num, void **user);
+
+/**
+ * Find the first set element in queue order.
+ *
+ * Useful when the head element is missing and callers need to inspect the next
+ * available packet after one or more gaps.
+ *
+ * @param index pointer where the offset from begin is written
+ * @param seq_num pointer where the sequence number is written
+ * @param user pointer where the associated user pointer is written
+ * @return true if any set element exists in [0, count), false otherwise
+ */
+CHIAKI_EXPORT bool chiaki_reorder_queue_find_first_set(ChiakiReorderQueue *queue, uint64_t *index, uint64_t *seq_num, void **user);
 
 /**
  * Drop a specific element from the queue.

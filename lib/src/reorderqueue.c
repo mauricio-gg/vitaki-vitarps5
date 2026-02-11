@@ -160,6 +160,27 @@ CHIAKI_EXPORT bool chiaki_reorder_queue_peek(ChiakiReorderQueue *queue, uint64_t
 	return true;
 }
 
+CHIAKI_EXPORT bool chiaki_reorder_queue_find_first_set(ChiakiReorderQueue *queue, uint64_t *index, uint64_t *seq_num, void **user)
+{
+	for(uint64_t i = 0; i < queue->count; i++)
+	{
+		uint64_t seq_num_val = add(queue->begin, i);
+		ChiakiReorderQueueEntry *entry = &queue->queue[idx(seq_num_val)];
+		if(!entry->set)
+			continue;
+
+		if(index)
+			*index = i;
+		if(seq_num)
+			*seq_num = seq_num_val;
+		if(user)
+			*user = entry->user;
+		return true;
+	}
+
+	return false;
+}
+
 CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t index)
 {
 	if(index >= queue->count)
@@ -204,4 +225,3 @@ CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue)
 	queue->begin = add(queue->begin, 1);
 	queue->count--;
 }
-

@@ -51,8 +51,8 @@
 #define TAKION_POSTPONE_PACKETS_SIZE 32
 
 // Adaptive jitter buffer constants
-#define TAKION_JITTER_MIN_THRESHOLD_US  3000   // 3ms: LAN minimum gap timeout
-#define TAKION_JITTER_MAX_THRESHOLD_US  50000  // 50ms: Remote maximum gap timeout
+#define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
+#define TAKION_JITTER_MAX_THRESHOLD_US  20000  // 20ms: prevent long head-of-line stalls
 #define TAKION_JITTER_LOG_INTERVAL_MS   5000   // Log jitter stats every 5 seconds
 
 #define TAKION_MESSAGE_HEADER_SIZE 0x10
@@ -921,17 +921,26 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 		return;
 
 	uint64_t gaps_skipped = takion->jitter_stats.gaps_skipped;
+	uint64_t queue_highwater = takion->jitter_stats.queue_highwater;
+	uint64_t first_set_offset = takion->jitter_stats.last_first_set_offset;
+	uint64_t head_gap_age_us = takion->jitter_stats.last_head_gap_age_us;
 
-	if(gaps_skipped > 0 || force)
+	if(gaps_skipped > 0 || queue_highwater > 0 || force)
 	{
 		CHIAKI_LOGI(takion->log,
-			"Takion jitter: %llu us, gaps_skipped=%llu over %llums",
+			"Takion jitter: %llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu over %llums",
 			(unsigned long long)takion->jitter_stats.jitter_us,
 			(unsigned long long)gaps_skipped,
+			(unsigned long long)first_set_offset,
+			(unsigned long long)head_gap_age_us,
+			(unsigned long long)queue_highwater,
 			(unsigned long long)interval_ms);
 	}
 
 	takion->jitter_stats.gaps_skipped = 0;
+	takion->jitter_stats.last_head_gap_age_us = 0;
+	takion->jitter_stats.last_first_set_offset = 0;
+	takion->jitter_stats.queue_highwater = 0;
 	takion->jitter_stats.last_log_ms = now_ms;
 }
 
@@ -970,12 +979,14 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.last_log_ms = 0;
 	takion->jitter_stats.gaps_skipped = 0;
 	takion->jitter_stats.last_skipped_seq_num = 0;
+	takion->jitter_stats.last_head_gap_age_us = 0;
+	takion->jitter_stats.last_first_set_offset = 0;
+	takion->jitter_stats.queue_highwater = 0;
 
 	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
 	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
 	CHIAKI_LOGI(takion->log, "Takion receive queue size configured for %llu packets",
 			queue_slots);
-	size_t queue_highwater = 0;
 	uint64_t queue_usage_log_last_ms = 0;
 
 	chiaki_reorder_queue_set_drop_cb(&takion->data_queue, takion_data_drop, takion);
@@ -1049,9 +1060,9 @@ static void *takion_thread_func(void *user)
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();
-		if(queue_used > queue_highwater)
+		if(queue_used > takion->jitter_stats.queue_highwater)
 		{
-			queue_highwater = queue_used;
+			takion->jitter_stats.queue_highwater = queue_used;
 			if(now_ms - queue_usage_log_last_ms >= TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS)
 			{
 				unsigned int usage_percent = queue_slots_sz
@@ -1275,8 +1286,8 @@ static void takion_free_data_entry(TakionDataPacketEntry *entry)
  *
  * Algorithm:
  * 1. Pull consecutive packets normally (in-order delivery)
- * 2. When a gap is encountered, peek at the next available packet
- * 3. Calculate adaptive threshold = clamp(2.5 × jitter, 3ms, 50ms)
+ * 2. When a gap is encountered, scan for the first available packet after it
+ * 3. Calculate adaptive threshold = clamp(2.5 × jitter, 2ms, 20ms)
  * 4. Skip gap if packet after gap has been waiting > threshold
  * 5. Otherwise wait for missing packet (preserves in-order delivery)
  *
@@ -1287,7 +1298,6 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 {
 	uint64_t seq_num = 0;
 	bool ack = false;
-	uint64_t now_us = chiaki_time_now_monotonic_us();
 
 	while(true)
 	{
@@ -1339,41 +1349,47 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 		if(chiaki_reorder_queue_count(&takion->data_queue) == 0)
 			break; // Queue empty, we're done
 
-		// Gap encountered - peek at first available packet after gap
-		TakionDataPacketEntry *peeked_entry;
-		uint64_t peeked_seq_num;
-		bool peeked = chiaki_reorder_queue_peek(&takion->data_queue, 0, &peeked_seq_num, (void **)&peeked_entry);
+		// Gap encountered - find the first available packet after missing head entries.
+		TakionDataPacketEntry *peeked_entry = NULL;
+		uint64_t first_set_index = 0;
+		bool peeked = chiaki_reorder_queue_find_first_set(&takion->data_queue, &first_set_index, NULL, (void **)&peeked_entry);
 
 		if(!peeked)
 			break; // No packet available (shouldn't happen if count > 0)
 
+		takion->jitter_stats.last_first_set_offset = first_set_index;
+
 		// Calculate adaptive threshold based on measured jitter
-		// threshold = clamp(2.5 × jitter, 3ms, 50ms)
+		// threshold = clamp(2.5 × jitter, 2ms, 20ms)
 		uint64_t jitter = takion->jitter_stats.jitter_us;
 		uint64_t threshold_us = (jitter * 5) / 2; // 2.5 × jitter
 
-		// Clamp to [3ms, 50ms] range
+		// Clamp to [2ms, 20ms] range
 		if(threshold_us < TAKION_JITTER_MIN_THRESHOLD_US)
 			threshold_us = TAKION_JITTER_MIN_THRESHOLD_US;
 		if(threshold_us > TAKION_JITTER_MAX_THRESHOLD_US)
 			threshold_us = TAKION_JITTER_MAX_THRESHOLD_US;
 
 		// Calculate how long this gap has existed (time since packet AFTER gap arrived)
+		uint64_t now_us = chiaki_time_now_monotonic_us();
 		uint64_t gap_age_us = now_us - peeked_entry->arrival_time_us;
+		takion->jitter_stats.last_head_gap_age_us = gap_age_us;
+		uint64_t gap_seq_num = chiaki_reorder_queue_begin_seq(&takion->data_queue);
 
 		// If gap has exceeded threshold, skip it to prevent head-of-line blocking
 		if(gap_age_us > threshold_us)
 		{
 			// Log gap skip (avoiding log spam by tracking last skipped seq)
-			if(takion->jitter_stats.last_skipped_seq_num != seq_num)
+			if(takion->jitter_stats.last_skipped_seq_num != gap_seq_num)
 			{
 				CHIAKI_LOGD(takion->log,
-					"Takion skipping gap at seq %#llx (waited %llu us, threshold %llu us, jitter %llu us)",
-					(unsigned long long)seq_num,
+					"Takion skipping gap at seq %#llx (waited %llu us, threshold %llu us, jitter %llu us, first_set_offset=%llu)",
+					(unsigned long long)gap_seq_num,
 					(unsigned long long)gap_age_us,
 					(unsigned long long)threshold_us,
-					(unsigned long long)jitter);
-				takion->jitter_stats.last_skipped_seq_num = seq_num;
+					(unsigned long long)jitter,
+					(unsigned long long)first_set_index);
+				takion->jitter_stats.last_skipped_seq_num = gap_seq_num;
 			}
 
 			takion->jitter_stats.gaps_skipped++;
