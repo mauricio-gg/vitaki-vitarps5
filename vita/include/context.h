@@ -61,6 +61,12 @@ typedef struct vita_chiaki_stream_t {
   uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
   uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
   uint64_t post_reconnect_window_until_us; // deadline for post-reconnect low-fps tracking
+  bool reconnect_recover_active;    // reconnect degraded-mode mitigation is currently active
+  uint32_t reconnect_recover_stage; // staged recovery state machine (0=idle)
+  uint64_t reconnect_recover_last_action_us; // timestamp of latest reconnect mitigation action
+  uint32_t reconnect_recover_idr_attempts; // number of IDR requests used by reconnect mitigation
+  uint32_t reconnect_recover_restart_attempts; // guarded restart attempts used by reconnect mitigation
+  uint32_t reconnect_recover_stable_windows; // consecutive healthy windows observed while mitigation active
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
   uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator

@@ -37,6 +37,11 @@ static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static void request_decoder_resync(const char *reason);
+static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
+                                                uint32_t incoming_fps,
+                                                uint32_t target_fps,
+                                                bool low_fps_window,
+                                                uint64_t now_us);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
@@ -83,6 +88,11 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
 #define FAST_RESTART_MAX_ATTEMPTS 2
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
+#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
+#define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
+#define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
+#define RECONNECT_RECOVER_TARGET_KBPS 900
+#define RECONNECT_RECOVER_MIN_HEALTHY_FPS 27
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
@@ -436,6 +446,12 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.fps_under_target_windows = 0;
   context.stream.post_reconnect_low_fps_windows = 0;
   context.stream.post_reconnect_window_until_us = 0;
+  context.stream.reconnect_recover_active = false;
+  context.stream.reconnect_recover_stage = 0;
+  context.stream.reconnect_recover_last_action_us = 0;
+  context.stream.reconnect_recover_idr_attempts = 0;
+  context.stream.reconnect_recover_restart_attempts = 0;
+  context.stream.reconnect_recover_stable_windows = 0;
   context.stream.fps_window_start_us = 0;
   context.stream.fps_window_frame_count = 0;
   context.stream.negotiated_fps = 0;
@@ -628,13 +644,15 @@ static void update_latency_metrics(void) {
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
       incoming_fps + 2 < effective_target_fps;
-  if (low_fps_window) {
-    context.stream.fps_under_target_windows++;
-    if (context.stream.post_reconnect_window_until_us &&
-        now_us <= context.stream.post_reconnect_window_until_us) {
-      context.stream.post_reconnect_low_fps_windows++;
-    }
-  }
+  bool av_diag_progressed =
+      context.stream.av_diag_missing_ref_count >
+          context.stream.av_diag_logged_missing_ref_count ||
+      context.stream.av_diag_corrupt_burst_count >
+          context.stream.av_diag_logged_corrupt_burst_count ||
+      context.stream.av_diag_fec_fail_count >
+          context.stream.av_diag_logged_fec_fail_count ||
+      context.stream.av_diag_sendbuf_overflow_count >
+          context.stream.av_diag_logged_sendbuf_overflow_count;
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
@@ -651,6 +669,21 @@ static void update_latency_metrics(void) {
     context.stream.measured_rtt_ms = (uint32_t)effective_rtt_ms64;
     context.stream.last_rtt_refresh_us = now_us;
     context.stream.metrics_last_update_us = now_us;
+
+    // Count low-fps health once per metrics window (about 1 second), not per frame.
+    if (low_fps_window) {
+      context.stream.fps_under_target_windows++;
+      if (context.stream.post_reconnect_window_until_us &&
+          now_us <= context.stream.post_reconnect_window_until_us) {
+        context.stream.post_reconnect_low_fps_windows++;
+      }
+    }
+
+    handle_post_reconnect_degraded_mode(av_diag_progressed,
+                                        incoming_fps,
+                                        effective_target_fps,
+                                        low_fps_window,
+                                        now_us);
   }
 
   if (!context.config.show_latency)
@@ -690,15 +723,7 @@ static void update_latency_metrics(void) {
     handle_takion_overflow();
   }
 
-  bool av_diag_changed =
-      context.stream.av_diag_missing_ref_count !=
-          context.stream.av_diag_logged_missing_ref_count ||
-      context.stream.av_diag_corrupt_burst_count !=
-          context.stream.av_diag_logged_corrupt_burst_count ||
-      context.stream.av_diag_fec_fail_count !=
-          context.stream.av_diag_logged_fec_fail_count ||
-      context.stream.av_diag_sendbuf_overflow_count !=
-          context.stream.av_diag_logged_sendbuf_overflow_count;
+  bool av_diag_changed = av_diag_progressed;
   if (av_diag_changed ||
       (context.stream.av_diag_last_log_us == 0 ||
        now_us - context.stream.av_diag_last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
@@ -840,6 +865,150 @@ static void request_decoder_resync(const char *reason) {
     LOGE("Failed to request decoder resync (%s): %s",
          reason ? reason : "unspecified",
          chiaki_error_string(err));
+  }
+}
+
+static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
+                                                uint32_t incoming_fps,
+                                                uint32_t target_fps,
+                                                bool low_fps_window,
+                                                uint64_t now_us) {
+  if (context.stream.stop_requested || context.stream.fast_restart_active)
+    return;
+
+  bool reconnect_window_active = context.stream.post_reconnect_window_until_us &&
+      now_us <= context.stream.post_reconnect_window_until_us;
+  if (!reconnect_window_active)
+    return;
+
+  bool degraded =
+      context.stream.post_reconnect_low_fps_windows >=
+          RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS &&
+      av_diag_progressed;
+
+  bool healthy_window = target_fps > 0 &&
+      incoming_fps >= RECONNECT_RECOVER_MIN_HEALTHY_FPS &&
+      !av_diag_progressed;
+  if (context.stream.reconnect_recover_active) {
+    if (healthy_window) {
+      context.stream.reconnect_recover_stable_windows++;
+      if (context.stream.reconnect_recover_stable_windows >= 2) {
+        LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stabilized stage=%u fps=%u/%u",
+             context.stream.session_generation,
+             context.stream.reconnect_generation,
+             context.stream.reconnect_recover_stage,
+             incoming_fps,
+             target_fps);
+        context.stream.reconnect_recover_active = false;
+        context.stream.reconnect_recover_stage = 0;
+        context.stream.reconnect_recover_last_action_us = 0;
+        context.stream.reconnect_recover_idr_attempts = 0;
+        context.stream.reconnect_recover_stable_windows = 0;
+      }
+    } else if (low_fps_window || av_diag_progressed) {
+      context.stream.reconnect_recover_stable_windows = 0;
+    }
+  }
+
+  if (!degraded)
+    return;
+
+  if (context.stream.reconnect_recover_last_action_us &&
+      now_us - context.stream.reconnect_recover_last_action_us <
+          RECONNECT_RECOVER_ACTION_COOLDOWN_US) {
+    return;
+  }
+
+  if (!context.stream.reconnect_recover_active) {
+    context.stream.reconnect_recover_active = true;
+    context.stream.reconnect_recover_stage = 0;
+    context.stream.reconnect_recover_idr_attempts = 0;
+    context.stream.reconnect_recover_restart_attempts = 0;
+    context.stream.reconnect_recover_stable_windows = 0;
+    LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=trigger low_windows=%u fps=%u/%u",
+         context.stream.session_generation,
+         context.stream.reconnect_generation,
+         context.stream.post_reconnect_low_fps_windows,
+         incoming_fps,
+         target_fps);
+  }
+
+  if (context.stream.reconnect_recover_stage == 0) {
+    request_decoder_resync("post-reconnect degraded stage1");
+    request_decoder_resync("post-reconnect degraded stage1 followup");
+    context.stream.reconnect_recover_idr_attempts += 2;
+    context.stream.reconnect_recover_stage = 1;
+    context.stream.reconnect_recover_last_action_us = now_us;
+    if (context.active_host) {
+      host_set_hint(context.active_host,
+                    "Video references unstable - requesting keyframe",
+                    false,
+                    4 * 1000 * 1000ULL);
+    }
+    LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage1_idr idr_attempts=%u fps=%u/%u",
+         context.stream.session_generation,
+         context.stream.reconnect_generation,
+         context.stream.reconnect_recover_idr_attempts,
+         incoming_fps,
+         target_fps);
+    return;
+  }
+
+  if (context.stream.reconnect_recover_stage == 1) {
+    bool restart_ok = request_stream_restart(RECONNECT_RECOVER_TARGET_KBPS);
+    context.stream.reconnect_recover_last_action_us = now_us;
+    if (restart_ok) {
+      context.stream.reconnect_recover_stage = 2;
+      if (context.active_host) {
+        host_set_hint(context.active_host,
+                      "Rebuilding stream at safer bitrate",
+                      true,
+                      5 * 1000 * 1000ULL);
+      }
+      LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_soft_restart bitrate=%u fps=%u/%u",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           RECONNECT_RECOVER_TARGET_KBPS,
+           incoming_fps,
+           target_fps);
+    } else {
+      LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_soft_restart_failed",
+           context.stream.session_generation,
+           context.stream.reconnect_generation);
+    }
+    return;
+  }
+
+  if (context.stream.reconnect_recover_stage == 2) {
+    if (now_us - context.stream.reconnect_recover_last_action_us <
+        RECONNECT_RECOVER_STAGE2_WAIT_US) {
+      return;
+    }
+    if (context.stream.reconnect_recover_restart_attempts >= 1)
+      return;
+
+    bool restart_ok = request_stream_restart(LOSS_RETRY_BITRATE_KBPS);
+    context.stream.reconnect_recover_last_action_us = now_us;
+    context.stream.reconnect_recover_restart_attempts++;
+    if (restart_ok) {
+      context.stream.reconnect_recover_stage = 3;
+      if (context.active_host) {
+        host_set_hint(context.active_host,
+                      "Persistent video desync - rebuilding session",
+                      true,
+                      5 * 1000 * 1000ULL);
+      }
+      LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage3_guarded_restart bitrate=%u fps=%u/%u",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           LOSS_RETRY_BITRATE_KBPS,
+           incoming_fps,
+           target_fps);
+    } else {
+      LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage3_guarded_restart_failed",
+           context.stream.session_generation,
+           context.stream.reconnect_generation);
+    }
   }
 }
 
