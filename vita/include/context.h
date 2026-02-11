@@ -67,6 +67,9 @@ typedef struct vita_chiaki_stream_t {
   uint64_t last_rtt_refresh_us;     // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;  // Timestamp for latest metrics sample
   uint64_t next_stream_allowed_us;  // Cooldown gate after quit
+  uint32_t retry_holdoff_ms;        // Active adaptive holdoff duration
+  uint64_t retry_holdoff_until_us;  // Holdoff deadline after RP_IN_USE races
+  bool retry_holdoff_active;        // Whether adaptive holdoff is currently armed
   uint32_t frame_loss_events;       // Count of frame loss events reported by Chiaki
   uint32_t total_frames_lost;       // Frames lost across the current session
   uint64_t loss_window_start_us;    // Sliding window start for adaptive mitigations

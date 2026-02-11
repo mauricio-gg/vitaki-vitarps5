@@ -1,0 +1,2291 @@
+
+----- VitaRPS5 log start 339713 -----
+[LOGGING] Initialized from build system:
+  enabled=1, force_errors=1, profile=verbose, queue=128, path=ux0:data/vita-chiaki/vitarps5-testing.log
+[DEBUG] 312869 Starting discovery
+[DEBUG] 313641 Starting to draw UI
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service detected new host with id 5C96669736E2
+[CHIAKI] Saving discovered host...
+[CHIAKI] --
+[CHIAKI] Discovered Host:
+[CHIAKI] State:                             ready
+[CHIAKI] System Version:                    12600006
+[CHIAKI] Device Discovery Protocol Version: 00030010
+[CHIAKI] Request Port:                      997
+[CHIAKI] Host Name:                         PS5-024
+[CHIAKI] Host Type:                         PS5
+[CHIAKI] Host ID:                           5C96669736E2
+[CHIAKI] Is PS5:                            true
+[CHIAKI] --
+[CHIAKI] Found registered host (PS5-024) matching discovered host (PS5-024).
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[DEBUG] 10544148 Preparing to start host_stream
+[DEBUG] 10544388 Latency mode applied: 1200 kbps @ 960x540
+[DEBUG] 10544700 Initializing Chiaki session (host=192.168.1.219, bitrate=1200 kbps, fps=30)
+[DEBUG] 10546296 Suspending discovery during stream
+[DEBUG] 10547124 Chiaki session initialized successfully, starting media pipeline
+[DEBUG] 10547324 vita video setup
+
+[DEBUG] 10547500 update_scaling_settings: src=960x540 tex=960x544 dst=960x544 stretch=true
+[DEBUG] 10680703 allocating size 0xb00000
+
+[DEBUG] 10685844 base: 0x63c00000
+
+[CHIAKI] Starting session request for PS5
+[CHIAKI] Trying to request session from :9295
+[CHIAKI] Connected to :9295
+[CHIAKI] Sending session request
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 47 45 54 20 2f 73 69 65 2f 70 73 35 2f 72 70 2f GET./sie/ps5/rp/
+[CHIAKI]     10 73 65 73 73 2f 69 6e 69 74 20 48 54 54 50 2f 31 sess/init.HTTP/1
+[CHIAKI]     20 2e 31 0d 0a 48 6f 73 74 3a 20 3a 39 32 39 35 0d .1..Host:.:9295.
+[CHIAKI]     30 0a 55 73 65 72 2d 41 67 65 6e 74 3a 20 72 65 6d .User-Agent:.rem
+[CHIAKI]     40 6f 74 65 70 6c 61 79 20 57 69 6e 64 6f 77 73 0d oteplay.Windows.
+[CHIAKI]     50 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 63 6c 6f .Connection:.clo
+[CHIAKI]     60 73 65 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 6e 67 se..Content-Leng
+[CHIAKI]     70 74 68 3a 20 30 0d 0a 52 50 2d 52 65 67 69 73 74 th:.0..RP-Regist
+[CHIAKI]     80 6b 65 79 3a 20 33 38 33 38 33 33 33 30 33 37 33 key:.38383330373
+[CHIAKI]     90 33 33 39 36 33 0d 0a 52 70 2d 56 65 72 73 69 6f 33963..Rp-Versio
+[CHIAKI]     a0 6e 3a 20 31 2e 30 0d 0a 0d 0a                   n:.1.0....      
+[CHIAKI] Session Response Header:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 48 54 54 50 2f 31 2e 31 20 32 30 30 20 4f 4b 0d HTTP/1.1.200.OK.
+[CHIAKI]     10 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 63 6c 6f .Connection:.clo
+[CHIAKI]     20 73 65 0d 0a 50 72 61 67 6d 61 3a 20 6e 6f 2d 63 se..Pragma:.no-c
+[CHIAKI]     30 61 63 68 65 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 ache..Content-Le
+[CHIAKI]     40 6e 67 74 68 3a 20 30 0d 0a 52 50 2d 4e 6f 6e 63 ngth:.0..RP-Nonc
+[CHIAKI]     50 65 3a 20 57 77 72 66 61 54 72 62 73 30 54 61 43 e:.WwrfaTrbs0TaC
+[CHIAKI]     60 59 6c 39 2f 6e 6b 70 63 67 3d 3d 0d 0a 52 50 2d Yl9/nkpcg==..RP-
+[CHIAKI]     70 56 65 72 73 69 6f 6e 3a 20 31 2e 30 0d 0a 52 50 Version:.1.0..RP
+[CHIAKI]     80 2d 53 75 70 70 6f 72 74 43 6d 64 3a 20 31 32 36 -SupportCmd:.126
+[CHIAKI]     90 30 30 30 0d 0a 52 50 2d 46 65 61 74 75 72 65 3a 000..RP-Feature:
+[CHIAKI]     a0 20 31 0d 0a 0d 0a                               .1....          
+[CHIAKI] Session request successful
+[CHIAKI] Starting ctrl
+[CHIAKI] Ctrl connected to :9295
+[CHIAKI] Ctrl request StartBitrate header target: 1200 kbps (requested)
+[CHIAKI] Sending ctrl request
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 47 45 54 20 2f 73 69 65 2f 70 73 35 2f 72 70 2f GET./sie/ps5/rp/
+[CHIAKI]     10 73 65 73 73 2f 63 74 72 6c 20 48 54 54 50 2f 31 sess/ctrl.HTTP/1
+[CHIAKI]     20 2e 31 0d 0a 48 6f 73 74 3a 20 3a 39 32 39 35 0d .1..Host:.:9295.
+[CHIAKI]     30 0a 55 73 65 72 2d 41 67 65 6e 74 3a 20 72 65 6d .User-Agent:.rem
+[CHIAKI]     40 6f 74 65 70 6c 61 79 20 57 69 6e 64 6f 77 73 0d oteplay.Windows.
+[CHIAKI]     50 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 6b 65 65 .Connection:.kee
+[CHIAKI]     60 70 2d 61 6c 69 76 65 0d 0a 43 6f 6e 74 65 6e 74 p-alive..Content
+[CHIAKI]     70 2d 4c 65 6e 67 74 68 3a 20 30 0d 0a 52 50 2d 41 -Length:.0..RP-A
+[CHIAKI]     80 75 74 68 3a 20 6f 75 55 63 4c 6b 41 50 52 67 51 uth:.ouUcLkAPRgQ
+[CHIAKI]     90 4a 63 74 4a 48 56 6e 32 78 45 77 3d 3d 0d 0a 52 JctJHVn2xEw==..R
+[CHIAKI]    140 61 72 74 42 69 74 72 61 74 65 3a 20 69 49 48 55 artBitrate:.iIHU
+[CHIAKI]     70 73 73 69 2d 44 62 6d 3a 20 2d 33 32 0d 0a 52 50 ssi-Dbm:.-32..RP
+[CHIAKI]     a0 20 58 0d 0a 52 50 2d 53 65 72 76 65 72 2d 54 79 .X..RP-Server-Ty
+[CHIAKI]     b0 70 65 3a 20 6d 4e 30 76 48 6e 63 38 66 32 63 4a pe:.mN0vHnc8f2cJ
+[CHIAKI]     c0 63 74 4a 48 56 6e 32 78 45 77 3d 3d 0d 0a 52 50 ctJHVn2xEw==..RP
+[CHIAKI]     d0 2d 53 65 72 76 65 72 2d 49 50 76 34 3a 20 31 39 -Server-IPv4:.19
+[CHIAKI]     e0 32 2e 31 36 38 2e 31 2e 32 31 39 0d 0a 52 50 2d 2.168.1.219..RP-
+[CHIAKI]      0 00 00 00 4b 00 33 00 00 1b 48 80 8a 6e 11 64 74 ...K.3...H..n.dt
+[CHIAKI]     10 2b 66 3c 7a 47 f2 22 9f 45 1b 22 dd a2 8f 65 80 +f<zG.".E."...e.
+[CHIAKI]     20 ef cb 96 68 69 1e 72 2d 85 ba 05 37 20 3e fb b1 ...hi.r-...7.>..
+[CHIAKI]     30 fd 82 66 14 a1 d7 5d 69 9f b4 47 eb 03 6e 26 33 ..f...]i..G..n&3
+[CHIAKI]      0 4a 31 37 37 30 38 33 35 34 39 30 56 32 37 46 4a J1770835490V27FJ
+[CHIAKI]     10 45 48 53 37 59 32 45 49 55 4a 59 5a 37 4c 52 4c EHS7Y2EIUJYZ7LRL
+[CHIAKI]     20 4b 49 4b 4b 49 41 47 4d 4b 43 5a 4a 51 34 45 55 KIKKIAGMKCZJQ4EU
+[CHIAKI]     30 33 54 54 56 48 5a 54 51 50 44 37 53 36 49 51 4e 3TTVHZTQPD7S6IQN
+[CHIAKI]     40 53 4b 50 34 47 58 55 43 36 4d 41                SKP4GXUC6MA     
+[CHIAKI] Senkusha sending Ping 2 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.024 ms
+[CHIAKI] Senkusha sending Ping 8 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 40.983 ms
+[CHIAKI] Senkusha sending Ping 9 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 34.235 ms
+[CHIAKI] Pushed seq num 0x5851f430 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f430, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f430 from Takion Send Buffer
+[CHIAKI] Senkusha disabled echo
+[CHIAKI] Senkusha determined average RTT = 10.090 ms
+[CHIAKI] Senkusha starting MTU in test with min 576, max 1454, retries 3, timeout 50 ms
+[CHIAKI] Pushed seq num 0x5851f431 into Takion Send Buffer
+[CHIAKI] Senkusha MTU request 1454 (min 576, max 1454), id 1, attempt 0
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f431, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f431 from Takion Send Buffer
+[CHIAKI] Senkusha MTU 1454 success
+[CHIAKI] Senkusha determined inbound MTU 1454
+[CHIAKI] Senkusha starting MTU out test with min 576, max 1454, retries 3, timeout 50 ms
+[CHIAKI] Pushed seq num 0x5851f432 into Takion Send Buffer
+[CHIAKI] Senkusha sent initial client MTU command
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f432, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f432 from Takion Send Buffer
+[CHIAKI] Senkusha received expected Client MTU Command
+[CHIAKI] Senkusha MTU 1454 out ping attempt 0
+[CHIAKI] Senkusha MTU ping 1454 success
+[CHIAKI] Senkusha determined outbound MTU 1454
+[CHIAKI] Senkusha sending final Client MTU Command
+[CHIAKI] Pushed seq num 0x5851f433 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f433, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f433 from Takion Send Buffer
+[CHIAKI] Senkusha is disconnecting
+[CHIAKI] Pushed seq num 0x5851f434 into Takion Send Buffer
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 28236 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0x1)
+[CHIAKI] Takion jitter: 28236 us, gaps_skipped=0 over 0ms
+[CHIAKI] Senkusha closed takion
+[CHIAKI] Senkusha completed successfully
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 12)
+[CHIAKI] Takion sent init
+[CHIAKI] Takion received init ack with remote tag 0x3f7a45d9, outbound streams: 0x64, inbound streams: 0x64
+[CHIAKI] Takion sent cookie
+[CHIAKI] Takion received cookie ack
+[CHIAKI] Takion connected
+[CHIAKI] Takion receive queue size configured for 128 packets
+[CHIAKI] StreamConnection sending big
+[CHIAKI] LaunchSpec: {"sessionId":"sessionId4321","streamResolutions":[{"resolution":{"width":960,"height":540},"maxFps":30,"score":10}],"network":{"bwKbpsSent":1200,"bwLoss":0.001000,"mtu":1454,"rtt":10,"ports":[53,2053]},"slotId":1,"appSpecification":{"minFps":30,"minBandwidth":0,"extTitleId":"ps3","version":1,"timeLimit":1,"startTimeout":100,"afkTimeout":100,"afkTimeoutDisconnect":100},"konan":{"ps3AccessToken":"accessToken","ps3RefreshToken":"refreshToken"},"requestGameSpecification":{"model":"bravia_tv","platform":"android","audioChannels":"5.1","language":"sp","acceptButton":"X","connectedControllers":["xinput","ds3","ds4"],"yuvCoefficient":"bt601","videoEncoderProfile":"hw4.1","audioEncoderProfile":"audio1","adaptiveStreamMode": "resize"},"userProfile":{"onlineId":"psnId","npId":"np�^0�ū�[CHIAKI] Reached stream_connection_send_big loop
+[CHIAKI] Pushed seq num 0x70a3a52b into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52c into Takion Send Buffer
+[CHIAKI] Completed stream_connection_send_big
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52b, a_rwnd = 0x18a95, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52b from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52c, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52c from Takion Send Buffer
+[CHIAKI] Calling stream_connection_takion_data_expect_bang
+[CHIAKI] BANG received
+[CHIAKI] CTRL RECEIVED
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 08 00 41 00 00 38 85 d4 96 46 73 47 9f .....A..8...FsG.
+[CHIAKI] Ctrl received message of type 0x41, size 0x8
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 00 02 01 00 00                         ........        
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 00 02 01 00 00                         ........        
+[CHIAKI] GKCrypt 2 thread starting
+[CHIAKI] Completed stream_connection_takion_data_expect_bang
+[CHIAKI] GKCrypt 3 thread starting
+[CHIAKI] Crypt has become available. Re-checking MACs of 0 packets
+[CHIAKI] Calling stream_connection_takion_data_expect_bang
+[CHIAKI] StreamConnection expected bang payload but received streaminfo payload (13)
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 0d 7a 93 02 0a 30 08 c0 07 10 9c 04 1a 28 00 ..z...0.......(.
+[CHIAKI]     10 00 00 01 67 4d 40 20 91 8a 03 c0 45 fb c0 5a 80 ...gM@.....E..Z.
+[CHIAKI]     20 80 80 a0 00 01 f4 80 00 75 30 11 34 38 74 54 00 ........u0.48tT.
+[CHIAKI]     30 00 00 01 68 ee 3c 80 12 0e 02 10 00 00 bb 80 00 ...h.<..........
+[CHIAKI]     40 00 01 e0 00 00 00 01 18 64 20 64 28 64 30 c8 01 ........d.d(d0..
+[CHIAKI]     50 3a 26 08 00 12 0e 02 10 00 00 bb 80 00 00 01 e0 :&..............
+[CHIAKI]     60 00 00 00 01 18 00 22 0e 02 10 00 00 bb 80 00 00 ......".........
+[CHIAKI]     70 01 e0 00 00 00 01 28 02 3a 26 08 02 12 0e 02 10 ......(.:&......
+[CHIAKI]     80 00 00 0b b8 00 00 00 1e 00 00 00 01 18 01 22 0e ..............".
+[CHIAKI]     90 02 10 00 00 0b b8 00 00 00 1e 00 00 00 01 28 02 ..............(.
+[CHIAKI]     a0 3a 26 08 03 12 0e 02 10 00 00 0b b8 00 00 00 1e :&..............
+[CHIAKI]     b0 00 00 00 01 18 01 22 0e 02 10 00 00 0b b8 00 00 ......".........
+[CHIAKI]     c0 00 1e 00 00 00 01 28 02 3a 26 08 04 12 0e 02 10 ......(.:&......
+[CHIAKI]     d0 00 00 0b b8 00 00 00 1e 00 00 00 01 18 01 22 0e ..............".
+[CHIAKI]     e0 02 10 00 00 0b b8 00 00 00 1e 00 00 00 01 28 02 ..............(.
+[CHIAKI]     f0 3a 26 08 05 12 0e 02 10 00 00 0b b8 00 00 00 1e :&..............
+[CHIAKI]    100 00 00 00 01 18 01 22 0e 02 10 00 00 0b b8 00 00 ......".........
+[CHIAKI]    110 00 1e 00 00 00 01 28 02                         ......(.        
+[CHIAKI] StreamConnection recieved payload of type 13
+[CHIAKI] StreamConnection received audio header:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 02 10 00 00 bb 80 00 00 01 e0 00 00 00 01       ..............  
+[CHIAKI] Audio Header:
+[CHIAKI]   channels = 2
+[CHIAKI]   bits = 16
+[CHIAKI]   rate = 48000
+[CHIAKI]   frame size = 480
+[CHIAKI]   unknown = 1
+[CHIAKI] ChiakiOpusDecoder initialized
+[DEBUG] 11530478 VITA AUDIO :: init with 2 channels at 48000Hz
+[CHIAKI] Video Profiles:
+[CHIAKI]   zu: 0x960
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 01 67 4d 40 20 91 8a 03 c0 45 fb c0 5a ....gM@.....E..Z
+[CHIAKI]     10 80 80 80 a0 00 01 f4 80 00 75 30 11 34 38 74 54 .........u0.48tT
+[CHIAKI]     20 00 00 00 01 68 ee 3c 80                         ....h.<.        
+[CHIAKI] Pushed seq num 0x70a3a52d into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52e into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52f into Takion Send Buffer
+[CHIAKI] Completed stream_connection_takion_data_expect_streaminfo
+[CHIAKI] StreamConnection successfully received streaminfo
+[DEBUG] 11534277 EventCB CHIAKI_EVENT_CONNECTED
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52d, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52d from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52e, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52e from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52f, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52f from Takion Send Buffer
+[CHIAKI] StreamConnection received data with msg.type == 14
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 0e                                           ..              
+[CHIAKI] StreamConnection received streaminfo ack
+[DEBUG] 11566142 VITA AUDIO :: buffer init: buffer_frames 8, buffer_samples 3840, buffer_bytes 15360, frame_size 480, sample_bytes 4
+[DEBUG] 11566416 VITA AUDIO :: secondary init complete
+[CHIAKI] Sending Congestion Control Packet, received: 4, lost: 0
+[CHIAKI] Sending Congestion Control Packet, received: 12, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Switched to profile 0, resolution: 960x540
+[DEBUG] 11825613 VIDEO CALLBACK: First frame received (size=40)
+[DEBUG] 11842439 numOfOutput 0 bufSize 0x28
+
+[DEBUG] 11842654 Latency metrics — target 1.20 Mbps, measured 0.00 Mbps, RTT 55 ms (base 10 ms, jitter 45361 us)
+[DEBUG] 11889812 numOfOutput 0 bufSize 0x1ae8
+
+[CHIAKI] Added reference I frame 1
+[DEBUG] 11928722 numOfOutput 0 bufSize 0x262
+
+[CHIAKI] Added reference P frame 2
+[DEBUG] 11966795 numOfOutput 0 bufSize 0x273
+
+[CHIAKI] Added reference P frame 3
+[CHIAKI] Sending Congestion Control Packet, received: 28, lost: 0
+[CHIAKI] Sending Congestion Control Packet, received: 3, lost: 0
+[CHIAKI] Sending Congestion Control Packet, received: 0, lost: 0
+[CHIAKI] Pushed seq num 0x70a3a530 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Added reference P frame 4
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 5
+[CHIAKI] Sending Congestion Control Packet, received: 8, lost: 0
+[CHIAKI] Added reference P frame 6
+[DEBUG] 12632202 Controller send seq 500 (Vita)
+[CHIAKI] Added reference P frame 7
+[CHIAKI] Added reference P frame 8
+[CHIAKI] Added reference P frame 9
+[CHIAKI] Takion Send Buffer re-sending packet with seqnum 0x70a3a530, tries: 0
+[CHIAKI] Added reference P frame 10
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 11
+[CHIAKI] Added reference P frame 12
+[CHIAKI] Sending Congestion Control Packet, received: 37, lost: 0
+[DEBUG] 12854942 Latency metrics — target 1.20 Mbps, measured 0.41 Mbps, RTT 163 ms (base 10 ms, jitter 153879 us)
+[CHIAKI] Added reference P frame 13
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 0ms (last seq 0x3f7a45de)
+[CHIAKI] Sending Congestion Control Packet, received: 11, lost: 0
+[CHIAKI] Takion Send Buffer re-sending packet with seqnum 0x70a3a530, tries: 1
+[DEBUG] 13056846 Packet loss — Takion dropped 1 packet(s), total 1
+[DEBUG] 13057061 Takion overflow tolerated (1/2 within 0ms)
+[CHIAKI] Added reference P frame 14
+[DEBUG] 13080912 Video FPS — incoming 12 fps (requested 30)
+[CHIAKI] Added reference P frame 15
+[CHIAKI] Added reference P frame 16
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 17
+[CHIAKI] Added reference P frame 18
+[CHIAKI] Added reference P frame 19
+[CHIAKI] Sending Congestion Control Packet, received: 27, lost: 0
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 350ms (last seq 0x3f7a45df)
+[CHIAKI] Takion Send Buffer re-sending packet with seqnum 0x70a3a530, tries: 2
+[DEBUG] 13244965 Packet loss — Takion dropped 1 packet(s), total 2
+[DEBUG] 13245172 Takion overflow tolerated (2/2 within 188ms)
+[CHIAKI] Added reference P frame 20
+[CHIAKI] Added reference P frame 21
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 99ms (last seq 0x3f7a45de)
+[DEBUG] 13324237 Packet loss — Takion dropped 1 packet(s), total 3
+[DEBUG] 13324435 Takion overflow gate tripped after 3 drops in 267ms
+[CHIAKI] Pushed seq num 0x70a3a531 into Takion Send Buffer
+[DEBUG] 13325049 Decoder resync requested (takion overflow gate)
+[DEBUG] 13325236 Takion overflow — soft recovery 1/2 at 800 kbps
+[CHIAKI] Sending Congestion Control Packet, received: 17, lost: 0
+[CHIAKI] Added reference P frame 22
+[CHIAKI] StreamConnection is disconnecting
+[CHIAKI] StreamConnection sending Disconnect
+[CHIAKI] Pushed seq num 0x70a3a532 into Takion Send Buffer
+[CHIAKI] StreamConnection was requested to stop
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0xd1)
+[CHIAKI] Takion jitter: 137735 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0x1)
+[CHIAKI] Takion jitter: 137735 us, gaps_skipped=0 over 0ms
+[CHIAKI] StreamConnection closed takion
+[CHIAKI] StreamConnection restart requested; attempting reconnect with bitrate 800 kbps
+[CHIAKI] Starting Senkusha
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 7)
+[CHIAKI] Don't fragment is not supported on this platform, MTU values may be incorrect.
+[CHIAKI] Takion sent init
+[CHIAKI] Takion received init ack with remote tag 0x1341d181, outbound streams: 0x64, inbound streams: 0x64
+[CHIAKI] Takion sent cookie
+[CHIAKI] Takion received cookie ack
+[CHIAKI] Takion connected
+[CHIAKI] Takion receive queue size configured for 128 packets
+[CHIAKI] Setting takion versions
+[CHIAKI] Pushed seq num 0x28e4baf1 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf1, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf1 from Takion Send Buffer
+[CHIAKI] Senkusha successfully set takion version
+[CHIAKI] Senkusha sending big
+[CHIAKI] Pushed seq num 0x28e4baf2 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf2, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf2 from Takion Send Buffer
+[CHIAKI] Senkusha successfully received bang
+[CHIAKI] Senkusha Ping Test with count 10 starting
+[CHIAKI] Pushed seq num 0x28e4baf3 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf3, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf3 from Takion Send Buffer
+[CHIAKI] Senkusha enabled echo
+[CHIAKI] Senkusha sending Ping 0 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.772 ms
+[CHIAKI] Senkusha sending Ping 1 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.901 ms
+[CHIAKI] Senkusha sending Ping 2 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 5.850 ms
+[CHIAKI] Senkusha sending Ping 3 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 3.102 ms
+[CHIAKI] Senkusha sending Ping 4 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.769 ms
+[CHIAKI] Senkusha sending Ping 5 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.765 ms
+[CHIAKI] Senkusha sending Ping 6 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.935 ms
+[CHIAKI] Senkusha sending Ping 7 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.776 ms
+[CHIAKI] Senkusha sending Ping 8 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.184 ms
+[CHIAKI] Senkusha sending Ping 9 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.483 ms
+[CHIAKI] Pushed seq num 0x28e4baf4 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf4, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf4 from Takion Send Buffer
+[CHIAKI] Senkusha disabled echo
+[CHIAKI] Senkusha determined average RTT = 2.553 ms
+[CHIAKI] Senkusha starting MTU in test with min 576, max 1454, retries 3, timeout 12 ms
+[CHIAKI] Pushed seq num 0x28e4baf5 into Takion Send Buffer
+[CHIAKI] Senkusha MTU request 1454 (min 576, max 1454), id 1, attempt 0
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf5, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf5 from Takion Send Buffer
+[CHIAKI] Senkusha MTU 1454 success
+[CHIAKI] Senkusha determined inbound MTU 1454
+[CHIAKI] Senkusha starting MTU out test with min 576, max 1454, retries 3, timeout 12 ms
+[CHIAKI] Pushed seq num 0x28e4baf6 into Takion Send Buffer
+[CHIAKI] Senkusha sent initial client MTU command
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf6, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf6 from Takion Send Buffer
+[CHIAKI] Senkusha received expected Client MTU Command
+[CHIAKI] Senkusha MTU 1454 out ping attempt 0
+[CHIAKI] Senkusha MTU ping 1454 success
+[CHIAKI] Senkusha determined outbound MTU 1454
+[CHIAKI] Senkusha sending final Client MTU Command
+[CHIAKI] Pushed seq num 0x28e4baf7 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf7, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf7 from Takion Send Buffer
+[CHIAKI] Senkusha is disconnecting
+[CHIAKI] Pushed seq num 0x28e4baf8 into Takion Send Buffer
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 8472 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0x1)
+[CHIAKI] Takion jitter: 8472 us, gaps_skipped=0 over 0ms
+[CHIAKI] Senkusha closed takion
+[CHIAKI] Senkusha completed successfully
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 12)
+[CHIAKI] Takion sent init
+[CHIAKI] Takion failed to receive init ack
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0xb2)
+[CHIAKI] Takion jitter: 137735 us, gaps_skipped=0 over 178ms
+[CHIAKI] StreamConnection closed takion
+[CHIAKI] StreamConnection completed successfully
+[CHIAKI] Ctrl requested to stop
+[CHIAKI] Ctrl stopped
+[CHIAKI] Session has quit
+[ERROR] 13708261 EventCB CHIAKI_EVENT_QUIT (unknown | code=1 "User stopped")
+[DEBUG] 13708457 Quit classification: user_stop=0, fast_restart=1, retry_pending=0, retry_active=0, teardown_in_progress=0
+[DEBUG] 13730444 Controller send seq 1000 (Vita)
+[DEBUG] 13758409 VITA AUDIO :: Session stats - Frames: 97, Catchups: 0 (0.00%)
+[DEBUG] 13758639 Finalizing session resources
+[DEBUG] 13760865 Input thread joined successfully
+[DEBUG] 13761879 Session finalized
+[DEBUG] 13762085 Stream cooldown engaged for 5563 ms
+[DEBUG] 13762279 Resuming discovery after stream
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service detected new host with id 5C96669736E2
+[CHIAKI] Saving discovered host...
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[DEBUG] 19737156 Preparing to start host_stream
+[DEBUG] 19737411 Latency mode applied: 1200 kbps @ 960x540
+[DEBUG] 19737652 Initializing Chiaki session (host=192.168.1.219, bitrate=1200 kbps, fps=30)
+[DEBUG] 19738149 Suspending discovery during stream
+[DEBUG] 19738969 Chiaki session initialized successfully, starting media pipeline
+[DEBUG] 19739166 vita video setup
+
+[DEBUG] 19739344 update_scaling_settings: src=960x540 tex=960x544 dst=960x544 stretch=true
+[DEBUG] 19873022 allocating size 0xb00000
+
+[DEBUG] 19878265 base: 0x63c00000
+
+[CHIAKI] Starting session request for PS5
+[CHIAKI] Trying to request session from :9295
+[CHIAKI] Connected to :9295
+[CHIAKI] Sending session request
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 47 45 54 20 2f 73 69 65 2f 70 73 35 2f 72 70 2f GET./sie/ps5/rp/
+[CHIAKI]     10 73 65 73 73 2f 69 6e 69 74 20 48 54 54 50 2f 31 sess/init.HTTP/1
+[CHIAKI]     20 2e 31 0d 0a 48 6f 73 74 3a 20 3a 39 32 39 35 0d .1..Host:.:9295.
+[CHIAKI]     30 0a 55 73 65 72 2d 41 67 65 6e 74 3a 20 72 65 6d .User-Agent:.rem
+[CHIAKI]     40 6f 74 65 70 6c 61 79 20 57 69 6e 64 6f 77 73 0d oteplay.Windows.
+[CHIAKI]     50 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 63 6c 6f .Connection:.clo
+[CHIAKI]     60 73 65 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 6e 67 se..Content-Leng
+[CHIAKI]     70 74 68 3a 20 30 0d 0a 52 50 2d 52 65 67 69 73 74 th:.0..RP-Regist
+[CHIAKI]     80 6b 65 79 3a 20 33 38 33 38 33 33 33 30 33 37 33 key:.38383330373
+[CHIAKI]     90 33 33 39 36 33 0d 0a 52 70 2d 56 65 72 73 69 6f 33963..Rp-Versio
+[CHIAKI]     a0 6e 3a 20 31 2e 30 0d 0a 0d 0a                   n:.1.0....      
+[CHIAKI] Session Response Header:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 48 54 54 50 2f 31 2e 31 20 34 30 33 20 46 6f 72 HTTP/1.1.403.For
+[CHIAKI]     10 62 69 64 64 65 6e 0d 0a 43 6f 6e 6e 65 63 74 69 bidden..Connecti
+[CHIAKI]     20 6f 6e 3a 20 63 6c 6f 73 65 0d 0a 50 72 61 67 6d on:.close..Pragm
+[CHIAKI]     30 61 3a 20 6e 6f 2d 63 61 63 68 65 0d 0a 43 6f 6e a:.no-cache..Con
+[CHIAKI]     40 74 65 6e 74 2d 4c 65 6e 67 74 68 3a 20 30 0d 0a tent-Length:.0..
+[CHIAKI]     50 52 50 2d 56 65 72 73 69 6f 6e 3a 20 31 2e 30 0d RP-Version:.1.0.
+[CHIAKI]     60 0a 52 50 2d 41 70 70 6c 69 63 61 74 69 6f 6e 2d .RP-Application-
+[CHIAKI]     70 52 65 61 73 6f 6e 3a 20 38 30 31 30 38 62 31 30 Reason:.80108b10
+[CHIAKI]     80 0d 0a 0d 0a                                     ....            
+[CHIAKI] Reported Application Reason: 0x80108b10 (Remote is already in use)
+[CHIAKI] Session has quit
+[ERROR] 19921403 EventCB CHIAKI_EVENT_QUIT (unknown | code=4 "Remote Play already in use")
+[DEBUG] 19921603 Quit classification: user_stop=0, fast_restart=0, retry_pending=0, retry_active=0, teardown_in_progress=0
+[DEBUG] 19963808 Finalizing session resources
+[DEBUG] 19964636 Input thread joined successfully
+[DEBUG] 19964943 Session finalized
+[DEBUG] 19965129 Stream cooldown engaged for 5000 ms
+[DEBUG] 19965317 Resuming discovery after stream
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service detected new host with id 5C96669736E2
+[CHIAKI] Saving discovered host...
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[DEBUG] 22221760 Ignoring connect request — network recovery cooldown active
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery received:
+HTTP/1.1 200 Ok
+host-id:5C96669736E2
+host-type:PS5
+host-name:PS5-024
+host-request-port:997
+device-discovery-protocol-version:00030010
+system-version:12600006
+
+[CHIAKI] 485454502f312e3120323030204f6b0a686f73742d69643a3543393636363937333645320a686f73742d747970653a5053350a686f73742d6e616d653a5053352d3032340a686f73742d726571756573742d706f72743a3939370a6465766963652d646973636f766572792d70726f746f636f6c2d76657273696f6e3a30303033303031300a73797374656d2d76657273696f6e3a31323630303030360a
+[CHIAKI] Discovery Service Received host with id 5C96669736E2
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[DEBUG] 25542362 Preparing to start host_stream
+[DEBUG] 25542592 Latency mode applied: 1200 kbps @ 960x540
+[DEBUG] 25542800 Initializing Chiaki session (host=192.168.1.219, bitrate=1200 kbps, fps=30)
+[DEBUG] 25543309 Suspending discovery during stream
+[DEBUG] 25544122 Chiaki session initialized successfully, starting media pipeline
+[DEBUG] 25544342 vita video setup
+
+[DEBUG] 25544517 update_scaling_settings: src=960x540 tex=960x544 dst=960x544 stretch=true
+[DEBUG] 25678636 allocating size 0xb00000
+
+[DEBUG] 25683991 base: 0x63c00000
+
+[CHIAKI] Starting session request for PS5
+[CHIAKI] Trying to request session from :9295
+[CHIAKI] Connected to :9295
+[CHIAKI] Sending session request
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 47 45 54 20 2f 73 69 65 2f 70 73 35 2f 72 70 2f GET./sie/ps5/rp/
+[CHIAKI]     10 73 65 73 73 2f 69 6e 69 74 20 48 54 54 50 2f 31 sess/init.HTTP/1
+[CHIAKI]     20 2e 31 0d 0a 48 6f 73 74 3a 20 3a 39 32 39 35 0d .1..Host:.:9295.
+[CHIAKI]     30 0a 55 73 65 72 2d 41 67 65 6e 74 3a 20 72 65 6d .User-Agent:.rem
+[CHIAKI]     40 6f 74 65 70 6c 61 79 20 57 69 6e 64 6f 77 73 0d oteplay.Windows.
+[CHIAKI]     50 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 63 6c 6f .Connection:.clo
+[CHIAKI]     60 73 65 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 6e 67 se..Content-Leng
+[CHIAKI]     70 74 68 3a 20 30 0d 0a 52 50 2d 52 65 67 69 73 74 th:.0..RP-Regist
+[CHIAKI]     80 6b 65 79 3a 20 33 38 33 38 33 33 33 30 33 37 33 key:.38383330373
+[CHIAKI]     90 33 33 39 36 33 0d 0a 52 70 2d 56 65 72 73 69 6f 33963..Rp-Versio
+[CHIAKI]     a0 6e 3a 20 31 2e 30 0d 0a 0d 0a                   n:.1.0....      
+[CHIAKI] Session Response Header:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 48 54 54 50 2f 31 2e 31 20 32 30 30 20 4f 4b 0d HTTP/1.1.200.OK.
+[CHIAKI]     10 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 63 6c 6f .Connection:.clo
+[CHIAKI]     20 73 65 0d 0a 50 72 61 67 6d 61 3a 20 6e 6f 2d 63 se..Pragma:.no-c
+[CHIAKI]     30 61 63 68 65 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 ache..Content-Le
+[CHIAKI]     40 6e 67 74 68 3a 20 30 0d 0a 52 50 2d 4e 6f 6e 63 ngth:.0..RP-Nonc
+[CHIAKI]     50 65 3a 20 57 63 64 45 78 55 32 4a 32 2b 70 35 2f e:.WcdExU2J2+p5/
+[CHIAKI]     60 49 4f 43 2f 45 6b 58 77 67 3d 3d 0d 0a 52 50 2d IOC/EkXwg==..RP-
+[CHIAKI]     70 56 65 72 73 69 6f 6e 3a 20 31 2e 30 0d 0a 52 50 Version:.1.0..RP
+[CHIAKI]     80 2d 53 75 70 70 6f 72 74 43 6d 64 3a 20 31 32 36 -SupportCmd:.126
+[CHIAKI]     90 30 30 30 0d 0a 52 50 2d 46 65 61 74 75 72 65 3a 000..RP-Feature:
+[CHIAKI]     a0 20 31 0d 0a 0d 0a                               .1....          
+[CHIAKI] Session request successful
+[CHIAKI] Starting ctrl
+[CHIAKI] Ctrl connected to :9295
+[CHIAKI] Ctrl request StartBitrate header target: 1200 kbps (requested)
+[CHIAKI] Sending ctrl request
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 47 45 54 20 2f 73 69 65 2f 70 73 35 2f 72 70 2f GET./sie/ps5/rp/
+[CHIAKI]     10 73 65 73 73 2f 63 74 72 6c 20 48 54 54 50 2f 31 sess/ctrl.HTTP/1
+[CHIAKI]     20 2e 31 0d 0a 48 6f 73 74 3a 20 3a 39 32 39 35 0d .1..Host:.:9295.
+[CHIAKI]     30 0a 55 73 65 72 2d 41 67 65 6e 74 3a 20 72 65 6d .User-Agent:.rem
+[CHIAKI]     40 6f 74 65 70 6c 61 79 20 57 69 6e 64 6f 77 73 0d oteplay.Windows.
+[CHIAKI]     50 0a 43 6f 6e 6e 65 63 74 69 6f 6e 3a 20 6b 65 65 .Connection:.kee
+[CHIAKI]    160 6e 67 54 79 70 65 3a 20 39 46 75 4e 55 51 3d 3d ngType:.9FuNUQ==
+[CHIAKI]     a0 20 58 0d 0a 52 50 2d 53 65 72 76 65 72 2d 54 79 .X..RP-Server-Ty
+[CHIAKI]     b0 70 65 3a 20 61 74 49 72 34 73 63 39 73 48 5a 4d pe:.atIr4sc9sHZM
+[CHIAKI]     c0 71 77 65 49 52 56 48 6d 6f 67 3d 3d 0d 0a 52 50 qweIRVHmog==..RP
+[CHIAKI]     d0 2d 53 65 72 76 65 72 2d 49 50 76 34 3a 20 31 39 -Server-IPv4:.19
+[CHIAKI] Ctrl got Server Type: 2
+[CHIAKI]      0 00 00 00 4b 00 33 00 00 0e 6f a9 62 80 ab c9 80 ...K.3...o.b....
+[CHIAKI]     10 28 cb 77 db 45 df 6c 0b f0 64 c1 95 0e 8b c2 8b (.w.E.l..d......
+[CHIAKI]     20 a6 3c 5d 27 9b 9c 63 4f b6 a0 73 9a 38 f0 ef f4 .<]'..cO..s.8...
+[CHIAKI]     30 c1 13 a3 b7 ab bd 80 dc 6e bc ec eb c8 5f cb 0e ........n...._..
+[CHIAKI]     40 db b9 c7 d8 95 02 8c c8 e1 9c 88 85 db 8d e6 42 ...............B
+[CHIAKI]      0 4a 31 37 37 30 38 33 35 35 30 35 36 32 49 47 4a J177083550562IGJ
+[CHIAKI]     10 4a 41 33 46 35 58 52 49 43 46 43 5a 53 46 44 48 JA3F5XRICFCZSFDH
+[CHIAKI]     20 4d 41 36 51 57 35 59 4b 42 4d 37 55 37 44 54 42 MA6QW5YKBM7U7DTB
+[CHIAKI]     30 52 35 4e 59 43 36 51 42 51 48 35 34 41 50 33 37 R5NYC6QBQH54AP37
+[CHIAKI]      0 00 01 01 59                                     ...Y            
+[CHIAKI] Senkusha sending Ping 3 of test index 0
+[CHIAKI] Senkusha sending Ping 5 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.944 ms
+[CHIAKI] Senkusha sending Ping 8 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.861 ms
+[CHIAKI] Senkusha sending Ping 9 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.697 ms
+[CHIAKI] Pushed seq num 0x5851f430 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f430, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f430 from Takion Send Buffer
+[CHIAKI] Senkusha disabled echo
+[CHIAKI] Senkusha determined average RTT = 2.277 ms
+[CHIAKI] Senkusha starting MTU in test with min 576, max 1454, retries 3, timeout 11 ms
+[CHIAKI] Pushed seq num 0x5851f431 into Takion Send Buffer
+[CHIAKI] Senkusha MTU request 1454 (min 576, max 1454), id 1, attempt 0
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f431, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f431 from Takion Send Buffer
+[CHIAKI] Senkusha MTU 1454 success
+[CHIAKI] Senkusha determined inbound MTU 1454
+[CHIAKI] Senkusha starting MTU out test with min 576, max 1454, retries 3, timeout 11 ms
+[CHIAKI] Pushed seq num 0x5851f432 into Takion Send Buffer
+[CHIAKI] Senkusha sent initial client MTU command
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f432, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f432 from Takion Send Buffer
+[CHIAKI] Senkusha received expected Client MTU Command
+[CHIAKI] Senkusha MTU 1454 out ping attempt 0
+[CHIAKI] Senkusha MTU ping 1454 success
+[CHIAKI] Senkusha determined outbound MTU 1454
+[CHIAKI] Senkusha sending final Client MTU Command
+[CHIAKI] Pushed seq num 0x5851f433 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x5851f433, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x5851f433 from Takion Send Buffer
+[CHIAKI] Senkusha is disconnecting
+[CHIAKI] Pushed seq num 0x5851f434 into Takion Send Buffer
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 7964 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 7964 us, gaps_skipped=0 over 1ms
+[CHIAKI] Senkusha closed takion
+[CHIAKI] Senkusha completed successfully
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 12)
+[CHIAKI] Takion sent init
+[CHIAKI] Takion received init ack with remote tag 0x36943ea0, outbound streams: 0x64, inbound streams: 0x64
+[CHIAKI] Takion sent cookie
+[CHIAKI] Takion received cookie ack
+[CHIAKI] Takion connected
+[CHIAKI] Takion receive queue size configured for 128 packets
+[CHIAKI] StreamConnection sending big
+[CHIAKI] LaunchSpec: {"sessionId":"sessionId4321","streamResolutions":[{"resolution":{"width":960,"height":540},"maxFps":30,"score":10}],"network":{"bwKbpsSent":1200,"bwLoss":0.001000,"mtu":1454,"rtt":2,"ports":[53,2053]},"slotId":1,"appSpecification":{"minFps":30,"minBandwidth":0,"extTitleId":"ps3","version":1,"timeLimit":1,"startTimeout":100,"afkTimeout":100,"afkTimeoutDisconnect":100},"konan":{"ps3AccessToken":"accessToken","ps3RefreshToken":"refreshToken"},"requestGameSpecification":{"model":"bravia_tv","platform":"android","audioChannels":"5.1","language":"sp","acceptButton":"X","connectedControllers":["xinput","ds3","ds4"],"yuvCoefficient":"bt601","videoEncoderProfile":"hw4.1","audioEncoderProfile":"audio1","adaptiveStreamMode": "resize"},"userProfile":{"onlineId":"psnId","npId":"npI�^0�ū�[CHIAKI] Reached stream_connection_send_big loop
+[CHIAKI] Pushed seq num 0x70a3a52b into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52c into Takion Send Buffer
+[CHIAKI] Completed stream_connection_send_big
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52b, a_rwnd = 0x18a95, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52b from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52c, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52c from Takion Send Buffer
+[CHIAKI] Calling stream_connection_takion_data_expect_bang
+[CHIAKI] BANG received
+[CHIAKI] CTRL RECEIVED
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 08 00 41 00 00 67 44 b7 88 e4 3e c0 a0 .....A..gD...>..
+[CHIAKI] Ctrl received message of type 0x41, size 0x8
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 00 02 01 00 00                         ........        
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 00 02 01 00 00                         ........        
+[CHIAKI] GKCrypt 2 thread starting
+[CHIAKI] GKCrypt 3 thread starting
+[CHIAKI] Completed stream_connection_takion_data_expect_bang
+[CHIAKI] Crypt has become available. Re-checking MACs of 0 packets
+[CHIAKI] Calling stream_connection_takion_data_expect_bang
+[CHIAKI] StreamConnection expected bang payload but received streaminfo payload (13)
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 0d 7a 93 02 0a 30 08 c0 07 10 9c 04 1a 28 00 ..z...0.......(.
+[CHIAKI]     10 00 00 01 67 4d 40 20 91 8a 03 c0 45 fb c0 5a 80 ...gM@.....E..Z.
+[CHIAKI]     20 80 80 a0 00 01 f4 80 00 75 30 11 34 38 74 54 00 ........u0.48tT.
+[CHIAKI]     30 00 00 01 68 ee 3c 80 12 0e 02 10 00 00 bb 80 00 ...h.<..........
+[CHIAKI]     40 00 01 e0 00 00 00 01 18 64 20 64 28 64 30 c8 01 ........d.d(d0..
+[CHIAKI]     50 3a 26 08 00 12 0e 02 10 00 00 bb 80 00 00 01 e0 :&..............
+[CHIAKI]     60 00 00 00 01 18 00 22 0e 02 10 00 00 bb 80 00 00 ......".........
+[CHIAKI]     70 01 e0 00 00 00 01 28 02 3a 26 08 02 12 0e 02 10 ......(.:&......
+[CHIAKI]     80 00 00 0b b8 00 00 00 1e 00 00 00 01 18 01 22 0e ..............".
+[CHIAKI]     90 02 10 00 00 0b b8 00 00 00 1e 00 00 00 01 28 02 ..............(.
+[CHIAKI]     a0 3a 26 08 03 12 0e 02 10 00 00 0b b8 00 00 00 1e :&..............
+[CHIAKI]     b0 00 00 00 01 18 01 22 0e 02 10 00 00 0b b8 00 00 ......".........
+[CHIAKI]     c0 00 1e 00 00 00 01 28 02 3a 26 08 04 12 0e 02 10 ......(.:&......
+[CHIAKI]     d0 00 00 0b b8 00 00 00 1e 00 00 00 01 18 01 22 0e ..............".
+[CHIAKI]     e0 02 10 00 00 0b b8 00 00 00 1e 00 00 00 01 28 02 ..............(.
+[CHIAKI]     f0 3a 26 08 05 12 0e 02 10 00 00 0b b8 00 00 00 1e :&..............
+[CHIAKI]    100 00 00 00 01 18 01 22 0e 02 10 00 00 0b b8 00 00 ......".........
+[CHIAKI]    110 00 1e 00 00 00 01 28 02                         ......(.        
+[CHIAKI] StreamConnection recieved payload of type 13
+[CHIAKI] StreamConnection received audio header:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 02 10 00 00 bb 80 00 00 01 e0 00 00 00 01       ..............  
+[CHIAKI] Audio Header:
+[CHIAKI]   channels = 2
+[CHIAKI]   bits = 16
+[CHIAKI]   rate = 48000
+[CHIAKI]   frame size = 480
+[CHIAKI]   unknown = 1
+[CHIAKI] ChiakiOpusDecoder initialized
+[CHIAKI] Video Profiles:
+[CHIAKI]   zu: 0x960
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 01 67 4d 40 20 91 8a 03 c0 45 fb c0 5a ....gM@.....E..Z
+[CHIAKI]     10 80 80 80 a0 00 01 f4 80 00 75 30 11 34 38 74 54 .........u0.48tT
+[CHIAKI]     20 00 00 00 01 68 ee 3c 80                         ....h.<.        
+[CHIAKI] Pushed seq num 0x70a3a52d into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52e into Takion Send Buffer
+[CHIAKI] Pushed seq num 0x70a3a52f into Takion Send Buffer
+[CHIAKI] Completed stream_connection_takion_data_expect_streaminfo
+[CHIAKI] StreamConnection successfully received streaminfo
+[DEBUG] 26449921 EventCB CHIAKI_EVENT_CONNECTED
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52d, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52d from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52e, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52e from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a52f, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a52f from Takion Send Buffer
+[CHIAKI] StreamConnection received data with msg.type == 14
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 0e                                           ..              
+[CHIAKI] StreamConnection received streaminfo ack
+[DEBUG] 26481025 VITA AUDIO :: buffer init: buffer_frames 8, buffer_samples 3840, buffer_bytes 15360, frame_size 480, sample_bytes 4
+[DEBUG] 26481295 VITA AUDIO :: secondary init complete
+[CHIAKI] Sending Congestion Control Packet, received: 4, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Switched to profile 0, resolution: 960x540
+[DEBUG] 26717328 numOfOutput 0 bufSize 0x28
+
+[DEBUG] 26717532 Latency metrics — target 1.20 Mbps, measured 0.00 Mbps, RTT 30 ms (base 2 ms, jitter 28840 us)
+[CHIAKI] Sending Congestion Control Packet, received: 6, lost: 0
+[DEBUG] 26764698 numOfOutput 0 bufSize 0x1d30
+
+[CHIAKI] Added reference I frame 1
+[DEBUG] 26841510 numOfOutput 0 bufSize 0x2ac
+
+[CHIAKI] Added reference P frame 2
+[DEBUG] 26870116 numOfOutput 0 bufSize 0x2a5
+
+[CHIAKI] Added reference P frame 3
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 4
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[CHIAKI] Added reference P frame 5
+[CHIAKI] Added reference P frame 6
+[CHIAKI] Added reference P frame 7
+[CHIAKI] Added reference P frame 8
+[CHIAKI] Added reference P frame 9
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 10
+[CHIAKI] Sending Congestion Control Packet, received: 39, lost: 0
+[CHIAKI] Added reference P frame 11
+[CHIAKI] Added reference P frame 12
+[CHIAKI] Added reference P frame 13
+[CHIAKI] Added reference P frame 14
+[CHIAKI] Added reference P frame 15
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Sending Congestion Control Packet, received: 31, lost: 0
+[CHIAKI] Added reference P frame 16
+[CHIAKI] Added reference P frame 17
+[CHIAKI] Added reference P frame 18
+[CHIAKI] Added reference P frame 19
+[CHIAKI] Added reference P frame 20
+[CHIAKI] Pushed seq num 0x70a3a530 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a530, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a530 from Takion Send Buffer
+[CHIAKI] Added reference P frame 21
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 22
+[DEBUG] 27520225 Controller send seq 1500 (Vita)
+[CHIAKI] Sending Congestion Control Packet, received: 33, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 62 1d 00 00 00 00 ....$...G.b.....
+[CHIAKI]     10 20 00 29 75 93 18 04 56 5e 66 40 30 00 39 00 00 ..)u...V^f@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 91 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=98, upstream_loss=0.0000, disable_upstream_audio=0, rtt=178.9480, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.3378 MBit/s
+[CHIAKI] Added reference P frame 23
+[CHIAKI] Added reference P frame 24
+[CHIAKI] Added reference P frame 25
+[CHIAKI] Added reference P frame 26
+[CHIAKI] Added reference P frame 27
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 28
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[DEBUG] 27745162 Latency metrics — target 1.20 Mbps, measured 0.06 Mbps, RTT 51 ms (base 2 ms, jitter 49102 us)
+[CHIAKI] Added reference P frame 29
+[CHIAKI] Added reference P frame 30
+[CHIAKI] Added reference P frame 31
+[CHIAKI] Added reference P frame 32
+[CHIAKI] Added reference P frame 33
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 27920940 Video FPS — incoming 31 fps (requested 30)
+[CHIAKI] Added reference P frame 34
+[CHIAKI] Sending Congestion Control Packet, received: 31, lost: 0
+[CHIAKI] Added reference P frame 35
+[CHIAKI] Added reference P frame 36
+[CHIAKI] Added reference P frame 37
+[CHIAKI] Added reference P frame 38
+[CHIAKI] Added reference P frame 39
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 40
+[CHIAKI] Sending Congestion Control Packet, received: 33, lost: 0
+[CHIAKI] Added reference P frame 41
+[CHIAKI] Added reference P frame 42
+[CHIAKI] Added reference P frame 43
+[CHIAKI] Added reference P frame 44
+[CHIAKI] Added reference P frame 45
+[CHIAKI] Added reference P frame 46
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[CHIAKI] Added reference P frame 47
+[CHIAKI] Added reference P frame 48
+[CHIAKI] Added reference P frame 49
+[CHIAKI] Added reference P frame 50
+[CHIAKI] Pushed seq num 0x70a3a531 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a531, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a531 from Takion Send Buffer
+[CHIAKI] Added reference P frame 51
+[CHIAKI] Added reference P frame 52
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[CHIAKI] Added reference P frame 53
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 6b 1d 00 00 00 00 ....$...G.k.....
+[CHIAKI]     10 20 00 29 b2 9d ef a7 c6 83 63 40 30 00 39 00 00 ..)......c@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 a0 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=107, upstream_loss=0.0000, disable_upstream_audio=0, rtt=156.1180, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.0400 MBit/s
+[CHIAKI] Added reference P frame 54
+[DEBUG] 28614896 Controller send seq 2000 (Vita)
+[CHIAKI] Added reference P frame 55
+[CHIAKI] Added reference P frame 56
+[CHIAKI] Added reference P frame 57
+[CHIAKI] Added reference P frame 58
+[CHIAKI] Sending Congestion Control Packet, received: 30, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 28755165 Latency metrics — target 1.20 Mbps, measured 0.02 Mbps, RTT 50 ms (base 2 ms, jitter 48872 us)
+[CHIAKI] Added reference P frame 59
+[CHIAKI] Added reference P frame 60
+[CHIAKI] Added reference P frame 61
+[CHIAKI] Added reference P frame 62
+[CHIAKI] Added reference P frame 63
+[CHIAKI] Sending Congestion Control Packet, received: 30, lost: 0
+[DEBUG] 28931006 Video FPS — incoming 30 fps (requested 30)
+[CHIAKI] Added reference P frame 64
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 65
+[CHIAKI] Added reference P frame 66
+[CHIAKI] Added reference P frame 67
+[CHIAKI] Controller send seq 500 (Chiaki)
+[CHIAKI] Added reference P frame 68
+[CHIAKI] Added reference P frame 69
+[CHIAKI] Sending Congestion Control Packet, received: 36, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 70
+[CHIAKI] Received duplicate unit
+[CHIAKI] Added reference P frame 71
+[CHIAKI] Added reference P frame 72
+[CHIAKI] Added reference P frame 73
+[CHIAKI] Sending Congestion Control Packet, received: 37, lost: 0
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Detected missing or corrupt frame(s) from 74 to 77
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 74 to 76
+[CHIAKI] Pushed seq num 0x70a3a532 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a532, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a532 from Takion Send Buffer
+[CHIAKI] Missing reference frame 76 for decoding frame 77
+[CHIAKI] Detected missing or corrupt frame(s) from 74 to 78
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 74 to 77
+[CHIAKI] Pushed seq num 0x70a3a533 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a533, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a533 from Takion Send Buffer
+[DEBUG] 29412425 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 29412629 Loss accumulators — drop=1, window_frames=1, events=0, burst_frames=1 (0.0 ms)
+[CHIAKI] Pushed seq num 0x70a3a534 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Added reference P frame 78
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a534, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a534 from Takion Send Buffer
+[CHIAKI] Added reference P frame 79
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[CHIAKI] Added reference P frame 80
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 81
+[CHIAKI] Added reference P frame 82
+[CHIAKI] Added reference P frame 83
+[DEBUG] 29715480 Controller send seq 2500 (Vita)
+[CHIAKI] Detected missing or corrupt frame(s) from 84 to 87
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 84 to 86
+[CHIAKI] Pushed seq num 0x70a3a535 into Takion Send Buffer
+[CHIAKI] Sending Congestion Control Packet, received: 42, lost: 20
+[CHIAKI] Missing reference frame 86 for decoding frame 87
+[CHIAKI] Detected missing or corrupt frame(s) from 84 to 88
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 84 to 87
+[CHIAKI] Pushed seq num 0x70a3a536 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a535, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a535 from Takion Send Buffer
+[DEBUG] 29757710 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 29757926 Loss accumulators — drop=1, window_frames=2, events=0, burst_frames=1 (0.0 ms)
+[DEBUG] 29763305 Latency metrics — target 1.20 Mbps, measured 0.53 Mbps, RTT 40 ms (base 2 ms, jitter 38041 us)
+[CHIAKI] Added reference P frame 88
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 74 1d 00 00 00 00 ....$...G.t.....
+[CHIAKI]     10 20 00 29 42 60 e5 d0 22 8b 60 40 30 00 39 00 00 ..)B`..".`@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 cf 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=116, upstream_loss=0.0000, disable_upstream_audio=0, rtt=132.3480, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.5259 MBit/s
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a536, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a536 from Takion Send Buffer
+[CHIAKI] Added reference P frame 89
+[CHIAKI] Added reference P frame 90
+[CHIAKI] Added reference P frame 91
+[CHIAKI] Sending Congestion Control Packet, received: 41, lost: 0
+[DEBUG] 29937507 Video FPS — incoming 20 fps (requested 30)
+[CHIAKI] Added reference P frame 92
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 93
+[CHIAKI] Added reference P frame 94
+[CHIAKI] Added reference P frame 95
+[CHIAKI] Added reference P frame 96
+[CHIAKI] Sending Congestion Control Packet, received: 36, lost: 0
+[CHIAKI] Detected missing or corrupt frame(s) from 97 to 100
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 97 to 99
+[CHIAKI] Pushed seq num 0x70a3a537 into Takion Send Buffer
+[CHIAKI] Missing reference frame 99 for decoding frame 100
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Detected missing or corrupt frame(s) from 97 to 101
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 97 to 100
+[CHIAKI] Pushed seq num 0x70a3a538 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a537, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a537 from Takion Send Buffer
+[DEBUG] 30215096 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 30215305 Loss accumulators — drop=1, window_frames=3, events=0, burst_frames=1 (0.0 ms)
+[DEBUG] 30215505 Unrecovered frame gate tolerated (2 event(s) remaining)
+[CHIAKI] Pushed seq num 0x70a3a539 into Takion Send Buffer
+[DEBUG] 30216077 Decoder resync requested (unrecovered frame gate)
+[CHIAKI] Added reference P frame 101
+[CHIAKI] Added reference P frame 102
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a538, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a538 from Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a539, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a539 from Takion Send Buffer
+[CHIAKI] Added reference P frame 103
+[CHIAKI] Added reference P frame 104
+[CHIAKI] Sending Congestion Control Packet, received: 42, lost: 0
+[CHIAKI] Added reference P frame 105
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 106
+[CHIAKI] Added reference P frame 107
+[CHIAKI] Pushed seq num 0x70a3a53a into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Added reference P frame 108
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53a, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53a from Takion Send Buffer
+[CHIAKI] Sending Congestion Control Packet, received: 36, lost: 0
+[CHIAKI] Added reference P frame 109
+[CHIAKI] Added reference P frame 110
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Detected missing or corrupt frame(s) from 111 to 114
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 111 to 113
+[CHIAKI] Pushed seq num 0x70a3a53b into Takion Send Buffer
+[CHIAKI] Missing reference frame 113 for decoding frame 114
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53b, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53b from Takion Send Buffer
+[CHIAKI] Detected missing or corrupt frame(s) from 111 to 115
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 111 to 114
+[CHIAKI] Pushed seq num 0x70a3a53c into Takion Send Buffer
+[DEBUG] 30696828 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 30697032 Loss accumulators — drop=1, window_frames=4, events=0, burst_frames=1 (0.0 ms)
+[CHIAKI] Added reference I frame 115
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53c, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53c from Takion Send Buffer
+[CHIAKI] Sending Congestion Control Packet, received: 32, lost: 0
+[CHIAKI] Added reference P frame 116
+[CHIAKI] CTRL RECEIVED
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 00 00 fe 00 00                         ........        
+[CHIAKI] Ctrl received message of type 0xfe, size 0
+[CHIAKI] Ctrl received Heartbeat, sending reply
+[CHIAKI] Ctrl sending message type 1fe, size 0
+
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 6c 1d 00 00 00 00 ....$...G.l.....
+[CHIAKI]     10 20 00 29 91 ed 7c 3f 35 8e 5f 40 30 00 39 00 00 ..)..|?5._@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 bb 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=108, upstream_loss=0.0000, disable_upstream_audio=0, rtt=126.2220, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.8538 MBit/s
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] CTRL RECEIVED
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 00 00 00 08 00 10 00 00 0a a4 72 b1 98 81 d5 b5 ..........r.....
+[CHIAKI] Ctrl received message of type 0x10, size 0x8
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 ff ff ff e0 00 00 00 64                         .......d        
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 ff ff ff e0 00 00 00 64                         .......d        
+[DEBUG] 30813336 Controller send seq 3000 (Vita)
+[DEBUG] 30819954 Latency metrics — target 1.20 Mbps, measured 0.69 Mbps, RTT 64 ms (base 2 ms, jitter 62824 us)
+[CHIAKI] Added reference P frame 117
+[CHIAKI] Added reference P frame 118
+[CHIAKI] Added reference P frame 119
+[CHIAKI] Added reference P frame 120
+[CHIAKI] Sending Congestion Control Packet, received: 41, lost: 0
+[DEBUG] 30957612 Video FPS — incoming 21 fps (requested 30)
+[CHIAKI] Added reference P frame 121
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 122
+[CHIAKI] Added reference P frame 123
+[CHIAKI] Added reference P frame 124
+[CHIAKI] Sending Congestion Control Packet, received: 40, lost: 0
+[CHIAKI] Added reference P frame 125
+[CHIAKI] Detected missing or corrupt frame(s) from 126 to 129
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 126 to 128
+[CHIAKI] Pushed seq num 0x70a3a53d into Takion Send Buffer
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Missing reference frame 128 for decoding frame 129
+[CHIAKI] Detected missing or corrupt frame(s) from 126 to 130
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 126 to 129
+[CHIAKI] Pushed seq num 0x70a3a53e into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53d, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53d from Takion Send Buffer
+[DEBUG] 31236457 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 31236651 Loss accumulators — drop=1, window_frames=5, events=0, burst_frames=1 (0.0 ms)
+[CHIAKI] Added reference P frame 130
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53e, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53e from Takion Send Buffer
+[CHIAKI] Added reference P frame 131
+[CHIAKI] Added reference P frame 132
+[CHIAKI] Sending Congestion Control Packet, received: 40, lost: 0
+[CHIAKI] Added reference P frame 133
+[CHIAKI] Added reference I frame 134
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 135
+[CHIAKI] Pushed seq num 0x70a3a53f into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Added reference P frame 136
+[CHIAKI] Added reference P frame 137
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a53f, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a53f from Takion Send Buffer
+[CHIAKI] Sending Congestion Control Packet, received: 41, lost: 0
+[CHIAKI] Added reference P frame 138
+[CHIAKI] Added reference P frame 139
+[CHIAKI] Added reference P frame 140
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Controller send seq 1000 (Chiaki)
+[CHIAKI] Added reference P frame 141
+[CHIAKI] Added reference P frame 142
+[CHIAKI] Added reference P frame 143
+[CHIAKI] Sending Congestion Control Packet, received: 44, lost: 0
+[CHIAKI] Added reference P frame 144
+[CHIAKI] Added reference P frame 145
+[DEBUG] 31820180 Latency metrics — target 1.20 Mbps, measured 0.86 Mbps, RTT 61 ms (base 2 ms, jitter 59369 us)
+[CHIAKI] Added reference P frame 146
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 147
+[CHIAKI] Added reference P frame 148
+[CHIAKI] Added reference P frame 149
+[DEBUG] 31908551 Controller send seq 3500 (Vita)
+[CHIAKI] Sending Congestion Control Packet, received: 45, lost: 0
+[CHIAKI] Added reference P frame 150
+[DEBUG] 31976706 Video FPS — incoming 26 fps (requested 30)
+[CHIAKI] Added reference P frame 151
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 73 1d 00 00 00 00 ....$...G.s.....
+[CHIAKI]     10 20 00 29 25 06 81 95 43 3b 58 40 30 00 39 00 00 ..)%...C;X@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 fb 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=115, upstream_loss=0.0000, disable_upstream_audio=0, rtt=96.9260, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.8486 MBit/s
+[CHIAKI] Added reference P frame 152
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 153
+[CHIAKI] Added reference P frame 154
+[CHIAKI] Added reference P frame 155
+[CHIAKI] Sending Congestion Control Packet, received: 44, lost: 0
+[CHIAKI] Added reference P frame 156
+[CHIAKI] Added reference P frame 157
+[CHIAKI] Added reference P frame 158
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 159
+[CHIAKI] Added reference P frame 160
+[CHIAKI] Added reference P frame 161
+[CHIAKI] Sending Congestion Control Packet, received: 45, lost: 0
+[CHIAKI] Added reference P frame 162
+[CHIAKI] Added reference P frame 163
+[CHIAKI] Added reference P frame 164
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Pushed seq num 0x70a3a540 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Added reference P frame 165
+[CHIAKI] Added reference P frame 166
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a540, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a540 from Takion Send Buffer
+[CHIAKI] Sending Congestion Control Packet, received: 39, lost: 0
+[CHIAKI] Added reference P frame 167
+[CHIAKI] Added reference P frame 168
+[CHIAKI] Added reference P frame 169
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 170
+[CHIAKI] Added reference P frame 171
+[CHIAKI] Sending Congestion Control Packet, received: 40, lost: 0
+[CHIAKI] Added reference P frame 172
+[CHIAKI] Detected missing or corrupt frame(s) from 173 to 176
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 173 to 175
+[CHIAKI] Pushed seq num 0x70a3a541 into Takion Send Buffer
+[CHIAKI] Missing reference frame 175 for decoding frame 176
+[CHIAKI] Detected missing or corrupt frame(s) from 173 to 177
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 173 to 176
+[CHIAKI] Pushed seq num 0x70a3a542 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a541, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a541 from Takion Send Buffer
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 32837337 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 32837535 Loss accumulators — drop=1, window_frames=6, events=0, burst_frames=1 (0.0 ms)
+[DEBUG] 32837734 Unrecovered frame gate tolerated (2 event(s) remaining)
+[CHIAKI] Pushed seq num 0x70a3a543 into Takion Send Buffer
+[DEBUG] 32838359 Decoder resync requested (unrecovered frame gate)
+[DEBUG] 32843303 Latency metrics — target 1.20 Mbps, measured 0.86 Mbps, RTT 56 ms (base 2 ms, jitter 54649 us)
+[CHIAKI] Added reference P frame 177
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a542, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a542 from Takion Send Buffer
+[CHIAKI] Added reference P frame 178
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a543, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a543 from Takion Send Buffer
+[CHIAKI] Added reference P frame 179
+[CHIAKI] Sending Congestion Control Packet, received: 42, lost: 0
+[CHIAKI] Added reference P frame 180
+[CHIAKI] Added reference P frame 181
+[CHIAKI] StreamConnection received data with msg.type == 16
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 10 8a 01 24 08 c8 8d 47 10 73 1d 00 00 00 00 ....$...G.s.....
+[CHIAKI]     10 20 00 29 96 43 8b 6c e7 6b 53 40 30 00 39 00 00 ..).C.l.kS@0.9..
+[CHIAKI]     20 00 00 00 00 00 00 40 d2 01                      ......@..       
+[CHIAKI] StreamConnection received connection quality: target_bitrate=1165000, upstream_bitrate=115, upstream_loss=0.0000, disable_upstream_audio=0, rtt=77.6860, loss=0
+[CHIAKI] StreamConnection measured bitrate: 0.8567 MBit/s
+[DEBUG] 33005058 Controller send seq 4000 (Vita)
+[DEBUG] 33016676 Video FPS — incoming 27 fps (requested 30)
+[CHIAKI] Sending Congestion Control Packet, received: 15, lost: 0
+[CHIAKI] Added reference P frame 182
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[CHIAKI] Added reference P frame 183
+[CHIAKI] Added reference P frame 184
+[CHIAKI] Added reference P frame 185
+[CHIAKI] Sending Congestion Control Packet, received: 33, lost: 0
+[CHIAKI] Added reference P frame 186
+[CHIAKI] Added reference P frame 187
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 0ms (last seq 0x36943ec9)
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 33437431 Packet loss — Takion dropped 1 packet(s), total 1
+[DEBUG] 33437651 Takion overflow tolerated (1/2 within 0ms)
+[CHIAKI] Added reference P frame 188
+[CHIAKI] Pushed seq num 0x70a3a544 into Takion Send Buffer
+[CHIAKI] StreamConnection sent heartbeat
+[CHIAKI] Detected missing or corrupt frame(s) from 189 to 192
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 189 to 191
+[CHIAKI] Pushed seq num 0x70a3a545 into Takion Send Buffer
+[CHIAKI] Missing reference frame 191 for decoding frame 192
+[CHIAKI] Detected missing or corrupt frame(s) from 189 to 193
+[CHIAKI] StreamConnection reporting corrupt frame(s) from 189 to 192
+[CHIAKI] Pushed seq num 0x70a3a546 into Takion Send Buffer
+[DEBUG] 33532402 Frame loss — 1 frame(s) dropped (recovered=no)
+[DEBUG] 33532615 Loss accumulators — drop=1, window_frames=7, events=0, burst_frames=1 (0.0 ms)
+[CHIAKI] Added reference P frame 193
+[CHIAKI] Sending Congestion Control Packet, received: 35, lost: 0
+[CHIAKI] Added reference P frame 194
+[CHIAKI] Added reference P frame 195
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 212ms (last seq 0x36943eca)
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 33636131 Packet loss — Takion dropped 1 packet(s), total 2
+[DEBUG] 33636332 Takion overflow tolerated (2/2 within 198ms)
+[CHIAKI] Added reference P frame 196
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a544, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a544 from Takion Send Buffer
+[CHIAKI] Added reference P frame 197
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a545, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a545 from Takion Send Buffer
+[CHIAKI] Added reference P frame 198
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x70a3a546, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x70a3a546 from Takion Send Buffer
+[CHIAKI] Added reference P frame 199
+[CHIAKI] Sending Congestion Control Packet, received: 50, lost: 0
+[CHIAKI] Added reference I frame 200
+[CHIAKI] Takion receive queue overflow (128 slots). Dropped 1 packet(s) over last 182ms (last seq 0x36943ecb)
+[CHIAKI] StreamConnection received data with msg.type == 3
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 08 03                                           ..              
+[DEBUG] 33818333 Packet loss — Takion dropped 1 packet(s), total 3
+[DEBUG] 33818537 Takion overflow gate tripped after 3 drops in 380ms
+[CHIAKI] Pushed seq num 0x70a3a547 into Takion Send Buffer
+[DEBUG] 33819155 Decoder resync requested (takion overflow gate)
+[DEBUG] 33819340 Takion overflow — soft recovery 1/2 at 800 kbps
+[CHIAKI] Sending Congestion Control Packet, received: 13, lost: 0
+[CHIAKI] Takion Send Buffer re-sending packet with seqnum 0x70a3a547, tries: 0
+[CHIAKI] Added reference P frame 201
+[CHIAKI] StreamConnection is disconnecting
+[CHIAKI] StreamConnection sending Disconnect
+[CHIAKI] Pushed seq num 0x70a3a548 into Takion Send Buffer
+[CHIAKI] StreamConnection was requested to stop
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0xe6)
+[CHIAKI] Takion jitter: 121231 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 121231 us, gaps_skipped=0 over 0ms
+[CHIAKI] StreamConnection closed takion
+[CHIAKI] StreamConnection restart requested; attempting reconnect with bitrate 800 kbps
+[CHIAKI] Starting Senkusha
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 7)
+[CHIAKI] Don't fragment is not supported on this platform, MTU values may be incorrect.
+[CHIAKI] Takion sent init
+[CHIAKI] Takion received init ack with remote tag 0x121add3b, outbound streams: 0x64, inbound streams: 0x64
+[CHIAKI] Takion sent cookie
+[CHIAKI] Takion received cookie ack
+[CHIAKI] Takion connected
+[CHIAKI] Takion receive queue size configured for 128 packets
+[CHIAKI] Setting takion versions
+[CHIAKI] Pushed seq num 0x28e4baf1 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf1, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf1 from Takion Send Buffer
+[CHIAKI] Senkusha successfully set takion version
+[CHIAKI] Senkusha sending big
+[CHIAKI] Pushed seq num 0x28e4baf2 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf2, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf2 from Takion Send Buffer
+[CHIAKI] Senkusha successfully received bang
+[CHIAKI] Senkusha Ping Test with count 10 starting
+[CHIAKI] Pushed seq num 0x28e4baf3 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf3, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf3 from Takion Send Buffer
+[CHIAKI] Senkusha enabled echo
+[CHIAKI] Senkusha sending Ping 0 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.934 ms
+[CHIAKI] Senkusha sending Ping 1 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.827 ms
+[CHIAKI] Senkusha sending Ping 2 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.866 ms
+[CHIAKI] Senkusha sending Ping 3 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 4.548 ms
+[CHIAKI] Senkusha sending Ping 4 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 9.060 ms
+[CHIAKI] Senkusha sending Ping 5 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.173 ms
+[CHIAKI] Senkusha sending Ping 6 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 1.809 ms
+[CHIAKI] Senkusha sending Ping 7 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.081 ms
+[CHIAKI] Senkusha sending Ping 8 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 3.204 ms
+[CHIAKI] Senkusha sending Ping 9 of test index 0
+[CHIAKI] Senkusha received Pong, RTT = 2.202 ms
+[CHIAKI] Pushed seq num 0x28e4baf4 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf4, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf4 from Takion Send Buffer
+[CHIAKI] Senkusha disabled echo
+[CHIAKI] Senkusha determined average RTT = 3.070 ms
+[CHIAKI] Senkusha starting MTU in test with min 576, max 1454, retries 3, timeout 15 ms
+[CHIAKI] Pushed seq num 0x28e4baf5 into Takion Send Buffer
+[CHIAKI] Senkusha MTU request 1454 (min 576, max 1454), id 1, attempt 0
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf5, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf5 from Takion Send Buffer
+[CHIAKI] Senkusha MTU 1454 success
+[CHIAKI] Senkusha determined inbound MTU 1454
+[CHIAKI] Senkusha starting MTU out test with min 576, max 1454, retries 3, timeout 15 ms
+[CHIAKI] Pushed seq num 0x28e4baf6 into Takion Send Buffer
+[CHIAKI] Senkusha sent initial client MTU command
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf6, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf6 from Takion Send Buffer
+[CHIAKI] Senkusha received expected Client MTU Command
+[CHIAKI] Senkusha MTU 1454 out ping attempt 0
+[CHIAKI] Senkusha MTU ping 1454 success
+[CHIAKI] Senkusha determined outbound MTU 1454
+[CHIAKI] Senkusha sending final Client MTU Command
+[CHIAKI] Pushed seq num 0x28e4baf7 into Takion Send Buffer
+[CHIAKI] Takion received data ack with cumulative_seq_num = 0x28e4baf7, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0
+[CHIAKI] Acked seq num 0x28e4baf7 from Takion Send Buffer
+[DEBUG] 34103904 Controller send seq 4500 (Vita)
+[CHIAKI] Senkusha is disconnecting
+[CHIAKI] Pushed seq num 0x28e4baf8 into Takion Send Buffer
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 8264 us, gaps_skipped=0 over 0ms
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0)
+[CHIAKI] Takion jitter: 8264 us, gaps_skipped=0 over 0ms
+[CHIAKI] Senkusha closed takion
+[CHIAKI] Senkusha completed successfully
+[CHIAKI] Init Takion
+[CHIAKI] Mutex1 created
+[CHIAKI] Mutex2 created
+[CHIAKI] Takion connecting (version 12)
+[CHIAKI] Takion sent init
+[CHIAKI] Takion failed to receive init ack
+[CHIAKI] Takion receive queue summary (128 slots). No drops in last 0ms (last seq 0xb8)
+[CHIAKI] Takion jitter: 121231 us, gaps_skipped=0 over 185ms
+[CHIAKI] StreamConnection closed takion
+[CHIAKI] StreamConnection completed successfully
+[CHIAKI] Ctrl requested to stop
+[CHIAKI] Ctrl stopped
+[CHIAKI] Session has quit
+[ERROR] 34209071 EventCB CHIAKI_EVENT_QUIT (unknown | code=1 "User stopped")
+[DEBUG] 34209263 Quit classification: user_stop=0, fast_restart=1, retry_pending=0, retry_active=0, teardown_in_progress=0
+[DEBUG] 34245140 VITA AUDIO :: Session stats - Frames: 702, Catchups: 0 (0.00%)
+[DEBUG] 34245394 Finalizing session resources
+[DEBUG] 34247500 Input thread joined successfully
+[DEBUG] 34248494 Session finalized
+[DEBUG] 34248687 Stream cooldown engaged for 5570 ms
+[DEBUG] 34248881 Resuming discovery after stream
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 33 30 30 31 30 0a 00             n:00030010..    
+[CHIAKI] Discovery Service sending ping
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery
+[CHIAKI]     20 2d 70 72 6f 74 6f 63 6f 6c 2d 76 65 72 73 69 6f -protocol-versio
+[CHIAKI]     30 6e 3a 30 30 30 32 30 30 32 30 0a 00             n:00020020..    
+[CHIAKI] Discovery sending:
+[CHIAKI] offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef
+[CHIAKI]      0 53 52 43 48 20 2a 20 48 54 54 50 2f 31 2e 31 0a SRCH.*.HTTP/1.1.
+[CHIAKI]     10 64 65 76 69 63 65 2d 64 69 73 63 6f 76 65 72 79 device-discovery

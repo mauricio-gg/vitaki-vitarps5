@@ -77,6 +77,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
 #define FAST_RESTART_MAX_ATTEMPTS 2
+#define RETRY_HOLDOFF_RP_IN_USE_MS 9000
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
@@ -181,6 +182,9 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
+      context.stream.retry_holdoff_ms = 0;
+      context.stream.retry_holdoff_until_us = 0;
+      context.stream.retry_holdoff_active = false;
       ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
       if (context.stream.fast_restart_active) {
         context.stream.fast_restart_active = false;
@@ -211,9 +215,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
       bool fallback_active = context.stream.loss_retry_active || retry_pending;
+      bool restart_context = context.stream.fast_restart_active || fallback_active;
       uint64_t retry_ready = context.stream.loss_retry_ready_us;
       uint32_t retry_attempts = context.stream.loss_retry_attempts;
       uint32_t retry_bitrate = context.stream.loss_retry_bitrate_kbps;
+      uint32_t retry_holdoff_ms = context.stream.retry_holdoff_ms;
+      uint64_t retry_holdoff_until = context.stream.retry_holdoff_until_us;
+      bool retry_holdoff_active = context.stream.retry_holdoff_active;
       if (retry_pending && !context.active_host)
         retry_pending = false;
       shutdown_media_pipeline();
@@ -247,9 +255,27 @@ static void event_cb(ChiakiEvent *event, void *user) {
       if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
         retry_delay = 5 * 1000 * 1000ULL;
       }
+      bool arm_retry_holdoff = !context.stream.stop_requested &&
+          remote_in_use &&
+          (restart_context || context.stream.restart_failure_active);
+      if (arm_retry_holdoff) {
+        context.stream.retry_holdoff_ms = RETRY_HOLDOFF_RP_IN_USE_MS;
+        context.stream.retry_holdoff_until_us =
+            now_us + (uint64_t)RETRY_HOLDOFF_RP_IN_USE_MS * 1000ULL;
+        context.stream.retry_holdoff_active = true;
+        retry_holdoff_ms = context.stream.retry_holdoff_ms;
+        retry_holdoff_until = context.stream.retry_holdoff_until_us;
+        retry_holdoff_active = context.stream.retry_holdoff_active;
+        LOGD("Retry holdoff armed reason=rp_in_use_after_soft_restart duration=%u ms",
+             context.stream.retry_holdoff_ms);
+      }
       uint64_t throttle_until = now_us + retry_delay;
       if (takion_backoff_until && takion_backoff_until > throttle_until)
         throttle_until = takion_backoff_until;
+      if (context.stream.retry_holdoff_active &&
+          context.stream.retry_holdoff_until_us > throttle_until) {
+        throttle_until = context.stream.retry_holdoff_until_us;
+      }
       if (context.stream.stop_requested) {
         context.stream.next_stream_allowed_us =
             (takion_backoff_until && takion_backoff_until > now_us)
@@ -293,6 +319,14 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.loss_retry_attempts = retry_attempts;
       context.stream.loss_retry_bitrate_kbps = retry_bitrate;
       context.stream.loss_retry_ready_us = retry_ready;
+      context.stream.retry_holdoff_ms = retry_holdoff_ms;
+      context.stream.retry_holdoff_until_us = retry_holdoff_until;
+      context.stream.retry_holdoff_active =
+          retry_holdoff_active && retry_holdoff_until > now_us;
+      if (!context.stream.retry_holdoff_active) {
+        context.stream.retry_holdoff_ms = 0;
+        context.stream.retry_holdoff_until_us = 0;
+      }
       context.stream.loss_retry_pending = false;
       context.stream.loss_retry_active = false;
       context.stream.reconnect_overlay_active = false;
@@ -372,6 +406,9 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.measured_rtt_ms = 0;
   context.stream.last_rtt_refresh_us = 0;
   context.stream.metrics_last_update_us = 0;
+  context.stream.retry_holdoff_ms = 0;
+  context.stream.retry_holdoff_until_us = 0;
+  context.stream.retry_holdoff_active = false;
   context.stream.measured_incoming_fps = 0;
   context.stream.fps_window_start_us = 0;
   context.stream.fps_window_frame_count = 0;
@@ -1898,11 +1935,26 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.media_initialized = false;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (context.stream.retry_holdoff_active &&
+      now_us >= context.stream.retry_holdoff_until_us) {
+    LOGD("Retry holdoff expired (duration=%u ms)", context.stream.retry_holdoff_ms);
+    context.stream.retry_holdoff_active = false;
+    context.stream.retry_holdoff_ms = 0;
+    context.stream.retry_holdoff_until_us = 0;
+  }
   if (context.stream.next_stream_allowed_us &&
       now_us < context.stream.next_stream_allowed_us) {
     uint64_t remaining_ms =
         (context.stream.next_stream_allowed_us - now_us + 999) / 1000;
-    LOGD("Stream start blocked for %llu ms to let console recover", remaining_ms);
+    if (context.stream.retry_holdoff_active &&
+        now_us < context.stream.retry_holdoff_until_us) {
+      uint64_t holdoff_remaining_ms =
+          (context.stream.retry_holdoff_until_us - now_us + 999) / 1000;
+      LOGD("Stream start blocked by adaptive holdoff for %llu ms (total cooldown %llu ms)",
+           holdoff_remaining_ms, remaining_ms);
+    } else {
+      LOGD("Stream start blocked for %llu ms to let console recover", remaining_ms);
+    }
     goto cleanup;
   }
 

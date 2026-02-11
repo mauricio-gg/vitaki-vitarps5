@@ -953,6 +953,8 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	if(takion->cb_user)
 		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
 	TakionDataPacketEntry *entry = elem_user;
+	if(!entry)
+		return;
 	free(entry->packet_buf);
 	free(entry);
 }
