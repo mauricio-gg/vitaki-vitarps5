@@ -74,6 +74,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Startup can include console wake + decoder warmup; keep a long grace window
 // to prevent restart thrash during initial stream ramp-up.
 #define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
+#define STARTUP_WARMUP_WINDOW_US (1200 * 1000ULL)
+#define STARTUP_WARMUP_OVERFLOW_THRESHOLD 3
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
@@ -234,10 +236,14 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	switch(event->type)
 	{
 		case CHIAKI_EVENT_CONNECTED:
-			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
-      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
-      context.stream.loss_restart_grace_until_us =
-          context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
+				LOGD("EventCB CHIAKI_EVENT_CONNECTED");
+	      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
+	      context.stream.startup_warmup_until_us =
+	          context.stream.stream_start_us + STARTUP_WARMUP_WINDOW_US;
+	      context.stream.startup_warmup_overflow_events = 0;
+	      context.stream.startup_warmup_drain_performed = false;
+	      context.stream.loss_restart_grace_until_us =
+	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
       if (context.stream.reconnect_generation > 0) {
         context.stream.post_reconnect_window_until_us =
             context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
@@ -512,6 +518,9 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_recovery_window_start_us = 0;
   context.stream.last_loss_recovery_action_us = 0;
   context.stream.stream_start_us = 0;
+  context.stream.startup_warmup_until_us = 0;
+  context.stream.startup_warmup_overflow_events = 0;
+  context.stream.startup_warmup_drain_performed = false;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
@@ -1512,6 +1521,29 @@ static void handle_takion_overflow(void) {
     return;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
+
+  if (context.stream.startup_warmup_until_us &&
+      now_us < context.stream.startup_warmup_until_us) {
+    context.stream.startup_warmup_overflow_events++;
+    uint64_t remaining_ms =
+        remaining_ms_until(context.stream.startup_warmup_until_us, now_us);
+    LOGD("Takion overflow action=warmup_absorb events=%u threshold=%u remaining=%llums",
+         context.stream.startup_warmup_overflow_events,
+         STARTUP_WARMUP_OVERFLOW_THRESHOLD,
+         (unsigned long long)remaining_ms);
+
+    if (!context.stream.startup_warmup_drain_performed &&
+        context.stream.startup_warmup_overflow_events >=
+            STARTUP_WARMUP_OVERFLOW_THRESHOLD) {
+      uint32_t flushed_seq = chiaki_takion_drop_data_queue(
+          &context.stream.session.stream_connection.takion);
+      LOGD("Startup warmup drain action=drain_and_idr flushed_ack=%#x",
+           flushed_seq);
+      request_decoder_resync("startup warmup drain");
+      context.stream.startup_warmup_drain_performed = true;
+    }
+    return;
+  }
 
   if (context.stream.takion_cooldown_overlay_active &&
       context.stream.takion_overflow_backoff_until_us &&

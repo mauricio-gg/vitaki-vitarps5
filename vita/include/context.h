@@ -95,6 +95,9 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
   uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
   uint64_t stream_start_us;         // Timestamp when streaming connection became active
+  uint64_t startup_warmup_until_us; // Startup warmup deadline where we absorb burst pressure
+  uint32_t startup_warmup_overflow_events; // Takion overflow events seen during startup warmup
+  bool startup_warmup_drain_performed; // One-shot reorder queue drain + IDR request during warmup
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade

@@ -896,6 +896,10 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   if (active_video_thread) {
     record_incoming_frame_sample();
     bool drop_frame = should_drop_frame_for_pacing();
+    bool startup_warmup_active = context.stream.startup_warmup_until_us &&
+        sceKernelGetProcessTimeWide() < context.stream.startup_warmup_until_us;
+    if (startup_warmup_active)
+      drop_frame = true;
     if (!drop_frame && need_drop > 0) {
       LOGD("remain frameskip: %d\n", need_drop);
       need_drop--;
