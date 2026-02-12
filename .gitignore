@@ -58,6 +58,8 @@ vita/build/
 settings.cfg
 consoles.json
 profile.json
+*.psp2dmp
+*_vitarps5-testing*.log
 
 # Documentation artifacts
 docs/*.md

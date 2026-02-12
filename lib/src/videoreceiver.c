@@ -2,10 +2,19 @@
 
 #include <chiaki/videoreceiver.h>
 #include <chiaki/session.h>
+#include <chiaki/time.h>
 
 #include <string.h>
+#include "videoreceiver_gap.h"
 
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
+
+// Hold tiny gap reports briefly so out-of-order packets can fill them first.
+#define VIDEO_GAP_REPORT_HOLD_MS 12
+// Force-report larger contiguous spans immediately instead of waiting.
+#define VIDEO_GAP_REPORT_FORCE_SPAN 6
+// Guard against pathological spans from corrupted sequence state.
+#define VIDEO_SPAN_SANITY_MAX 4096U
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
@@ -33,6 +42,78 @@ static bool have_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 	return false;
 }
 
+static bool seq16_inclusive_ge(ChiakiSeqNum16 a, ChiakiSeqNum16 b)
+{
+	return a == b || chiaki_seq_num_16_gt(a, b);
+}
+
+static uint32_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
+{
+	// Compute inclusive span in 16-bit sequence space. This handles wrap-around
+	// (e.g. start=65535,end=0 => span=2) and the full-range case
+	// (start=0,end=65535 => span=65536) without truncation.
+	// For start==end, inclusive semantics intentionally return 1.
+	uint32_t start_u16 = (uint32_t)(uint16_t)start;
+	uint32_t end_u16 = (uint32_t)(uint16_t)end;
+	return ((end_u16 - start_u16) & 0xFFFFU) + 1U;
+}
+
+static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs)
+{
+	if(lhs > UINT32_MAX - rhs)
+		return UINT32_MAX;
+	return lhs + rhs;
+}
+
+static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end)
+{
+	if(video_receiver->last_reported_corrupt_start != start)
+		return false;
+	return seq16_inclusive_ge(video_receiver->last_reported_corrupt_end, end);
+}
+
+static void report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end, const char *reason)
+{
+	if(should_skip_corrupt_report(video_receiver, start, end))
+		return;
+	CHIAKI_LOGW(video_receiver->log, "Detected missing or corrupt frame(s) from %d to %d%s%s",
+				(int)start,
+			(int)end,
+			reason ? " reason=" : "",
+			reason ? reason : "");
+	stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, start, end);
+	video_receiver->last_reported_corrupt_start = start;
+	video_receiver->last_reported_corrupt_end = end;
+}
+
+static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64_t now_ms, bool force)
+{
+	if(!video_receiver->gap_report_pending)
+		return;
+
+	uint32_t span = seq16_span((ChiakiSeqNum16)video_receiver->gap_report_start,
+		(ChiakiSeqNum16)video_receiver->gap_report_end);
+	if(span > VIDEO_SPAN_SANITY_MAX)
+	{
+		CHIAKI_LOGW(video_receiver->log,
+			"Suppressing pathological gap span %u (%d-%d)",
+			(unsigned int)span,
+			(int)video_receiver->gap_report_start,
+			(int)video_receiver->gap_report_end);
+		video_receiver->gap_report_pending = false;
+		return;
+	}
+	if(!force && now_ms < video_receiver->gap_report_deadline_ms &&
+		span < VIDEO_GAP_REPORT_FORCE_SPAN)
+		return;
+
+	report_corrupt_frame_range(video_receiver,
+		(ChiakiSeqNum16)video_receiver->gap_report_start,
+		(ChiakiSeqNum16)video_receiver->gap_report_end,
+		force ? "forced" : "held");
+	video_receiver->gap_report_pending = false;
+}
+
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats)
 {
 	video_receiver->session = session;
@@ -51,6 +132,19 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->frames_lost = 0;
 	memset(video_receiver->reference_frames, -1, sizeof(video_receiver->reference_frames));
 	chiaki_bitstream_init(&video_receiver->bitstream, video_receiver->log, video_receiver->session->connect_info.video_profile.codec);
+	video_receiver->gap_report_pending = false;
+	video_receiver->gap_report_start = 0;
+	video_receiver->gap_report_end = 0;
+	video_receiver->gap_report_deadline_ms = 0;
+	video_receiver->last_reported_corrupt_start = 0;
+	video_receiver->last_reported_corrupt_end = 0;
+	video_receiver->cur_frame_seen_last_unit = false;
+	video_receiver->cur_frame_first_packet_ms = 0;
+	video_receiver->stage_window_start_ms = 0;
+	video_receiver->stage_assemble_total_ms = 0;
+	video_receiver->stage_submit_total_ms = 0;
+	video_receiver->stage_window_frames = 0;
+	video_receiver->stage_window_drops = 0;
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -82,6 +176,11 @@ CHIAKI_EXPORT void chiaki_video_receiver_stream_info(ChiakiVideoReceiver *video_
 
 CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_receiver, ChiakiTakionAVPacket *packet)
 {
+	// Called on the stream/takion receive thread; gap report state is local to
+	// this callback path and not mutated from render/UI threads.
+	uint64_t now_ms = chiaki_time_now_monotonic_ms();
+	flush_pending_gap_report(video_receiver, now_ms, false);
+
 	// old frame?
 	ChiakiSeqNum16 frame_index = packet->frame_index;
 	if(video_receiver->frame_index_cur >= 0
@@ -120,27 +219,59 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 
 		// last frame not flushed yet?
 		if(video_receiver->frame_index_cur >= 0 && video_receiver->frame_index_prev != video_receiver->frame_index_cur)
+		{
 			chiaki_video_receiver_flush_frame(video_receiver);
+		}
 
 		ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 		if(chiaki_seq_num_16_gt(frame_index, next_frame_expected)
 			&& !(frame_index == 1 && video_receiver->frame_index_cur < 0)) // ok for frame 1
 		{
-			CHIAKI_LOGW(video_receiver->log, "Detected missing or corrupt frame(s) from %d to %d", next_frame_expected, (int)frame_index);
-			stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, next_frame_expected, frame_index - 1);
+			ChiakiSeqNum16 gap_end = (ChiakiSeqNum16)(frame_index - 1);
+			ChiakiVideoGapReportState gap_state = {
+				.pending = video_receiver->gap_report_pending,
+				.start = (ChiakiSeqNum16)video_receiver->gap_report_start,
+				.end = (ChiakiSeqNum16)video_receiver->gap_report_end,
+				.deadline_ms = video_receiver->gap_report_deadline_ms,
+			};
+			ChiakiSeqNum16 flush_start = 0;
+			ChiakiSeqNum16 flush_end = 0;
+			ChiakiVideoGapUpdateAction gap_action = chiaki_video_gap_report_update(
+				&gap_state,
+				next_frame_expected,
+				gap_end,
+				now_ms,
+				VIDEO_GAP_REPORT_HOLD_MS,
+				&flush_start,
+				&flush_end);
+			if(gap_action == CHIAKI_VIDEO_GAP_UPDATE_FLUSH_PREVIOUS)
+			{
+				report_corrupt_frame_range(video_receiver, flush_start, flush_end, "forced");
+			}
+			video_receiver->gap_report_pending = gap_state.pending;
+			video_receiver->gap_report_start = gap_state.start;
+			video_receiver->gap_report_end = gap_state.end;
+			video_receiver->gap_report_deadline_ms = gap_state.deadline_ms;
+			flush_pending_gap_report(video_receiver, now_ms, false);
 		}
 
 		video_receiver->frame_index_cur = frame_index;
+		video_receiver->cur_frame_seen_last_unit = false;
+		video_receiver->cur_frame_first_packet_ms = chiaki_time_now_monotonic_ms();
 		chiaki_frame_processor_alloc_frame(&video_receiver->frame_processor, packet);
 	}
 
 	chiaki_frame_processor_put_unit(&video_receiver->frame_processor, packet);
+	if(packet->units_in_frame_total > 0 &&
+		packet->unit_index == packet->units_in_frame_total - 1)
+		video_receiver->cur_frame_seen_last_unit = true;
 
 	// if we are currently building up a frame
 	if(video_receiver->frame_index_cur != video_receiver->frame_index_prev)
 	{
-		// if we already have enough for the whole frame, flush it already
-		if(chiaki_frame_processor_flush_possible(&video_receiver->frame_processor) || packet->unit_index == packet->units_in_frame_total - 1)
+		// Flush only when enough units are present (source + parity) to avoid
+		// prematurely finalizing a frame at the "last unit" marker.
+		if(chiaki_frame_processor_flush_possible(&video_receiver->frame_processor))
 			chiaki_video_receiver_flush_frame(video_receiver);
 	}
 }
@@ -149,18 +280,36 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 {
 	uint8_t *frame;
 	size_t frame_size;
+	uint64_t flush_start_ms = chiaki_time_now_monotonic_ms();
+	uint64_t assemble_ms = 0;
+	if(video_receiver->cur_frame_first_packet_ms > 0 &&
+		flush_start_ms >= video_receiver->cur_frame_first_packet_ms)
+	{
+		assemble_ms = flush_start_ms - video_receiver->cur_frame_first_packet_ms;
+	}
 	ChiakiFrameProcessorFlushResult flush_result = chiaki_frame_processor_flush(&video_receiver->frame_processor, &frame, &frame_size);
 
 	if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED
 		|| flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 	{
-		if (flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
+		video_receiver->stage_window_drops++;
+		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
+			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
-			stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, next_frame_expected, video_receiver->frame_index_cur);
-			video_receiver->frames_lost += video_receiver->frame_index_cur - next_frame_expected + 1;
-			video_receiver->frame_index_prev = video_receiver->frame_index_cur;
+			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
+				uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
+				// Ignore pathological spans that indicate sequence desync instead of a real burst.
+				if(lost > 0 && lost < 1000U)
+					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, lost);
+				else
+					CHIAKI_LOGW(video_receiver->log,
+						"Ignoring suspicious frame-loss span %u (%d-%d)",
+						(unsigned int)lost,
+						(int)next_frame_expected,
+						(int)video_receiver->frame_index_cur);
 		}
+		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		CHIAKI_LOGW(video_receiver->log, "Failed to complete frame %d", (int)video_receiver->frame_index_cur);
 		return CHIAKI_ERR_UNKNOWN;
 	}
@@ -191,8 +340,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					succ = false;
-					video_receiver->frames_lost++;
+						succ = false;
+						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
 				}
 			}
@@ -201,7 +351,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 
 	if(succ && video_receiver->session->video_sample_cb)
 	{
+		uint64_t submit_start_ms = chiaki_time_now_monotonic_ms();
 		bool cb_succ = video_receiver->session->video_sample_cb(frame, frame_size, video_receiver->frames_lost, recovered, video_receiver->session->video_sample_cb_user);
+		uint64_t submit_end_ms = chiaki_time_now_monotonic_ms();
 		video_receiver->frames_lost = 0;
 		if(!cb_succ)
 		{
@@ -213,12 +365,40 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			add_ref_frame(video_receiver, video_receiver->frame_index_cur);
 			CHIAKI_LOGV(video_receiver->log, "Added reference %c frame %d", slice.slice_type == CHIAKI_BITSTREAM_SLICE_I ? 'I' : 'P', (int)video_receiver->frame_index_cur);
 		}
+		if(submit_end_ms >= submit_start_ms)
+			video_receiver->stage_submit_total_ms += submit_end_ms - submit_start_ms;
 	}
 
 	video_receiver->frame_index_prev = video_receiver->frame_index_cur;
+	video_receiver->cur_frame_first_packet_ms = 0;
+	video_receiver->cur_frame_seen_last_unit = false;
 
-	if(succ)
+	if(succ) {
 		video_receiver->frame_index_prev_complete = video_receiver->frame_index_cur;
+		video_receiver->stage_window_frames++;
+		video_receiver->stage_assemble_total_ms += assemble_ms;
+	}
+
+	uint64_t now_ms = chiaki_time_now_monotonic_ms();
+	if(video_receiver->stage_window_start_ms == 0)
+		video_receiver->stage_window_start_ms = now_ms;
+	if(now_ms - video_receiver->stage_window_start_ms >= 1000)
+	{
+		uint32_t frames = video_receiver->stage_window_frames;
+		uint64_t avg_assemble_ms = frames > 0 ? video_receiver->stage_assemble_total_ms / frames : 0;
+		uint64_t avg_submit_ms = frames > 0 ? video_receiver->stage_submit_total_ms / frames : 0;
+		CHIAKI_LOGD(video_receiver->log,
+			"PIPE/STAGE frames=%u drops=%u avg_assemble_ms=%llu avg_submit_ms=%llu",
+			frames,
+			video_receiver->stage_window_drops,
+			(unsigned long long)avg_assemble_ms,
+			(unsigned long long)avg_submit_ms);
+		video_receiver->stage_window_start_ms = now_ms;
+		video_receiver->stage_assemble_total_ms = 0;
+		video_receiver->stage_submit_total_ms = 0;
+		video_receiver->stage_window_frames = 0;
+		video_receiver->stage_window_drops = 0;
+	}
 
 	return CHIAKI_ERR_SUCCESS;
 }

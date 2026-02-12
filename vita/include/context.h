@@ -56,6 +56,19 @@ typedef struct vita_chiaki_stream_t {
   uint32_t negotiated_fps;          // max_fps requested from the console
   uint32_t target_fps;              // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
+  uint32_t session_generation;      // increments for each successfully initialized stream session
+  uint32_t reconnect_generation;    // non-zero when this session is a reconnect/re-entry
+  uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
+  uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
+  uint64_t post_reconnect_window_until_us; // deadline for post-reconnect low-fps tracking
+  struct {
+    bool recover_active;    // reconnect degraded-mode mitigation is currently active
+    uint32_t recover_stage; // staged recovery state machine (0=idle)
+    uint64_t recover_last_action_us; // timestamp of latest reconnect mitigation action
+    uint32_t recover_idr_attempts; // number of IDR requests used by reconnect mitigation
+    uint32_t recover_restart_attempts; // guarded restart attempts used by reconnect mitigation
+    uint32_t recover_stable_windows; // consecutive healthy windows observed while mitigation active
+  } reconnect;
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
   uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator
@@ -67,13 +80,22 @@ typedef struct vita_chiaki_stream_t {
   uint64_t last_rtt_refresh_us;     // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;  // Timestamp for latest metrics sample
   uint64_t next_stream_allowed_us;  // Cooldown gate after quit
+  uint32_t retry_holdoff_ms;        // Active adaptive holdoff duration
+  uint64_t retry_holdoff_until_us;  // Holdoff deadline after RP_IN_USE races
+  bool retry_holdoff_active;        // Whether adaptive holdoff is currently armed
   uint32_t frame_loss_events;       // Count of frame loss events reported by Chiaki
   uint32_t total_frames_lost;       // Frames lost across the current session
   uint64_t loss_window_start_us;    // Sliding window start for adaptive mitigations
   uint32_t loss_window_event_count; // Events within the current sliding window
   uint32_t loss_window_frame_accum; // Frames dropped inside the active loss window
   uint32_t loss_burst_frame_accum;  // Frames dropped within the short-term burst bucket
+  uint32_t loss_counter_saturated_mask; // Bitmask of loss accumulators that already logged uint32 saturation
   uint64_t loss_burst_start_us;     // Timestamp when the current burst started
+  uint32_t loss_recovery_gate_hits; // Number of sustained-loss gates tripped in current recovery window
+  uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
+  uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
+  uint64_t stream_start_us;         // Timestamp when streaming connection became active
+  uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade
   uint32_t logged_loss_events;      // Last loss event count logged to console
@@ -89,6 +111,21 @@ typedef struct vita_chiaki_stream_t {
   bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
   uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
   uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
+  uint64_t takion_startup_grace_last_resync_us; // Rate-limit decoder resync requests during startup grace
+  struct {
+    uint32_t missing_ref_count;       // Missing reference-frame events from video receiver
+    uint32_t corrupt_burst_count;     // Corrupt-frame requests sent to server
+    uint32_t fec_fail_count;          // FEC recovery failures in frame processor
+    uint32_t sendbuf_overflow_count;  // Takion control send-buffer overflows
+    uint32_t logged_missing_ref_count;
+    uint32_t logged_corrupt_burst_count;
+    uint32_t logged_fec_fail_count;
+    uint32_t logged_sendbuf_overflow_count;
+    uint64_t last_log_us;
+    uint32_t last_corrupt_start;
+    uint32_t last_corrupt_end;
+  } av_diag;
+  uint32_t av_diag_stale_snapshot_streak; // Consecutive update_latency_metrics() ticks that missed diag mutex sampling
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
@@ -110,6 +147,10 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_frame_streak;
   uint32_t unrecovered_gate_events;
   uint64_t unrecovered_gate_window_start_us;
+  uint32_t unrecovered_persistent_events;      // Rolling unrecovered-loss event count
+  uint64_t unrecovered_persistent_window_start_us;
+  uint32_t unrecovered_idr_requests;           // IDR attempts in rolling window
+  uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
 } VitaChiakiStream;
 

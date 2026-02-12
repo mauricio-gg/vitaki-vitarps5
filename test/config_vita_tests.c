@@ -379,12 +379,15 @@ static void test_settings_streaming_item_invariants(void) {
   assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
 }
 
+void run_packet_path_tests(void);
+
 int main(void) {
   test_legacy_section_migration();
   test_root_level_fallback_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
   test_settings_streaming_item_invariants();
+  run_packet_path_tests();
   reset_config_file();
   puts("vitarps5 config tests passed");
   return 0;

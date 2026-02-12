@@ -149,7 +149,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcessor *frame_processor, ChiakiTakionAVPacket *packet)
 {
-	if(packet->unit_index > frame_processor->unit_slots_size)
+	if(packet->unit_index >= frame_processor->unit_slots_size)
 	{
 		CHIAKI_LOGE(frame_processor->log, "Packet's unit index is too high");
 		return CHIAKI_ERR_INVALID_DATA;
@@ -170,8 +170,27 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 	ChiakiFrameUnit *unit = frame_processor->unit_slots + packet->unit_index;
 	if(unit->data_size)
 	{
+		// Duplicates are expected on lossy/reordered UDP paths after retransmit.
+		// Accept only identical duplicates to avoid masking corrupted payloads.
+		if(unit->data_size != packet->data_size)
+		{
+			CHIAKI_LOGE(frame_processor->log, "Conflicting duplicate unit size");
+			return CHIAKI_ERR_INVALID_DATA;
+		}
+		if(!frame_processor->flushed)
+		{
+			uint8_t *existing = frame_processor->frame_buf + packet->unit_index * frame_processor->buf_stride_per_unit;
+			if(memcmp(existing, packet->data, packet->data_size) != 0)
+			{
+				CHIAKI_LOGE(frame_processor->log, "Conflicting duplicate unit payload");
+				return CHIAKI_ERR_INVALID_DATA;
+			}
+		}
+		// When flushed==true, frame_buf may already be compacted and no longer
+		// mapped 1:1 to per-unit slots. In that state we can't safely compare
+		// payload bytes here, so we keep first-arrival data-size validation only.
 		CHIAKI_LOGW(frame_processor->log, "Received duplicate unit");
-		return CHIAKI_ERR_INVALID_DATA;
+		return CHIAKI_ERR_SUCCESS;
 	} else {
 		unit->data_size = packet->data_size;
 	}
@@ -301,7 +320,10 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 		}
 		size_t part_size = unit->data_size - 2;
 		uint8_t *buf_ptr = frame_processor->frame_buf + i*frame_processor->buf_stride_per_unit;
-		memmove(frame_processor->frame_buf + cur, buf_ptr + 2, part_size);
+		uint8_t *dst_ptr = frame_processor->frame_buf + cur;
+		uint8_t *src_ptr = buf_ptr + 2;
+		// Frame assembly compacts unit payloads in-place, so overlap is expected.
+		memmove(dst_ptr, src_ptr, part_size);
 		cur += part_size;
 	}
 

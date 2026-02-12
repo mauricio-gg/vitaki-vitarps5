@@ -33,6 +33,7 @@
 #define EXPECT_TIMEOUT_MS 5000
 
 #define HEARTBEAT_INTERVAL_MS 1000
+#define STREAM_CONNECTION_MAGIC 0x53434E58u
 
 
 typedef enum {
@@ -59,6 +60,7 @@ static void stream_connection_takion_data_expect_streaminfo(ChiakiStreamConnecti
 static ChiakiErrorCode stream_connection_send_streaminfo_ack(ChiakiStreamConnection *stream_connection);
 static void stream_connection_takion_av(ChiakiStreamConnection *stream_connection, ChiakiTakionAVPacket *packet);
 static ChiakiErrorCode stream_connection_send_heartbeat(ChiakiStreamConnection *stream_connection);
+static bool stream_connection_validate_magic(ChiakiStreamConnection *stream_connection, const char *caller);
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session)
 {
@@ -73,9 +75,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error;
 
-	err = chiaki_cond_init(&stream_connection->state_cond, &stream_connection->state_mutex);
+	err = chiaki_mutex_init(&stream_connection->diag_mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error_state_mutex;
+
+	err = chiaki_cond_init(&stream_connection->state_cond, &stream_connection->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		goto error_diag_mutex;
 
 	err = chiaki_packet_stats_init(&stream_connection->packet_stats);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -95,9 +101,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
 	stream_connection->remote_disconnect_reason = NULL;
+	stream_connection->magic = STREAM_CONNECTION_MAGIC;
 	stream_connection->drop_events = 0;
 	stream_connection->drop_packets = 0;
 	stream_connection->drop_last_ms = 0;
+	stream_connection->av_missing_ref_events = 0;
+	stream_connection->av_corrupt_burst_events = 0;
+	stream_connection->av_fec_fail_events = 0;
+	stream_connection->av_sendbuf_overflow_events = 0;
+	stream_connection->diag_trylock_failures = 0;
+	stream_connection->av_last_corrupt_start = 0;
+	stream_connection->av_last_corrupt_end = 0;
 
 	return CHIAKI_ERR_SUCCESS;
 
@@ -105,6 +119,8 @@ error_packet_stats:
 	chiaki_packet_stats_fini(&stream_connection->packet_stats);
 error_state_cond:
 	chiaki_cond_fini(&stream_connection->state_cond);
+error_diag_mutex:
+	chiaki_mutex_fini(&stream_connection->diag_mutex);
 error_state_mutex:
 	chiaki_mutex_fini(&stream_connection->state_mutex);
 error:
@@ -127,10 +143,12 @@ CHIAKI_EXPORT void chiaki_stream_connection_fini(ChiakiStreamConnection *stream_
 		chiaki_congestion_control_stop(&stream_connection->congestion_control);
 
 	chiaki_packet_stats_fini(&stream_connection->packet_stats);
+	stream_connection->magic = 0;
 
 	chiaki_mutex_fini(&stream_connection->feedback_sender_mutex);
 
 	chiaki_cond_fini(&stream_connection->state_cond);
+	chiaki_mutex_fini(&stream_connection->diag_mutex);
 	chiaki_mutex_fini(&stream_connection->state_mutex);
 }
 
@@ -138,6 +156,23 @@ static bool state_finished_cond_check(void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;
 	return stream_connection->state_finished || stream_connection->should_stop || stream_connection->remote_disconnected;
+}
+
+static bool stream_connection_validate_magic(ChiakiStreamConnection *stream_connection, const char *caller)
+{
+	if(!stream_connection)
+		return false;
+	if(stream_connection->magic == STREAM_CONNECTION_MAGIC)
+		return true;
+	if(stream_connection->log)
+	{
+		CHIAKI_LOGE(stream_connection->log,
+			"StreamConnection magic mismatch in %s (value=%#x, expected=%#x)",
+			caller ? caller : "unknown",
+			(unsigned int)stream_connection->magic,
+			(unsigned int)STREAM_CONNECTION_MAGIC);
+	}
+	return false;
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnection *stream_connection, chiaki_socket_t *socket)
@@ -1153,14 +1188,77 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamC
 	}
 
 	CHIAKI_LOGD(stream_connection->log, "StreamConnection reporting corrupt frame(s) from %u to %u", (unsigned int)start, (unsigned int)end);
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) == CHIAKI_ERR_SUCCESS)
+	{
+		stream_connection->av_corrupt_burst_events++;
+		stream_connection->av_last_corrupt_start = start;
+		stream_connection->av_last_corrupt_end = end;
+		chiaki_mutex_unlock(&stream_connection->diag_mutex);
+	}
+	else
+	{
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording corrupt frame diagnostics");
+	}
 	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 2, buf, stream.bytes_written, NULL);
 }
 
 CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *stream_connection, uint32_t dropped_packets)
 {
-	if(!stream_connection)
+	if(!stream_connection_validate_magic(stream_connection, "report_drop"))
 		return;
+	ChiakiErrorCode lock_err = chiaki_mutex_trylock(&stream_connection->diag_mutex);
+	if(lock_err != CHIAKI_ERR_SUCCESS)
+	{
+		if(stream_connection->diag_trylock_failures < UINT32_MAX)
+			stream_connection->diag_trylock_failures++;
+		if(stream_connection->log && (stream_connection->diag_trylock_failures & 0x3fU) == 0)
+			CHIAKI_LOGW(stream_connection->log,
+				"Diagnostics mutex contention: %u trylock failures while recording drops (last err=%s)",
+				stream_connection->diag_trylock_failures,
+				chiaki_error_string(lock_err));
+		return;
+	}
 	stream_connection->drop_events++;
 	stream_connection->drop_packets += dropped_packets;
 	stream_connection->drop_last_ms = chiaki_time_now_monotonic_ms();
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
+}
+
+CHIAKI_EXPORT void chiaki_stream_connection_report_missing_ref(ChiakiStreamConnection *stream_connection)
+{
+	if(!stream_connection_validate_magic(stream_connection, "report_missing_ref"))
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording missing ref diagnostics");
+		return;
+	}
+	stream_connection->av_missing_ref_events++;
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
+}
+
+CHIAKI_EXPORT void chiaki_stream_connection_report_fec_fail(ChiakiStreamConnection *stream_connection)
+{
+	if(!stream_connection_validate_magic(stream_connection, "report_fec_fail"))
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording FEC failure diagnostics");
+		return;
+	}
+	stream_connection->av_fec_fail_events++;
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
+}
+
+CHIAKI_EXPORT void chiaki_stream_connection_report_sendbuf_overflow(ChiakiStreamConnection *stream_connection)
+{
+	if(!stream_connection_validate_magic(stream_connection, "report_sendbuf_overflow"))
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording send buffer overflow diagnostics");
+		return;
+	}
+	stream_connection->av_sendbuf_overflow_events++;
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
 }

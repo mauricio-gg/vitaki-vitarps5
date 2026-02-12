@@ -57,6 +57,11 @@ typedef struct chiaki_stream_connection_t
 	 * protects state, state_finished, state_failed and should_stop
 	 */
 	ChiakiMutex state_mutex;
+	/**
+	 * protects diagnostic counters sampled by Vita UI and updated from
+	 * Takion/video packet paths.
+	 */
+	ChiakiMutex diag_mutex;
 
 	int state;
 	bool state_finished;
@@ -71,9 +76,17 @@ typedef struct chiaki_stream_connection_t
 	#endif
 
 	double measured_bitrate;
+	uint32_t magic;
 	uint32_t drop_events;
 	uint32_t drop_packets;
 	uint64_t drop_last_ms;
+	uint32_t av_missing_ref_events;
+	uint32_t av_corrupt_burst_events;
+	uint32_t av_fec_fail_events;
+	uint32_t av_sendbuf_overflow_events;
+	uint32_t diag_trylock_failures;
+	ChiakiSeqNum16 av_last_corrupt_start;
+	ChiakiSeqNum16 av_last_corrupt_end;
 } ChiakiStreamConnection;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session);
@@ -93,6 +106,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_request_idr(ChiakiStreamC
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end);
 CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *stream_connection, uint32_t dropped_packets);
+CHIAKI_EXPORT void chiaki_stream_connection_report_missing_ref(ChiakiStreamConnection *stream_connection);
+CHIAKI_EXPORT void chiaki_stream_connection_report_fec_fail(ChiakiStreamConnection *stream_connection);
+CHIAKI_EXPORT void chiaki_stream_connection_report_sendbuf_overflow(ChiakiStreamConnection *stream_connection);
 
 #ifdef __cplusplus
 }
