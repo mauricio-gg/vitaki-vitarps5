@@ -33,6 +33,12 @@ typedef struct chiaki_video_receiver_t
 	int32_t frames_lost;
 	int32_t reference_frames[16];
 	ChiakiBitstream bitstream;
+	bool gap_report_pending;
+	uint16_t gap_report_start;
+	uint16_t gap_report_end;
+	uint64_t gap_report_deadline_ms;
+	uint16_t last_reported_corrupt_start;
+	uint16_t last_reported_corrupt_end;
 	bool cur_frame_seen_last_unit;
 	uint64_t cur_frame_first_packet_ms;
 	uint64_t stage_window_start_ms;
