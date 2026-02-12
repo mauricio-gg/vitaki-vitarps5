@@ -37,7 +37,6 @@ typedef struct chiaki_video_receiver_t
 	uint16_t gap_report_start;
 	uint16_t gap_report_end;
 	uint64_t gap_report_deadline_ms;
-	uint32_t gap_hold_budget_ms;
 	uint16_t last_reported_corrupt_start;
 	uint16_t last_reported_corrupt_end;
 	bool cur_frame_seen_last_unit;

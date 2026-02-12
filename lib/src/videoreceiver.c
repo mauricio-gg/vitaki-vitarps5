@@ -8,9 +8,7 @@
 
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
-#define VIDEO_GAP_REPORT_HOLD_MS_DEFAULT 12
-#define VIDEO_GAP_REPORT_HOLD_MS_MIN 8
-#define VIDEO_GAP_REPORT_HOLD_MS_MAX 28
+#define VIDEO_GAP_REPORT_HOLD_MS 12
 #define VIDEO_GAP_REPORT_FORCE_SPAN 6
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
@@ -54,28 +52,6 @@ static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, Chia
 	if(video_receiver->last_reported_corrupt_start != start)
 		return false;
 	return seq16_inclusive_ge(video_receiver->last_reported_corrupt_end, end);
-}
-
-static uint32_t adaptive_gap_hold_budget_ms(ChiakiVideoReceiver *video_receiver)
-{
-	uint64_t jitter_us = video_receiver->session->stream_connection.takion.jitter_stats.jitter_us;
-	uint64_t jitter_ms = (jitter_us + 999ULL) / 1000ULL;
-	uint32_t target_ms = VIDEO_GAP_REPORT_HOLD_MS_MIN + (uint32_t)(jitter_ms / 8ULL);
-	if(target_ms < VIDEO_GAP_REPORT_HOLD_MS_MIN)
-		target_ms = VIDEO_GAP_REPORT_HOLD_MS_MIN;
-	if(target_ms > VIDEO_GAP_REPORT_HOLD_MS_MAX)
-		target_ms = VIDEO_GAP_REPORT_HOLD_MS_MAX;
-
-	if(video_receiver->gap_hold_budget_ms == 0)
-		video_receiver->gap_hold_budget_ms = VIDEO_GAP_REPORT_HOLD_MS_DEFAULT;
-	video_receiver->gap_hold_budget_ms =
-		(video_receiver->gap_hold_budget_ms * 3U + target_ms) / 4U;
-
-	if(video_receiver->gap_hold_budget_ms < VIDEO_GAP_REPORT_HOLD_MS_MIN)
-		video_receiver->gap_hold_budget_ms = VIDEO_GAP_REPORT_HOLD_MS_MIN;
-	if(video_receiver->gap_hold_budget_ms > VIDEO_GAP_REPORT_HOLD_MS_MAX)
-		video_receiver->gap_hold_budget_ms = VIDEO_GAP_REPORT_HOLD_MS_MAX;
-	return video_receiver->gap_hold_budget_ms;
 }
 
 static void report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end, const char *reason)
@@ -133,7 +109,6 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->gap_report_start = 0;
 	video_receiver->gap_report_end = 0;
 	video_receiver->gap_report_deadline_ms = 0;
-	video_receiver->gap_hold_budget_ms = VIDEO_GAP_REPORT_HOLD_MS_DEFAULT;
 	video_receiver->last_reported_corrupt_start = 0;
 	video_receiver->last_reported_corrupt_end = 0;
 	video_receiver->cur_frame_seen_last_unit = false;
@@ -230,8 +205,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 				video_receiver->gap_report_pending = true;
 				video_receiver->gap_report_start = next_frame_expected;
 				video_receiver->gap_report_end = gap_end;
-					video_receiver->gap_report_deadline_ms =
-						now_ms + adaptive_gap_hold_budget_ms(video_receiver);
+				video_receiver->gap_report_deadline_ms = now_ms + VIDEO_GAP_REPORT_HOLD_MS;
 			}
 			else if(chiaki_seq_num_16_gt(gap_end, (ChiakiSeqNum16)video_receiver->gap_report_end))
 			{
@@ -363,13 +337,11 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint64_t avg_assemble_ms = frames > 0 ? video_receiver->stage_assemble_total_ms / frames : 0;
 		uint64_t avg_submit_ms = frames > 0 ? video_receiver->stage_submit_total_ms / frames : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u avg_assemble_ms=%llu avg_submit_ms=%llu gap_hold_ms=%u jitter_us=%llu",
+			"PIPE/STAGE frames=%u drops=%u avg_assemble_ms=%llu avg_submit_ms=%llu",
 			frames,
 			video_receiver->stage_window_drops,
 			(unsigned long long)avg_assemble_ms,
-			(unsigned long long)avg_submit_ms,
-			video_receiver->gap_hold_budget_ms,
-			(unsigned long long)video_receiver->session->stream_connection.takion.jitter_stats.jitter_us);
+			(unsigned long long)avg_submit_ms);
 		video_receiver->stage_window_start_ms = now_ms;
 		video_receiver->stage_assemble_total_ms = 0;
 		video_receiver->stage_submit_total_ms = 0;
