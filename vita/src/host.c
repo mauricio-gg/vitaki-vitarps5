@@ -623,16 +623,21 @@ static void update_latency_metrics(void) {
   if (!receiver)
     return;
 
-  context.stream.takion_drop_events = stream_connection->drop_events;
-  context.stream.takion_drop_packets = stream_connection->drop_packets;
-  context.stream.takion_drop_last_us =
-      stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
-  context.stream.av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
-  context.stream.av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
-  context.stream.av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
-  context.stream.av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
-  context.stream.av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
-  context.stream.av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
+  // Snapshot diagnostics under state mutex so metrics don't read partially
+  // updated counters while Takion/video paths are incrementing them.
+  if (chiaki_mutex_lock(&stream_connection->state_mutex) == CHIAKI_ERR_SUCCESS) {
+    context.stream.takion_drop_events = stream_connection->drop_events;
+    context.stream.takion_drop_packets = stream_connection->drop_packets;
+    context.stream.takion_drop_last_us =
+        stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
+    context.stream.av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
+    context.stream.av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
+    context.stream.av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
+    context.stream.av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
+    context.stream.av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
+    context.stream.av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
+    chiaki_mutex_unlock(&stream_connection->state_mutex);
+  }
 
   uint32_t fps = context.stream.session.connect_info.video_profile.max_fps;
   if (fps == 0)
@@ -1062,6 +1067,20 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
            context.stream.session_generation,
            context.stream.reconnect_generation);
     }
+    return;
+  }
+
+  if (context.stream.reconnect_recover_stage > 3) {
+    LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=invalid_stage_reset stage=%u",
+         context.stream.session_generation,
+         context.stream.reconnect_generation,
+         context.stream.reconnect_recover_stage);
+    context.stream.reconnect_recover_active = false;
+    context.stream.reconnect_recover_stage = 0;
+    context.stream.reconnect_recover_last_action_us = 0;
+    context.stream.reconnect_recover_idr_attempts = 0;
+    context.stream.reconnect_recover_restart_attempts = 0;
+    context.stream.reconnect_recover_stable_windows = 0;
   }
 }
 
@@ -1326,7 +1345,9 @@ static bool takion_overflow_has_av_distress(const char **reason_out) {
   uint32_t target_fps = context.stream.target_fps ?
       context.stream.target_fps : context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  if (target_fps && incoming_fps && incoming_fps * 100 < target_fps * 75) {
+  // Overflow path reacts early when cadence drops below 75% of target.
+  if (target_fps && incoming_fps &&
+      (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 75ULL) {
     if (reason_out)
       *reason_out = "fps_drop";
     return true;
@@ -1362,7 +1383,9 @@ static bool unrecovered_loss_has_av_distress(const char **reason_out) {
   uint32_t target_fps = context.stream.target_fps ?
       context.stream.target_fps : context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  if (target_fps && incoming_fps && incoming_fps * 100 < target_fps * 70) {
+  // Persistent-loss path allows a slightly lower floor before escalation.
+  if (target_fps && incoming_fps &&
+      (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 70ULL) {
     if (reason_out)
       *reason_out = "fps_drop";
     return true;
