@@ -1210,3 +1210,24 @@ CHIAKI_EXPORT void chiaki_stream_connection_report_sendbuf_overflow(ChiakiStream
 	stream_connection->av_sendbuf_overflow_events++;
 	chiaki_mutex_unlock(&stream_connection->state_mutex);
 }
+
+CHIAKI_EXPORT bool chiaki_stream_connection_get_diag_snapshot(ChiakiStreamConnection *stream_connection, ChiakiStreamDiagSnapshot *snapshot)
+{
+	if(!stream_connection || !snapshot)
+		return false;
+	if(chiaki_mutex_lock(&stream_connection->state_mutex) != CHIAKI_ERR_SUCCESS)
+		return false;
+
+	snapshot->drop_events = stream_connection->drop_events;
+	snapshot->drop_packets = stream_connection->drop_packets;
+	snapshot->drop_last_ms = stream_connection->drop_last_ms;
+	snapshot->av_missing_ref_events = stream_connection->av_missing_ref_events;
+	snapshot->av_corrupt_burst_events = stream_connection->av_corrupt_burst_events;
+	snapshot->av_fec_fail_events = stream_connection->av_fec_fail_events;
+	snapshot->av_sendbuf_overflow_events = stream_connection->av_sendbuf_overflow_events;
+	snapshot->av_last_corrupt_start = stream_connection->av_last_corrupt_start;
+	snapshot->av_last_corrupt_end = stream_connection->av_last_corrupt_end;
+
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return true;
+}

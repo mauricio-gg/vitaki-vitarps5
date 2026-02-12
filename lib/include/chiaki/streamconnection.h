@@ -22,6 +22,19 @@ extern "C" {
 
 typedef struct chiaki_session_t ChiakiSession;
 
+typedef struct chiaki_stream_diag_snapshot_t
+{
+	uint32_t drop_events;
+	uint32_t drop_packets;
+	uint64_t drop_last_ms;
+	uint32_t av_missing_ref_events;
+	uint32_t av_corrupt_burst_events;
+	uint32_t av_fec_fail_events;
+	uint32_t av_sendbuf_overflow_events;
+	ChiakiSeqNum16 av_last_corrupt_start;
+	ChiakiSeqNum16 av_last_corrupt_end;
+} ChiakiStreamDiagSnapshot;
+
 typedef struct chiaki_stream_connection_t
 {
 	struct chiaki_session_t *session;
@@ -102,6 +115,7 @@ CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *
 CHIAKI_EXPORT void chiaki_stream_connection_report_missing_ref(ChiakiStreamConnection *stream_connection);
 CHIAKI_EXPORT void chiaki_stream_connection_report_fec_fail(ChiakiStreamConnection *stream_connection);
 CHIAKI_EXPORT void chiaki_stream_connection_report_sendbuf_overflow(ChiakiStreamConnection *stream_connection);
+CHIAKI_EXPORT bool chiaki_stream_connection_get_diag_snapshot(ChiakiStreamConnection *stream_connection, ChiakiStreamDiagSnapshot *snapshot);
 
 #ifdef __cplusplus
 }

@@ -623,20 +623,18 @@ static void update_latency_metrics(void) {
   if (!receiver)
     return;
 
-  // Snapshot diagnostics under state mutex so metrics don't read partially
-  // updated counters while Takion/video paths are incrementing them.
-  if (chiaki_mutex_lock(&stream_connection->state_mutex) == CHIAKI_ERR_SUCCESS) {
-    context.stream.takion_drop_events = stream_connection->drop_events;
-    context.stream.takion_drop_packets = stream_connection->drop_packets;
+  ChiakiStreamDiagSnapshot diag_snapshot = {0};
+  if (chiaki_stream_connection_get_diag_snapshot(stream_connection, &diag_snapshot)) {
+    context.stream.takion_drop_events = diag_snapshot.drop_events;
+    context.stream.takion_drop_packets = diag_snapshot.drop_packets;
     context.stream.takion_drop_last_us =
-        stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
-    context.stream.av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
-    context.stream.av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
-    context.stream.av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
-    context.stream.av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
-    context.stream.av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
-    context.stream.av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
-    chiaki_mutex_unlock(&stream_connection->state_mutex);
+        diag_snapshot.drop_last_ms ? (diag_snapshot.drop_last_ms * 1000ULL) : 0;
+    context.stream.av_diag_missing_ref_count = diag_snapshot.av_missing_ref_events;
+    context.stream.av_diag_corrupt_burst_count = diag_snapshot.av_corrupt_burst_events;
+    context.stream.av_diag_fec_fail_count = diag_snapshot.av_fec_fail_events;
+    context.stream.av_diag_sendbuf_overflow_count = diag_snapshot.av_sendbuf_overflow_events;
+    context.stream.av_diag_last_corrupt_start = diag_snapshot.av_last_corrupt_start;
+    context.stream.av_diag_last_corrupt_end = diag_snapshot.av_last_corrupt_end;
   }
 
   uint32_t fps = context.stream.session.connect_info.video_profile.max_fps;

@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-11 (Robustness track added for post-reconnect low-FPS degradation)
+Last Updated: 2026-02-12 (Dedicated hardening PR started for thread/memory/perf/maintainability)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -43,6 +43,12 @@ Only move a task to "Done" after the reviewer signs off.
    - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
    - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
    - *Next Step:* Create `feat/startup-transport-hardening` from updated `main` and run startup-only A/B tests with `./tools/build.sh --env testing`.
+7. **Dedicated hardening pass (thread safety + memory safety + perf + maintainability)**
+   - *Owner:* Implementation agent
+   - *Branch:* `feat/stream-hardening-safety-maintainability`
+   - *Goal:* Keep the stability behavior from PR #63 while reducing operational risk in critical paths.
+   - *Summary:* Introduce a synchronized diagnostics snapshot API in `lib/src/streamconnection.c`/`lib/include/chiaki/streamconnection.h`, consume it from `vita/src/host.c`, harden recovery-stage guards, and apply low-risk perf/safety cleanup in `lib/src/takion.c`.
+   - *Next Step:* Finish review-driven hardening items, re-run `./tools/build.sh --env testing`, and open a focused follow-up PR.
 
 ---
 

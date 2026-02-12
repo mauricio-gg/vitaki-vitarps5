@@ -947,6 +947,8 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 {
 	ChiakiTakion *takion = cb_user;
+	if(!takion)
+		return;
 	takion->recv_drop_stats.drops_since_log++;
 	takion->recv_drop_stats.last_seq_num = seq_num;
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
@@ -1484,7 +1486,7 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 		{
 			// EWMA: jitter = (7 * old_jitter + deviation) / 8 (alpha=0.125)
 			takion->jitter_stats.jitter_us =
-				(7 * takion->jitter_stats.jitter_us + deviation_us) / 8;
+				(7 * takion->jitter_stats.jitter_us + deviation_us) >> 3;
 		}
 
 		takion->jitter_stats.last_inter_arrival_us = inter_arrival_us;
