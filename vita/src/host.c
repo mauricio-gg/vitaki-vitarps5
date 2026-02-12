@@ -96,6 +96,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
 #define FAST_RESTART_MAX_ATTEMPTS 2
+#define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
+#define LOSS_COUNTER_SATURATED_BURST_FRAMES  (1u << 1)
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
@@ -499,7 +501,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_window_event_count = 0;
   context.stream.loss_window_frame_accum = 0;
   context.stream.loss_burst_frame_accum = 0;
-  context.stream.loss_counter_saturated_logged = false;
+  context.stream.loss_counter_saturated_mask = 0;
   context.stream.loss_burst_start_us = 0;
   context.stream.loss_recovery_gate_hits = 0;
   context.stream.loss_recovery_window_start_us = 0;
@@ -663,6 +665,7 @@ static void update_latency_metrics(void) {
   uint32_t av_diag_trylock_failures = 0;
   uint32_t av_diag_last_corrupt_start = context.stream.av_diag.last_corrupt_start;
   uint32_t av_diag_last_corrupt_end = context.stream.av_diag.last_corrupt_end;
+  bool diag_snapshot_stale = true;
 
   // Snapshot diagnostics under dedicated diagnostics mutex so hot packet
   // paths do not contend with stream state transitions.
@@ -679,6 +682,7 @@ static void update_latency_metrics(void) {
     av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
     av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
     chiaki_mutex_unlock(&stream_connection->diag_mutex);
+    diag_snapshot_stale = false;
   }
 
   context.stream.takion_drop_events = takion_drop_events;
@@ -717,6 +721,10 @@ static void update_latency_metrics(void) {
           context.stream.av_diag.logged_fec_fail_count ||
       av_diag_sendbuf_overflow_count >
           context.stream.av_diag.logged_sendbuf_overflow_count;
+  if (diag_snapshot_stale) {
+    // Don't escalate based on stale snapshots when diagnostics couldn't be sampled.
+    av_diag_progressed = false;
+  }
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
@@ -1668,13 +1676,14 @@ static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs) {
 
 static uint32_t saturating_add_u32_report(uint32_t lhs,
                                           uint32_t rhs,
-                                          const char *counter_name) {
+                                          const char *counter_name,
+                                          uint32_t counter_mask_bit) {
   uint32_t sum = saturating_add_u32(lhs, rhs);
   if (sum == UINT32_MAX && lhs != UINT32_MAX &&
-      !context.stream.loss_counter_saturated_logged) {
+      !(context.stream.loss_counter_saturated_mask & counter_mask_bit)) {
     LOGE("Loss accumulator '%s' saturated at UINT32_MAX; forcing recovery reset path",
          counter_name ? counter_name : "unknown");
-    context.stream.loss_counter_saturated_logged = true;
+    context.stream.loss_counter_saturated_mask |= counter_mask_bit;
   }
   return sum;
 }
@@ -1870,13 +1879,14 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_window_start_us = now_us;
     context.stream.loss_window_event_count = 0;
     context.stream.loss_window_frame_accum = 0;
-    context.stream.loss_counter_saturated_logged = false;
+    context.stream.loss_counter_saturated_mask = 0;
   }
 
   context.stream.loss_window_frame_accum =
       saturating_add_u32_report(context.stream.loss_window_frame_accum,
                                 (uint32_t)frames_lost,
-                                "loss_window_frame_accum");
+                                "loss_window_frame_accum",
+                                LOSS_COUNTER_SATURATED_WINDOW_FRAMES);
 
   if (frames_lost >= (int32_t)loss_profile.min_frames) {
     context.stream.loss_window_event_count++;
@@ -1888,12 +1898,13 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       now_us - context.stream.loss_burst_start_us > burst_window_us) {
     context.stream.loss_burst_start_us = now_us;
     context.stream.loss_burst_frame_accum = 0;
-    context.stream.loss_counter_saturated_logged = false;
+    context.stream.loss_counter_saturated_mask = 0;
   }
   context.stream.loss_burst_frame_accum =
       saturating_add_u32_report(context.stream.loss_burst_frame_accum,
                                 (uint32_t)frames_lost,
-                                "loss_burst_frame_accum");
+                                "loss_burst_frame_accum",
+                                LOSS_COUNTER_SATURATED_BURST_FRAMES);
   uint32_t burst_frames = context.stream.loss_burst_frame_accum;
   uint32_t window_frames = context.stream.loss_window_frame_accum;
   uint32_t window_events = context.stream.loss_window_event_count;
@@ -1930,7 +1941,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   context.stream.loss_window_start_us = now_us;
   context.stream.loss_window_frame_accum = 0;
   context.stream.loss_burst_frame_accum = 0;
-  context.stream.loss_counter_saturated_logged = false;
+  context.stream.loss_counter_saturated_mask = 0;
   context.stream.loss_burst_start_us = 0;
 
   const char *trigger = hit_burst_threshold ? "burst threshold" :

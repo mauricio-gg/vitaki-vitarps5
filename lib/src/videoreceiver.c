@@ -56,6 +56,13 @@ static uint32_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 	return ((end_u16 - start_u16) & 0xFFFFU) + 1U;
 }
 
+static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs)
+{
+	if(lhs > UINT32_MAX - rhs)
+		return UINT32_MAX;
+	return lhs + rhs;
+}
+
 static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 {
 	if(video_receiver->last_reported_corrupt_start != start)
@@ -280,10 +287,10 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
-			uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
-			// Ignore pathological spans that indicate sequence desync instead of a real burst.
-			if(lost > 0 && lost < 1000U)
-				video_receiver->frames_lost += lost;
+				uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
+				// Ignore pathological spans that indicate sequence desync instead of a real burst.
+				if(lost > 0 && lost < 1000U)
+					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, lost);
 		}
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		CHIAKI_LOGW(video_receiver->log, "Failed to complete frame %d", (int)video_receiver->frame_index_cur);
@@ -316,8 +323,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					succ = false;
-					video_receiver->frames_lost++;
+						succ = false;
+						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
 				}
