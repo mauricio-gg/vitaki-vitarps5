@@ -92,6 +92,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
 #define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
 #define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
+#define STARTUP_DISTRESS_SCORE_THRESHOLD 3
+#define STARTUP_DISTRESS_REDUCED_SOFT_RECOVERY_MAX 1
 // During startup grace, limit resync requests to avoid self-inflicted churn.
 #define TAKION_STARTUP_GRACE_RESYNC_COOLDOWN_US (800 * 1000ULL)
 // Ignore the first few overflow drops in-window to absorb short jitter spikes.
@@ -1484,6 +1486,30 @@ static bool takion_overflow_has_av_distress(const char **reason_out) {
   return false;
 }
 
+static uint32_t startup_distress_score(uint64_t now_us) {
+  if (!context.stream.loss_restart_grace_until_us ||
+      now_us >= context.stream.loss_restart_grace_until_us) {
+    return 0;
+  }
+
+  uint32_t score = 0;
+  if (context.stream.av_diag.missing_ref_count > 0)
+    score++;
+  if (context.stream.av_diag.corrupt_burst_count > 0)
+    score++;
+  if (context.stream.av_diag.fec_fail_count > 0)
+    score++;
+  if (context.stream.av_diag.sendbuf_overflow_count > 0)
+    score += 2;
+  if (context.stream.post_reconnect_low_fps_windows > 0 ||
+      context.stream.fps_under_target_windows >= 2)
+    score++;
+  if (context.stream.takion_overflow_recent_drops >
+      (TAKION_OVERFLOW_IGNORE_THRESHOLD + 1))
+    score++;
+  return score;
+}
+
 static bool unrecovered_loss_has_av_distress(const char **reason_out) {
   if (context.stream.av_diag.missing_ref_count >= 2) {
     if (reason_out)
@@ -1642,6 +1668,21 @@ static void handle_takion_overflow(void) {
     return;
   }
 
+  uint32_t startup_score = startup_distress_score(now_us);
+  uint32_t soft_recovery_max = TAKION_OVERFLOW_SOFT_RECOVERY_MAX;
+  if (startup_score >= STARTUP_DISTRESS_SCORE_THRESHOLD) {
+    soft_recovery_max = STARTUP_DISTRESS_REDUCED_SOFT_RECOVERY_MAX;
+    LOGD("Takion overflow startup distress score=%u (missing_ref=%u corrupt=%u fec_fail=%u sendbuf=%u fps_low=%u post_low=%u) soft_limit=%u",
+         startup_score,
+         context.stream.av_diag.missing_ref_count,
+         context.stream.av_diag.corrupt_burst_count,
+         context.stream.av_diag.fec_fail_count,
+         context.stream.av_diag.sendbuf_overflow_count,
+         context.stream.fps_under_target_windows,
+         context.stream.post_reconnect_low_fps_windows,
+         soft_recovery_max);
+  }
+
   if (context.stream.takion_overflow_window_start_us == 0 ||
       now_us - context.stream.takion_overflow_window_start_us >
           TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US) {
@@ -1649,12 +1690,11 @@ static void handle_takion_overflow(void) {
     context.stream.takion_overflow_soft_attempts = 0;
   }
 
-  if (context.stream.takion_overflow_soft_attempts <
-      TAKION_OVERFLOW_SOFT_RECOVERY_MAX) {
+  if (context.stream.takion_overflow_soft_attempts < soft_recovery_max) {
     uint32_t attempt = context.stream.takion_overflow_soft_attempts + 1;
     LOGD("Takion overflow — soft recovery %u/%u at %u kbps",
          attempt,
-         TAKION_OVERFLOW_SOFT_RECOVERY_MAX,
+         soft_recovery_max,
          TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
     if (FAST_RESTART_GRACE_DELAY_US)
       sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
