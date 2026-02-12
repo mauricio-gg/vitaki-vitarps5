@@ -90,10 +90,14 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
 #define FAST_RESTART_MAX_ATTEMPTS 2
+// RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
+// avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
 #define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
 #define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
 #define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
+// Stage-2 reconnect recovery uses a conservative bitrate that stays below the
+// unstable 540p startup envelope on Vita while preserving playability.
 #define RECONNECT_RECOVER_TARGET_KBPS 900
 #define RECONNECT_RECOVER_MIN_HEALTHY_FPS 27
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita

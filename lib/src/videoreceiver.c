@@ -8,7 +8,9 @@
 
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
+// Hold tiny gap reports briefly so out-of-order packets can fill them first.
 #define VIDEO_GAP_REPORT_HOLD_MS 12
+// Force-report larger contiguous spans immediately instead of waiting.
 #define VIDEO_GAP_REPORT_FORCE_SPAN 6
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)

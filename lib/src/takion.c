@@ -954,7 +954,11 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
 	TakionDataPacketEntry *entry = elem_user;
 	if(!entry)
+	{
+		CHIAKI_LOGW(takion->log, "Takion data drop callback received null entry for seq=%#llx",
+			(unsigned long long)seq_num);
 		return;
+	}
 	free(entry->packet_buf);
 	free(entry);
 }
