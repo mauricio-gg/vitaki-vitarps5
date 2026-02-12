@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-11 (Streaming robustness investigation: reconnect low-FPS degradation)
+**Last Updated:** 2026-02-12 (Startup burst hardening pass applied)
 **Status:** Generated from codebase analysis
 
 ---
@@ -83,6 +83,15 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
 - Hard disconnect frequency improved, but some reconnect/re-entry sessions remain degraded with sustained 19-24 FPS and repeated missing reference bursts.
 - Observed in `87116066464_vitarps5-testing.log` after stop/re-entry flow (`:2920`, `:3082`, `:3357`) with low-FPS windows at `:3918`, `:4019`, `:4483`, `:5169`.
 - Companion run shows persistent transport pressure without immediate quits (`86888155925_vitarps5-testing.log:1658`, `86888155925_vitarps5-testing.log:75011334`).
+
+**Current Mitigation Status (2026-02-12):**
+- Added startup warmup absorb logic to reduce initial burst poisoning:
+  - 1.2s startup warmup window
+  - one-shot reorder queue drain + IDR request when early overflow pressure persists
+  - startup warmup presentation gating (decode continues while early frames are withheld)
+- Increased Takion reorder queue depth from 128 to 256 packets for startup headroom.
+- Stream callback logging now uses per-session first-frame state (no static carry-over across reconnects).
+- Files: `vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`.
 
 **Investigation/Design Authority:**
 - `docs/ai/STREAM_PIPELINE_ROBUSTNESS_PLAN.md`

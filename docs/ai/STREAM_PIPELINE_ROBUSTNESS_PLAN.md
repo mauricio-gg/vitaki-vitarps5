@@ -1,6 +1,6 @@
 # Stream Pipeline Robustness Plan
 
-Last Updated: 2026-02-11
+Last Updated: 2026-02-12
 Owner: Streaming/Latency track
 
 ## Why This Exists
@@ -26,6 +26,18 @@ Recent testing shows a change in failure mode: fewer hard disconnects, but persi
 1. Startup burst transport pressure can still poison early frame dependency state.
 2. Re-entry path can land in a degraded decode-dependency regime that remains "alive" but low-FPS.
 3. Current recovery gates suppress harmful restarts, but they do not fully restore cadence once this degraded regime starts.
+
+## Recent Mitigation Update (2026-02-12)
+- Landed a startup warmup absorb window (1.2s) that:
+  - suppresses aggressive overflow escalation during initial ramp,
+  - triggers a one-shot Takion reorder-queue drain + IDR request when early overflow pressure crosses a threshold.
+- Increased Takion reorder queue depth from 128 to 256 packets for startup burst headroom.
+- Removed cross-session static state in video first-frame logging so reconnect diagnostics are per-session.
+- Implementation paths:
+  - `vita/src/host.c`
+  - `vita/src/video.c`
+  - `vita/include/context.h`
+  - `lib/src/takion.c`
 
 ## Investigation + Mitigation Tracks
 
@@ -61,4 +73,3 @@ Recent testing shows a change in failure mode: fewer hard disconnects, but persi
 3. Session transition hardening PR third.
 4. Decode/present split PR fourth.
 5. Recovery policy refinement PR last.
-

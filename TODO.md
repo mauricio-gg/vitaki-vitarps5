@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-11 (Robustness track added for post-reconnect low-FPS degradation)
+Last Updated: 2026-02-12 (Startup burst hardening landed: warmup drain + larger Takion queue)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -42,7 +42,8 @@ Only move a task to "Done" after the reviewer signs off.
    - *Evidence:* `84165791498_vitarps5-testing.log:775-823`, `84165791498_vitarps5-testing.log:917-923`, `84165791498_vitarps5-testing.log:1256-1261`
    - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
    - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
-   - *Next Step:* Create `feat/startup-transport-hardening` from updated `main` and run startup-only A/B tests with `./tools/build.sh --env testing`.
+   - *Progress (2026-02-12):* Landed startup warmup absorb window + one-shot reorder-queue drain/IDR request and increased Takion reorder queue depth to 256 packets (`vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`).
+   - *Next Step:* Run startup-only A/B validation with `./tools/build.sh --env testing` (cold connect + 3x reconnect without app quit) and compare overflow/missing-ref counts against the 2026-02-11 baseline logs.
 7. **Follow-up robustness pass (post-merge cleanups)**
    - *Owner:* Implementation agent
    - *Goal:* Close remaining non-blocking review debt without destabilizing the active packet-path baseline PR.
