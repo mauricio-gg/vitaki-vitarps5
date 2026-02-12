@@ -186,6 +186,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 				return CHIAKI_ERR_INVALID_DATA;
 			}
 		}
+		// When flushed==true, frame_buf may already be compacted and no longer
+		// mapped 1:1 to per-unit slots. In that state we can't safely compare
+		// payload bytes here, so we keep first-arrival data-size validation only.
 		CHIAKI_LOGW(frame_processor->log, "Received duplicate unit");
 		return CHIAKI_ERR_SUCCESS;
 	} else {

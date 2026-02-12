@@ -98,6 +98,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_MAX_ATTEMPTS 2
 #define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
 #define LOSS_COUNTER_SATURATED_BURST_FRAMES  (1u << 1)
+// After this many consecutive missed diagnostics snapshots, low-FPS windows
+// are treated as AV distress so recovery won't remain blind under contention.
 #define AV_DIAG_STALE_SNAPSHOT_WARN_STREAK 5
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.

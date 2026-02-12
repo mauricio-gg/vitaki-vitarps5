@@ -122,10 +122,52 @@ static void test_gap_update_flush_previous_on_new_range(void) {
   assert(state.deadline_ms == 212);
 }
 
+static void test_gap_update_none_for_stale_end_and_null_state(void) {
+  ChiakiVideoGapReportState state = {
+      .pending = true,
+      .start = (ChiakiSeqNum16)40,
+      .end = (ChiakiSeqNum16)44,
+      .deadline_ms = 900,
+  };
+
+  // Older/equal ends must not shrink or flush the pending range.
+  ChiakiVideoGapUpdateAction a = chiaki_video_gap_report_update(
+      &state, (ChiakiSeqNum16)40, (ChiakiSeqNum16)42, 500, 12, NULL, NULL);
+  assert(a == CHIAKI_VIDEO_GAP_UPDATE_NONE);
+  assert(state.pending);
+  assert(state.start == 40);
+  assert(state.end == 44);
+  assert(state.deadline_ms == 900);
+
+  // Null state is a safe no-op.
+  a = chiaki_video_gap_report_update(
+      NULL, (ChiakiSeqNum16)1, (ChiakiSeqNum16)2, 0, 0, NULL, NULL);
+  assert(a == CHIAKI_VIDEO_GAP_UPDATE_NONE);
+}
+
+static void test_gap_update_wraparound_extend(void) {
+  ChiakiVideoGapReportState state = {0};
+
+  ChiakiVideoGapUpdateAction a = chiaki_video_gap_report_update(
+      &state, (ChiakiSeqNum16)65534, (ChiakiSeqNum16)65535, 1000, 12, NULL, NULL);
+  assert(a == CHIAKI_VIDEO_GAP_UPDATE_SET_PENDING);
+  assert(state.pending);
+  assert(state.start == (ChiakiSeqNum16)65534);
+  assert(state.end == (ChiakiSeqNum16)65535);
+
+  // Across wraparound, 0 is newer than 65535 and should extend.
+  a = chiaki_video_gap_report_update(
+      &state, (ChiakiSeqNum16)65534, (ChiakiSeqNum16)0, 1001, 12, NULL, NULL);
+  assert(a == CHIAKI_VIDEO_GAP_UPDATE_EXTEND_PENDING);
+  assert(state.end == (ChiakiSeqNum16)0);
+}
+
 void run_packet_path_tests(void) {
   test_reorder_find_first_set_after_skip_and_drop();
   test_reorder_wraparound_progression();
   test_reorder_skip_clears_entry_slot();
   test_gap_update_set_and_extend();
   test_gap_update_flush_previous_on_new_range();
+  test_gap_update_none_for_stale_end_and_null_state();
+  test_gap_update_wraparound_extend();
 }
