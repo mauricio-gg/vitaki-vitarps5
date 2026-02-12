@@ -64,6 +64,23 @@ static void test_reorder_wraparound_progression(void) {
   chiaki_reorder_queue_fini(&queue);
 }
 
+static void test_reorder_skip_clears_entry_slot(void) {
+  ChiakiReorderQueue queue;
+  assert(chiaki_reorder_queue_init_16(&queue, 4, (ChiakiSeqNum16)5) == CHIAKI_ERR_SUCCESS);
+
+  uint32_t marker = 5;
+  chiaki_reorder_queue_push(&queue, (uint16_t)5, &marker);
+  uint64_t slot = 5U & (((uint64_t)1U << queue.size_exp) - 1U);
+  assert(queue.queue[slot].set);
+  assert(queue.queue[slot].user == &marker);
+
+  chiaki_reorder_queue_skip_gap(&queue);
+  assert(!queue.queue[slot].set);
+  assert(queue.queue[slot].user == NULL);
+
+  chiaki_reorder_queue_fini(&queue);
+}
+
 static void test_gap_update_set_and_extend(void) {
   ChiakiVideoGapReportState state = {0};
   ChiakiSeqNum16 flush_start = 0;
@@ -108,6 +125,7 @@ static void test_gap_update_flush_previous_on_new_range(void) {
 void run_packet_path_tests(void) {
   test_reorder_find_first_set_after_skip_and_drop();
   test_reorder_wraparound_progression();
+  test_reorder_skip_clears_entry_slot();
   test_gap_update_set_and_extend();
   test_gap_update_flush_previous_on_new_range();
 }

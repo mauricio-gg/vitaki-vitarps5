@@ -1177,9 +1177,11 @@ CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *
 {
 	if(!stream_connection)
 		return;
-	if(chiaki_mutex_lock(&stream_connection->state_mutex) != CHIAKI_ERR_SUCCESS)
+	ChiakiErrorCode lock_err = chiaki_mutex_trylock(&stream_connection->state_mutex);
+	if(lock_err != CHIAKI_ERR_SUCCESS)
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording packet drop diagnostics");
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording packet drop diagnostics (err=%s)",
+			chiaki_error_string(lock_err));
 		return;
 	}
 	stream_connection->drop_events++;

@@ -287,6 +287,11 @@ CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue)
 		// Call drop_cb with the entry's user pointer (NULL if gap, actual pointer if set)
 		queue->drop_cb(queue->begin, entry->set ? entry->user : NULL, queue->drop_cb_user);
 	}
+	if(entry->set)
+	{
+		entry->set = false;
+		entry->user = NULL;
+	}
 
 	// Advance begin by 1, effectively skipping the gap
 	queue->begin = add(queue->begin, 1);

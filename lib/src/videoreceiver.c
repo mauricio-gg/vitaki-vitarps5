@@ -274,14 +274,17 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		|| flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 	{
 		video_receiver->stage_window_drops++;
-			if (flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
-			{
-				chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
-				ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
-				report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
-				video_receiver->frames_lost += video_receiver->frame_index_cur - next_frame_expected + 1;
-				video_receiver->frame_index_prev = video_receiver->frame_index_cur;
-			}
+		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
+		{
+			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
+			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
+			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
+			uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
+			// Ignore pathological spans that indicate sequence desync instead of a real burst.
+			if(lost > 0 && lost < 1000U)
+				video_receiver->frames_lost += lost;
+		}
+		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		CHIAKI_LOGW(video_receiver->log, "Failed to complete frame %d", (int)video_receiver->frame_index_cur);
 		return CHIAKI_ERR_UNKNOWN;
 	}

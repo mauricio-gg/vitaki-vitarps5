@@ -951,9 +951,9 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	// cb_user is wired through chiaki_reorder_queue_set_drop_cb() in takion_thread_func().
 	// It is expected to remain a valid ChiakiTakion* for the queue lifetime.
 	ChiakiTakion *takion = cb_user;
-	if(!takion)
+	if(!takion || !takion->log)
 	{
-		fprintf(stderr, "Takion data drop callback received null takion for seq=%#llx\n",
+		fprintf(stderr, "Takion data drop callback received invalid takion context for seq=%#llx\n",
 			(unsigned long long)seq_num);
 		if(entry)
 		{
