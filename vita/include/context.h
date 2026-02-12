@@ -49,6 +49,7 @@ typedef struct vita_chiaki_stream_t {
   bool session_init;
   ChiakiMutex finalization_mutex;  // Protects session_init flag during finalize_session_resources()
   bool is_streaming;
+  bool video_first_frame_logged;
   bool inputs_ready;
   bool stop_requested;
   bool stop_requested_by_user;

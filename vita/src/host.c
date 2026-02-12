@@ -491,6 +491,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.retry_holdoff_ms = 0;
   context.stream.retry_holdoff_until_us = 0;
   context.stream.retry_holdoff_active = false;
+  context.stream.video_first_frame_logged = false;
   context.stream.measured_incoming_fps = 0;
   context.stream.fps_under_target_windows = 0;
   context.stream.post_reconnect_low_fps_windows = 0;
@@ -2144,12 +2145,11 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
 }
 
 static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
-  static bool first_frame = true;
   if (context.stream.stop_requested)
     return false;
-  if (first_frame) {
+  if (!context.stream.video_first_frame_logged) {
     LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
-    first_frame = false;
+    context.stream.video_first_frame_logged = true;
   }
   if (frames_lost > 0) {
     handle_loss_event(frames_lost, frame_recovered);
