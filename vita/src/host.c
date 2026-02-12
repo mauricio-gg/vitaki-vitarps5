@@ -260,6 +260,11 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.retry_holdoff_ms = 0;
       context.stream.retry_holdoff_until_us = 0;
       context.stream.retry_holdoff_active = false;
+      context.stream.restart_handshake_failures = 0;
+      context.stream.last_restart_handshake_fail_us = 0;
+      context.stream.restart_cooloff_until_us = 0;
+      context.stream.last_restart_source[0] = '\0';
+      context.stream.restart_source_attempts = 0;
       LOGD("PIPE/SESSION connected gen=%u reconnect_gen=%u post_window_ms=%llu",
            context.stream.session_generation,
            context.stream.reconnect_generation,
@@ -561,6 +566,11 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_startup_grace_last_resync_us = 0;
   }
   context.stream.last_restart_failure_us = 0;
+  context.stream.restart_handshake_failures = 0;
+  context.stream.last_restart_handshake_fail_us = 0;
+  context.stream.restart_cooloff_until_us = 0;
+  context.stream.last_restart_source[0] = '\0';
+  context.stream.restart_source_attempts = 0;
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;

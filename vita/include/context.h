@@ -132,6 +132,11 @@ typedef struct vita_chiaki_stream_t {
   } av_diag;
   uint32_t av_diag_stale_snapshot_streak; // Consecutive update_latency_metrics() ticks that missed diag mutex sampling
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
+  uint32_t restart_handshake_failures; // Count of soft-restart handshake failures in rolling window
+  uint64_t last_restart_handshake_fail_us; // Timestamp of latest handshake failure after soft restart
+  uint64_t restart_cooloff_until_us; // Cooloff deadline that suppresses new soft restarts
+  char last_restart_source[32]; // Last recovery path that requested a soft restart
+  uint32_t restart_source_attempts; // Number of restart attempts from the current source in the rolling window
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
   bool loss_retry_pending;          // Whether a lower bitrate retry is scheduled
