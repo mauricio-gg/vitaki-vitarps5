@@ -44,8 +44,9 @@
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
-// Adaptive jitter buffer requires larger queue to handle burst packet loss
-#define TAKION_REORDER_QUEUE_SIZE_EXP 7 // => 128 entries
+// Adaptive jitter buffer requires larger queue to handle burst packet loss.
+// Keep enough headroom for startup bursts without changing queue semantics.
+#define TAKION_REORDER_QUEUE_SIZE_EXP 8 // => 256 entries
 #define TAKION_SEND_BUFFER_SIZE 16
 
 #define TAKION_POSTPONE_PACKETS_SIZE 32
