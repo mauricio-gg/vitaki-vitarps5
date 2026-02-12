@@ -33,6 +33,13 @@ typedef struct chiaki_video_receiver_t
 	int32_t frames_lost;
 	int32_t reference_frames[16];
 	ChiakiBitstream bitstream;
+	bool cur_frame_seen_last_unit;
+	uint64_t cur_frame_first_packet_ms;
+	uint64_t stage_window_start_ms;
+	uint64_t stage_assemble_total_ms;
+	uint64_t stage_submit_total_ms;
+	uint32_t stage_window_frames;
+	uint32_t stage_window_drops;
 } ChiakiVideoReceiver;
 
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);

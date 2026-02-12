@@ -2,6 +2,7 @@
 
 #include <chiaki/videoreceiver.h>
 #include <chiaki/session.h>
+#include <chiaki/time.h>
 
 #include <string.h>
 
@@ -51,6 +52,13 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->frames_lost = 0;
 	memset(video_receiver->reference_frames, -1, sizeof(video_receiver->reference_frames));
 	chiaki_bitstream_init(&video_receiver->bitstream, video_receiver->log, video_receiver->session->connect_info.video_profile.codec);
+	video_receiver->cur_frame_seen_last_unit = false;
+	video_receiver->cur_frame_first_packet_ms = 0;
+	video_receiver->stage_window_start_ms = 0;
+	video_receiver->stage_assemble_total_ms = 0;
+	video_receiver->stage_submit_total_ms = 0;
+	video_receiver->stage_window_frames = 0;
+	video_receiver->stage_window_drops = 0;
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -112,8 +120,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 	}
 
 	// next frame?
-	if(video_receiver->frame_index_cur < 0 ||
-		chiaki_seq_num_16_gt(frame_index, (ChiakiSeqNum16)video_receiver->frame_index_cur))
+		if(video_receiver->frame_index_cur < 0 ||
+			chiaki_seq_num_16_gt(frame_index, (ChiakiSeqNum16)video_receiver->frame_index_cur))
 	{
 		if(video_receiver->packet_stats)
 			chiaki_frame_processor_report_packet_stats(&video_receiver->frame_processor, video_receiver->packet_stats);
@@ -130,30 +138,43 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, next_frame_expected, frame_index - 1);
 		}
 
-		video_receiver->frame_index_cur = frame_index;
-		chiaki_frame_processor_alloc_frame(&video_receiver->frame_processor, packet);
-	}
+			video_receiver->frame_index_cur = frame_index;
+			video_receiver->cur_frame_seen_last_unit = false;
+			video_receiver->cur_frame_first_packet_ms = chiaki_time_now_monotonic_ms();
+			chiaki_frame_processor_alloc_frame(&video_receiver->frame_processor, packet);
+		}
 
-	chiaki_frame_processor_put_unit(&video_receiver->frame_processor, packet);
+		chiaki_frame_processor_put_unit(&video_receiver->frame_processor, packet);
+		if(packet->unit_index == packet->units_in_frame_total - 1)
+			video_receiver->cur_frame_seen_last_unit = true;
 
-	// if we are currently building up a frame
-	if(video_receiver->frame_index_cur != video_receiver->frame_index_prev)
-	{
-		// if we already have enough for the whole frame, flush it already
-		if(chiaki_frame_processor_flush_possible(&video_receiver->frame_processor) || packet->unit_index == packet->units_in_frame_total - 1)
-			chiaki_video_receiver_flush_frame(video_receiver);
-	}
+		// if we are currently building up a frame
+		if(video_receiver->frame_index_cur != video_receiver->frame_index_prev)
+		{
+			// Flush only when enough units are present (source + parity) to avoid
+			// prematurely finalizing a frame at the "last unit" marker.
+			if(chiaki_frame_processor_flush_possible(&video_receiver->frame_processor))
+				chiaki_video_receiver_flush_frame(video_receiver);
+		}
 }
 
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver)
 {
 	uint8_t *frame;
 	size_t frame_size;
+	uint64_t flush_start_ms = chiaki_time_now_monotonic_ms();
+	uint64_t assemble_ms = 0;
+	if(video_receiver->cur_frame_first_packet_ms > 0 &&
+		flush_start_ms >= video_receiver->cur_frame_first_packet_ms)
+	{
+		assemble_ms = flush_start_ms - video_receiver->cur_frame_first_packet_ms;
+	}
 	ChiakiFrameProcessorFlushResult flush_result = chiaki_frame_processor_flush(&video_receiver->frame_processor, &frame, &frame_size);
 
 	if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED
 		|| flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 	{
+		video_receiver->stage_window_drops++;
 		if (flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
@@ -203,7 +224,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 
 	if(succ && video_receiver->session->video_sample_cb)
 	{
+		uint64_t submit_start_ms = chiaki_time_now_monotonic_ms();
 		bool cb_succ = video_receiver->session->video_sample_cb(frame, frame_size, video_receiver->frames_lost, recovered, video_receiver->session->video_sample_cb_user);
+		uint64_t submit_end_ms = chiaki_time_now_monotonic_ms();
 		video_receiver->frames_lost = 0;
 		if(!cb_succ)
 		{
@@ -215,12 +238,40 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			add_ref_frame(video_receiver, video_receiver->frame_index_cur);
 			CHIAKI_LOGV(video_receiver->log, "Added reference %c frame %d", slice.slice_type == CHIAKI_BITSTREAM_SLICE_I ? 'I' : 'P', (int)video_receiver->frame_index_cur);
 		}
+		if(submit_end_ms >= submit_start_ms)
+			video_receiver->stage_submit_total_ms += submit_end_ms - submit_start_ms;
 	}
 
 	video_receiver->frame_index_prev = video_receiver->frame_index_cur;
+	video_receiver->cur_frame_first_packet_ms = 0;
+	video_receiver->cur_frame_seen_last_unit = false;
 
-	if(succ)
+	if(succ) {
 		video_receiver->frame_index_prev_complete = video_receiver->frame_index_cur;
+		video_receiver->stage_window_frames++;
+		video_receiver->stage_assemble_total_ms += assemble_ms;
+	}
+
+	uint64_t now_ms = chiaki_time_now_monotonic_ms();
+	if(video_receiver->stage_window_start_ms == 0)
+		video_receiver->stage_window_start_ms = now_ms;
+	if(now_ms - video_receiver->stage_window_start_ms >= 1000)
+	{
+		uint32_t frames = video_receiver->stage_window_frames;
+		uint64_t avg_assemble_ms = frames > 0 ? video_receiver->stage_assemble_total_ms / frames : 0;
+		uint64_t avg_submit_ms = frames > 0 ? video_receiver->stage_submit_total_ms / frames : 0;
+		CHIAKI_LOGD(video_receiver->log,
+			"PIPE/STAGE frames=%u drops=%u avg_assemble_ms=%llu avg_submit_ms=%llu",
+			frames,
+			video_receiver->stage_window_drops,
+			(unsigned long long)avg_assemble_ms,
+			(unsigned long long)avg_submit_ms);
+		video_receiver->stage_window_start_ms = now_ms;
+		video_receiver->stage_assemble_total_ms = 0;
+		video_receiver->stage_submit_total_ms = 0;
+		video_receiver->stage_window_frames = 0;
+		video_receiver->stage_window_drops = 0;
+	}
 
 	return CHIAKI_ERR_SUCCESS;
 }

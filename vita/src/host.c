@@ -24,6 +24,9 @@ static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode);
 static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode);
 static void request_stream_stop(const char *reason);
 static bool request_stream_restart(uint32_t bitrate_kbps);
+static bool request_stream_restart_coordinated(const char *source,
+                                               uint32_t bitrate_kbps,
+                                               uint64_t now_us);
 static void resume_discovery_if_needed(void);
 static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us);
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
@@ -852,6 +855,46 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   return true;
 }
 
+static bool request_stream_restart_coordinated(const char *source,
+                                               uint32_t bitrate_kbps,
+                                               uint64_t now_us) {
+  if (context.stream.stop_requested) {
+    LOGD("PIPE/RESTART source=%s action=skip reason=stop_requested",
+         source ? source : "unknown");
+    return false;
+  }
+  if (context.stream.fast_restart_active) {
+    LOGD("PIPE/RESTART source=%s action=skip reason=restart_active",
+         source ? source : "unknown");
+    return true;
+  }
+
+  if (context.stream.last_loss_recovery_action_us &&
+      now_us - context.stream.last_loss_recovery_action_us <
+          LOSS_RECOVERY_ACTION_COOLDOWN_US) {
+    uint64_t remaining_ms =
+        (LOSS_RECOVERY_ACTION_COOLDOWN_US -
+         (now_us - context.stream.last_loss_recovery_action_us)) / 1000ULL;
+    LOGD("PIPE/RESTART source=%s action=cooldown_skip remaining=%llums",
+         source ? source : "unknown",
+         (unsigned long long)remaining_ms);
+    return false;
+  }
+
+  bool ok = request_stream_restart(bitrate_kbps);
+  if (ok) {
+    context.stream.last_loss_recovery_action_us = now_us;
+    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u",
+         source ? source : "unknown",
+         bitrate_kbps);
+  } else {
+    LOGE("PIPE/RESTART source=%s action=failed bitrate=%u",
+         source ? source : "unknown",
+         bitrate_kbps);
+  }
+  return ok;
+}
+
 static void request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
@@ -955,7 +998,10 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
   }
 
   if (context.stream.reconnect_recover_stage == 1) {
-    bool restart_ok = request_stream_restart(RECONNECT_RECOVER_TARGET_KBPS);
+    bool restart_ok = request_stream_restart_coordinated(
+        "post_reconnect_stage2",
+        RECONNECT_RECOVER_TARGET_KBPS,
+        now_us);
     context.stream.reconnect_recover_last_action_us = now_us;
     if (restart_ok) {
       context.stream.reconnect_recover_stage = 2;
@@ -987,7 +1033,10 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
     if (context.stream.reconnect_recover_restart_attempts >= 1)
       return;
 
-    bool restart_ok = request_stream_restart(LOSS_RETRY_BITRATE_KBPS);
+    bool restart_ok = request_stream_restart_coordinated(
+        "post_reconnect_stage3",
+        LOSS_RETRY_BITRATE_KBPS,
+        now_us);
     context.stream.reconnect_recover_last_action_us = now_us;
     context.stream.reconnect_recover_restart_attempts++;
     if (restart_ok) {
@@ -1148,7 +1197,9 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
            (unsigned long long)(UNRECOVERED_PERSIST_WINDOW_US / 1000ULL),
            context.stream.unrecovered_idr_requests,
            (unsigned long long)(UNRECOVERED_IDR_WINDOW_US / 1000ULL));
-      if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
+      if (!request_stream_restart_coordinated("unrecovered_persistent",
+                                              LOSS_RETRY_BITRATE_KBPS,
+                                              now_us)) {
         LOGE("Soft restart request failed after persistent unrecovered frames; keeping stream alive (reason=%s)",
              unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
         request_decoder_resync("unrecovered persistent restart failed");
@@ -1216,7 +1267,9 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   request_decoder_resync("unrecovered frame streak");
   LOGD("Unrecovered frame streak detected — requesting soft restart (reason=%s)",
        unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
-  if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
+  if (!request_stream_restart_coordinated("unrecovered_streak",
+                                          LOSS_RETRY_BITRATE_KBPS,
+                                          now_us)) {
     LOGE("Soft restart request failed after unrecovered frames; keeping stream alive");
     request_decoder_resync("unrecovered streak restart failed");
     context.stream.last_restart_failure_us = now_us;
@@ -1426,8 +1479,10 @@ static void handle_takion_overflow(void) {
          TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
     if (FAST_RESTART_GRACE_DELAY_US)
       sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
-    bool restart_ok =
-        request_stream_restart(TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
+    bool restart_ok = request_stream_restart_coordinated(
+        "takion_overflow_soft",
+        TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS,
+        now_us);
     context.stream.takion_overflow_backoff_until_us =
         now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
     if (context.stream.next_stream_allowed_us <
@@ -1475,7 +1530,9 @@ static void handle_takion_overflow(void) {
         context.stream.takion_overflow_backoff_until_us;
   }
   LOGD("Takion overflow threshold reached — requesting guarded restart");
-  if (!request_stream_restart(LOSS_RETRY_BITRATE_KBPS)) {
+  if (!request_stream_restart_coordinated("takion_overflow_escalation",
+                                          LOSS_RETRY_BITRATE_KBPS,
+                                          now_us)) {
     LOGE("Takion overflow restart failed; pausing stream");
     request_stream_stop("takion overflow");
   } else if (context.active_host) {
@@ -1812,7 +1869,10 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
           sizeof(hint),
           "Network unstable — retrying at %.1f Mbps",
           (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
-      bool restart_ok = request_stream_restart(LOSS_RETRY_BITRATE_KBPS);
+      bool restart_ok = request_stream_restart_coordinated(
+          "loss_recovery_gate",
+          LOSS_RETRY_BITRATE_KBPS,
+          now_us);
       if (restart_ok) {
         uint32_t recovery_stage = context.stream.loss_recovery_gate_hits;
         context.stream.loss_retry_attempts++;
