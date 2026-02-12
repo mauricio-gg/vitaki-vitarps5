@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="475"
+VERSION_ITERATION="476"
 
 # Colors for output
 RED='\033[0;31m'
@@ -125,6 +125,28 @@ configure_logging_cmake_args() {
     fi
 
     CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
+}
+
+append_build_metadata_cmake_args() {
+    local git_commit="unknown"
+    local git_branch="unknown"
+    local git_dirty=0
+    local build_timestamp
+
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git_commit="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+        git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+        if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+            git_dirty=1
+        fi
+    fi
+
+    build_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    CMAKE_EXTRA_FLAGS+=" -DVITARPS5_BUILD_GIT_COMMIT=${git_commit}"
+    CMAKE_EXTRA_FLAGS+=" -DVITARPS5_BUILD_GIT_BRANCH=${git_branch}"
+    CMAKE_EXTRA_FLAGS+=" -DVITARPS5_BUILD_GIT_DIRTY=${git_dirty}"
+    CMAKE_EXTRA_FLAGS+=" -DVITARPS5_BUILD_TIMESTAMP=${build_timestamp}"
 }
 
 # Logging functions
@@ -511,6 +533,7 @@ main() {
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
+    append_build_metadata_cmake_args
 
     local debug_menu_val
     debug_menu_val=$(normalize_bool "$VITARPS5_DEBUG_MENU")
