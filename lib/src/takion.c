@@ -951,7 +951,8 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	ChiakiTakion *takion = cb_user;
 	if(!takion)
 	{
-		assert(!"takion_data_drop called with NULL takion");
+		fprintf(stderr, "Takion data drop callback received null takion for seq=%#llx\n",
+			(unsigned long long)seq_num);
 		return;
 	}
 	takion->recv_drop_stats.drops_since_log++;
@@ -962,8 +963,7 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	TakionDataPacketEntry *entry = elem_user;
 	if(!entry)
 	{
-		assert(!"takion_data_drop called with NULL entry");
-		CHIAKI_LOGW(takion->log, "Takion data drop callback received null entry for seq=%#llx",
+		CHIAKI_LOGE(takion->log, "Takion data drop callback received null entry for seq=%#llx",
 			(unsigned long long)seq_num);
 		return;
 	}
