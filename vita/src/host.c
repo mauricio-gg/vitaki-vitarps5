@@ -106,8 +106,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
-#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 8
-#define RECONNECT_RECOVER_ACTION_COOLDOWN_US (4 * 1000 * 1000ULL)
+#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
+#define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
 #define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
 // Stage-2 reconnect recovery uses a conservative bitrate that stays below the
 // unstable 540p startup envelope on Vita while preserving playability.
@@ -116,7 +116,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
-#define SESSION_START_LOW_FPS_WINDOW_US (25 * 1000 * 1000ULL)
+#define SESSION_START_LOW_FPS_WINDOW_US (60 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
 #define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
