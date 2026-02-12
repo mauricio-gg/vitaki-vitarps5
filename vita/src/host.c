@@ -71,6 +71,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
+// Startup can include console wake + decoder warmup; keep a long grace window
+// to prevent restart thrash during initial stream ramp-up.
 #define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
@@ -658,6 +660,7 @@ static void update_latency_metrics(void) {
   uint32_t av_diag_corrupt_burst_count = context.stream.av_diag.corrupt_burst_count;
   uint32_t av_diag_fec_fail_count = context.stream.av_diag.fec_fail_count;
   uint32_t av_diag_sendbuf_overflow_count = context.stream.av_diag.sendbuf_overflow_count;
+  uint32_t av_diag_trylock_failures = 0;
   uint32_t av_diag_last_corrupt_start = context.stream.av_diag.last_corrupt_start;
   uint32_t av_diag_last_corrupt_end = context.stream.av_diag.last_corrupt_end;
 
@@ -672,6 +675,7 @@ static void update_latency_metrics(void) {
     av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
     av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
     av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
+    av_diag_trylock_failures = stream_connection->diag_trylock_failures;
     av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
     av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
     chiaki_mutex_unlock(&stream_connection->diag_mutex);
@@ -787,11 +791,12 @@ static void update_latency_metrics(void) {
   if (av_diag_changed ||
       (context.stream.av_diag.last_log_us == 0 ||
        now_us - context.stream.av_diag.last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
-    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, last_corrupt=%u-%u",
+    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, diag_trylock_failures=%u, last_corrupt=%u-%u",
          context.stream.av_diag.missing_ref_count,
          context.stream.av_diag.corrupt_burst_count,
          context.stream.av_diag.fec_fail_count,
          context.stream.av_diag.sendbuf_overflow_count,
+         av_diag_trylock_failures,
          context.stream.av_diag.last_corrupt_start,
          context.stream.av_diag.last_corrupt_end);
     context.stream.av_diag.logged_missing_ref_count =

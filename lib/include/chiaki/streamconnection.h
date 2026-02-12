@@ -84,6 +84,7 @@ typedef struct chiaki_stream_connection_t
 	uint32_t av_corrupt_burst_events;
 	uint32_t av_fec_fail_events;
 	uint32_t av_sendbuf_overflow_events;
+	uint32_t diag_trylock_failures;
 	ChiakiSeqNum16 av_last_corrupt_start;
 	ChiakiSeqNum16 av_last_corrupt_end;
 } ChiakiStreamConnection;

@@ -192,6 +192,9 @@ static ChiakiErrorCode takion_read_extra_sock_messages(ChiakiTakion *takion);
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock)
 {
+	if(!takion || !info || !info->log)
+		return CHIAKI_ERR_INVALID_DATA;
+
 	ChiakiErrorCode ret = CHIAKI_ERR_SUCCESS;
 
 	takion->log = info->log;
@@ -953,8 +956,6 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	ChiakiTakion *takion = cb_user;
 	if(!takion || !takion->log)
 	{
-		fprintf(stderr, "Takion data drop callback received invalid takion context for seq=%#llx\n",
-			(unsigned long long)seq_num);
 		if(entry)
 		{
 			free(entry->packet_buf);
@@ -1010,6 +1011,8 @@ static void *takion_thread_func(void *user)
 			queue_slots);
 	uint64_t queue_usage_log_last_ms = 0;
 
+	if(!takion->log)
+		goto error_reoder_queue;
 	chiaki_reorder_queue_set_drop_cb(&takion->data_queue, takion_data_drop, takion);
 
 	// The send buffer size MUST be consistent with the acked seqnums array size in takion_handle_packet_message_data_ack()

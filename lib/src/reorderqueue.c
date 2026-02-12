@@ -16,6 +16,8 @@
 
 static uint64_t reorder_queue_offset_for_seq(ChiakiReorderQueue *queue, uint64_t seq_num)
 {
+	// Linear scan is acceptable here: this helper is only used when hint-based
+	// lookup misses, and queue size is bounded by fixed reorder window settings.
 	uint64_t cur = queue->begin;
 	for(uint64_t i=0; i<queue->count; i++)
 	{
