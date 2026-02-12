@@ -1595,7 +1595,7 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
 }
 
 static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs) {
-  if (UINT32_MAX - lhs < rhs)
+  if (lhs > UINT32_MAX - rhs)
     return UINT32_MAX;
   return lhs + rhs;
 }

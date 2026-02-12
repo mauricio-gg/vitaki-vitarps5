@@ -48,6 +48,7 @@ static uint16_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 {
 	// Validate range in sequence-number space first so malformed ranges don't
 	// explode into huge spans when cast back to uint16_t.
+	// Example: start=65535,end=0 is valid wrap-around span of 2.
 	if(start != end && !chiaki_seq_num_16_gt(end, start))
 		return 0;
 	return (uint16_t)((uint16_t)(end - start) + 1);
@@ -155,6 +156,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_stream_info(ChiakiVideoReceiver *video_
 
 CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_receiver, ChiakiTakionAVPacket *packet)
 {
+	// Called on the stream/takion receive thread; gap report state is local to
+	// this callback path and not mutated from render/UI threads.
 	uint64_t now_ms = chiaki_time_now_monotonic_ms();
 	flush_pending_gap_report(video_receiver, now_ms, false);
 
