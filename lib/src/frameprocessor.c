@@ -170,7 +170,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 	ChiakiFrameUnit *unit = frame_processor->unit_slots + packet->unit_index;
 	if(unit->data_size)
 	{
-		CHIAKI_LOGV(frame_processor->log, "Received duplicate unit");
+		// Duplicates are expected on lossy/reordered UDP paths after retransmit.
+		// Keep first-arrival payload and ignore subsequent identical units.
+		CHIAKI_LOGW(frame_processor->log, "Received duplicate unit");
 		return CHIAKI_ERR_SUCCESS;
 	} else {
 		unit->data_size = packet->data_size;

@@ -73,7 +73,9 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
+// Require multiple unrecovered bursts before escalating to restart logic.
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 4
+// Use a wider gate window so single transient bursts don't immediately escalate.
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (2500 * 1000ULL)
 #define UNRECOVERED_PERSIST_WINDOW_US (8 * 1000 * 1000ULL)
 #define UNRECOVERED_PERSIST_THRESHOLD 6
@@ -84,6 +86,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
 #define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
 #define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
+// Ignore the first few overflow drops in-window to absorb short jitter spikes.
 #define TAKION_OVERFLOW_IGNORE_THRESHOLD 4
 #define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
@@ -103,6 +106,13 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
+
+typedef enum ReconnectRecoveryStage {
+  RECONNECT_RECOVER_STAGE_IDLE = 0,
+  RECONNECT_RECOVER_STAGE_IDR_REQUESTED = 1,
+  RECONNECT_RECOVER_STAGE_SOFT_RESTARTED = 2,
+  RECONNECT_RECOVER_STAGE_ESCALATED = 3,
+} ReconnectRecoveryStage;
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -952,7 +962,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
              incoming_fps,
              target_fps);
         context.stream.reconnect_recover_active = false;
-        context.stream.reconnect_recover_stage = 0;
+        context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDLE;
         context.stream.reconnect_recover_last_action_us = 0;
         context.stream.reconnect_recover_idr_attempts = 0;
         context.stream.reconnect_recover_stable_windows = 0;
@@ -973,7 +983,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
 
   if (!context.stream.reconnect_recover_active) {
     context.stream.reconnect_recover_active = true;
-    context.stream.reconnect_recover_stage = 0;
+    context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDLE;
     context.stream.reconnect_recover_idr_attempts = 0;
     context.stream.reconnect_recover_restart_attempts = 0;
     context.stream.reconnect_recover_stable_windows = 0;
@@ -985,11 +995,11 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
          target_fps);
   }
 
-  if (context.stream.reconnect_recover_stage == 0) {
+  if (context.stream.reconnect_recover_stage == RECONNECT_RECOVER_STAGE_IDLE) {
     request_decoder_resync("post-reconnect degraded stage1");
     request_decoder_resync("post-reconnect degraded stage1 followup");
     context.stream.reconnect_recover_idr_attempts += 2;
-    context.stream.reconnect_recover_stage = 1;
+    context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDR_REQUESTED;
     context.stream.reconnect_recover_last_action_us = now_us;
     if (context.active_host) {
       host_set_hint(context.active_host,
@@ -1006,14 +1016,14 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
     return;
   }
 
-  if (context.stream.reconnect_recover_stage == 1) {
+  if (context.stream.reconnect_recover_stage == RECONNECT_RECOVER_STAGE_IDR_REQUESTED) {
     bool restart_ok = request_stream_restart_coordinated(
         "post_reconnect_stage2",
         RECONNECT_RECOVER_TARGET_KBPS,
         now_us);
     context.stream.reconnect_recover_last_action_us = now_us;
     if (restart_ok) {
-      context.stream.reconnect_recover_stage = 2;
+      context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_SOFT_RESTARTED;
       if (context.active_host) {
         host_set_hint(context.active_host,
                       "Rebuilding stream at safer bitrate",
@@ -1034,7 +1044,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
     return;
   }
 
-  if (context.stream.reconnect_recover_stage == 2) {
+  if (context.stream.reconnect_recover_stage == RECONNECT_RECOVER_STAGE_SOFT_RESTARTED) {
     if (now_us - context.stream.reconnect_recover_last_action_us <
         RECONNECT_RECOVER_STAGE2_WAIT_US) {
       return;
@@ -1049,7 +1059,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
     context.stream.reconnect_recover_last_action_us = now_us;
     context.stream.reconnect_recover_restart_attempts++;
     if (restart_ok) {
-      context.stream.reconnect_recover_stage = 3;
+      context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_ESCALATED;
       if (context.active_host) {
         host_set_hint(context.active_host,
                       "Persistent video desync - rebuilding session",
@@ -1072,13 +1082,13 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
 
   // Defensive guard: valid stages are 0..3. Reset if memory corruption or
   // future wiring mistakes push this state out of range.
-  if (context.stream.reconnect_recover_stage > 3) {
+  if (context.stream.reconnect_recover_stage > RECONNECT_RECOVER_STAGE_ESCALATED) {
     LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=invalid_stage_reset stage=%u",
          context.stream.session_generation,
          context.stream.reconnect_generation,
          context.stream.reconnect_recover_stage);
     context.stream.reconnect_recover_active = false;
-    context.stream.reconnect_recover_stage = 0;
+    context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDLE;
     context.stream.reconnect_recover_last_action_us = 0;
     context.stream.reconnect_recover_idr_attempts = 0;
     context.stream.reconnect_recover_restart_attempts = 0;
@@ -1348,6 +1358,8 @@ static bool takion_overflow_has_av_distress(const char **reason_out) {
       context.stream.target_fps : context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   // Overflow path reacts early when cadence drops below 75% of target.
+  // This path is intentionally more sensitive because reorder overflow can
+  // quickly poison decoder dependencies if we wait too long.
   if (target_fps && incoming_fps &&
       (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 75ULL) {
     if (reason_out)
@@ -1386,6 +1398,8 @@ static bool unrecovered_loss_has_av_distress(const char **reason_out) {
       context.stream.target_fps : context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   // Persistent-loss path allows a slightly lower floor before escalation.
+  // Here we require stronger evidence (70% FPS + stricter counters) to avoid
+  // restart oscillation from short-lived loss bursts.
   if (target_fps && incoming_fps &&
       (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 70ULL) {
     if (reason_out)
@@ -1876,6 +1890,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     LOGD("Loss recovery action=restart_suppressed_startup_grace trigger=%s remaining=%llums",
          trigger,
          (unsigned long long)remaining_ms);
+    // Keep stage pinned at 1 while startup grace is active so the next
+    // non-grace hit resumes from "post-IDR" behavior instead of resetting.
     context.stream.loss_recovery_gate_hits = 1;
     request_decoder_resync("packet-loss startup grace");
     return;
