@@ -307,7 +307,11 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 		// are disjoint regions inside frame_buf.
 		uint8_t *dst_ptr = frame_processor->frame_buf + cur;
 		uint8_t *src_ptr = buf_ptr + 2;
-		assert(dst_ptr + part_size <= src_ptr || src_ptr + part_size <= dst_ptr);
+		if(!(dst_ptr + part_size <= src_ptr || src_ptr + part_size <= dst_ptr))
+		{
+			CHIAKI_LOGE(frame_processor->log, "Unsafe overlap detected while assembling frame buffer");
+			return CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED;
+		}
 		memcpy(dst_ptr, src_ptr, part_size);
 		cur += part_size;
 	}

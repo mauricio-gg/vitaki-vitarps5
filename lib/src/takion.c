@@ -946,6 +946,7 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 
 static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 {
+	TakionDataPacketEntry *entry = elem_user;
 	// cb_user is wired through chiaki_reorder_queue_set_drop_cb() in takion_thread_func().
 	// It is expected to remain a valid ChiakiTakion* for the queue lifetime.
 	ChiakiTakion *takion = cb_user;
@@ -953,6 +954,11 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	{
 		fprintf(stderr, "Takion data drop callback received null takion for seq=%#llx\n",
 			(unsigned long long)seq_num);
+		if(entry)
+		{
+			free(entry->packet_buf);
+			free(entry);
+		}
 		return;
 	}
 	takion->recv_drop_stats.drops_since_log++;
@@ -960,7 +966,6 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
 	if(takion->cb_user)
 		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
-	TakionDataPacketEntry *entry = elem_user;
 	if(!entry)
 	{
 		CHIAKI_LOGE(takion->log, "Takion data drop callback received null entry for seq=%#llx",

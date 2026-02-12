@@ -650,21 +650,43 @@ static void update_latency_metrics(void) {
   if (!receiver)
     return;
 
+  uint32_t takion_drop_events = context.stream.takion_drop_events;
+  uint32_t takion_drop_packets = context.stream.takion_drop_packets;
+  uint64_t takion_drop_last_us = context.stream.takion_drop_last_us;
+  uint32_t av_diag_missing_ref_count = context.stream.av_diag_missing_ref_count;
+  uint32_t av_diag_corrupt_burst_count = context.stream.av_diag_corrupt_burst_count;
+  uint32_t av_diag_fec_fail_count = context.stream.av_diag_fec_fail_count;
+  uint32_t av_diag_sendbuf_overflow_count = context.stream.av_diag_sendbuf_overflow_count;
+  uint32_t av_diag_last_corrupt_start = context.stream.av_diag_last_corrupt_start;
+  uint32_t av_diag_last_corrupt_end = context.stream.av_diag_last_corrupt_end;
+
   // Snapshot diagnostics under state mutex so metrics don't read partially
   // updated counters while Takion/video paths are incrementing them.
   if (chiaki_mutex_lock(&stream_connection->state_mutex) == CHIAKI_ERR_SUCCESS) {
-    context.stream.takion_drop_events = stream_connection->drop_events;
-    context.stream.takion_drop_packets = stream_connection->drop_packets;
-    context.stream.takion_drop_last_us =
+    takion_drop_events = stream_connection->drop_events;
+    takion_drop_packets = stream_connection->drop_packets;
+    takion_drop_last_us =
         stream_connection->drop_last_ms ? (stream_connection->drop_last_ms * 1000ULL) : 0;
-    context.stream.av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
-    context.stream.av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
-    context.stream.av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
-    context.stream.av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
-    context.stream.av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
-    context.stream.av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
+    av_diag_missing_ref_count = stream_connection->av_missing_ref_events;
+    av_diag_corrupt_burst_count = stream_connection->av_corrupt_burst_events;
+    av_diag_fec_fail_count = stream_connection->av_fec_fail_events;
+    av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
+    av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
+    av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
     chiaki_mutex_unlock(&stream_connection->state_mutex);
+  } else {
+    LOGE("Failed to lock stream state mutex while snapshotting diagnostics");
   }
+
+  context.stream.takion_drop_events = takion_drop_events;
+  context.stream.takion_drop_packets = takion_drop_packets;
+  context.stream.takion_drop_last_us = takion_drop_last_us;
+  context.stream.av_diag_missing_ref_count = av_diag_missing_ref_count;
+  context.stream.av_diag_corrupt_burst_count = av_diag_corrupt_burst_count;
+  context.stream.av_diag_fec_fail_count = av_diag_fec_fail_count;
+  context.stream.av_diag_sendbuf_overflow_count = av_diag_sendbuf_overflow_count;
+  context.stream.av_diag_last_corrupt_start = av_diag_last_corrupt_start;
+  context.stream.av_diag_last_corrupt_end = av_diag_last_corrupt_end;
 
   uint32_t fps = context.stream.session.connect_info.video_profile.max_fps;
   if (fps == 0)
@@ -684,13 +706,13 @@ static void update_latency_metrics(void) {
   bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
       incoming_fps + 2 < effective_target_fps;
   bool av_diag_progressed =
-      context.stream.av_diag_missing_ref_count >
+      av_diag_missing_ref_count >
           context.stream.av_diag_logged_missing_ref_count ||
-      context.stream.av_diag_corrupt_burst_count >
+      av_diag_corrupt_burst_count >
           context.stream.av_diag_logged_corrupt_burst_count ||
-      context.stream.av_diag_fec_fail_count >
+      av_diag_fec_fail_count >
           context.stream.av_diag_logged_fec_fail_count ||
-      context.stream.av_diag_sendbuf_overflow_count >
+      av_diag_sendbuf_overflow_count >
           context.stream.av_diag_logged_sendbuf_overflow_count;
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
@@ -1038,8 +1060,8 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
         "post_reconnect_stage2",
         RECONNECT_RECOVER_TARGET_KBPS,
         now_us);
-    context.stream.reconnect_recover_last_action_us = now_us;
     if (restart_ok) {
+      context.stream.reconnect_recover_last_action_us = now_us;
       context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_SOFT_RESTARTED;
       if (context.active_host) {
         host_set_hint(context.active_host,
@@ -1057,6 +1079,12 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
       LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_soft_restart_failed",
            context.stream.session_generation,
            context.stream.reconnect_generation);
+      context.stream.reconnect_recover_active = false;
+      context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDLE;
+      context.stream.reconnect_recover_last_action_us = 0;
+      context.stream.reconnect_recover_idr_attempts = 0;
+      context.stream.reconnect_recover_restart_attempts = 0;
+      context.stream.reconnect_recover_stable_windows = 0;
     }
     return;
   }
@@ -1073,9 +1101,9 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
         "post_reconnect_stage3",
         LOSS_RETRY_BITRATE_KBPS,
         now_us);
-    context.stream.reconnect_recover_last_action_us = now_us;
-    context.stream.reconnect_recover_restart_attempts++;
     if (restart_ok) {
+      context.stream.reconnect_recover_last_action_us = now_us;
+      context.stream.reconnect_recover_restart_attempts++;
       context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_ESCALATED;
       if (context.active_host) {
         host_set_hint(context.active_host,
@@ -1093,6 +1121,12 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
       LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage3_guarded_restart_failed",
            context.stream.session_generation,
            context.stream.reconnect_generation);
+      context.stream.reconnect_recover_active = false;
+      context.stream.reconnect_recover_stage = RECONNECT_RECOVER_STAGE_IDLE;
+      context.stream.reconnect_recover_last_action_us = 0;
+      context.stream.reconnect_recover_idr_attempts = 0;
+      context.stream.reconnect_recover_restart_attempts = 0;
+      context.stream.reconnect_recover_stable_windows = 0;
     }
     return;
   }
