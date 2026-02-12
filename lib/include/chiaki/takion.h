@@ -178,6 +178,7 @@ typedef struct chiaki_takion_t
 	struct
 	{
 		uint64_t jitter_us;              // EWMA jitter estimate (microseconds)
+		uint64_t cadence_jitter_us;      // Legacy-style EWMA against fixed 30fps cadence (diagnostic)
 		uint64_t last_packet_arrival_us; // Last packet timestamp
 		uint64_t last_inter_arrival_us;  // Previous inter-arrival delta for jitter deviation
 		uint64_t last_log_ms;            // Periodic logging timestamp

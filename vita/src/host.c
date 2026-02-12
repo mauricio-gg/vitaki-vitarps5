@@ -497,6 +497,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_window_event_count = 0;
   context.stream.loss_window_frame_accum = 0;
   context.stream.loss_burst_frame_accum = 0;
+  context.stream.loss_counter_saturated_logged = false;
   context.stream.loss_burst_start_us = 0;
   context.stream.loss_recovery_gate_hits = 0;
   context.stream.loss_recovery_window_start_us = 0;
@@ -953,6 +954,33 @@ static bool request_stream_restart_coordinated(const char *source,
   return ok;
 }
 
+static void mark_restart_failure(uint64_t now_us) {
+  context.stream.last_restart_failure_us = now_us;
+  context.stream.restart_failure_active = true;
+}
+
+static void mark_restart_success(uint64_t now_us) {
+  context.stream.last_restart_failure_us = 0;
+  context.stream.restart_failure_active = false;
+  context.stream.last_loss_recovery_action_us = now_us;
+}
+
+static bool request_recovery_restart(const char *source,
+                                     uint32_t bitrate_kbps,
+                                     uint64_t now_us,
+                                     const char *failure_resync_reason) {
+  bool ok = request_stream_restart_coordinated(source, bitrate_kbps, now_us);
+  if (ok) {
+    mark_restart_success(now_us);
+    return true;
+  }
+  mark_restart_failure(now_us);
+  if (failure_resync_reason) {
+    request_decoder_resync(failure_resync_reason);
+  }
+  return false;
+}
+
 static void request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
@@ -1283,23 +1311,18 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
            (unsigned long long)(UNRECOVERED_PERSIST_WINDOW_US / 1000ULL),
            context.stream.unrecovered_idr_requests,
            (unsigned long long)(UNRECOVERED_IDR_WINDOW_US / 1000ULL));
-      if (!request_stream_restart_coordinated("unrecovered_persistent",
-                                              LOSS_RETRY_BITRATE_KBPS,
-                                              now_us)) {
+      if (!request_recovery_restart("unrecovered_persistent",
+                                    LOSS_RETRY_BITRATE_KBPS,
+                                    now_us,
+                                    "unrecovered persistent restart failed")) {
         LOGE("Soft restart request failed after persistent unrecovered frames; keeping stream alive (reason=%s)",
              unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
-        request_decoder_resync("unrecovered persistent restart failed");
-        context.stream.last_restart_failure_us = now_us;
-        context.stream.restart_failure_active = true;
-        context.stream.last_loss_recovery_action_us = now_us;
       } else if (context.active_host) {
         host_set_hint(context.active_host,
                       "Video desync — rebuilding stream",
                       true,
                       HINT_DURATION_RECOVERY_US);
         triggered = true;
-        context.stream.last_restart_failure_us = 0;
-        context.stream.last_loss_recovery_action_us = now_us;
         context.stream.unrecovered_persistent_events = 0;
         context.stream.unrecovered_persistent_window_start_us = now_us;
         context.stream.unrecovered_idr_requests = 0;
@@ -1353,22 +1376,17 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   request_decoder_resync("unrecovered frame streak");
   LOGD("Unrecovered frame streak detected — requesting soft restart (reason=%s)",
        unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
-  if (!request_stream_restart_coordinated("unrecovered_streak",
-                                          LOSS_RETRY_BITRATE_KBPS,
-                                          now_us)) {
+  if (!request_recovery_restart("unrecovered_streak",
+                                LOSS_RETRY_BITRATE_KBPS,
+                                now_us,
+                                "unrecovered streak restart failed")) {
     LOGE("Soft restart request failed after unrecovered frames; keeping stream alive");
-    request_decoder_resync("unrecovered streak restart failed");
-    context.stream.last_restart_failure_us = now_us;
-    context.stream.restart_failure_active = true;
-    context.stream.last_loss_recovery_action_us = now_us;
   } else if (context.active_host) {
     host_set_hint(context.active_host,
                   "Video desync — retrying stream",
                   true,
                   HINT_DURATION_RECOVERY_US);
     triggered = true;
-    context.stream.last_restart_failure_us = 0;
-    context.stream.last_loss_recovery_action_us = now_us;
     context.stream.unrecovered_persistent_events = 0;
     context.stream.unrecovered_persistent_window_start_us = now_us;
     context.stream.unrecovered_idr_requests = 0;
@@ -1573,10 +1591,11 @@ static void handle_takion_overflow(void) {
          TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
     if (FAST_RESTART_GRACE_DELAY_US)
       sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
-    bool restart_ok = request_stream_restart_coordinated(
+    bool restart_ok = request_recovery_restart(
         "takion_overflow_soft",
         TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS,
-        now_us);
+        now_us,
+        NULL);
     context.stream.takion_overflow_backoff_until_us =
         now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
     if (context.stream.next_stream_allowed_us <
@@ -1597,8 +1616,6 @@ static void handle_takion_overflow(void) {
       return;
     }
     LOGE("Takion overflow soft recovery request failed");
-    context.stream.last_restart_failure_us = now_us;
-    context.stream.restart_failure_active = true;
     context.stream.takion_cooldown_overlay_active = true;
     return;
   }
@@ -1624,9 +1641,10 @@ static void handle_takion_overflow(void) {
         context.stream.takion_overflow_backoff_until_us;
   }
   LOGD("Takion overflow threshold reached — requesting guarded restart");
-  if (!request_stream_restart_coordinated("takion_overflow_escalation",
-                                          LOSS_RETRY_BITRATE_KBPS,
-                                          now_us)) {
+  if (!request_recovery_restart("takion_overflow_escalation",
+                                LOSS_RETRY_BITRATE_KBPS,
+                                now_us,
+                                NULL)) {
     LOGE("Takion overflow restart failed; pausing stream");
     request_stream_stop("takion overflow");
   } else if (context.active_host) {
@@ -1649,6 +1667,19 @@ static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs) {
   if (lhs > UINT32_MAX - rhs)
     return UINT32_MAX;
   return lhs + rhs;
+}
+
+static uint32_t saturating_add_u32_report(uint32_t lhs,
+                                          uint32_t rhs,
+                                          const char *counter_name) {
+  uint32_t sum = saturating_add_u32(lhs, rhs);
+  if (sum == UINT32_MAX && lhs != UINT32_MAX &&
+      !context.stream.loss_counter_saturated_logged) {
+    LOGE("Loss accumulator '%s' saturated at UINT32_MAX; forcing recovery reset path",
+         counter_name ? counter_name : "unknown");
+    context.stream.loss_counter_saturated_logged = true;
+  }
+  return sum;
 }
 
 static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us) {
@@ -1842,10 +1873,13 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_window_start_us = now_us;
     context.stream.loss_window_event_count = 0;
     context.stream.loss_window_frame_accum = 0;
+    context.stream.loss_counter_saturated_logged = false;
   }
 
   context.stream.loss_window_frame_accum =
-      saturating_add_u32(context.stream.loss_window_frame_accum, (uint32_t)frames_lost);
+      saturating_add_u32_report(context.stream.loss_window_frame_accum,
+                                (uint32_t)frames_lost,
+                                "loss_window_frame_accum");
 
   if (frames_lost >= (int32_t)loss_profile.min_frames) {
     context.stream.loss_window_event_count++;
@@ -1857,9 +1891,12 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       now_us - context.stream.loss_burst_start_us > burst_window_us) {
     context.stream.loss_burst_start_us = now_us;
     context.stream.loss_burst_frame_accum = 0;
+    context.stream.loss_counter_saturated_logged = false;
   }
   context.stream.loss_burst_frame_accum =
-      saturating_add_u32(context.stream.loss_burst_frame_accum, (uint32_t)frames_lost);
+      saturating_add_u32_report(context.stream.loss_burst_frame_accum,
+                                (uint32_t)frames_lost,
+                                "loss_burst_frame_accum");
   uint32_t burst_frames = context.stream.loss_burst_frame_accum;
   uint32_t window_frames = context.stream.loss_window_frame_accum;
   uint32_t window_events = context.stream.loss_window_event_count;
@@ -1896,6 +1933,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   context.stream.loss_window_start_us = now_us;
   context.stream.loss_window_frame_accum = 0;
   context.stream.loss_burst_frame_accum = 0;
+  context.stream.loss_counter_saturated_logged = false;
   context.stream.loss_burst_start_us = 0;
 
   const char *trigger = hit_burst_threshold ? "burst threshold" :
@@ -1979,16 +2017,16 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
           sizeof(hint),
           "Network unstable — retrying at %.1f Mbps",
           (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
-      bool restart_ok = request_stream_restart_coordinated(
+      bool restart_ok = request_recovery_restart(
           "loss_recovery_gate",
           LOSS_RETRY_BITRATE_KBPS,
-          now_us);
+          now_us,
+          NULL);
       if (restart_ok) {
         uint32_t recovery_stage = context.stream.loss_recovery_gate_hits;
         context.stream.loss_retry_attempts++;
         context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
         context.stream.loss_retry_active = true;
-        context.stream.last_loss_recovery_action_us = now_us;
         context.stream.loss_recovery_gate_hits = 0;
         if (context.config.show_latency) {
           LOGD("Loss recovery action=restart trigger=%s stage=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u,last=%u-%u}",

@@ -87,6 +87,7 @@ typedef struct vita_chiaki_stream_t {
   uint32_t loss_window_event_count; // Events within the current sliding window
   uint32_t loss_window_frame_accum; // Frames dropped inside the active loss window
   uint32_t loss_burst_frame_accum;  // Frames dropped within the short-term burst bucket
+  bool loss_counter_saturated_logged; // Whether we already logged uint32 saturation for loss accumulators
   uint64_t loss_burst_start_us;     // Timestamp when the current burst started
   uint32_t loss_recovery_gate_hits; // Number of sustained-loss gates tripped in current recovery window
   uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery

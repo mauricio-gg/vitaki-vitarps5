@@ -928,8 +928,9 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 	if(gaps_skipped > 0 || queue_highwater > 0 || force)
 	{
 		CHIAKI_LOGI(takion->log,
-			"Takion jitter: %llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu over %llums",
+			"Takion jitter: rtp=%llu us cadence=%llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu over %llums",
 			(unsigned long long)takion->jitter_stats.jitter_us,
+			(unsigned long long)takion->jitter_stats.cadence_jitter_us,
 			(unsigned long long)gaps_skipped,
 			(unsigned long long)first_set_offset,
 			(unsigned long long)head_gap_age_us,
@@ -993,6 +994,7 @@ static void *takion_thread_func(void *user)
 
 	// Initialize adaptive jitter buffer stats
 	takion->jitter_stats.jitter_us = 0;
+	takion->jitter_stats.cadence_jitter_us = 0;
 	takion->jitter_stats.last_packet_arrival_us = 0;
 	takion->jitter_stats.last_inter_arrival_us = 0;
 	takion->jitter_stats.last_log_ms = 0;
@@ -1488,6 +1490,8 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 	{
 		// Calculate inter-arrival time and use variation from the prior delta.
 		// This follows RTP-style jitter estimation and avoids assuming packet cadence.
+		// We also keep a legacy "fixed 30fps cadence" EWMA as telemetry so we can
+		// compare the behavior while tuning thresholds.
 		uint64_t inter_arrival_us = now_us - takion->jitter_stats.last_packet_arrival_us;
 		uint64_t previous_inter_arrival_us = takion->jitter_stats.last_inter_arrival_us;
 		uint64_t deviation_us = previous_inter_arrival_us
@@ -1495,6 +1499,10 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 				? (inter_arrival_us - previous_inter_arrival_us)
 				: (previous_inter_arrival_us - inter_arrival_us))
 			: 0;
+		uint64_t cadence_target_us = 1000000ULL / 30ULL;
+		uint64_t cadence_deviation_us = inter_arrival_us > cadence_target_us
+			? (inter_arrival_us - cadence_target_us)
+			: (cadence_target_us - inter_arrival_us);
 
 		if(previous_inter_arrival_us)
 		{
@@ -1502,6 +1510,8 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 			takion->jitter_stats.jitter_us =
 				(7 * takion->jitter_stats.jitter_us + deviation_us) / 8;
 		}
+		takion->jitter_stats.cadence_jitter_us =
+			(7 * takion->jitter_stats.cadence_jitter_us + cadence_deviation_us) / 8;
 
 		takion->jitter_stats.last_inter_arrival_us = inter_arrival_us;
 	}

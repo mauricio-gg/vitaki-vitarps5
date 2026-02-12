@@ -4,6 +4,7 @@
 #define CHIAKI_REORDERQUEUE_H
 
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "seqnum.h"
 
@@ -41,6 +42,7 @@ typedef struct chiaki_reorder_queue_t
 	ChiakiReorderQueueDropStrategy drop_strategy;
 	ChiakiReorderQueueDropCb drop_cb;
 	void *drop_cb_user;
+	uint64_t first_set_hint_index;
 } ChiakiReorderQueue;
 
 /**

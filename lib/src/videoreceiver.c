@@ -208,9 +208,18 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			&& !(frame_index == 1 && video_receiver->frame_index_cur < 0)) // ok for frame 1
 		{
 			ChiakiSeqNum16 gap_end = (ChiakiSeqNum16)(frame_index - 1);
-			if(!video_receiver->gap_report_pending ||
-				video_receiver->gap_report_start != next_frame_expected)
+			if(!video_receiver->gap_report_pending)
 			{
+				video_receiver->gap_report_pending = true;
+				video_receiver->gap_report_start = next_frame_expected;
+				video_receiver->gap_report_end = gap_end;
+				video_receiver->gap_report_deadline_ms = now_ms + VIDEO_GAP_REPORT_HOLD_MS;
+			}
+			else if(video_receiver->gap_report_start != next_frame_expected)
+			{
+				// A different gap range started before the prior held report flushed.
+				// Flush the old range immediately so reports stay monotonic.
+				flush_pending_gap_report(video_receiver, now_ms, true);
 				video_receiver->gap_report_pending = true;
 				video_receiver->gap_report_start = next_frame_expected;
 				video_receiver->gap_report_end = gap_end;
