@@ -89,6 +89,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
 #define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
 #define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
+// During startup grace, limit resync requests to avoid self-inflicted churn.
+#define TAKION_STARTUP_GRACE_RESYNC_COOLDOWN_US (800 * 1000ULL)
 // Ignore the first few overflow drops in-window to absorb short jitter spikes.
 #define TAKION_OVERFLOW_IGNORE_THRESHOLD 4
 #define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
@@ -104,8 +106,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
-#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
-#define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
+#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 8
+#define RECONNECT_RECOVER_ACTION_COOLDOWN_US (4 * 1000 * 1000ULL)
 #define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
 // Stage-2 reconnect recovery uses a conservative bitrate that stays below the
 // unstable 540p startup envelope on Vita while preserving playability.
@@ -114,7 +116,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
-#define SESSION_START_LOW_FPS_WINDOW_US (60 * 1000 * 1000ULL)
+#define SESSION_START_LOW_FPS_WINDOW_US (25 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
 #define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
@@ -520,6 +522,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.logged_drop_events = 0;
   context.stream.takion_drop_last_us = 0;
   context.stream.last_takion_overflow_restart_us = 0;
+  context.stream.takion_startup_grace_last_resync_us = 0;
   context.stream.av_diag.missing_ref_count = 0;
   context.stream.av_diag.corrupt_burst_count = 0;
   context.stream.av_diag.fec_fail_count = 0;
@@ -539,6 +542,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_cooldown_overlay_active = false;
   context.stream.takion_overflow_drop_window_start_us = 0;
   context.stream.takion_overflow_recent_drops = 0;
+  context.stream.takion_startup_grace_last_resync_us = 0;
   }
   context.stream.last_restart_failure_us = 0;
   context.stream.disconnect_reason[0] = '\0';
@@ -1102,8 +1106,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
 
   if (context.stream.reconnect.recover_stage == RECONNECT_RECOVER_STAGE_IDLE) {
     request_decoder_resync("post-reconnect degraded stage1");
-    request_decoder_resync("post-reconnect degraded stage1 followup");
-    context.stream.reconnect.recover_idr_attempts += 2;
+    context.stream.reconnect.recover_idr_attempts++;
     context.stream.reconnect.recover_stage = RECONNECT_RECOVER_STAGE_IDR_REQUESTED;
     context.stream.reconnect.recover_last_action_us = now_us;
     if (context.active_host) {
@@ -1528,7 +1531,8 @@ static void handle_takion_overflow(void) {
         remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
     LOGD("Takion overflow action=restart_suppressed_startup_grace remaining=%llums",
          (unsigned long long)remaining_ms);
-    request_decoder_resync("takion overflow startup grace");
+    // Startup grace intentionally avoids forced resync to prevent churn while
+    // the decoder/transport pipeline is still warming up.
     return;
   }
 

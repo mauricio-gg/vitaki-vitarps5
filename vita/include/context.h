@@ -111,6 +111,7 @@ typedef struct vita_chiaki_stream_t {
   bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
   uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
   uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
+  uint64_t takion_startup_grace_last_resync_us; // Rate-limit decoder resync requests during startup grace
   struct {
     uint32_t missing_ref_count;       // Missing reference-frame events from video receiver
     uint32_t corrupt_burst_count;     // Corrupt-frame requests sent to server

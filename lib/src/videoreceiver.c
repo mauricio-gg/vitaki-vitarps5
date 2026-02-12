@@ -10,9 +10,9 @@
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
 // Hold tiny gap reports briefly so out-of-order packets can fill them first.
-#define VIDEO_GAP_REPORT_HOLD_MS 12
+#define VIDEO_GAP_REPORT_HOLD_MS 32
 // Force-report larger contiguous spans immediately instead of waiting.
-#define VIDEO_GAP_REPORT_FORCE_SPAN 6
+#define VIDEO_GAP_REPORT_FORCE_SPAN 12
 // Guard against pathological spans from corrupted sequence state.
 #define VIDEO_SPAN_SANITY_MAX 4096U
 
@@ -76,9 +76,21 @@ static void report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, Chia
 {
 	if(should_skip_corrupt_report(video_receiver, start, end))
 		return;
+	// Suppress tiny held-gap growth (same start, end advanced by one) to avoid
+	// repeatedly escalating recovery for jitter that self-heals on next packet.
+	if(reason && strcmp(reason, "held") == 0 &&
+		video_receiver->last_reported_corrupt_start == start &&
+		(ChiakiSeqNum16)(video_receiver->last_reported_corrupt_end + 1) == end)
+	{
+		CHIAKI_LOGV(video_receiver->log,
+			"Skipping tiny held-gap increment from %d to %d",
+			(int)video_receiver->last_reported_corrupt_end,
+			(int)end);
+		return;
+	}
 
 	CHIAKI_LOGW(video_receiver->log, "Detected missing or corrupt frame(s) from %d to %d%s%s",
-			(int)start,
+				(int)start,
 			(int)end,
 			reason ? " reason=" : "",
 			reason ? reason : "");
