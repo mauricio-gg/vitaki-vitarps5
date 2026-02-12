@@ -5,14 +5,16 @@
 #include <chiaki/seqnum.h>
 
 CHIAKI_EXPORT ChiakiVideoGapUpdateAction chiaki_video_gap_report_update(
-		ChiakiVideoGapReportState *state,
+			ChiakiVideoGapReportState *state,
 		ChiakiSeqNum16 expected_start,
 		ChiakiSeqNum16 gap_end,
 		uint64_t now_ms,
 		uint64_t hold_ms,
-		ChiakiSeqNum16 *flush_start,
-		ChiakiSeqNum16 *flush_end)
+			ChiakiSeqNum16 *flush_start,
+			ChiakiSeqNum16 *flush_end)
 {
+	// Called from the video receiver packet path (single-threaded per receiver).
+	// State is intentionally unsynchronized and must not be shared cross-thread.
 	if(!state)
 		return CHIAKI_VIDEO_GAP_UPDATE_NONE;
 

@@ -98,6 +98,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define FAST_RESTART_MAX_ATTEMPTS 2
 #define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
 #define LOSS_COUNTER_SATURATED_BURST_FRAMES  (1u << 1)
+#define AV_DIAG_STALE_SNAPSHOT_WARN_STREAK 5
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
@@ -528,6 +529,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.av_diag.last_log_us = 0;
   context.stream.av_diag.last_corrupt_start = 0;
   context.stream.av_diag.last_corrupt_end = 0;
+  context.stream.av_diag_stale_snapshot_streak = 0;
   if (!preserve_recovery_state) {
   context.stream.takion_overflow_soft_attempts = 0;
   context.stream.takion_overflow_window_start_us = 0;
@@ -685,6 +687,13 @@ static void update_latency_metrics(void) {
     diag_snapshot_stale = false;
   }
 
+  if (diag_snapshot_stale) {
+    if (context.stream.av_diag_stale_snapshot_streak < UINT32_MAX)
+      context.stream.av_diag_stale_snapshot_streak++;
+  } else {
+    context.stream.av_diag_stale_snapshot_streak = 0;
+  }
+
   context.stream.takion_drop_events = takion_drop_events;
   context.stream.takion_drop_packets = takion_drop_packets;
   context.stream.takion_drop_last_us = takion_drop_last_us;
@@ -724,6 +733,12 @@ static void update_latency_metrics(void) {
   if (diag_snapshot_stale) {
     // Don't escalate based on stale snapshots when diagnostics couldn't be sampled.
     av_diag_progressed = false;
+    if (context.stream.av_diag_stale_snapshot_streak >= AV_DIAG_STALE_SNAPSHOT_WARN_STREAK &&
+        low_fps_window) {
+      // Prolonged diagnostics contention plus low FPS is treated as AV distress
+      // so recovery does not stay blind under sustained lock pressure.
+      av_diag_progressed = true;
+    }
   }
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
@@ -799,12 +814,13 @@ static void update_latency_metrics(void) {
   if (av_diag_changed ||
       (context.stream.av_diag.last_log_us == 0 ||
        now_us - context.stream.av_diag.last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
-    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, diag_trylock_failures=%u, last_corrupt=%u-%u",
+    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, diag_trylock_failures=%u, stale_diag_streak=%u, last_corrupt=%u-%u",
          context.stream.av_diag.missing_ref_count,
          context.stream.av_diag.corrupt_burst_count,
          context.stream.av_diag.fec_fail_count,
          context.stream.av_diag.sendbuf_overflow_count,
          av_diag_trylock_failures,
+         context.stream.av_diag_stale_snapshot_streak,
          context.stream.av_diag.last_corrupt_start,
          context.stream.av_diag.last_corrupt_end);
     context.stream.av_diag.logged_missing_ref_count =

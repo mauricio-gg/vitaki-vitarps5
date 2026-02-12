@@ -43,6 +43,14 @@ Only move a task to "Done" after the reviewer signs off.
    - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
    - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
    - *Next Step:* Create `feat/startup-transport-hardening` from updated `main` and run startup-only A/B tests with `./tools/build.sh --env testing`.
+7. **Follow-up robustness pass (post-merge cleanups)**
+   - *Owner:* Implementation agent
+   - *Goal:* Close remaining non-blocking review debt without destabilizing the active packet-path baseline PR.
+   - *Scope:*
+     - Reorder queue fallback optimization/profile pass (replace O(n) fallback if hotspot confirmed).
+     - Split `vita/src/host.c` recovery and diagnostics logic into smaller modules/functions.
+     - Add focused tests for recovery timing/state transitions (stale diagnostics windows, reconnect stage transitions, span edge cases).
+   - *Next Step:* Open dedicated follow-up PR immediately after baseline merge and land test-first where possible.
 
 ---
 

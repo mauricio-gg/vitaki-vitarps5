@@ -1013,6 +1013,8 @@ static void *takion_thread_func(void *user)
 
 	if(!takion->log)
 		goto error_reoder_queue;
+	// cb_user points to this ChiakiTakion and stays valid until data_queue is
+	// finalized in this thread. Drop callbacks are executed on the takion thread.
 	chiaki_reorder_queue_set_drop_cb(&takion->data_queue, takion_data_drop, takion);
 
 	// The send buffer size MUST be consistent with the acked seqnums array size in takion_handle_packet_message_data_ack()

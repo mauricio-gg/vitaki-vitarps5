@@ -13,6 +13,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define VIDEO_GAP_REPORT_HOLD_MS 12
 // Force-report larger contiguous spans immediately instead of waiting.
 #define VIDEO_GAP_REPORT_FORCE_SPAN 6
+// Guard against pathological spans from corrupted sequence state.
+#define VIDEO_SPAN_SANITY_MAX 4096U
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
@@ -92,6 +94,16 @@ static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64
 
 	uint32_t span = seq16_span((ChiakiSeqNum16)video_receiver->gap_report_start,
 		(ChiakiSeqNum16)video_receiver->gap_report_end);
+	if(span > VIDEO_SPAN_SANITY_MAX)
+	{
+		CHIAKI_LOGW(video_receiver->log,
+			"Suppressing pathological gap span %u (%d-%d)",
+			(unsigned int)span,
+			(int)video_receiver->gap_report_start,
+			(int)video_receiver->gap_report_end);
+		video_receiver->gap_report_pending = false;
+		return;
+	}
 	if(!force && now_ms < video_receiver->gap_report_deadline_ms &&
 		span < VIDEO_GAP_REPORT_FORCE_SPAN)
 		return;
@@ -291,6 +303,12 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				// Ignore pathological spans that indicate sequence desync instead of a real burst.
 				if(lost > 0 && lost < 1000U)
 					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, lost);
+				else
+					CHIAKI_LOGW(video_receiver->log,
+						"Ignoring suspicious frame-loss span %u (%d-%d)",
+						(unsigned int)lost,
+						(int)next_frame_expected,
+						(int)video_receiver->frame_index_cur);
 		}
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		CHIAKI_LOGW(video_receiver->log, "Failed to complete frame %d", (int)video_receiver->frame_index_cur);

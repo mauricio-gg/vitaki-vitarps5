@@ -124,6 +124,7 @@ typedef struct vita_chiaki_stream_t {
     uint32_t last_corrupt_start;
     uint32_t last_corrupt_end;
   } av_diag;
+  uint32_t av_diag_stale_snapshot_streak; // Consecutive update_latency_metrics() ticks that missed diag mutex sampling
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
