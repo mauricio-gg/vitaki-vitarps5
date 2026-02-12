@@ -251,6 +251,7 @@ CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t
 	if(queue->drop_cb)
 		queue->drop_cb(seq_num, entry->user, queue->drop_cb_user);
 	entry->set = false;
+	entry->user = NULL;
 
 	// reduce count if necessary
 	if(index == queue->count - 1)
@@ -272,6 +273,15 @@ CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t
 		queue->first_set_hint_index == index)
 	{
 		queue->first_set_hint_index = FIRST_SET_HINT_INVALID;
+		for(uint64_t i=index; i<queue->count; i++)
+		{
+			ChiakiReorderQueueEntry *candidate = &queue->queue[idx(add(queue->begin, i))];
+			if(candidate->set)
+			{
+				queue->first_set_hint_index = i;
+				break;
+			}
+		}
 	}
 }
 

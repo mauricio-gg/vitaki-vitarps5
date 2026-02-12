@@ -57,6 +57,11 @@ typedef struct chiaki_stream_connection_t
 	 * protects state, state_finished, state_failed and should_stop
 	 */
 	ChiakiMutex state_mutex;
+	/**
+	 * protects diagnostic counters sampled by Vita UI and updated from
+	 * Takion/video packet paths.
+	 */
+	ChiakiMutex diag_mutex;
 
 	int state;
 	bool state_finished;
@@ -71,6 +76,7 @@ typedef struct chiaki_stream_connection_t
 	#endif
 
 	double measured_bitrate;
+	uint32_t magic;
 	uint32_t drop_events;
 	uint32_t drop_packets;
 	uint64_t drop_last_ms;

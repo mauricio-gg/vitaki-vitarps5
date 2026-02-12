@@ -33,6 +33,7 @@
 #define EXPECT_TIMEOUT_MS 5000
 
 #define HEARTBEAT_INTERVAL_MS 1000
+#define STREAM_CONNECTION_MAGIC 0x53434E58u
 
 
 typedef enum {
@@ -73,9 +74,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error;
 
-	err = chiaki_cond_init(&stream_connection->state_cond, &stream_connection->state_mutex);
+	err = chiaki_mutex_init(&stream_connection->diag_mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error_state_mutex;
+
+	err = chiaki_cond_init(&stream_connection->state_cond, &stream_connection->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		goto error_diag_mutex;
 
 	err = chiaki_packet_stats_init(&stream_connection->packet_stats);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -95,6 +100,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
 	stream_connection->remote_disconnect_reason = NULL;
+	stream_connection->magic = STREAM_CONNECTION_MAGIC;
 	stream_connection->drop_events = 0;
 	stream_connection->drop_packets = 0;
 	stream_connection->drop_last_ms = 0;
@@ -111,6 +117,8 @@ error_packet_stats:
 	chiaki_packet_stats_fini(&stream_connection->packet_stats);
 error_state_cond:
 	chiaki_cond_fini(&stream_connection->state_cond);
+error_diag_mutex:
+	chiaki_mutex_fini(&stream_connection->diag_mutex);
 error_state_mutex:
 	chiaki_mutex_fini(&stream_connection->state_mutex);
 error:
@@ -133,10 +141,12 @@ CHIAKI_EXPORT void chiaki_stream_connection_fini(ChiakiStreamConnection *stream_
 		chiaki_congestion_control_stop(&stream_connection->congestion_control);
 
 	chiaki_packet_stats_fini(&stream_connection->packet_stats);
+	stream_connection->magic = 0;
 
 	chiaki_mutex_fini(&stream_connection->feedback_sender_mutex);
 
 	chiaki_cond_fini(&stream_connection->state_cond);
+	chiaki_mutex_fini(&stream_connection->diag_mutex);
 	chiaki_mutex_fini(&stream_connection->state_mutex);
 }
 
@@ -1159,16 +1169,16 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamC
 	}
 
 	CHIAKI_LOGD(stream_connection->log, "StreamConnection reporting corrupt frame(s) from %u to %u", (unsigned int)start, (unsigned int)end);
-	if(chiaki_mutex_lock(&stream_connection->state_mutex) == CHIAKI_ERR_SUCCESS)
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) == CHIAKI_ERR_SUCCESS)
 	{
 		stream_connection->av_corrupt_burst_events++;
 		stream_connection->av_last_corrupt_start = start;
 		stream_connection->av_last_corrupt_end = end;
-		chiaki_mutex_unlock(&stream_connection->state_mutex);
+		chiaki_mutex_unlock(&stream_connection->diag_mutex);
 	}
 	else
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording corrupt frame diagnostics");
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording corrupt frame diagnostics");
 	}
 	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 2, buf, stream.bytes_written, NULL);
 }
@@ -1177,54 +1187,62 @@ CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *
 {
 	if(!stream_connection)
 		return;
-	ChiakiErrorCode lock_err = chiaki_mutex_trylock(&stream_connection->state_mutex);
+	if(stream_connection->magic != STREAM_CONNECTION_MAGIC)
+		return;
+	ChiakiErrorCode lock_err = chiaki_mutex_trylock(&stream_connection->diag_mutex);
 	if(lock_err != CHIAKI_ERR_SUCCESS)
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording packet drop diagnostics (err=%s)",
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording packet drop diagnostics (err=%s)",
 			chiaki_error_string(lock_err));
 		return;
 	}
 	stream_connection->drop_events++;
 	stream_connection->drop_packets += dropped_packets;
 	stream_connection->drop_last_ms = chiaki_time_now_monotonic_ms();
-	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
 }
 
 CHIAKI_EXPORT void chiaki_stream_connection_report_missing_ref(ChiakiStreamConnection *stream_connection)
 {
 	if(!stream_connection)
 		return;
-	if(chiaki_mutex_lock(&stream_connection->state_mutex) != CHIAKI_ERR_SUCCESS)
+	if(stream_connection->magic != STREAM_CONNECTION_MAGIC)
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording missing ref diagnostics");
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording missing ref diagnostics");
 		return;
 	}
 	stream_connection->av_missing_ref_events++;
-	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
 }
 
 CHIAKI_EXPORT void chiaki_stream_connection_report_fec_fail(ChiakiStreamConnection *stream_connection)
 {
 	if(!stream_connection)
 		return;
-	if(chiaki_mutex_lock(&stream_connection->state_mutex) != CHIAKI_ERR_SUCCESS)
+	if(stream_connection->magic != STREAM_CONNECTION_MAGIC)
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording FEC failure diagnostics");
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording FEC failure diagnostics");
 		return;
 	}
 	stream_connection->av_fec_fail_events++;
-	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
 }
 
 CHIAKI_EXPORT void chiaki_stream_connection_report_sendbuf_overflow(ChiakiStreamConnection *stream_connection)
 {
 	if(!stream_connection)
 		return;
-	if(chiaki_mutex_lock(&stream_connection->state_mutex) != CHIAKI_ERR_SUCCESS)
+	if(stream_connection->magic != STREAM_CONNECTION_MAGIC)
+		return;
+	if(chiaki_mutex_lock(&stream_connection->diag_mutex) != CHIAKI_ERR_SUCCESS)
 	{
-		CHIAKI_LOGW(stream_connection->log, "Failed to lock state mutex while recording send buffer overflow diagnostics");
+		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording send buffer overflow diagnostics");
 		return;
 	}
 	stream_connection->av_sendbuf_overflow_events++;
-	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	chiaki_mutex_unlock(&stream_connection->diag_mutex);
 }

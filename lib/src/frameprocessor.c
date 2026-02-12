@@ -171,7 +171,21 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 	if(unit->data_size)
 	{
 		// Duplicates are expected on lossy/reordered UDP paths after retransmit.
-		// Keep first-arrival payload and ignore subsequent identical units.
+		// Accept only identical duplicates to avoid masking corrupted payloads.
+		if(unit->data_size != packet->data_size)
+		{
+			CHIAKI_LOGE(frame_processor->log, "Conflicting duplicate unit size");
+			return CHIAKI_ERR_INVALID_DATA;
+		}
+		if(!frame_processor->flushed)
+		{
+			uint8_t *existing = frame_processor->frame_buf + packet->unit_index * frame_processor->buf_stride_per_unit;
+			if(memcmp(existing, packet->data, packet->data_size) != 0)
+			{
+				CHIAKI_LOGE(frame_processor->log, "Conflicting duplicate unit payload");
+				return CHIAKI_ERR_INVALID_DATA;
+			}
+		}
 		CHIAKI_LOGW(frame_processor->log, "Received duplicate unit");
 		return CHIAKI_ERR_SUCCESS;
 	} else {

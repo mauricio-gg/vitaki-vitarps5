@@ -661,9 +661,9 @@ static void update_latency_metrics(void) {
   uint32_t av_diag_last_corrupt_start = context.stream.av_diag.last_corrupt_start;
   uint32_t av_diag_last_corrupt_end = context.stream.av_diag.last_corrupt_end;
 
-  // Snapshot diagnostics under state mutex so metrics don't read partially
-  // updated counters while Takion/video paths are incrementing them.
-  if (chiaki_mutex_lock(&stream_connection->state_mutex) == CHIAKI_ERR_SUCCESS) {
+  // Snapshot diagnostics under dedicated diagnostics mutex so hot packet
+  // paths do not contend with stream state transitions.
+  if (chiaki_mutex_trylock(&stream_connection->diag_mutex) == CHIAKI_ERR_SUCCESS) {
     takion_drop_events = stream_connection->drop_events;
     takion_drop_packets = stream_connection->drop_packets;
     takion_drop_last_us =
@@ -674,9 +674,7 @@ static void update_latency_metrics(void) {
     av_diag_sendbuf_overflow_count = stream_connection->av_sendbuf_overflow_events;
     av_diag_last_corrupt_start = stream_connection->av_last_corrupt_start;
     av_diag_last_corrupt_end = stream_connection->av_last_corrupt_end;
-    chiaki_mutex_unlock(&stream_connection->state_mutex);
-  } else {
-    LOGE("Failed to lock stream state mutex while snapshotting diagnostics");
+    chiaki_mutex_unlock(&stream_connection->diag_mutex);
   }
 
   context.stream.takion_drop_events = takion_drop_events;

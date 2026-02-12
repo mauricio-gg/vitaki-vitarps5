@@ -50,6 +50,7 @@ static uint32_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 	// Compute inclusive span in 16-bit sequence space. This handles wrap-around
 	// (e.g. start=65535,end=0 => span=2) and the full-range case
 	// (start=0,end=65535 => span=65536) without truncation.
+	// For start==end, inclusive semantics intentionally return 1.
 	uint32_t start_u16 = (uint32_t)(uint16_t)start;
 	uint32_t end_u16 = (uint32_t)(uint16_t)end;
 	return ((end_u16 - start_u16) & 0xFFFFU) + 1U;

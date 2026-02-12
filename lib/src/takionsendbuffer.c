@@ -92,7 +92,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_buffer_push(ChiakiTakionSendBuf
 	{
 		CHIAKI_LOGE(send_buffer->log, "Takion Send Buffer overflow");
 		if(send_buffer->takion && send_buffer->takion->cb_user)
+		{
+			// For StreamConnection-owned Takion instances cb_user is a
+			// ChiakiStreamConnection*. report_sendbuf_overflow validates
+			// stream_connection->magic before mutating diagnostics.
 			chiaki_stream_connection_report_sendbuf_overflow((ChiakiStreamConnection *)send_buffer->takion->cb_user);
+		}
 		err = CHIAKI_ERR_OVERFLOW;
 		goto beach;
 	}
