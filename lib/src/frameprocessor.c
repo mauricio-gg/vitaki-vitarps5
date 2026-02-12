@@ -320,23 +320,10 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 		}
 		size_t part_size = unit->data_size - 2;
 		uint8_t *buf_ptr = frame_processor->frame_buf + i*frame_processor->buf_stride_per_unit;
-		// Safe memcpy: source (unit slot area) and destination (assembled frame prefix)
-		// are disjoint regions inside frame_buf.
-			uint8_t *dst_ptr = frame_processor->frame_buf + cur;
-			uint8_t *src_ptr = buf_ptr + 2;
-			if(!(dst_ptr + part_size <= src_ptr || src_ptr + part_size <= dst_ptr))
-			{
-				CHIAKI_LOGE(frame_processor->log,
-					"Unsafe overlap assembling frame buffer: unit=%llu cur=%llu part=%llu src_off=%llu dst_off=%llu stride=%llu",
-					(unsigned long long)i,
-					(unsigned long long)cur,
-					(unsigned long long)part_size,
-					(unsigned long long)(src_ptr - frame_processor->frame_buf),
-					(unsigned long long)(dst_ptr - frame_processor->frame_buf),
-					(unsigned long long)frame_processor->buf_stride_per_unit);
-				return CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED;
-			}
-		memcpy(dst_ptr, src_ptr, part_size);
+		uint8_t *dst_ptr = frame_processor->frame_buf + cur;
+		uint8_t *src_ptr = buf_ptr + 2;
+		// Frame assembly compacts unit payloads in-place, so overlap is expected.
+		memmove(dst_ptr, src_ptr, part_size);
 		cur += part_size;
 	}
 
