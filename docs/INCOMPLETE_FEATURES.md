@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-12 (Startup burst hardening pass applied)
+**Last Updated:** 2026-02-12 (Startup burst hardening + startup grace split/distress escalation)
 **Status:** Generated from codebase analysis
 
 ---
@@ -91,7 +91,12 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - startup warmup presentation gating (decode continues while early frames are withheld)
 - Increased Takion reorder queue depth from 128 to 256 packets for startup headroom.
 - Stream callback logging now uses per-session first-frame state (no static carry-over across reconnects).
-- Files: `vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`.
+- Split startup suppression into:
+  - short **soft grace** (`2.5s`) for overflow/loss streak suppression
+  - long **hard grace** (`20s`) used only for severe unrecovered-persistent churn
+- Added startup distress scoring so startup overflow recovery escalates earlier when AV distress signals stack (missing refs/corrupt/FEC/sendbuf/low-FPS), instead of staying in repeated soft retries.
+- Added build provenance log marker (`PIPE/BUILD`) so every test log records commit/branch/dirty/timestamp at startup.
+- Files: `vita/src/host.c`, `vita/src/video.c`, `vita/src/logging.c`, `vita/include/context.h`, `lib/src/takion.c`, `tools/build.sh`, `vita/CMakeLists.txt`.
 
 **Investigation/Design Authority:**
 - `docs/ai/STREAM_PIPELINE_ROBUSTNESS_PLAN.md`
