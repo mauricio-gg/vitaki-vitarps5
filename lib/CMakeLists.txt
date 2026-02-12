@@ -67,6 +67,7 @@ set(SOURCE_FILES
 		src/audioreceiver.c
 		src/audiosender.c
 		src/videoreceiver.c
+		src/videoreceiver_gap.c
 		src/frameprocessor.c
 		src/packetstats.c
 		src/discovery.c

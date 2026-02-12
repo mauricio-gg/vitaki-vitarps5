@@ -5,6 +5,7 @@
 #include <chiaki/time.h>
 
 #include <string.h>
+#include "videoreceiver_gap.h"
 
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
@@ -208,27 +209,30 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			&& !(frame_index == 1 && video_receiver->frame_index_cur < 0)) // ok for frame 1
 		{
 			ChiakiSeqNum16 gap_end = (ChiakiSeqNum16)(frame_index - 1);
-			if(!video_receiver->gap_report_pending)
+			ChiakiVideoGapReportState gap_state = {
+				.pending = video_receiver->gap_report_pending,
+				.start = (ChiakiSeqNum16)video_receiver->gap_report_start,
+				.end = (ChiakiSeqNum16)video_receiver->gap_report_end,
+				.deadline_ms = video_receiver->gap_report_deadline_ms,
+			};
+			ChiakiSeqNum16 flush_start = 0;
+			ChiakiSeqNum16 flush_end = 0;
+			ChiakiVideoGapUpdateAction gap_action = chiaki_video_gap_report_update(
+				&gap_state,
+				next_frame_expected,
+				gap_end,
+				now_ms,
+				VIDEO_GAP_REPORT_HOLD_MS,
+				&flush_start,
+				&flush_end);
+			if(gap_action == CHIAKI_VIDEO_GAP_UPDATE_FLUSH_PREVIOUS)
 			{
-				video_receiver->gap_report_pending = true;
-				video_receiver->gap_report_start = next_frame_expected;
-				video_receiver->gap_report_end = gap_end;
-				video_receiver->gap_report_deadline_ms = now_ms + VIDEO_GAP_REPORT_HOLD_MS;
+				report_corrupt_frame_range(video_receiver, flush_start, flush_end, "forced");
 			}
-			else if(video_receiver->gap_report_start != next_frame_expected)
-			{
-				// A different gap range started before the prior held report flushed.
-				// Flush the old range immediately so reports stay monotonic.
-				flush_pending_gap_report(video_receiver, now_ms, true);
-				video_receiver->gap_report_pending = true;
-				video_receiver->gap_report_start = next_frame_expected;
-				video_receiver->gap_report_end = gap_end;
-				video_receiver->gap_report_deadline_ms = now_ms + VIDEO_GAP_REPORT_HOLD_MS;
-			}
-			else if(chiaki_seq_num_16_gt(gap_end, (ChiakiSeqNum16)video_receiver->gap_report_end))
-			{
-				video_receiver->gap_report_end = gap_end;
-			}
+			video_receiver->gap_report_pending = gap_state.pending;
+			video_receiver->gap_report_start = gap_state.start;
+			video_receiver->gap_report_end = gap_state.end;
+			video_receiver->gap_report_deadline_ms = gap_state.deadline_ms;
 			flush_pending_gap_report(video_receiver, now_ms, false);
 		}
 
