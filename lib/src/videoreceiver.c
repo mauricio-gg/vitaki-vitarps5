@@ -46,7 +46,11 @@ static bool seq16_inclusive_ge(ChiakiSeqNum16 a, ChiakiSeqNum16 b)
 
 static uint16_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 {
-	return (uint16_t)(end - start + 1);
+	// Validate range in sequence-number space first so malformed ranges don't
+	// explode into huge spans when cast back to uint16_t.
+	if(start != end && !chiaki_seq_num_16_gt(end, start))
+		return 0;
+	return (uint16_t)((uint16_t)(end - start) + 1);
 }
 
 static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end)
@@ -223,7 +227,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 	}
 
 	chiaki_frame_processor_put_unit(&video_receiver->frame_processor, packet);
-	if(packet->unit_index == packet->units_in_frame_total - 1)
+	if(packet->units_in_frame_total > 0 &&
+		packet->unit_index == packet->units_in_frame_total - 1)
 		video_receiver->cur_frame_seen_last_unit = true;
 
 	// if we are currently building up a frame

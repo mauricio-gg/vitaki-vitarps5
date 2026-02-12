@@ -1070,6 +1070,8 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
     return;
   }
 
+  // Defensive guard: valid stages are 0..3. Reset if memory corruption or
+  // future wiring mistakes push this state out of range.
   if (context.stream.reconnect_recover_stage > 3) {
     LOGE("PIPE/RECOVER gen=%u reconnect_gen=%u action=invalid_stage_reset stage=%u",
          context.stream.session_generation,
@@ -1578,6 +1580,12 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value
   return value;
 }
 
+static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs) {
+  if (UINT32_MAX - lhs < rhs)
+    return UINT32_MAX;
+  return lhs + rhs;
+}
+
 static const char *quit_reason_label(ChiakiQuitReason reason) {
   switch (reason) {
     case CHIAKI_QUIT_REASON_NONE: return "No quit";
@@ -1765,7 +1773,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_window_frame_accum = 0;
   }
 
-  context.stream.loss_window_frame_accum += (uint32_t)frames_lost;
+  context.stream.loss_window_frame_accum =
+      saturating_add_u32(context.stream.loss_window_frame_accum, (uint32_t)frames_lost);
 
   if (frames_lost >= (int32_t)loss_profile.min_frames) {
     context.stream.loss_window_event_count++;
@@ -1778,7 +1787,8 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_burst_start_us = now_us;
     context.stream.loss_burst_frame_accum = 0;
   }
-  context.stream.loss_burst_frame_accum += (uint32_t)frames_lost;
+  context.stream.loss_burst_frame_accum =
+      saturating_add_u32(context.stream.loss_burst_frame_accum, (uint32_t)frames_lost);
   uint32_t burst_frames = context.stream.loss_burst_frame_accum;
   uint32_t window_frames = context.stream.loss_window_frame_accum;
   uint32_t window_events = context.stream.loss_window_event_count;
