@@ -1240,6 +1240,29 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
   }
 
   if (context.stream.reconnect.recover_stage == RECONNECT_RECOVER_STAGE_IDR_REQUESTED) {
+    bool stage2_av_distress = av_diag_progressed;
+    bool restart_cooloff_active = context.stream.restart_cooloff_until_us &&
+        now_us < context.stream.restart_cooloff_until_us;
+    bool stage2_source_backoff = strcmp(context.stream.last_restart_source,
+                                        "post_reconnect_stage2") == 0 &&
+        context.stream.restart_source_attempts > 1 &&
+        context.stream.last_restart_handshake_fail_us &&
+        now_us - context.stream.last_restart_handshake_fail_us <=
+            RESTART_HANDSHAKE_REPEAT_WINDOW_US;
+    if (!stage2_av_distress || restart_cooloff_active || stage2_source_backoff) {
+      const char *reason = !stage2_av_distress ? "no_av_distress"
+          : restart_cooloff_active ? "restart_cooloff"
+          : "source_backoff";
+      request_decoder_resync("post-reconnect stage2 suppressed");
+      context.stream.reconnect.recover_last_action_us = now_us;
+      LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_suppressed reason=%s attempts=%u",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           reason,
+           context.stream.restart_source_attempts);
+      return;
+    }
+
     bool restart_ok = request_stream_restart_coordinated(
         "post_reconnect_stage2",
         RECONNECT_RECOVER_TARGET_KBPS,
