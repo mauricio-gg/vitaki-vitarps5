@@ -44,14 +44,12 @@ static bool seq16_inclusive_ge(ChiakiSeqNum16 a, ChiakiSeqNum16 b)
 	return a == b || chiaki_seq_num_16_gt(a, b);
 }
 
-static uint16_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
+static uint32_t seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 end)
 {
-	// Validate range in sequence-number space first so malformed ranges don't
-	// explode into huge spans when cast back to uint16_t.
-	// Example: start=65535,end=0 is valid wrap-around span of 2.
-	if(start != end && !chiaki_seq_num_16_gt(end, start))
-		return 0;
-	return (uint16_t)((uint16_t)(end - start) + 1);
+	// Compute inclusive span in 16-bit sequence space. This handles wrap-around
+	// (e.g. start=65535,end=0 => span=2) and the full-range case
+	// (start=0,end=65535 => span=65536) without truncation.
+	return (uint32_t)((uint16_t)(end - start)) + 1U;
 }
 
 static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end)
@@ -81,7 +79,7 @@ static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64
 	if(!video_receiver->gap_report_pending)
 		return;
 
-	uint16_t span = seq16_span((ChiakiSeqNum16)video_receiver->gap_report_start,
+	uint32_t span = seq16_span((ChiakiSeqNum16)video_receiver->gap_report_start,
 		(ChiakiSeqNum16)video_receiver->gap_report_end);
 	if(!force && now_ms < video_receiver->gap_report_deadline_ms &&
 		span < VIDEO_GAP_REPORT_FORCE_SPAN)

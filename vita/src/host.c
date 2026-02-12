@@ -39,6 +39,7 @@ static bool unrecovered_loss_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
+static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us);
 static void request_decoder_resync(const char *reason);
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t incoming_fps,
@@ -1203,7 +1204,7 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   if (persistent_distress && idr_ineffective) {
     if (startup_grace_active) {
       uint64_t remaining_ms =
-          (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+          remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
       LOGD("Unrecovered loss action=restart_suppressed_startup_grace remaining=%llums",
            (unsigned long long)remaining_ms);
       context.stream.unrecovered_idr_requests++;
@@ -1288,7 +1289,7 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   context.stream.unrecovered_idr_requests++;
   if (startup_grace_active) {
     uint64_t remaining_ms =
-        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
     LOGD("Unrecovered streak action=restart_suppressed_startup_grace remaining=%llums",
          (unsigned long long)remaining_ms);
     request_decoder_resync("unrecovered streak startup grace");
@@ -1433,7 +1434,7 @@ static void handle_takion_overflow(void) {
   if (context.stream.loss_restart_grace_until_us &&
       now_us < context.stream.loss_restart_grace_until_us) {
     uint64_t remaining_ms =
-        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
     LOGD("Takion overflow action=restart_suppressed_startup_grace remaining=%llums",
          (unsigned long long)remaining_ms);
     request_decoder_resync("takion overflow startup grace");
@@ -1598,6 +1599,12 @@ static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs) {
   if (lhs > UINT32_MAX - rhs)
     return UINT32_MAX;
   return lhs + rhs;
+}
+
+static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us) {
+  if (deadline_us == 0 || now_us >= deadline_us)
+    return 0;
+  return (deadline_us - now_us) / 1000ULL;
 }
 
 static const char *quit_reason_label(ChiakiQuitReason reason) {
@@ -1886,7 +1893,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       now_us < context.stream.loss_restart_grace_until_us;
   if (startup_grace_active) {
     uint64_t remaining_ms =
-        (context.stream.loss_restart_grace_until_us - now_us) / 1000ULL;
+        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
     LOGD("Loss recovery action=restart_suppressed_startup_grace trigger=%s remaining=%llums",
          trigger,
          (unsigned long long)remaining_ms);
