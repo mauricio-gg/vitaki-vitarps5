@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-12 (Startup burst hardening + startup grace split/distress escalation)
+**Last Updated:** 2026-02-12 (Startup burst hardening + restart-churn cooloff)
 **Status:** Generated from codebase analysis
 
 ---
@@ -96,6 +96,11 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - long **hard grace** (`20s`) used only for severe unrecovered-persistent churn
 - Added startup distress scoring so startup overflow recovery escalates earlier when AV distress signals stack (missing refs/corrupt/FEC/sendbuf/low-FPS), instead of staying in repeated soft retries.
 - Added build provenance log marker (`PIPE/BUILD`) so every test log records commit/branch/dirty/timestamp at startup.
+- Added restart-handshake failure classification + cooloff gating to stop soft-restart churn after `Takion failed to receive init ack`:
+  - quit-time marker: `PIPE/RESTART_FAIL ... classified=handshake_init_ack`
+  - restart suppression marker: `PIPE/RESTART ... action=blocked_cooloff`
+  - reconnect stage-2 suppression marker: `PIPE/RECOVER ... action=stage2_suppressed`
+- Post-reconnect stage2 now stays in IDR mode while restart cooloff/source-backoff is active.
 - Files: `vita/src/host.c`, `vita/src/video.c`, `vita/src/logging.c`, `vita/include/context.h`, `lib/src/takion.c`, `tools/build.sh`, `vita/CMakeLists.txt`.
 
 **Investigation/Design Authority:**

@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-12 (Startup burst hardening landed: grace split + distress escalation + build provenance logs)
+Last Updated: 2026-02-12 (Startup burst hardening landed: restart cooloff + stage2 suppression)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -42,12 +42,13 @@ Only move a task to "Done" after the reviewer signs off.
    - *Evidence:* `84165791498_vitarps5-testing.log:775-823`, `84165791498_vitarps5-testing.log:917-923`, `84165791498_vitarps5-testing.log:1256-1261`
    - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
    - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
-   - *Progress (2026-02-12):* Landed startup warmup absorb window + one-shot reorder-queue drain/IDR request, increased Takion reorder queue depth to 256 packets, split startup suppression into soft/hard windows, and added startup distress scoring to reduce repeated soft retries under severe startup pressure (`vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`).
+   - *Progress (2026-02-12):* Landed startup warmup absorb window + one-shot reorder-queue drain/IDR request, increased Takion reorder queue depth to 256 packets, split startup suppression into soft/hard windows, added startup distress scoring, and added restart-handshake cooloff gating so repeated `init ack` failures block risky soft restarts and stay on IDR recovery (`vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`).
    - *Instrumentation update (2026-02-12):* Added `PIPE/BUILD` metadata log line (commit/branch/dirty/timestamp) so every test log can be tied to exact binary provenance (`tools/build.sh`, `vita/CMakeLists.txt`, `vita/src/logging.c`).
    - *Next Step:* Run startup-only A/B validation with `./tools/build.sh --env testing` (cold connect + 3x reconnect without app quit) and compare:
      - counts for `Takion receive queue overflow`, `missing reference`, and `send buffer overflow`
      - suppression markers `restart_suppressed_startup_soft_grace` vs `restart_suppressed_startup_hard_grace`
      - startup distress marker `Takion overflow startup distress score=...`
+     - restart-churn markers `PIPE/RESTART_FAIL ... handshake_init_ack`, `PIPE/RESTART ... action=blocked_cooloff`, `PIPE/RECOVER ... action=stage2_suppressed`
      - stability windows (`PIPE/FPS`, reconnect generations) against the 2026-02-11 and 2026-02-12 baselines.
 7. **Follow-up robustness pass (post-merge cleanups)**
    - *Owner:* Implementation agent
