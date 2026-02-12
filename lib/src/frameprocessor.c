@@ -305,7 +305,10 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 		uint8_t *buf_ptr = frame_processor->frame_buf + i*frame_processor->buf_stride_per_unit;
 		// Safe memcpy: source (unit slot area) and destination (assembled frame prefix)
 		// are disjoint regions inside frame_buf.
-		memcpy(frame_processor->frame_buf + cur, buf_ptr + 2, part_size);
+		uint8_t *dst_ptr = frame_processor->frame_buf + cur;
+		uint8_t *src_ptr = buf_ptr + 2;
+		assert(dst_ptr + part_size <= src_ptr || src_ptr + part_size <= dst_ptr);
+		memcpy(dst_ptr, src_ptr, part_size);
 		cur += part_size;
 	}
 

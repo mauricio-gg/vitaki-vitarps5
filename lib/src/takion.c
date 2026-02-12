@@ -1061,7 +1061,10 @@ static void *takion_thread_func(void *user)
 		}
 
 		size_t received_size = 1500;
-		uint8_t *buf = malloc(received_size); // TODO: no malloc?
+		// Keep a fixed receive buffer per packet read to avoid realloc churn.
+		// Ownership is transferred to takion_handle_packet(), which frees it or
+		// moves it into the postpone queue when crypt is not ready yet.
+		uint8_t *buf = malloc(received_size);
 		if(!buf)
 			break;
 		ChiakiErrorCode err = takion_recv(takion, buf, &received_size, UINT64_MAX);

@@ -107,6 +107,22 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
+#define SESSION_START_LOW_FPS_WINDOW_US (60 * 1000 * 1000ULL)
+#define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
+#define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
+#define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
+#define HINT_DURATION_RECOVERY_US (5 * 1000 * 1000ULL)
+#define HINT_DURATION_ERROR_US (7 * 1000 * 1000ULL)
+#define DISCONNECT_BANNER_DEFAULT_US HINT_DURATION_LINK_WAIT_US
+#define LOSS_PROFILE_BURST_BASE_US (200 * 1000ULL)
+#define LOSS_PROFILE_BURST_LOW_US (220 * 1000ULL)
+#define LOSS_PROFILE_BURST_BALANCED_US (240 * 1000ULL)
+#define LOSS_PROFILE_BURST_HIGH_US (260 * 1000ULL)
+#define LOSS_PROFILE_BURST_MAX_US (280 * 1000ULL)
+#define LOSS_PROFILE_WINDOW_LOW_US (5 * 1000 * 1000ULL)
+#define LOSS_PROFILE_WINDOW_BALANCED_US (7 * 1000 * 1000ULL)
+#define LOSS_PROFILE_WINDOW_HIGH_US (9 * 1000 * 1000ULL)
+#define LOSS_PROFILE_WINDOW_MAX_US (10 * 1000 * 1000ULL)
 
 typedef enum ReconnectRecoveryStage {
   RECONNECT_RECOVER_STAGE_IDLE = 0,
@@ -215,7 +231,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
       if (context.stream.reconnect_generation > 0) {
         context.stream.post_reconnect_window_until_us =
-            context.stream.stream_start_us + 60 * 1000 * 1000ULL;
+            context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
       } else {
         context.stream.post_reconnect_window_until_us = 0;
       }
@@ -300,11 +316,11 @@ static void event_cb(ChiakiEvent *event, void *user) {
         const char *hint =
             remote_in_use ? "Remote Play already active on console"
                           : "Console Remote Play crashed - wait a moment";
-        host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+        host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
       }
       uint64_t retry_delay = STREAM_RETRY_COOLDOWN_US;
       if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
-        retry_delay = 5 * 1000 * 1000ULL;
+        retry_delay = RETRY_FAIL_DELAY_US;
       }
       bool arm_retry_holdoff = !context.stream.stop_requested &&
           remote_in_use &&
@@ -1006,7 +1022,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
       host_set_hint(context.active_host,
                     "Video references unstable - requesting keyframe",
                     false,
-                    4 * 1000 * 1000ULL);
+                    HINT_DURATION_KEYFRAME_US);
     }
     LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage1_idr idr_attempts=%u fps=%u/%u",
          context.stream.session_generation,
@@ -1029,7 +1045,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
         host_set_hint(context.active_host,
                       "Rebuilding stream at safer bitrate",
                       true,
-                      5 * 1000 * 1000ULL);
+                      HINT_DURATION_RECOVERY_US);
       }
       LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_soft_restart bitrate=%u fps=%u/%u",
            context.stream.session_generation,
@@ -1065,7 +1081,7 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
         host_set_hint(context.active_host,
                       "Persistent video desync - rebuilding session",
                       true,
-                      5 * 1000 * 1000ULL);
+                      HINT_DURATION_RECOVERY_US);
       }
       LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage3_guarded_restart bitrate=%u fps=%u/%u",
            context.stream.session_generation,
@@ -1246,7 +1262,7 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
         host_set_hint(context.active_host,
                       "Video desync — rebuilding stream",
                       true,
-                      5 * 1000 * 1000ULL);
+                      HINT_DURATION_RECOVERY_US);
         triggered = true;
         context.stream.last_restart_failure_us = 0;
         context.stream.last_loss_recovery_action_us = now_us;
@@ -1315,7 +1331,7 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
     host_set_hint(context.active_host,
                   "Video desync — retrying stream",
                   true,
-                  5 * 1000 * 1000ULL);
+                  HINT_DURATION_RECOVERY_US);
     triggered = true;
     context.stream.last_restart_failure_us = 0;
     context.stream.last_loss_recovery_action_us = now_us;
@@ -1542,7 +1558,7 @@ static void handle_takion_overflow(void) {
         host_set_hint(context.active_host,
                       "Network congestion — reducing bitrate",
                       false,
-                      5 * 1000 * 1000ULL);
+                      HINT_DURATION_RECOVERY_US);
       }
       return;
     }
@@ -1583,7 +1599,7 @@ static void handle_takion_overflow(void) {
     host_set_hint(context.active_host,
                   "Network congestion — rebuilding stream",
                   true,
-                  5 * 1000 * 1000ULL);
+                  HINT_DURATION_RECOVERY_US);
   }
 }
 
@@ -1649,7 +1665,7 @@ static void update_disconnect_banner(const char *reason) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint64_t until = context.stream.next_stream_allowed_us;
   if (!until)
-    until = now_us + 3 * 1000 * 1000ULL;
+    until = now_us + DISCONNECT_BANNER_DEFAULT_US;
   context.stream.disconnect_banner_until_us = until;
 }
 
@@ -1659,24 +1675,24 @@ static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
       .min_frames = LOSS_EVENT_MIN_FRAMES_DEFAULT,
       .event_threshold = LOSS_EVENT_THRESHOLD_DEFAULT,
       .frame_threshold = 10,
-      .burst_window_us = 200 * 1000ULL,
+      .burst_window_us = LOSS_PROFILE_BURST_BASE_US,
       .burst_frame_threshold = 4};
 
   switch (mode) {
     case VITA_LATENCY_MODE_ULTRA_LOW:
-      profile.window_us = 5 * 1000 * 1000ULL;
+      profile.window_us = LOSS_PROFILE_WINDOW_LOW_US;
       profile.min_frames = 4;
       profile.event_threshold = 2;
       profile.frame_threshold = 6;
-      profile.burst_window_us = 220 * 1000ULL;
+      profile.burst_window_us = LOSS_PROFILE_BURST_LOW_US;
       profile.burst_frame_threshold = 6;
       break;
     case VITA_LATENCY_MODE_LOW:
-      profile.window_us = 7 * 1000 * 1000ULL;
+      profile.window_us = LOSS_PROFILE_WINDOW_BALANCED_US;
       profile.min_frames = 4;
       profile.event_threshold = 3;
       profile.frame_threshold = 8;
-      profile.burst_window_us = 240 * 1000ULL;
+      profile.burst_window_us = LOSS_PROFILE_BURST_BALANCED_US;
       profile.burst_frame_threshold = 5;
       break;
     case VITA_LATENCY_MODE_BALANCED:
@@ -1685,23 +1701,23 @@ static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
       profile.min_frames = LOSS_EVENT_MIN_FRAMES_DEFAULT;
       profile.event_threshold = LOSS_EVENT_THRESHOLD_DEFAULT;
       profile.frame_threshold = 9;
-      profile.burst_window_us = 220 * 1000ULL;
+      profile.burst_window_us = LOSS_PROFILE_BURST_LOW_US;
       profile.burst_frame_threshold = 5;
       break;
     case VITA_LATENCY_MODE_HIGH:
-      profile.window_us = 9 * 1000 * 1000ULL;
+      profile.window_us = LOSS_PROFILE_WINDOW_HIGH_US;
       profile.min_frames = 5;
       profile.event_threshold = 3;
       profile.frame_threshold = 11;
-      profile.burst_window_us = 260 * 1000ULL;
+      profile.burst_window_us = LOSS_PROFILE_BURST_HIGH_US;
       profile.burst_frame_threshold = 6;
       break;
     case VITA_LATENCY_MODE_MAX:
-      profile.window_us = 10 * 1000 * 1000ULL;
+      profile.window_us = LOSS_PROFILE_WINDOW_MAX_US;
       profile.min_frames = 6;
       profile.event_threshold = 4;
       profile.frame_threshold = 13;
-      profile.burst_window_us = 280 * 1000ULL;
+      profile.burst_window_us = LOSS_PROFILE_BURST_MAX_US;
       profile.burst_frame_threshold = 7;
       break;
   }
@@ -1883,7 +1899,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
       host_set_hint(context.active_host,
                     "Packet loss burst — requesting keyframe",
                     false,
-                    4 * 1000 * 1000ULL);
+                    HINT_DURATION_KEYFRAME_US);
     }
     return;
   }
@@ -1955,7 +1971,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
              context.stream.loss_retry_attempts,
              context.stream.loss_retry_bitrate_kbps);
         if (context.active_host) {
-          host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+          host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
         }
         return;
       } else {
@@ -1985,7 +2001,7 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.reconnect_overlay_active = false;
   }
   if (context.active_host) {
-    host_set_hint(context.active_host, hint, true, 7 * 1000 * 1000ULL);
+    host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
   }
   context.stream.last_loss_recovery_action_us = now_us;
   context.stream.loss_recovery_gate_hits = 0;
@@ -2499,7 +2515,7 @@ int host_stream(VitaChiakiHost* host) {
 	if(err != CHIAKI_ERR_SUCCESS) {
     if (err == CHIAKI_ERR_PARSE_ADDR) {
       LOGE("Error during stream setup: console address unresolved; keeping discovery active");
-      host_set_hint(host, "Waiting for console network link...", false, 3 * 1000 * 1000ULL);
+      host_set_hint(host, "Waiting for console network link...", false, HINT_DURATION_LINK_WAIT_US);
     } else {
 		  LOGE("Error during stream setup: %s", chiaki_error_string(err));
     }
