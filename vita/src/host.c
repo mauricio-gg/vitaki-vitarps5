@@ -71,9 +71,10 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
-// Startup can include console wake + decoder warmup; keep a long grace window
-// to prevent restart thrash during initial stream ramp-up.
-#define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
+// Startup can include console wake + decoder warmup. Keep a short grace for
+// burst suppression and a longer hard grace for severe unrecovered churn.
+#define LOSS_RESTART_STARTUP_SOFT_GRACE_US (2500 * 1000ULL)
+#define LOSS_RESTART_STARTUP_HARD_GRACE_US (20 * 1000 * 1000ULL)
 #define STARTUP_WARMUP_WINDOW_US (1200 * 1000ULL)
 #define STARTUP_WARMUP_OVERFLOW_THRESHOLD 3
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
@@ -242,8 +243,10 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	          context.stream.stream_start_us + STARTUP_WARMUP_WINDOW_US;
 	      context.stream.startup_warmup_overflow_events = 0;
 	      context.stream.startup_warmup_drain_performed = false;
+	      context.stream.loss_restart_soft_grace_until_us =
+	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
 	      context.stream.loss_restart_grace_until_us =
-	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
+	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
       if (context.stream.reconnect_generation > 0) {
         context.stream.post_reconnect_window_until_us =
             context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
@@ -522,6 +525,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.startup_warmup_until_us = 0;
   context.stream.startup_warmup_overflow_events = 0;
   context.stream.startup_warmup_drain_performed = false;
+  context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
@@ -1308,18 +1312,21 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   bool persistent_distress =
       context.stream.unrecovered_persistent_events >=
       UNRECOVERED_PERSIST_THRESHOLD;
-  bool startup_grace_active =
+  bool startup_hard_grace_active =
       context.stream.loss_restart_grace_until_us &&
       now_us < context.stream.loss_restart_grace_until_us;
+  bool startup_soft_grace_active =
+      context.stream.loss_restart_soft_grace_until_us &&
+      now_us < context.stream.loss_restart_soft_grace_until_us;
   const char *unrecovered_distress_reason = NULL;
   bool av_distress =
       unrecovered_loss_has_av_distress(&unrecovered_distress_reason);
 
   if (persistent_distress && idr_ineffective) {
-    if (startup_grace_active) {
+    if (startup_hard_grace_active) {
       uint64_t remaining_ms =
           remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-      LOGD("Unrecovered loss action=restart_suppressed_startup_grace remaining=%llums",
+      LOGD("Unrecovered loss action=restart_suppressed_startup_hard_grace remaining=%llums",
            (unsigned long long)remaining_ms);
       context.stream.unrecovered_idr_requests++;
       request_decoder_resync("unrecovered persistent startup grace");
@@ -1396,10 +1403,10 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   context.stream.unrecovered_gate_events = 0;
   context.stream.unrecovered_gate_window_start_us = now_us;
   context.stream.unrecovered_idr_requests++;
-  if (startup_grace_active) {
+  if (startup_soft_grace_active) {
     uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Unrecovered streak action=restart_suppressed_startup_grace remaining=%llums",
+        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
+    LOGD("Unrecovered streak action=restart_suppressed_startup_soft_grace remaining=%llums",
          (unsigned long long)remaining_ms);
     request_decoder_resync("unrecovered streak startup grace");
     return triggered;
@@ -1558,11 +1565,11 @@ static void handle_takion_overflow(void) {
     return;
   }
 
-  if (context.stream.loss_restart_grace_until_us &&
-      now_us < context.stream.loss_restart_grace_until_us) {
+  if (context.stream.loss_restart_soft_grace_until_us &&
+      now_us < context.stream.loss_restart_soft_grace_until_us) {
     uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Takion overflow action=restart_suppressed_startup_grace remaining=%llums",
+        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
+    LOGD("Takion overflow action=restart_suppressed_startup_soft_grace remaining=%llums",
          (unsigned long long)remaining_ms);
     // Startup grace intentionally avoids forced resync to prevent churn while
     // the decoder/transport pipeline is still warming up.
@@ -2039,13 +2046,13 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     return;
   }
 
-  bool startup_grace_active =
-      context.stream.loss_restart_grace_until_us &&
-      now_us < context.stream.loss_restart_grace_until_us;
-  if (startup_grace_active) {
+  bool startup_soft_grace_active =
+      context.stream.loss_restart_soft_grace_until_us &&
+      now_us < context.stream.loss_restart_soft_grace_until_us;
+  if (startup_soft_grace_active) {
     uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Loss recovery action=restart_suppressed_startup_grace trigger=%s remaining=%llums",
+        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
+    LOGD("Loss recovery action=restart_suppressed_startup_soft_grace trigger=%s remaining=%llums",
          trigger,
          (unsigned long long)remaining_ms);
     // Keep stage pinned at 1 while startup grace is active so the next
