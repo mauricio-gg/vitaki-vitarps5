@@ -50,6 +50,7 @@ static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
 static void persist_config_or_warn(void);
+static const char *restart_source_label(const char *source);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -121,6 +122,9 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
+#define RESTART_HANDSHAKE_COOLOFF_FIRST_US (8 * 1000 * 1000ULL)
+#define RESTART_HANDSHAKE_COOLOFF_REPEAT_US (12 * 1000 * 1000ULL)
+#define RESTART_HANDSHAKE_REPEAT_WINDOW_US (60 * 1000 * 1000ULL)
 #define SESSION_START_LOW_FPS_WINDOW_US (60 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
@@ -333,10 +337,45 @@ static void event_cb(ChiakiEvent *event, void *user) {
       uint64_t now_us = sceKernelGetProcessTimeWide();
       uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
       bool takion_cooldown_active = context.stream.takion_cooldown_overlay_active;
+      uint32_t restart_handshake_failures = context.stream.restart_handshake_failures;
+      uint64_t last_restart_handshake_fail_us = context.stream.last_restart_handshake_fail_us;
+      uint64_t restart_cooloff_until_us = context.stream.restart_cooloff_until_us;
+      char restart_source_snapshot[32];
+      sceClibSnprintf(restart_source_snapshot,
+                      sizeof(restart_source_snapshot),
+                      "%s",
+                      context.stream.last_restart_source);
+      uint32_t restart_source_attempts = context.stream.restart_source_attempts;
       bool remote_in_use =
           event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
       bool remote_crash =
           event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH;
+      bool restart_handshake_failure =
+          !user_stop_requested &&
+          restart_failed &&
+          event->quit.reason == CHIAKI_QUIT_REASON_STOPPED;
+      if (restart_handshake_failure) {
+        bool within_window = last_restart_handshake_fail_us &&
+            now_us - last_restart_handshake_fail_us <=
+                RESTART_HANDSHAKE_REPEAT_WINDOW_US;
+        if (within_window) {
+          if (restart_handshake_failures < UINT32_MAX)
+            restart_handshake_failures++;
+        } else {
+          restart_handshake_failures = 1;
+          restart_source_attempts = 1;
+        }
+        last_restart_handshake_fail_us = now_us;
+        uint64_t cooloff_us =
+            restart_handshake_failures > 1
+                ? RESTART_HANDSHAKE_COOLOFF_REPEAT_US
+                : RESTART_HANDSHAKE_COOLOFF_FIRST_US;
+        restart_cooloff_until_us = now_us + cooloff_us;
+        LOGD("PIPE/RESTART_FAIL source=%s classified=handshake_init_ack failures=%u cooloff_ms=%llu",
+             restart_source_label(restart_source_snapshot),
+             restart_handshake_failures,
+             (unsigned long long)(cooloff_us / 1000ULL));
+      }
       if (context.active_host && (remote_in_use || remote_crash)) {
         const char *hint =
             remote_in_use ? "Remote Play already active on console"
@@ -404,10 +443,29 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
       reset_stream_metrics(true);
+      if (last_restart_handshake_fail_us &&
+          now_us - last_restart_handshake_fail_us >
+              RESTART_HANDSHAKE_REPEAT_WINDOW_US) {
+        restart_handshake_failures = 0;
+        last_restart_handshake_fail_us = 0;
+        restart_cooloff_until_us = 0;
+        restart_source_snapshot[0] = '\0';
+        restart_source_attempts = 0;
+      }
       context.stream.takion_overflow_backoff_until_us = takion_backoff_until;
       context.stream.takion_cooldown_overlay_active =
           takion_cooldown_active &&
           takion_backoff_until && takion_backoff_until > now_us;
+      context.stream.restart_handshake_failures = restart_handshake_failures;
+      context.stream.last_restart_handshake_fail_us =
+          last_restart_handshake_fail_us;
+      context.stream.restart_cooloff_until_us =
+          restart_cooloff_until_us > now_us ? restart_cooloff_until_us : 0;
+      sceClibSnprintf(context.stream.last_restart_source,
+                      sizeof(context.stream.last_restart_source),
+                      "%s",
+                      restart_source_snapshot);
+      context.stream.restart_source_attempts = restart_source_attempts;
       context.stream.loss_retry_attempts = retry_attempts;
       context.stream.loss_retry_bitrate_kbps = retry_bitrate;
       context.stream.loss_retry_ready_us = retry_ready;
@@ -973,42 +1031,68 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   return true;
 }
 
+static const char *restart_source_label(const char *source) {
+  return (source && source[0]) ? source : "unknown";
+}
+
 static bool request_stream_restart_coordinated(const char *source,
                                                uint32_t bitrate_kbps,
                                                uint64_t now_us) {
+  const char *source_label = restart_source_label(source);
   if (context.stream.stop_requested) {
     LOGD("PIPE/RESTART source=%s action=skip reason=stop_requested",
-         source ? source : "unknown");
+         source_label);
     return false;
   }
   if (context.stream.fast_restart_active) {
     LOGD("PIPE/RESTART source=%s action=skip reason=restart_active",
-         source ? source : "unknown");
+         source_label);
     return true;
+  }
+  if (context.stream.restart_cooloff_until_us &&
+      now_us < context.stream.restart_cooloff_until_us) {
+    uint64_t remaining_ms =
+        (context.stream.restart_cooloff_until_us - now_us) / 1000ULL;
+    LOGD("PIPE/RESTART source=%s action=blocked_cooloff remaining=%llums",
+         source_label,
+         (unsigned long long)remaining_ms);
+    return false;
   }
 
   if (context.stream.last_loss_recovery_action_us &&
       now_us - context.stream.last_loss_recovery_action_us <
           LOSS_RECOVERY_ACTION_COOLDOWN_US) {
     uint64_t remaining_ms =
-        (LOSS_RECOVERY_ACTION_COOLDOWN_US -
+         (LOSS_RECOVERY_ACTION_COOLDOWN_US -
          (now_us - context.stream.last_loss_recovery_action_us)) / 1000ULL;
     LOGD("PIPE/RESTART source=%s action=cooldown_skip remaining=%llums",
-         source ? source : "unknown",
+         source_label,
          (unsigned long long)remaining_ms);
     return false;
+  }
+
+  if (strcmp(context.stream.last_restart_source, source_label) != 0) {
+    sceClibSnprintf(context.stream.last_restart_source,
+                    sizeof(context.stream.last_restart_source),
+                    "%s",
+                    source_label);
+    context.stream.restart_source_attempts = 1;
+  } else if (context.stream.restart_source_attempts < UINT32_MAX) {
+    context.stream.restart_source_attempts++;
   }
 
   bool ok = request_stream_restart(bitrate_kbps);
   if (ok) {
     context.stream.last_loss_recovery_action_us = now_us;
-    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u",
-         source ? source : "unknown",
-         bitrate_kbps);
+    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u attempt=%u",
+         source_label,
+         bitrate_kbps,
+         context.stream.restart_source_attempts);
   } else {
-    LOGE("PIPE/RESTART source=%s action=failed bitrate=%u",
-         source ? source : "unknown",
-         bitrate_kbps);
+    LOGE("PIPE/RESTART source=%s action=failed bitrate=%u attempt=%u",
+         source_label,
+         bitrate_kbps,
+         context.stream.restart_source_attempts);
   }
   return ok;
 }
@@ -1034,6 +1118,11 @@ static bool request_recovery_restart(const char *source,
     return true;
   }
   mark_restart_failure(now_us);
+  if (context.stream.restart_cooloff_until_us &&
+      now_us < context.stream.restart_cooloff_until_us) {
+    request_decoder_resync("restart cooloff");
+    return false;
+  }
   if (failure_resync_reason) {
     request_decoder_resync(failure_resync_reason);
   }
