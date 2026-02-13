@@ -105,6 +105,11 @@ typedef struct vita_chiaki_stream_t {
   uint32_t startup_bootstrap_clean_frames; // Decoded frames observed during startup bootstrap
   uint32_t startup_bootstrap_required_clean_frames; // Clean-frame threshold before presenting
   uint64_t startup_bootstrap_last_flush_us; // Last startup bootstrap reorder queue flush timestamp
+  bool idr_wait_active;               // Drop/defer decode until a clean IDR frame arrives
+  uint64_t idr_wait_started_us;       // Timestamp when current IDR wait gate was entered
+  uint64_t idr_wait_last_request_us;  // Last time we sent an IDR request while gate active
+  uint32_t idr_wait_request_count;    // IDR requests issued during the active gate window
+  uint32_t idr_wait_cooldown_suppressed_count; // Requests suppressed by cooldown during gate
   uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
