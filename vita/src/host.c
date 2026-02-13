@@ -87,6 +87,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define IDR_RECOVERY_COOLDOWN_US (500 * 1000ULL)
 #define IDR_RECOVERY_CORRUPT_DELTA_THRESHOLD 2
+#define IDR_WAIT_FAILOPEN_TIMEOUT_US (1500 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 4
@@ -625,6 +626,8 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.idr_wait_last_request_us = 0;
   context.stream.idr_wait_request_count = 0;
   context.stream.idr_wait_cooldown_suppressed_count = 0;
+  context.stream.idr_wait_failopen_deadline_us = 0;
+  context.stream.idr_wait_failopen_count = 0;
   context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
@@ -1221,6 +1224,8 @@ static void enter_idr_wait_gate(const char *reason, uint64_t now_us) {
   context.stream.idr_wait_last_request_us = 0;
   context.stream.idr_wait_request_count = 0;
   context.stream.idr_wait_cooldown_suppressed_count = 0;
+  context.stream.idr_wait_failopen_deadline_us =
+      now_us + IDR_WAIT_FAILOPEN_TIMEOUT_US;
   LOGD("PIPE/IDR_GATE state=entered reason=%s",
        reason ? reason : "unspecified");
 }
