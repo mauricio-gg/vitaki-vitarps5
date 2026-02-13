@@ -145,6 +145,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->stage_submit_total_ms = 0;
 	video_receiver->stage_window_frames = 0;
 	video_receiver->stage_window_drops = 0;
+	video_receiver->waiting_for_idr = false;
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -296,6 +297,22 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
+			if(!video_receiver->waiting_for_idr)
+			{
+				ChiakiErrorCode idr_err =
+					chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
+				if(idr_err == CHIAKI_ERR_SUCCESS)
+				{
+					video_receiver->waiting_for_idr = true;
+					CHIAKI_LOGI(video_receiver->log, "FEC failed, waiting for IDR frame");
+				}
+				else
+				{
+					CHIAKI_LOGW(video_receiver->log,
+						"Failed to request IDR after FEC failure: %s",
+						chiaki_error_string(idr_err));
+				}
+			}
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
 				uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
@@ -320,6 +337,24 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	ChiakiBitstreamSlice slice;
 	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
 	{
+		if(video_receiver->waiting_for_idr)
+		{
+			if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
+			{
+				video_receiver->waiting_for_idr = false;
+				CHIAKI_LOGI(video_receiver->log, "Received I-slice after recovery request, resuming decode");
+			}
+			else if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_P)
+			{
+				video_receiver->stage_window_drops++;
+				video_receiver->frame_index_prev = video_receiver->frame_index_cur;
+				video_receiver->cur_frame_first_packet_ms = 0;
+				video_receiver->cur_frame_seen_last_unit = false;
+				CHIAKI_LOGV(video_receiver->log, "Skipping P-frame %d while waiting for IDR", (int)video_receiver->frame_index_cur);
+				return CHIAKI_ERR_SUCCESS;
+			}
+		}
+
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_P)
 		{
 			ChiakiSeqNum16 ref_frame_index = video_receiver->frame_index_cur - slice.reference_frame - 1;
