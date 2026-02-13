@@ -1041,8 +1041,9 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   context.stream.video_last_output_us = decode_now_us;
   context.stream.video_no_output_started_us = 0;
   context.stream.video_no_output_streak = 0;
-  // display:
-  if (context.stream.idr_wait_active && contains_idr) {
+  // Clear startup gate on first successful decoder output. Some PS5 streams
+  // deliver intra recovery that is decodable but not flagged as NAL type 5.
+  if (context.stream.idr_wait_active) {
     uint64_t now_us = sceKernelGetProcessTimeWide();
     uint64_t wait_ms = context.stream.idr_wait_started_us &&
                            now_us >= context.stream.idr_wait_started_us
@@ -1050,7 +1051,8 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
         : 0;
     context.stream.idr_wait_active = false;
     context.stream.idr_wait_failopen_deadline_us = 0;
-    LOGD("PIPE/IDR_GATE state=cleared reason=idr wait_ms=%llu requests=%u cooldown_suppressed=%u",
+    LOGD("PIPE/IDR_GATE state=cleared reason=%s wait_ms=%llu requests=%u cooldown_suppressed=%u",
+         contains_idr ? "idr" : "decode_output",
          (unsigned long long)wait_ms,
          context.stream.idr_wait_request_count,
          context.stream.idr_wait_cooldown_suppressed_count);
