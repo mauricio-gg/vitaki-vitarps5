@@ -34,7 +34,6 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
 static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
-static bool takion_overflow_has_av_distress(const char **reason_out);
 static bool unrecovered_loss_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
@@ -76,10 +75,6 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // burst suppression and a longer hard grace for severe unrecovered churn.
 #define LOSS_RESTART_STARTUP_SOFT_GRACE_US (2500 * 1000ULL)
 #define LOSS_RESTART_STARTUP_HARD_GRACE_US (20 * 1000 * 1000ULL)
-#define STARTUP_WARMUP_WINDOW_US (1200 * 1000ULL)
-#define STARTUP_WARMUP_OVERFLOW_THRESHOLD 3
-#define STARTUP_BOOTSTRAP_WINDOW_US (1000 * 1000ULL)
-#define STARTUP_BOOTSTRAP_REQUIRED_CLEAN_FRAMES 24
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
@@ -90,18 +85,6 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define UNRECOVERED_PERSIST_THRESHOLD 6
 #define UNRECOVERED_IDR_WINDOW_US (8 * 1000 * 1000ULL)
 #define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 5
-#define TAKION_OVERFLOW_RESTART_DELAY_US (1500 * 1000ULL)
-#define TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US (12 * 1000 * 1000ULL)
-#define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
-#define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
-#define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
-#define STARTUP_DISTRESS_SCORE_THRESHOLD 3
-#define STARTUP_DISTRESS_REDUCED_SOFT_RECOVERY_MAX 1
-// During startup grace, limit resync requests to avoid self-inflicted churn.
-#define TAKION_STARTUP_GRACE_RESYNC_COOLDOWN_US (800 * 1000ULL)
-// Ignore the first few overflow drops in-window to absorb short jitter spikes.
-#define TAKION_OVERFLOW_IGNORE_THRESHOLD 4
-#define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
@@ -247,30 +230,10 @@ static void event_cb(ChiakiEvent *event, void *user) {
 		case CHIAKI_EVENT_CONNECTED:
 				LOGD("EventCB CHIAKI_EVENT_CONNECTED");
 	      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
-	      context.stream.startup_warmup_until_us =
-	          context.stream.stream_start_us + STARTUP_WARMUP_WINDOW_US;
-	      context.stream.startup_warmup_overflow_events = 0;
-	      context.stream.startup_warmup_drain_performed = false;
-	      context.stream.startup_bootstrap_until_us =
-	          context.stream.stream_start_us + STARTUP_BOOTSTRAP_WINDOW_US;
-	      context.stream.startup_bootstrap_active = true;
-	      context.stream.startup_bootstrap_idr_requested = false;
-	      context.stream.startup_bootstrap_clean_frames = 0;
-	      context.stream.startup_bootstrap_required_clean_frames =
-	          STARTUP_BOOTSTRAP_REQUIRED_CLEAN_FRAMES;
-	      context.stream.startup_bootstrap_last_flush_us = 0;
 	      context.stream.loss_restart_soft_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
 	      context.stream.loss_restart_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
-      chiaki_takion_request_drop_data_queue(
-          &context.stream.session.stream_connection.takion);
-      context.stream.startup_bootstrap_last_flush_us = context.stream.stream_start_us;
-      LOGD("PIPE/BOOTSTRAP action=flush_and_idr window_ms=%llu clean_target=%u flush=requested",
-           (unsigned long long)(STARTUP_BOOTSTRAP_WINDOW_US / 1000ULL),
-           context.stream.startup_bootstrap_required_clean_frames);
-      request_decoder_resync("startup bootstrap");
-      context.stream.startup_bootstrap_idr_requested = true;
       if (context.stream.reconnect_generation > 0) {
         context.stream.post_reconnect_window_until_us =
             context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
@@ -353,8 +316,6 @@ static void event_cb(ChiakiEvent *event, void *user) {
         chiaki_mutex_unlock(&context.stream.finalization_mutex);
       }
       uint64_t now_us = sceKernelGetProcessTimeWide();
-      uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
-      bool takion_cooldown_active = context.stream.takion_cooldown_overlay_active;
       uint32_t restart_handshake_failures = context.stream.restart_handshake_failures;
       uint64_t last_restart_handshake_fail_us = context.stream.last_restart_handshake_fail_us;
       uint64_t restart_cooloff_until_us = context.stream.restart_cooloff_until_us;
@@ -419,17 +380,12 @@ static void event_cb(ChiakiEvent *event, void *user) {
              context.stream.retry_holdoff_ms);
       }
       uint64_t throttle_until = now_us + retry_delay;
-      if (takion_backoff_until && takion_backoff_until > throttle_until)
-        throttle_until = takion_backoff_until;
       if (context.stream.retry_holdoff_active &&
           context.stream.retry_holdoff_until_us > throttle_until) {
         throttle_until = context.stream.retry_holdoff_until_us;
       }
       if (context.stream.stop_requested) {
-        context.stream.next_stream_allowed_us =
-            (takion_backoff_until && takion_backoff_until > now_us)
-                ? takion_backoff_until
-                : 0;
+        context.stream.next_stream_allowed_us = 0;
       } else {
         context.stream.next_stream_allowed_us = throttle_until;
       }
@@ -470,10 +426,6 @@ static void event_cb(ChiakiEvent *event, void *user) {
         restart_source_snapshot[0] = '\0';
         restart_source_attempts = 0;
       }
-      context.stream.takion_overflow_backoff_until_us = takion_backoff_until;
-      context.stream.takion_cooldown_overlay_active =
-          takion_cooldown_active &&
-          takion_backoff_until && takion_backoff_until > now_us;
       context.stream.restart_handshake_failures = restart_handshake_failures;
       context.stream.last_restart_handshake_fail_us =
           last_restart_handshake_fail_us;
@@ -605,15 +557,6 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_recovery_window_start_us = 0;
   context.stream.last_loss_recovery_action_us = 0;
   context.stream.stream_start_us = 0;
-  context.stream.startup_warmup_until_us = 0;
-  context.stream.startup_warmup_overflow_events = 0;
-  context.stream.startup_warmup_drain_performed = false;
-  context.stream.startup_bootstrap_until_us = 0;
-  context.stream.startup_bootstrap_active = false;
-  context.stream.startup_bootstrap_idr_requested = false;
-  context.stream.startup_bootstrap_clean_frames = 0;
-  context.stream.startup_bootstrap_required_clean_frames = 0;
-  context.stream.startup_bootstrap_last_flush_us = 0;
   context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
@@ -624,8 +567,6 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_drop_packets = 0;
   context.stream.logged_drop_events = 0;
   context.stream.takion_drop_last_us = 0;
-  context.stream.last_takion_overflow_restart_us = 0;
-  context.stream.takion_startup_grace_last_resync_us = 0;
   context.stream.av_diag.missing_ref_count = 0;
   context.stream.av_diag.corrupt_burst_count = 0;
   context.stream.av_diag.fec_fail_count = 0;
@@ -638,15 +579,6 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.av_diag.last_corrupt_start = 0;
   context.stream.av_diag.last_corrupt_end = 0;
   context.stream.av_diag_stale_snapshot_streak = 0;
-  if (!preserve_recovery_state) {
-  context.stream.takion_overflow_soft_attempts = 0;
-  context.stream.takion_overflow_window_start_us = 0;
-  context.stream.takion_overflow_backoff_until_us = 0;
-  context.stream.takion_cooldown_overlay_active = false;
-  context.stream.takion_overflow_drop_window_start_us = 0;
-  context.stream.takion_overflow_recent_drops = 0;
-  context.stream.takion_startup_grace_last_resync_us = 0;
-  }
   context.stream.last_restart_failure_us = 0;
   context.stream.restart_handshake_failures = 0;
   context.stream.last_restart_handshake_fail_us = 0;
@@ -685,11 +617,18 @@ static void shutdown_media_pipeline(void) {
   if (!context.stream.media_initialized)
     return;
 
+  // Stop the video decode thread and clear the frame_ready flag BEFORE freeing
+  // the texture.  The UI thread renders decoded frames from
+  // vita_video_render_latest_frame(); we must ensure it is no longer drawing
+  // the texture when we free it.
+  context.stream.is_streaming = false;   // UI loop stops entering render branch
+  vita_h264_stop();                      // active_video_thread=false, frame_ready=false
+  sceKernelDelayThread(2000);            // 2ms — let any in-flight render + swap finish
+
   chiaki_opus_decoder_fini(&context.stream.opus_decoder);
   vita_h264_cleanup();
   vita_audio_cleanup();
   context.stream.media_initialized = false;
-  context.stream.is_streaming = false;
   context.stream.inputs_ready = false;
   context.stream.fast_restart_active = false;
   context.stream.reconnect_overlay_active = false;
@@ -1051,7 +990,6 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   context.stream.inputs_ready = true;
   context.stream.inputs_resume_pending = true;
   context.stream.restart_failure_active = false;
-  context.stream.takion_cooldown_overlay_active = false;
   return true;
 }
 
@@ -1586,76 +1524,6 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   return triggered;
 }
 
-static bool takion_overflow_has_av_distress(const char **reason_out) {
-  bool diag_missing_ref =
-      context.stream.av_diag.missing_ref_count >
-      context.stream.av_diag.logged_missing_ref_count;
-  bool diag_corrupt =
-      context.stream.av_diag.corrupt_burst_count >
-      context.stream.av_diag.logged_corrupt_burst_count;
-  bool diag_fec =
-      context.stream.av_diag.fec_fail_count >
-      context.stream.av_diag.logged_fec_fail_count;
-  bool diag_sendbuf =
-      context.stream.av_diag.sendbuf_overflow_count >
-      context.stream.av_diag.logged_sendbuf_overflow_count;
-
-  if (diag_missing_ref || diag_corrupt || diag_fec || diag_sendbuf) {
-    if (reason_out) {
-      if (diag_missing_ref)
-        *reason_out = "missing_ref";
-      else if (diag_corrupt)
-        *reason_out = "corrupt_burst";
-      else if (diag_fec)
-        *reason_out = "fec_fail";
-      else
-        *reason_out = "sendbuf_overflow";
-    }
-    return true;
-  }
-
-  uint32_t target_fps = context.stream.target_fps ?
-      context.stream.target_fps : context.stream.negotiated_fps;
-  uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  // Overflow path reacts early when cadence drops below 75% of target.
-  // This path is intentionally more sensitive because reorder overflow can
-  // quickly poison decoder dependencies if we wait too long.
-  if (target_fps && incoming_fps &&
-      (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 75ULL) {
-    if (reason_out)
-      *reason_out = "fps_drop";
-    return true;
-  }
-
-  if (reason_out)
-    *reason_out = "av_healthy";
-  return false;
-}
-
-static uint32_t startup_distress_score(uint64_t now_us) {
-  if (!context.stream.loss_restart_grace_until_us ||
-      now_us >= context.stream.loss_restart_grace_until_us) {
-    return 0;
-  }
-
-  uint32_t score = 0;
-  if (context.stream.av_diag.missing_ref_count > 0)
-    score++;
-  if (context.stream.av_diag.corrupt_burst_count > 0)
-    score++;
-  if (context.stream.av_diag.fec_fail_count > 0)
-    score++;
-  if (context.stream.av_diag.sendbuf_overflow_count > 0)
-    score += 2;
-  if (context.stream.post_reconnect_low_fps_windows > 0 ||
-      context.stream.fps_under_target_windows >= 2)
-    score++;
-  if (context.stream.takion_overflow_recent_drops >
-      (TAKION_OVERFLOW_IGNORE_THRESHOLD + 1))
-    score++;
-  return score;
-}
-
 static bool unrecovered_loss_has_av_distress(const char **reason_out) {
   if (context.stream.av_diag.missing_ref_count >= 2) {
     if (reason_out)
@@ -1697,212 +1565,9 @@ static bool unrecovered_loss_has_av_distress(const char **reason_out) {
 }
 
 static void handle_takion_overflow(void) {
-  if (context.stream.stop_requested)
-    return;
-
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-
-  if (context.stream.startup_warmup_until_us &&
-      now_us < context.stream.startup_warmup_until_us) {
-    context.stream.startup_warmup_overflow_events++;
-    uint64_t remaining_ms =
-        remaining_ms_until(context.stream.startup_warmup_until_us, now_us);
-    LOGD("Takion overflow action=warmup_absorb events=%u threshold=%u remaining=%llums",
-         context.stream.startup_warmup_overflow_events,
-         STARTUP_WARMUP_OVERFLOW_THRESHOLD,
-         (unsigned long long)remaining_ms);
-
-    if (!context.stream.startup_warmup_drain_performed &&
-        context.stream.startup_warmup_overflow_events >=
-            STARTUP_WARMUP_OVERFLOW_THRESHOLD) {
-      chiaki_takion_request_drop_data_queue(
-          &context.stream.session.stream_connection.takion);
-      LOGD("Startup warmup drain action=drain_and_idr flush=requested");
-      request_decoder_resync("startup warmup drain");
-      context.stream.startup_warmup_drain_performed = true;
-    }
-    return;
-  }
-
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us &&
-      now_us >= context.stream.takion_overflow_backoff_until_us) {
-    context.stream.takion_cooldown_overlay_active = false;
-    context.stream.takion_overflow_backoff_until_us = 0;
-  }
-
-  if (context.stream.fast_restart_active) {
-    LOGD("Takion overflow reported while restart active; ignoring");
-    return;
-  }
-
-  if (context.stream.loss_restart_soft_grace_until_us &&
-      now_us < context.stream.loss_restart_soft_grace_until_us) {
-    uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
-    LOGD("Takion overflow action=restart_suppressed_startup_soft_grace remaining=%llums",
-         (unsigned long long)remaining_ms);
-    // Startup grace intentionally avoids forced resync to prevent churn while
-    // the decoder/transport pipeline is still warming up.
-    return;
-  }
-
-  if (context.stream.takion_overflow_drop_window_start_us == 0 ||
-      now_us - context.stream.takion_overflow_drop_window_start_us >
-          TAKION_OVERFLOW_IGNORE_WINDOW_US) {
-    context.stream.takion_overflow_drop_window_start_us = now_us;
-    context.stream.takion_overflow_recent_drops = 0;
-  }
-
-  context.stream.takion_overflow_recent_drops++;
-  if (context.stream.takion_overflow_recent_drops <=
-      TAKION_OVERFLOW_IGNORE_THRESHOLD) {
-    if (context.config.show_latency) {
-      uint64_t window_elapsed_us =
-          now_us - context.stream.takion_overflow_drop_window_start_us;
-      uint64_t window_ms = window_elapsed_us / 1000ULL;
-      LOGD("Takion overflow tolerated (%u/%u within %llums)",
-           context.stream.takion_overflow_recent_drops,
-           TAKION_OVERFLOW_IGNORE_THRESHOLD,
-           (unsigned long long)window_ms);
-    }
-    return;
-  }
-
-  if (context.config.show_latency &&
-      context.stream.takion_overflow_recent_drops ==
-          (TAKION_OVERFLOW_IGNORE_THRESHOLD + 1)) {
-    uint64_t window_elapsed_us =
-        now_us - context.stream.takion_overflow_drop_window_start_us;
-    uint64_t window_ms = window_elapsed_us / 1000ULL;
-    LOGD("Takion overflow gate tripped after %u drops in %llums",
-         context.stream.takion_overflow_recent_drops,
-         (unsigned long long)window_ms);
-    chiaki_takion_request_drop_data_queue(
-        &context.stream.session.stream_connection.takion);
-    LOGD("Takion overflow gate flushed reorder queue (flush=requested)");
-    request_decoder_resync("takion overflow gate");
-  }
-
-  const char *distress_reason = NULL;
-  if (!takion_overflow_has_av_distress(&distress_reason)) {
-    LOGD("Takion overflow action=restart_suppressed_av_healthy reason=%s drops=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u} fps=%u/%u",
-         distress_reason ? distress_reason : "unknown",
-         context.stream.takion_overflow_recent_drops,
-         context.stream.av_diag.missing_ref_count,
-         context.stream.av_diag.corrupt_burst_count,
-         context.stream.av_diag.fec_fail_count,
-         context.stream.av_diag.sendbuf_overflow_count,
-         context.stream.measured_incoming_fps,
-         context.stream.target_fps ? context.stream.target_fps :
-             context.stream.negotiated_fps);
-    // Keep the overflow detector armed, but require a fresh drop after suppression.
-    context.stream.takion_overflow_recent_drops = TAKION_OVERFLOW_IGNORE_THRESHOLD;
-    return;
-  }
-
-  if (context.stream.takion_overflow_backoff_until_us &&
-      now_us < context.stream.takion_overflow_backoff_until_us) {
-    uint64_t remaining =
-        context.stream.takion_overflow_backoff_until_us - now_us;
-    LOGD("Takion overflow mitigation cooling down (%llu ms remaining)",
-         remaining / 1000ULL);
-    context.stream.takion_cooldown_overlay_active = true;
-    return;
-  }
-
-  uint32_t startup_score = startup_distress_score(now_us);
-  uint32_t soft_recovery_max = TAKION_OVERFLOW_SOFT_RECOVERY_MAX;
-  if (startup_score >= STARTUP_DISTRESS_SCORE_THRESHOLD) {
-    soft_recovery_max = STARTUP_DISTRESS_REDUCED_SOFT_RECOVERY_MAX;
-    LOGD("Takion overflow startup distress score=%u (missing_ref=%u corrupt=%u fec_fail=%u sendbuf=%u fps_low=%u post_low=%u) soft_limit=%u",
-         startup_score,
-         context.stream.av_diag.missing_ref_count,
-         context.stream.av_diag.corrupt_burst_count,
-         context.stream.av_diag.fec_fail_count,
-         context.stream.av_diag.sendbuf_overflow_count,
-         context.stream.fps_under_target_windows,
-         context.stream.post_reconnect_low_fps_windows,
-         soft_recovery_max);
-  }
-
-  if (context.stream.takion_overflow_window_start_us == 0 ||
-      now_us - context.stream.takion_overflow_window_start_us >
-          TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US) {
-    context.stream.takion_overflow_window_start_us = now_us;
-    context.stream.takion_overflow_soft_attempts = 0;
-  }
-
-  if (context.stream.takion_overflow_soft_attempts < soft_recovery_max) {
-    uint32_t attempt = context.stream.takion_overflow_soft_attempts + 1;
-    LOGD("Takion overflow — soft recovery %u/%u at %u kbps",
-         attempt,
-         soft_recovery_max,
-         TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
-    if (FAST_RESTART_GRACE_DELAY_US)
-      sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
-    bool restart_ok = request_recovery_restart(
-        "takion_overflow_soft",
-        TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS,
-        now_us,
-        NULL);
-    context.stream.takion_overflow_backoff_until_us =
-        now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
-    if (context.stream.next_stream_allowed_us <
-        context.stream.takion_overflow_backoff_until_us) {
-      context.stream.next_stream_allowed_us =
-          context.stream.takion_overflow_backoff_until_us;
-    }
-    if (restart_ok) {
-      context.stream.takion_overflow_soft_attempts++;
-      context.stream.last_takion_overflow_restart_us = now_us;
-      context.stream.takion_cooldown_overlay_active = true;
-      if (context.active_host) {
-        host_set_hint(context.active_host,
-                      "Network congestion — reducing bitrate",
-                      false,
-                      HINT_DURATION_RECOVERY_US);
-      }
-      return;
-    }
-    LOGE("Takion overflow soft recovery request failed");
-    context.stream.takion_cooldown_overlay_active = true;
-    return;
-  }
-
-  if (context.stream.last_takion_overflow_restart_us &&
-      now_us - context.stream.last_takion_overflow_restart_us <
-          TAKION_OVERFLOW_RESTART_DELAY_US) {
-    uint64_t remaining =
-        TAKION_OVERFLOW_RESTART_DELAY_US -
-        (now_us - context.stream.last_takion_overflow_restart_us);
-    LOGD("Takion overflow restart throttled (%llu ms remaining)",
-         remaining / 1000ULL);
-    return;
-  }
-
-  context.stream.last_takion_overflow_restart_us = now_us;
-  context.stream.takion_overflow_backoff_until_us =
-      now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
-  context.stream.takion_cooldown_overlay_active = true;
-  if (context.stream.next_stream_allowed_us <
-      context.stream.takion_overflow_backoff_until_us) {
-    context.stream.next_stream_allowed_us =
-        context.stream.takion_overflow_backoff_until_us;
-  }
-  LOGD("Takion overflow threshold reached — requesting guarded restart");
-  if (!request_recovery_restart("takion_overflow_escalation",
-                                LOSS_RETRY_BITRATE_KBPS,
-                                now_us,
-                                NULL)) {
-    LOGE("Takion overflow restart failed; pausing stream");
-    request_stream_stop("takion overflow");
-  } else if (context.active_host) {
-    host_set_hint(context.active_host,
-                  "Network congestion — rebuilding stream",
-                  true,
-                  HINT_DURATION_RECOVERY_US);
-  }
+  LOGD("Takion overflow reported (drop_events=%u, total_packets=%u) — no action taken",
+       context.stream.takion_drop_events,
+       context.stream.takion_drop_packets);
 }
 
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value) {

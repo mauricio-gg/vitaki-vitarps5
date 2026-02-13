@@ -96,15 +96,6 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
   uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
   uint64_t stream_start_us;         // Timestamp when streaming connection became active
-  uint64_t startup_warmup_until_us; // Startup warmup deadline where we absorb burst pressure
-  uint32_t startup_warmup_overflow_events; // Takion overflow events seen during startup warmup
-  bool startup_warmup_drain_performed; // One-shot reorder queue drain + IDR request during warmup
-  uint64_t startup_bootstrap_until_us; // Deterministic startup bootstrap deadline (decode-only period)
-  bool startup_bootstrap_active; // Hold presentation until startup bootstrap converges
-  bool startup_bootstrap_idr_requested; // Whether startup bootstrap already requested an IDR
-  uint32_t startup_bootstrap_clean_frames; // Decoded frames observed during startup bootstrap
-  uint32_t startup_bootstrap_required_clean_frames; // Clean-frame threshold before presenting
-  uint64_t startup_bootstrap_last_flush_us; // Last startup bootstrap reorder queue flush timestamp
   uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
@@ -115,14 +106,6 @@ typedef struct vita_chiaki_stream_t {
   uint32_t takion_drop_packets;     // Total packets dropped from Takion queue
   uint32_t logged_drop_events;      // Last drop count that was logged
   uint64_t takion_drop_last_us;     // Timestamp of last drop event (us)
-  uint64_t last_takion_overflow_restart_us; // Rate-limit restarts on queue overflow
-  uint32_t takion_overflow_soft_attempts;   // Soft mitigation attempts in current window
-  uint64_t takion_overflow_window_start_us; // Window tracking for overflow attempts
-  uint64_t takion_overflow_backoff_until_us;// Cooldown before next overflow mitigation
-  bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
-  uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
-  uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
-  uint64_t takion_startup_grace_last_resync_us; // Rate-limit decoder resync requests during startup grace
   struct {
     uint32_t missing_ref_count;       // Missing reference-frame events from video receiver
     uint32_t corrupt_burst_count;     // Corrupt-frame requests sent to server
