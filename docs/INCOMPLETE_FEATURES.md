@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-12 (Startup burst hardening + restart-churn cooloff)
+**Last Updated:** 2026-02-13 (Startup deterministic bootstrap)
 **Status:** Generated from codebase analysis
 
 ---
@@ -101,6 +101,10 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - restart suppression marker: `PIPE/RESTART ... action=blocked_cooloff`
   - reconnect stage-2 suppression marker: `PIPE/RECOVER ... action=stage2_suppressed`
 - Post-reconnect stage2 now stays in IDR mode while restart cooloff/source-backoff is active.
+- Added deterministic startup bootstrap so first-attempt sessions begin from a clean decode/reference baseline:
+  - startup marker: `PIPE/BOOTSTRAP action=flush_and_idr ...`
+  - readiness markers: `PIPE/BOOTSTRAP action=ready reason=clean_streak|timeout ...`
+  - during bootstrap, decode continues while presentation is held until a short clean-frame streak or 1s timeout.
 - Files: `vita/src/host.c`, `vita/src/video.c`, `vita/src/logging.c`, `vita/include/context.h`, `lib/src/takion.c`, `tools/build.sh`, `vita/CMakeLists.txt`.
 
 **Investigation/Design Authority:**
