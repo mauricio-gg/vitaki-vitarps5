@@ -78,6 +78,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RESTART_STARTUP_HARD_GRACE_US (20 * 1000 * 1000ULL)
 #define STARTUP_WARMUP_WINDOW_US (1200 * 1000ULL)
 #define STARTUP_WARMUP_OVERFLOW_THRESHOLD 3
+#define STARTUP_BOOTSTRAP_WINDOW_US (1000 * 1000ULL)
+#define STARTUP_BOOTSTRAP_REQUIRED_CLEAN_FRAMES 24
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
@@ -249,10 +251,27 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	          context.stream.stream_start_us + STARTUP_WARMUP_WINDOW_US;
 	      context.stream.startup_warmup_overflow_events = 0;
 	      context.stream.startup_warmup_drain_performed = false;
+	      context.stream.startup_bootstrap_until_us =
+	          context.stream.stream_start_us + STARTUP_BOOTSTRAP_WINDOW_US;
+	      context.stream.startup_bootstrap_active = true;
+	      context.stream.startup_bootstrap_idr_requested = false;
+	      context.stream.startup_bootstrap_clean_frames = 0;
+	      context.stream.startup_bootstrap_required_clean_frames =
+	          STARTUP_BOOTSTRAP_REQUIRED_CLEAN_FRAMES;
+	      context.stream.startup_bootstrap_last_flush_us = 0;
 	      context.stream.loss_restart_soft_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
 	      context.stream.loss_restart_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
+      uint32_t startup_flushed_seq = chiaki_takion_drop_data_queue(
+          &context.stream.session.stream_connection.takion);
+      context.stream.startup_bootstrap_last_flush_us = context.stream.stream_start_us;
+      LOGD("PIPE/BOOTSTRAP action=flush_and_idr window_ms=%llu clean_target=%u flushed_ack=%#x",
+           (unsigned long long)(STARTUP_BOOTSTRAP_WINDOW_US / 1000ULL),
+           context.stream.startup_bootstrap_required_clean_frames,
+           startup_flushed_seq);
+      request_decoder_resync("startup bootstrap");
+      context.stream.startup_bootstrap_idr_requested = true;
       if (context.stream.reconnect_generation > 0) {
         context.stream.post_reconnect_window_until_us =
             context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
@@ -590,6 +609,12 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.startup_warmup_until_us = 0;
   context.stream.startup_warmup_overflow_events = 0;
   context.stream.startup_warmup_drain_performed = false;
+  context.stream.startup_bootstrap_until_us = 0;
+  context.stream.startup_bootstrap_active = false;
+  context.stream.startup_bootstrap_idr_requested = false;
+  context.stream.startup_bootstrap_clean_frames = 0;
+  context.stream.startup_bootstrap_required_clean_frames = 0;
+  context.stream.startup_bootstrap_last_flush_us = 0;
   context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;

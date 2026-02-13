@@ -99,6 +99,12 @@ typedef struct vita_chiaki_stream_t {
   uint64_t startup_warmup_until_us; // Startup warmup deadline where we absorb burst pressure
   uint32_t startup_warmup_overflow_events; // Takion overflow events seen during startup warmup
   bool startup_warmup_drain_performed; // One-shot reorder queue drain + IDR request during warmup
+  uint64_t startup_bootstrap_until_us; // Deterministic startup bootstrap deadline (decode-only period)
+  bool startup_bootstrap_active; // Hold presentation until startup bootstrap converges
+  bool startup_bootstrap_idr_requested; // Whether startup bootstrap already requested an IDR
+  uint32_t startup_bootstrap_clean_frames; // Decoded frames observed during startup bootstrap
+  uint32_t startup_bootstrap_required_clean_frames; // Clean-frame threshold before presenting
+  uint64_t startup_bootstrap_last_flush_us; // Last startup bootstrap reorder queue flush timestamp
   uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning

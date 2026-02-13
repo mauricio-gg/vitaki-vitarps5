@@ -896,8 +896,33 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   if (active_video_thread) {
     record_incoming_frame_sample();
     bool drop_frame = should_drop_frame_for_pacing();
+    uint64_t now_us = sceKernelGetProcessTimeWide();
     bool startup_warmup_active = context.stream.startup_warmup_until_us &&
-        sceKernelGetProcessTimeWide() < context.stream.startup_warmup_until_us;
+        now_us < context.stream.startup_warmup_until_us;
+    bool startup_bootstrap_active = context.stream.startup_bootstrap_active;
+    if (startup_bootstrap_active) {
+      if (now_us >= context.stream.startup_bootstrap_until_us) {
+        context.stream.startup_bootstrap_active = false;
+        LOGD("PIPE/BOOTSTRAP action=ready reason=timeout clean_frames=%u elapsed_ms=%llu",
+             context.stream.startup_bootstrap_clean_frames,
+             (unsigned long long)((now_us - context.stream.stream_start_us) / 1000ULL));
+      } else {
+        if (context.stream.startup_bootstrap_clean_frames < UINT32_MAX)
+          context.stream.startup_bootstrap_clean_frames++;
+        if (context.stream.startup_bootstrap_clean_frames >=
+            context.stream.startup_bootstrap_required_clean_frames) {
+          context.stream.startup_bootstrap_active = false;
+          LOGD("PIPE/BOOTSTRAP action=ready reason=clean_streak clean_frames=%u elapsed_ms=%llu",
+               context.stream.startup_bootstrap_clean_frames,
+               (unsigned long long)((now_us - context.stream.stream_start_us) / 1000ULL));
+        } else {
+          drop_frame = true;
+        }
+      }
+      startup_bootstrap_active = context.stream.startup_bootstrap_active;
+    }
+    if (startup_bootstrap_active)
+      startup_warmup_active = false;
     if (startup_warmup_active)
       drop_frame = true;
     if (!drop_frame && need_drop > 0) {
