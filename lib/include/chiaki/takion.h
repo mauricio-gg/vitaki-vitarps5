@@ -156,6 +156,8 @@ typedef struct chiaki_takion_t
 
 	ChiakiSeqNum32 seq_num_local;
 	ChiakiMutex seq_num_local_mutex;
+	ChiakiMutex data_queue_request_mutex;
+	bool drop_data_queue_requested;
 
 	/**
 	 * Advertised Receiver Window Credit
@@ -193,6 +195,14 @@ typedef struct chiaki_takion_t
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock);
 CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion);
+/**
+ * Thread-safe while Takion is running.
+ * Queues a request for the Takion thread to drain its data reorder queue.
+ */
+CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion);
+/**
+ * Must be called from within the Takion thread.
+ */
 CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion);
 
 /**

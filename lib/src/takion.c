@@ -190,6 +190,8 @@ static ChiakiErrorCode takion_recv_message_init_ack(ChiakiTakion *takion, Takion
 static ChiakiErrorCode takion_recv_message_cookie_ack(ChiakiTakion *takion);
 static void takion_handle_packet_av(ChiakiTakion *takion, uint8_t base_type, uint8_t *buf, size_t buf_size);
 static ChiakiErrorCode takion_read_extra_sock_messages(ChiakiTakion *takion);
+static uint32_t takion_drop_data_queue_locked(ChiakiTakion *takion);
+static bool takion_take_drop_data_queue_request(ChiakiTakion *takion);
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock)
 {
@@ -235,6 +237,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	if(ret != CHIAKI_ERR_SUCCESS)
 		goto error_gkcrypt_local_mutex;
 	CHIAKI_LOGI(takion->log, "Mutex2 created");
+	ret = chiaki_mutex_init(&takion->data_queue_request_mutex, false);
+	if(ret != CHIAKI_ERR_SUCCESS)
+		goto error_gkcrypt_local_mutex;
+	takion->drop_data_queue_requested = false;
 	takion->tag_remote = 0;
 
 	takion->enable_crypt = info->enable_crypt;
@@ -431,6 +437,8 @@ error_pipe:
 	chiaki_stop_pipe_fini(&takion->stop_pipe);
 error_seq_num_local_mutex:
 	chiaki_mutex_fini(&takion->seq_num_local_mutex);
+error_data_queue_request_mutex:
+	chiaki_mutex_fini(&takion->data_queue_request_mutex);
 error_gkcrypt_local_mutex:
 	chiaki_mutex_fini(&takion->gkcrypt_local_mutex);
 	return ret;
@@ -442,6 +450,7 @@ CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion)
 	chiaki_thread_join(&takion->thread, NULL);
 	chiaki_stop_pipe_fini(&takion->stop_pipe);
 	chiaki_mutex_fini(&takion->seq_num_local_mutex);
+	chiaki_mutex_fini(&takion->data_queue_request_mutex);
 	chiaki_mutex_fini(&takion->gkcrypt_local_mutex);
 }
 
@@ -1034,6 +1043,12 @@ static void *takion_thread_func(void *user)
 
 	while(true)
 	{
+		if(takion_take_drop_data_queue_request(takion))
+		{
+			uint32_t flushed_seq = takion_drop_data_queue_locked(takion);
+			CHIAKI_LOGD(takion->log, "Takion data queue drain request handled (ack=%#x)", flushed_seq);
+		}
+
 		if(takion->enable_crypt && !crypt_available && takion->gkcrypt_remote)
 		{
 			crypt_available = true;
@@ -1442,7 +1457,7 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
 }
 
-CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
+static uint32_t takion_drop_data_queue_locked(ChiakiTakion *takion)
 {
 	if(!takion)
 		return 0;
@@ -1463,6 +1478,35 @@ CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
 		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
 
 	return dropped ? (uint32_t)seq_num : 0;
+}
+
+static bool takion_take_drop_data_queue_request(ChiakiTakion *takion)
+{
+	if(!takion)
+		return false;
+	bool requested = false;
+	if(chiaki_mutex_lock(&takion->data_queue_request_mutex) == CHIAKI_ERR_SUCCESS)
+	{
+		requested = takion->drop_data_queue_requested;
+		takion->drop_data_queue_requested = false;
+		chiaki_mutex_unlock(&takion->data_queue_request_mutex);
+	}
+	return requested;
+}
+
+CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion)
+{
+	if(!takion)
+		return;
+	if(chiaki_mutex_lock(&takion->data_queue_request_mutex) != CHIAKI_ERR_SUCCESS)
+		return;
+	takion->drop_data_queue_requested = true;
+	chiaki_mutex_unlock(&takion->data_queue_request_mutex);
+}
+
+CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
+{
+	return takion_drop_data_queue_locked(takion);
 }
 
 static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size)

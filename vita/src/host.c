@@ -263,13 +263,12 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
 	      context.stream.loss_restart_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
-      uint32_t startup_flushed_seq = chiaki_takion_drop_data_queue(
+      chiaki_takion_request_drop_data_queue(
           &context.stream.session.stream_connection.takion);
       context.stream.startup_bootstrap_last_flush_us = context.stream.stream_start_us;
-      LOGD("PIPE/BOOTSTRAP action=flush_and_idr window_ms=%llu clean_target=%u flushed_ack=%#x",
+      LOGD("PIPE/BOOTSTRAP action=flush_and_idr window_ms=%llu clean_target=%u flush=requested",
            (unsigned long long)(STARTUP_BOOTSTRAP_WINDOW_US / 1000ULL),
-           context.stream.startup_bootstrap_required_clean_frames,
-           startup_flushed_seq);
+           context.stream.startup_bootstrap_required_clean_frames);
       request_decoder_resync("startup bootstrap");
       context.stream.startup_bootstrap_idr_requested = true;
       if (context.stream.reconnect_generation > 0) {
@@ -1716,10 +1715,9 @@ static void handle_takion_overflow(void) {
     if (!context.stream.startup_warmup_drain_performed &&
         context.stream.startup_warmup_overflow_events >=
             STARTUP_WARMUP_OVERFLOW_THRESHOLD) {
-      uint32_t flushed_seq = chiaki_takion_drop_data_queue(
+      chiaki_takion_request_drop_data_queue(
           &context.stream.session.stream_connection.takion);
-      LOGD("Startup warmup drain action=drain_and_idr flushed_ack=%#x",
-           flushed_seq);
+      LOGD("Startup warmup drain action=drain_and_idr flush=requested");
       request_decoder_resync("startup warmup drain");
       context.stream.startup_warmup_drain_performed = true;
     }
@@ -1780,11 +1778,9 @@ static void handle_takion_overflow(void) {
     LOGD("Takion overflow gate tripped after %u drops in %llums",
          context.stream.takion_overflow_recent_drops,
          (unsigned long long)window_ms);
-    uint32_t flushed_seq = chiaki_takion_drop_data_queue(
+    chiaki_takion_request_drop_data_queue(
         &context.stream.session.stream_connection.takion);
-    if (flushed_seq) {
-      LOGD("Takion overflow gate flushed reorder queue (ack %#x)", flushed_seq);
-    }
+    LOGD("Takion overflow gate flushed reorder queue (flush=requested)");
     request_decoder_resync("takion overflow gate");
   }
 
