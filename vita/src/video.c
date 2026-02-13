@@ -145,8 +145,6 @@ static uint64_t stream_exit_hint_start_us = 0;
 static bool stream_exit_hint_visible_this_frame = false;
 static uint64_t idr_wait_drop_log_last_us = 0;
 static uint64_t idr_wait_probe_log_last_us = 0;
-static uint64_t idr_wait_allow_log_last_us = 0;
-static uint64_t num_output_log_last_us = 0;
 
 uint32_t frame_count = 0;
 uint32_t need_drop = 0;
@@ -188,28 +186,13 @@ static void record_incoming_frame_sample(void) {
   }
 }
 
-typedef struct {
-  bool contains_idr;
-  bool contains_nonidr_vcl;
-  bool contains_setup_nal;
-  uint32_t setup_mask;
-} H264NalSummary;
-
-static H264NalSummary h264_summarize_frame_nals(const uint8_t *buf, size_t buf_size) {
-  H264NalSummary summary = {0};
+static bool h264_frame_contains_idr(const uint8_t *buf, size_t buf_size) {
   if (!buf || buf_size == 0)
-    return summary;
+    return false;
 
-  // Fallback for packetized single-NAL frames without Annex-B start codes.
-  uint8_t first_type = (uint8_t)(buf[0] & 0x1f);
-  if (first_type == 5)
-    summary.contains_idr = true;
-  else if (first_type == 1)
-    summary.contains_nonidr_vcl = true;
-  else if (first_type == 6 || first_type == 7 || first_type == 8 || first_type == 9) {
-    summary.contains_setup_nal = true;
-    summary.setup_mask |= (1u << first_type);
-  }
+  // Fallback for packetized single-NAL frames.
+  if ((buf[0] & 0x1f) == 5)
+    return true;
 
   size_t i = 0;
   while (i + 4 < buf_size) {
@@ -226,13 +209,7 @@ static H264NalSummary h264_summarize_frame_nals(const uint8_t *buf, size_t buf_s
       if (nal_index < buf_size) {
         uint8_t nal_type = (uint8_t)(buf[nal_index] & 0x1f);
         if (nal_type == 5)
-          summary.contains_idr = true;
-        else if (nal_type == 1)
-          summary.contains_nonidr_vcl = true;
-        else if (nal_type == 6 || nal_type == 7 || nal_type == 8 || nal_type == 9) {
-          summary.contains_setup_nal = true;
-          summary.setup_mask |= (1u << nal_type);
-        }
+          return true;
       }
       i = nal_index + 1;
       continue;
@@ -240,7 +217,7 @@ static H264NalSummary h264_summarize_frame_nals(const uint8_t *buf, size_t buf_s
     i++;
   }
 
-  return summary;
+  return false;
 }
 
 static bool should_drop_frame_for_pacing(void) {
@@ -840,8 +817,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
 		threadSetupComplete = true;
 	}
 
-  H264NalSummary nal_summary = h264_summarize_frame_nals(buf, buf_size);
-  bool contains_idr = nal_summary.contains_idr;
+  bool contains_idr = h264_frame_contains_idr(buf, buf_size);
   if (context.stream.idr_wait_active && !contains_idr) {
     uint64_t now_us = sceKernelGetProcessTimeWide();
     if (context.stream.idr_wait_failopen_deadline_us &&
@@ -862,47 +838,29 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
       // Gate failed open: continue decode with current frame to avoid
       // indefinite "connecting" deadlock when IDR signaling isn't detected.
     } else {
-      bool allow_setup_nal = nal_summary.contains_setup_nal;
-      bool drop_nonidr_vcl = nal_summary.contains_nonidr_vcl && !allow_setup_nal;
-      if (drop_nonidr_vcl) {
-        if (!idr_wait_drop_log_last_us ||
-            now_us - idr_wait_drop_log_last_us >= 500 * 1000ULL) {
-          uint64_t wait_ms = context.stream.idr_wait_started_us &&
-                                 now_us >= context.stream.idr_wait_started_us
-              ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
-              : 0;
-          LOGD("PIPE/IDR_GATE action=drop_non_idr_vcl wait_ms=%llu",
-               (unsigned long long)wait_ms);
-          idr_wait_drop_log_last_us = now_us;
-        }
-        if ((!idr_wait_probe_log_last_us ||
-             now_us - idr_wait_probe_log_last_us >= 1000 * 1000ULL) &&
-            buf_size >= 4) {
-          LOGD("PIPE/IDR_GATE action=probe frame_size=%zu head=%02x%02x%02x%02x",
-               buf_size,
-               buf[0],
-               buf[1],
-               buf[2],
-               buf[3]);
-          idr_wait_probe_log_last_us = now_us;
-        }
-        chiaki_mutex_unlock(&mtx);
-        return 0;
+    if (!idr_wait_drop_log_last_us ||
+        now_us - idr_wait_drop_log_last_us >= 500 * 1000ULL) {
+      uint64_t wait_ms = context.stream.idr_wait_started_us &&
+                             now_us >= context.stream.idr_wait_started_us
+          ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
+          : 0;
+      LOGD("PIPE/IDR_GATE action=drop_non_idr wait_ms=%llu",
+           (unsigned long long)wait_ms);
+      idr_wait_drop_log_last_us = now_us;
+    }
+      if ((!idr_wait_probe_log_last_us ||
+           now_us - idr_wait_probe_log_last_us >= 1000 * 1000ULL) &&
+          buf_size >= 4) {
+        LOGD("PIPE/IDR_GATE action=probe frame_size=%zu head=%02x%02x%02x%02x",
+             buf_size,
+             buf[0],
+             buf[1],
+             buf[2],
+             buf[3]);
+        idr_wait_probe_log_last_us = now_us;
       }
-
-      if (allow_setup_nal &&
-          (!idr_wait_allow_log_last_us ||
-           now_us - idr_wait_allow_log_last_us >= 1000 * 1000ULL)) {
-        uint64_t wait_ms = context.stream.idr_wait_started_us &&
-                               now_us >= context.stream.idr_wait_started_us
-            ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
-            : 0;
-        LOGD("PIPE/IDR_GATE action=allow_setup_nal wait_ms=%llu setup_mask=%#x frame_size=%zu",
-             (unsigned long long)wait_ms,
-             (unsigned int)nal_summary.setup_mask,
-             buf_size);
-        idr_wait_allow_log_last_us = now_us;
-      }
+    chiaki_mutex_unlock(&mtx);
+    return 0;
     }
   }
 
@@ -994,13 +952,8 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   au.es.pBuf = buf;
   au.es.size = buf_size;
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
-  uint64_t decode_now_us = sceKernelGetProcessTimeWide();
   if (ret < 0) {
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret, array_picture.numOfOutput);
-    if (context.stream.video_no_output_started_us == 0)
-      context.stream.video_no_output_started_us = decode_now_us;
-    if (context.stream.video_no_output_streak < UINT32_MAX)
-      context.stream.video_no_output_streak++;
     // if (isEdited) free(buf);
     chiaki_mutex_unlock(&mtx);
     return 0;
@@ -1008,15 +961,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   }
 
   if (array_picture.numOfOutput != 1) {
-    if (!num_output_log_last_us ||
-        decode_now_us - num_output_log_last_us >= 500 * 1000ULL) {
-      LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, buf_size);
-      num_output_log_last_us = decode_now_us;
-    }
-    if (context.stream.video_no_output_started_us == 0)
-      context.stream.video_no_output_started_us = decode_now_us;
-    if (context.stream.video_no_output_streak < UINT32_MAX)
-      context.stream.video_no_output_streak++;
+    LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, buf_size);
     // if (infirst_frame) {
     //   infirst_frame = false;
     //   // if (isEdited) free(buf);
@@ -1037,10 +982,6 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
     // }
     // goto fix;
   }
-
-  context.stream.video_last_output_us = decode_now_us;
-  context.stream.video_no_output_started_us = 0;
-  context.stream.video_no_output_streak = 0;
   // display:
   if (context.stream.idr_wait_active && contains_idr) {
     uint64_t now_us = sceKernelGetProcessTimeWide();
