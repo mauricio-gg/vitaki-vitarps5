@@ -98,10 +98,42 @@ Transform vitaki-fork's basic UI into vitarps5's professional PlayStation-inspir
 
 **Status:** ✅ Production-ready with pixel-perfect scaling and no external asset dependencies
 
-### Phase 10: Integration & Future Work
+### Phase 10: Network Socket Buffer Optimization (FPS Deficit Root Cause) - IN PROGRESS
+**Goal:** Eliminate periodic FPS loss (~9.5fps/sec) caused by UDP socket buffer overflow
+
+#### Phase 10.1: Root Cause Analysis & Implementation ✅ (Feb 13, 2026)
+- [x] Identified root cause: 100KB socket buffer insufficient for PS5 burst rate (~1200 packets/sec)
+- [x] Implemented P0: Vita-specific 512KB socket receive buffer (TAKION_A_RWND)
+- [x] Implemented P1: Batch packet drain loop (up to 64 zero-timeout recv calls)
+- [x] Added getsockopt logging to confirm actual buffer sizes
+- [x] Testing build verification: `./tools/build.sh --env testing` succeeded
+- [x] Branch: `feat/startup-connect-burst-rework` (commit 481f7e6)
+
+**Expected Impact:**
+- FPS loss: ~9.5fps → near-zero (socket overflow eliminated)
+- Sustained latency: 10-15ms reduction (syscall overhead reduction)
+- Burst handling: 5x larger buffer handles PS5's packet rate
+
+#### Phase 10.2: Hardware Validation (PENDING)
+- [ ] Deploy testing build to PS Vita
+- [ ] Conduct 10+ minute streaming session with measurements
+- [ ] Verify FPS loss elimination (target: <1fps/sec loss)
+- [ ] Test packet loss and latency regression (should be none)
+- [ ] Validate with different WiFi conditions
+
+#### Phase 10.3: Post-Validation Decision
+- If P0+P1 successful (FPS <1/sec loss): Merge to main, move to Phase 11
+- If P0+P1 insufficient (FPS >2/sec loss): Implement P2 (buffer pool malloc elimination)
+- P2 effort: ~2 hours, expected benefit: +5-10fps improvement
+
+**Reference:** `docs/ai/NETWORK_SOCKET_BUFFER_OPTIMIZATION.md` (detailed technical analysis)
+
+---
+
+### Phase 11: Integration & Future Work
 **Goal**: Ensure all functionality works seamlessly
 
-#### Subphase 9.1: Hardware Validation (Deferred)
+#### Subphase 11.1: Hardware Validation (Deferred)
 - [ ] Test menu overlay navigation on real Vita device
 - [ ] Verify focus loops across all interactive elements
 - [ ] Validate animation performance at target FPS
@@ -127,11 +159,13 @@ Transform vitaki-fork's basic UI into vitarps5's professional PlayStation-inspir
 
 ## Current Status
 - **Completed Epics**: UI Refactoring (Phase 1-8) ✅, Controller Layout Redesign (Phase 9, 3 phases) ✅
-- **Progress**: 100% complete on UI refactoring and controller redesign with procedural rendering
+- **In Progress**: Network Socket Buffer Optimization (P0+P1 implemented, hardware validation pending)
+- **Progress**: 100% complete on UI refactoring and controller redesign; 50% on network optimization (code complete, testing pending)
 - **Latest Version**: v0.1.77
 - **Architecture**: 8 UI specialized modules + 1 coordinator + procedurally rendered controller diagram system
 - **VPK Size**: 2.6MB (reduced from 3.9MB, 33% reduction)
-- **Next Focus**: Hardware validation and integration testing
+- **Network Changes**: 512KB Vita-specific socket buffer (P0) + batch packet drain loop (P1) in lib/src/takion.c
+- **Next Focus**: Hardware validation of network optimization; then integration testing and UI hardening
 
 ## Success Criteria
 1. **Visual Transformation**: vitaki-fork displays vitarps5's modern interface

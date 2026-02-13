@@ -40,7 +40,11 @@
 
 // VERY similar to SCTP, see RFC 4960
 
-#define TAKION_A_RWND 0x19000
+#ifdef __PSVITA__
+#define TAKION_A_RWND 0x80000  // 512KB — absorb burst packet loss on Vita
+#else
+#define TAKION_A_RWND 0x19000  // 100KB — original for desktop platforms
+#endif
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
@@ -239,7 +243,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	CHIAKI_LOGI(takion->log, "Mutex2 created");
 	ret = chiaki_mutex_init(&takion->data_queue_request_mutex, false);
 	if(ret != CHIAKI_ERR_SUCCESS)
-		goto error_gkcrypt_local_mutex;
+		goto error_seq_num_local_mutex;
 	takion->drop_data_queue_requested = false;
 	takion->tag_remote = 0;
 
@@ -275,6 +279,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_RCVBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
+		}
+		{
+			int actual_rcvbuf = 0;
+			socklen_t optlen = sizeof(actual_rcvbuf);
+			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
 		}
 
 #if defined(__APPLE__)
@@ -369,6 +379,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
 		}
+		{
+			int actual_rcvbuf = 0;
+			socklen_t optlen = sizeof(actual_rcvbuf);
+			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
+		}
 		if(info->ip_dontfrag)
 		{
 #if defined(__APPLE__)
@@ -435,10 +451,10 @@ error_sock:
 	takion->sock = CHIAKI_INVALID_SOCKET;
 error_pipe:
 	chiaki_stop_pipe_fini(&takion->stop_pipe);
-error_seq_num_local_mutex:
-	chiaki_mutex_fini(&takion->seq_num_local_mutex);
 error_data_queue_request_mutex:
 	chiaki_mutex_fini(&takion->data_queue_request_mutex);
+error_seq_num_local_mutex:
+	chiaki_mutex_fini(&takion->seq_num_local_mutex);
 error_gkcrypt_local_mutex:
 	chiaki_mutex_fini(&takion->gkcrypt_local_mutex);
 	return ret;
@@ -1102,6 +1118,25 @@ static void *takion_thread_func(void *user)
 			break;
 		}
 		takion_handle_packet(takion, buf, received_size);
+
+		// Drain any additional buffered packets without blocking.
+		// After the first packet wakes us from the blocking select above,
+		// pull all ready packets using zero-timeout polls before blocking again.
+		// This reduces per-packet syscall overhead and keeps the socket buffer drained.
+		for(int drain_i = 0; drain_i < 64; drain_i++)
+		{
+			size_t drain_size = 1500;
+			uint8_t *drain_buf = malloc(drain_size);
+			if(!drain_buf)
+				break;
+			ChiakiErrorCode drain_err = takion_recv(takion, drain_buf, &drain_size, 0);
+			if(drain_err != CHIAKI_ERR_SUCCESS)
+			{
+				free(drain_buf);
+				break;
+			}
+			takion_handle_packet(takion, drain_buf, drain_size);
+		}
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();
