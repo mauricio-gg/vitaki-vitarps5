@@ -144,7 +144,6 @@ static indicator_status poor_net_indicator = {0};
 static uint64_t stream_exit_hint_start_us = 0;
 static bool stream_exit_hint_visible_this_frame = false;
 static uint64_t idr_wait_drop_log_last_us = 0;
-static uint64_t idr_wait_probe_log_last_us = 0;
 
 uint32_t frame_count = 0;
 uint32_t need_drop = 0;
@@ -820,24 +819,6 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   bool contains_idr = h264_frame_contains_idr(buf, buf_size);
   if (context.stream.idr_wait_active && !contains_idr) {
     uint64_t now_us = sceKernelGetProcessTimeWide();
-    if (context.stream.idr_wait_failopen_deadline_us &&
-        now_us >= context.stream.idr_wait_failopen_deadline_us) {
-      uint64_t wait_ms = context.stream.idr_wait_started_us &&
-                             now_us >= context.stream.idr_wait_started_us
-          ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
-          : 0;
-      context.stream.idr_wait_active = false;
-      context.stream.idr_wait_failopen_deadline_us = 0;
-      if (context.stream.idr_wait_failopen_count < UINT32_MAX)
-        context.stream.idr_wait_failopen_count++;
-      LOGD("PIPE/IDR_GATE state=cleared reason=timeout_failopen wait_ms=%llu requests=%u cooldown_suppressed=%u failopen_count=%u",
-           (unsigned long long)wait_ms,
-           context.stream.idr_wait_request_count,
-           context.stream.idr_wait_cooldown_suppressed_count,
-           context.stream.idr_wait_failopen_count);
-      // Gate failed open: continue decode with current frame to avoid
-      // indefinite "connecting" deadlock when IDR signaling isn't detected.
-    } else {
     if (!idr_wait_drop_log_last_us ||
         now_us - idr_wait_drop_log_last_us >= 500 * 1000ULL) {
       uint64_t wait_ms = context.stream.idr_wait_started_us &&
@@ -848,20 +829,8 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
            (unsigned long long)wait_ms);
       idr_wait_drop_log_last_us = now_us;
     }
-      if ((!idr_wait_probe_log_last_us ||
-           now_us - idr_wait_probe_log_last_us >= 1000 * 1000ULL) &&
-          buf_size >= 4) {
-        LOGD("PIPE/IDR_GATE action=probe frame_size=%zu head=%02x%02x%02x%02x",
-             buf_size,
-             buf[0],
-             buf[1],
-             buf[2],
-             buf[3]);
-        idr_wait_probe_log_last_us = now_us;
-      }
     chiaki_mutex_unlock(&mtx);
     return 0;
-    }
   }
 
   if (context.stream.idr_wait_active && contains_idr) {
@@ -990,7 +959,6 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
         ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
         : 0;
     context.stream.idr_wait_active = false;
-    context.stream.idr_wait_failopen_deadline_us = 0;
     LOGD("PIPE/IDR_GATE state=cleared reason=idr wait_ms=%llu requests=%u cooldown_suppressed=%u",
          (unsigned long long)wait_ms,
          context.stream.idr_wait_request_count,

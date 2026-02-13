@@ -110,8 +110,6 @@ typedef struct vita_chiaki_stream_t {
   uint64_t idr_wait_last_request_us;  // Last time we sent an IDR request while gate active
   uint32_t idr_wait_request_count;    // IDR requests issued during the active gate window
   uint32_t idr_wait_cooldown_suppressed_count; // Requests suppressed by cooldown during gate
-  uint64_t idr_wait_failopen_deadline_us; // Auto-clear gate deadline to avoid connect deadlock
-  uint32_t idr_wait_failopen_count;   // Number of times gate was auto-cleared by timeout
   uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
