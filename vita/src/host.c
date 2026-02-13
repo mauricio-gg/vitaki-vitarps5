@@ -88,6 +88,7 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define IDR_RECOVERY_COOLDOWN_US (500 * 1000ULL)
 #define IDR_RECOVERY_CORRUPT_DELTA_THRESHOLD 2
 #define IDR_WAIT_FAILOPEN_TIMEOUT_US (1500 * 1000ULL)
+#define VIDEO_NO_OUTPUT_WATCHDOG_US (1200 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 4
@@ -628,6 +629,10 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.idr_wait_cooldown_suppressed_count = 0;
   context.stream.idr_wait_failopen_deadline_us = 0;
   context.stream.idr_wait_failopen_count = 0;
+  context.stream.video_no_output_streak = 0;
+  context.stream.video_no_output_started_us = 0;
+  context.stream.video_last_output_us = 0;
+  context.stream.video_bootstrap_resync_count = 0;
   context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
@@ -895,6 +900,25 @@ static void update_latency_metrics(void) {
       !context.stream.fast_restart_active) {
     request_decoder_resync_cooldown("av_diag_progress", now_us,
                                     IDR_RECOVERY_COOLDOWN_US);
+  }
+
+  if (!context.stream.idr_wait_active &&
+      context.stream.video_no_output_started_us &&
+      !context.stream.stop_requested &&
+      !context.stream.fast_restart_active) {
+    uint64_t no_output_elapsed_us =
+        now_us - context.stream.video_no_output_started_us;
+    if (no_output_elapsed_us >= VIDEO_NO_OUTPUT_WATCHDOG_US) {
+      request_decoder_resync_cooldown("video_no_output_watchdog", now_us,
+                                      IDR_RECOVERY_COOLDOWN_US);
+      if (context.stream.video_bootstrap_resync_count < UINT32_MAX)
+        context.stream.video_bootstrap_resync_count++;
+      LOGD("PIPE/VIDEO_STALL action=resync no_output_ms=%llu streak=%u watchdog_count=%u",
+           (unsigned long long)(no_output_elapsed_us / 1000ULL),
+           context.stream.video_no_output_streak,
+           context.stream.video_bootstrap_resync_count);
+      context.stream.video_no_output_started_us = now_us;
+    }
   }
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||

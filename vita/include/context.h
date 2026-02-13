@@ -112,6 +112,10 @@ typedef struct vita_chiaki_stream_t {
   uint32_t idr_wait_cooldown_suppressed_count; // Requests suppressed by cooldown during gate
   uint64_t idr_wait_failopen_deadline_us; // Auto-clear gate deadline to avoid connect deadlock
   uint32_t idr_wait_failopen_count;   // Number of times gate was auto-cleared by timeout
+  uint32_t video_no_output_streak;    // Consecutive decode callbacks that produced no output frame
+  uint64_t video_no_output_started_us; // Timestamp when no-output streak started
+  uint64_t video_last_output_us;      // Timestamp of last successful decoder output
+  uint32_t video_bootstrap_resync_count; // Watchdog-triggered resync requests while stream has no output
   uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
