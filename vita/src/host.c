@@ -41,10 +41,6 @@ static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
 static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us);
 static void request_decoder_resync(const char *reason);
-static void enter_idr_wait_gate(const char *reason, uint64_t now_us);
-static void request_decoder_resync_cooldown(const char *reason,
-                                            uint64_t now_us,
-                                            uint64_t cooldown_us);
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t incoming_fps,
                                                 uint32_t target_fps,
@@ -85,8 +81,6 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define STARTUP_BOOTSTRAP_WINDOW_US (1000 * 1000ULL)
 #define STARTUP_BOOTSTRAP_REQUIRED_CLEAN_FRAMES 24
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
-#define IDR_RECOVERY_COOLDOWN_US (500 * 1000ULL)
-#define IDR_RECOVERY_CORRUPT_DELTA_THRESHOLD 2
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
 #define UNRECOVERED_FRAME_GATE_THRESHOLD 4
@@ -620,11 +614,6 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.startup_bootstrap_clean_frames = 0;
   context.stream.startup_bootstrap_required_clean_frames = 0;
   context.stream.startup_bootstrap_last_flush_us = 0;
-  context.stream.idr_wait_active = false;
-  context.stream.idr_wait_started_us = 0;
-  context.stream.idr_wait_last_request_us = 0;
-  context.stream.idr_wait_request_count = 0;
-  context.stream.idr_wait_cooldown_suppressed_count = 0;
   context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
@@ -789,10 +778,6 @@ static void update_latency_metrics(void) {
   uint32_t av_diag_corrupt_burst_count = context.stream.av_diag.corrupt_burst_count;
   uint32_t av_diag_fec_fail_count = context.stream.av_diag.fec_fail_count;
   uint32_t av_diag_sendbuf_overflow_count = context.stream.av_diag.sendbuf_overflow_count;
-  uint32_t prev_missing_ref_count = context.stream.av_diag.missing_ref_count;
-  uint32_t prev_corrupt_burst_count = context.stream.av_diag.corrupt_burst_count;
-  uint32_t prev_fec_fail_count = context.stream.av_diag.fec_fail_count;
-  uint32_t prev_sendbuf_overflow_count = context.stream.av_diag.sendbuf_overflow_count;
   uint32_t av_diag_trylock_failures = 0;
   uint32_t av_diag_last_corrupt_start = context.stream.av_diag.last_corrupt_start;
   uint32_t av_diag_last_corrupt_end = context.stream.av_diag.last_corrupt_end;
@@ -868,30 +853,6 @@ static void update_latency_metrics(void) {
       // so recovery does not stay blind under sustained lock pressure.
       av_diag_progressed = true;
     }
-  }
-
-  uint32_t delta_missing_ref = av_diag_missing_ref_count > prev_missing_ref_count
-      ? av_diag_missing_ref_count - prev_missing_ref_count
-      : 0;
-  uint32_t delta_corrupt = av_diag_corrupt_burst_count > prev_corrupt_burst_count
-      ? av_diag_corrupt_burst_count - prev_corrupt_burst_count
-      : 0;
-  uint32_t delta_fec = av_diag_fec_fail_count > prev_fec_fail_count
-      ? av_diag_fec_fail_count - prev_fec_fail_count
-      : 0;
-  uint32_t delta_sendbuf = av_diag_sendbuf_overflow_count > prev_sendbuf_overflow_count
-      ? av_diag_sendbuf_overflow_count - prev_sendbuf_overflow_count
-      : 0;
-  bool idr_recovery_trigger = !diag_snapshot_stale &&
-      (delta_missing_ref > 0 ||
-       delta_fec > 0 ||
-       delta_sendbuf > 0 ||
-       delta_corrupt >= IDR_RECOVERY_CORRUPT_DELTA_THRESHOLD);
-  if (idr_recovery_trigger &&
-      !context.stream.stop_requested &&
-      !context.stream.fast_restart_active) {
-    request_decoder_resync_cooldown("av_diag_progress", now_us,
-                                    IDR_RECOVERY_COOLDOWN_US);
   }
 
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
@@ -1195,54 +1156,17 @@ static bool request_recovery_restart(const char *source,
 static void request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-  enter_idr_wait_gate(reason, now_us);
   ChiakiStreamConnection *stream_connection =
       &context.stream.session.stream_connection;
   ChiakiErrorCode err =
       chiaki_stream_connection_request_idr(stream_connection);
   if (err == CHIAKI_ERR_SUCCESS) {
-    context.stream.idr_wait_last_request_us = now_us;
-    if (context.stream.idr_wait_request_count < UINT32_MAX)
-      context.stream.idr_wait_request_count++;
     LOGD("Decoder resync requested (%s)", reason ? reason : "unspecified");
   } else {
     LOGE("Failed to request decoder resync (%s): %s",
          reason ? reason : "unspecified",
          chiaki_error_string(err));
   }
-}
-
-static void enter_idr_wait_gate(const char *reason, uint64_t now_us) {
-  if (context.stream.idr_wait_active)
-    return;
-  context.stream.idr_wait_active = true;
-  context.stream.idr_wait_started_us = now_us;
-  context.stream.idr_wait_last_request_us = 0;
-  context.stream.idr_wait_request_count = 0;
-  context.stream.idr_wait_cooldown_suppressed_count = 0;
-  LOGD("PIPE/IDR_GATE state=entered reason=%s",
-       reason ? reason : "unspecified");
-}
-
-static void request_decoder_resync_cooldown(const char *reason,
-                                            uint64_t now_us,
-                                            uint64_t cooldown_us) {
-  enter_idr_wait_gate(reason, now_us);
-  if (context.stream.idr_wait_last_request_us &&
-      now_us > context.stream.idr_wait_last_request_us &&
-      now_us - context.stream.idr_wait_last_request_us < cooldown_us) {
-    if (context.stream.idr_wait_cooldown_suppressed_count < UINT32_MAX)
-      context.stream.idr_wait_cooldown_suppressed_count++;
-    uint64_t remaining_ms =
-        (cooldown_us - (now_us - context.stream.idr_wait_last_request_us)) /
-        1000ULL;
-    LOGD("PIPE/IDR_RECOVERY action=suppressed reason=%s cooldown_remaining_ms=%llu",
-         reason ? reason : "unspecified",
-         (unsigned long long)remaining_ms);
-    return;
-  }
-  request_decoder_resync(reason);
 }
 
 static void reset_reconnect_recovery_state(void) {

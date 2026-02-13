@@ -143,7 +143,6 @@ static bool active_pacer_thread = false;
 static indicator_status poor_net_indicator = {0};
 static uint64_t stream_exit_hint_start_us = 0;
 static bool stream_exit_hint_visible_this_frame = false;
-static uint64_t idr_wait_drop_log_last_us = 0;
 
 uint32_t frame_count = 0;
 uint32_t need_drop = 0;
@@ -183,40 +182,6 @@ static void record_incoming_frame_sample(void) {
     context.stream.fps_window_frame_count = 0;
     context.stream.fps_window_start_us = now_us;
   }
-}
-
-static bool h264_frame_contains_idr(const uint8_t *buf, size_t buf_size) {
-  if (!buf || buf_size == 0)
-    return false;
-
-  // Fallback for packetized single-NAL frames.
-  if ((buf[0] & 0x1f) == 5)
-    return true;
-
-  size_t i = 0;
-  while (i + 4 < buf_size) {
-    size_t start_code_size = 0;
-    if (buf[i] == 0x00 && buf[i + 1] == 0x00) {
-      if (buf[i + 2] == 0x01) {
-        start_code_size = 3;
-      } else if (i + 3 < buf_size && buf[i + 2] == 0x00 && buf[i + 3] == 0x01) {
-        start_code_size = 4;
-      }
-    }
-    if (start_code_size > 0) {
-      size_t nal_index = i + start_code_size;
-      if (nal_index < buf_size) {
-        uint8_t nal_type = (uint8_t)(buf[nal_index] & 0x1f);
-        if (nal_type == 5)
-          return true;
-      }
-      i = nal_index + 1;
-      continue;
-    }
-    i++;
-  }
-
-  return false;
 }
 
 static bool should_drop_frame_for_pacing(void) {
@@ -815,30 +780,6 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
 		sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 		threadSetupComplete = true;
 	}
-
-  bool contains_idr = h264_frame_contains_idr(buf, buf_size);
-  if (context.stream.idr_wait_active && !contains_idr) {
-    uint64_t now_us = sceKernelGetProcessTimeWide();
-    if (!idr_wait_drop_log_last_us ||
-        now_us - idr_wait_drop_log_last_us >= 500 * 1000ULL) {
-      uint64_t wait_ms = context.stream.idr_wait_started_us &&
-                             now_us >= context.stream.idr_wait_started_us
-          ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
-          : 0;
-      LOGD("PIPE/IDR_GATE action=drop_non_idr wait_ms=%llu",
-           (unsigned long long)wait_ms);
-      idr_wait_drop_log_last_us = now_us;
-    }
-    chiaki_mutex_unlock(&mtx);
-    return 0;
-  }
-
-  if (context.stream.idr_wait_active && contains_idr) {
-    int flush_ret = sceAvcdecDecodeFlush(decoder);
-    if (flush_ret < 0) {
-      LOGD("PIPE/IDR_GATE action=flush_before_idr ret=0x%x", flush_ret);
-    }
-  }
   // if (first_frame) {
   //   first_frame = false;
   //   // infirst_frame = true;
@@ -952,19 +893,6 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
     // goto fix;
   }
   // display:
-  if (context.stream.idr_wait_active && contains_idr) {
-    uint64_t now_us = sceKernelGetProcessTimeWide();
-    uint64_t wait_ms = context.stream.idr_wait_started_us &&
-                           now_us >= context.stream.idr_wait_started_us
-        ? (now_us - context.stream.idr_wait_started_us) / 1000ULL
-        : 0;
-    context.stream.idr_wait_active = false;
-    LOGD("PIPE/IDR_GATE state=cleared reason=idr wait_ms=%llu requests=%u cooldown_suppressed=%u",
-         (unsigned long long)wait_ms,
-         context.stream.idr_wait_request_count,
-         context.stream.idr_wait_cooldown_suppressed_count);
-  }
-
   if (active_video_thread) {
     record_incoming_frame_sample();
     bool drop_frame = should_drop_frame_for_pacing();
