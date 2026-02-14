@@ -59,6 +59,7 @@ typedef struct vita_chiaki_stream_t {
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
   uint32_t session_generation;      // increments for each successfully initialized stream session
   uint32_t reconnect_generation;    // non-zero when this session is a reconnect/re-entry
+  bool reset_reconnect_gen;         // next session should start as fresh (gen 0)
   uint32_t auto_reconnect_count;    // automatic recovery reconnects in current session (resets per manual connect)
   uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
   uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
@@ -152,6 +153,34 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_idr_requests;           // IDR attempts in rolling window
   uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
+
+  // --- Diagnostic instrumentation (D1: Decode Time) ---
+  volatile uint32_t decode_time_us;       // Latest single-frame decode time (Takion thread writes, UI reads)
+  volatile uint32_t decode_avg_us;        // Window-averaged decode time (published each 1s window)
+  volatile uint32_t decode_max_us;        // Window-max decode time (published each 1s window)
+  uint32_t decode_window_total_us;        // Takion-thread-only accumulator
+  uint32_t decode_window_max_us;          // Takion-thread-only max tracker
+  uint32_t decode_window_count;           // Takion-thread-only frame count
+
+  // --- Diagnostic instrumentation (D4: Windowed Bitrate) ---
+  uint64_t bitrate_prev_bytes;            // Previous snapshot of total bytes for delta
+  uint64_t bitrate_prev_frames;           // Previous snapshot of total frames for delta
+  uint64_t bitrate_window_delta_bytes[3]; // 3-element ring buffer of byte deltas
+  uint32_t bitrate_window_delta_frames[3];// 3-element ring buffer of frame deltas
+  uint8_t  bitrate_window_index;          // Current ring buffer write position
+  uint8_t  bitrate_window_filled;         // Number of valid entries in ring buffer
+  volatile float windowed_bitrate_mbps;   // Rolling 3s bitrate (Takion writes, UI reads)
+
+  // --- Diagnostic instrumentation (D5: Frame Overwrite) ---
+  volatile uint32_t frame_overwrite_count;// Frames overwritten before display consumed them
+
+  // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
+  volatile int32_t wifi_rssi;             // Latest Wi-Fi signal strength (-1 if unavailable)
+
+  // --- Diagnostic instrumentation (D7: Display FPS) ---
+  volatile uint32_t display_fps;          // Frames actually rendered to screen per second
+  uint32_t display_frame_count;           // UI-thread-only counter within current window
+  uint64_t display_fps_window_start_us;   // UI-thread-only window start timestamp
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

@@ -189,6 +189,10 @@ typedef struct chiaki_takion_t
 		uint64_t last_head_gap_age_us;   // Gap age that most recently blocked/triggered skip
 		uint64_t last_first_set_offset;  // Offset from begin to first available packet
 		uint64_t queue_highwater;        // Max queue occupancy seen since last summary
+
+		uint64_t drain_max_count;         // Max drain-loop iterations in a single cycle
+		uint64_t drain_total_count;       // Total drain-loop iterations across all cycles
+		uint64_t drain_cycles;            // Number of drain cycles (wakeups)
 	} jitter_stats;
 } ChiakiTakion;
 

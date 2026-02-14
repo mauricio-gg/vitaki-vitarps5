@@ -956,14 +956,19 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 
 	if(gaps_skipped > 0 || queue_highwater > 0 || force)
 	{
+		uint64_t drain_avg = takion->jitter_stats.drain_cycles > 0
+			? takion->jitter_stats.drain_total_count / takion->jitter_stats.drain_cycles : 0;
 		CHIAKI_LOGI(takion->log,
-			"Takion jitter: rtp=%llu us cadence=%llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu over %llums",
+			"Takion jitter: rtp=%llu us cadence=%llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu drain_max=%llu drain_avg=%llu drain_cycles=%llu over %llums",
 			(unsigned long long)takion->jitter_stats.jitter_us,
 			(unsigned long long)takion->jitter_stats.cadence_jitter_us,
 			(unsigned long long)gaps_skipped,
 			(unsigned long long)first_set_offset,
 			(unsigned long long)head_gap_age_us,
 			(unsigned long long)queue_highwater,
+			(unsigned long long)takion->jitter_stats.drain_max_count,
+			(unsigned long long)drain_avg,
+			(unsigned long long)takion->jitter_stats.drain_cycles,
 			(unsigned long long)interval_ms);
 	}
 
@@ -971,6 +976,9 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 	takion->jitter_stats.last_head_gap_age_us = 0;
 	takion->jitter_stats.last_first_set_offset = 0;
 	takion->jitter_stats.queue_highwater = 0;
+	takion->jitter_stats.drain_max_count = 0;
+	takion->jitter_stats.drain_total_count = 0;
+	takion->jitter_stats.drain_cycles = 0;
 	takion->jitter_stats.last_log_ms = now_ms;
 }
 
@@ -1030,6 +1038,9 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.last_head_gap_age_us = 0;
 	takion->jitter_stats.last_first_set_offset = 0;
 	takion->jitter_stats.queue_highwater = 0;
+	takion->jitter_stats.drain_max_count = 0;
+	takion->jitter_stats.drain_total_count = 0;
+	takion->jitter_stats.drain_cycles = 0;
 
 	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
 	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
@@ -1123,19 +1134,28 @@ static void *takion_thread_func(void *user)
 		// After the first packet wakes us from the blocking select above,
 		// pull all ready packets using zero-timeout polls before blocking again.
 		// This reduces per-packet syscall overhead and keeps the socket buffer drained.
-		for(int drain_i = 0; drain_i < 64; drain_i++)
 		{
-			size_t drain_size = 1500;
-			uint8_t *drain_buf = malloc(drain_size);
-			if(!drain_buf)
-				break;
-			ChiakiErrorCode drain_err = takion_recv(takion, drain_buf, &drain_size, 0);
-			if(drain_err != CHIAKI_ERR_SUCCESS)
+			int drain_count = 0;
+			for(int drain_i = 0; drain_i < 64; drain_i++)
 			{
-				free(drain_buf);
-				break;
+				size_t drain_size = 1500;
+				uint8_t *drain_buf = malloc(drain_size);
+				if(!drain_buf)
+					break;
+				ChiakiErrorCode drain_err = takion_recv(takion, drain_buf, &drain_size, 0);
+				if(drain_err != CHIAKI_ERR_SUCCESS)
+				{
+					free(drain_buf);
+					break;
+				}
+				takion_handle_packet(takion, drain_buf, drain_size);
+				drain_count++;
 			}
-			takion_handle_packet(takion, drain_buf, drain_size);
+			// D3: Track drain batch statistics
+			takion->jitter_stats.drain_cycles++;
+			takion->jitter_stats.drain_total_count += drain_count;
+			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
+				takion->jitter_stats.drain_max_count = drain_count;
 		}
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);

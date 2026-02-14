@@ -151,6 +151,11 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->idr_request_start_ms = 0;
 	video_receiver->old_frame_rejects_window = 0;
 	video_receiver->last_idr_request_ms = 0;
+	video_receiver->prev_frame_first_packet_ms = 0;
+	video_receiver->cadence_min_ms = 0;
+	video_receiver->cadence_max_ms = 0;
+	video_receiver->cadence_total_ms = 0;
+	video_receiver->cadence_count = 0;
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -265,6 +270,22 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 		video_receiver->frame_index_cur = frame_index;
 		video_receiver->cur_frame_seen_last_unit = false;
 		video_receiver->cur_frame_first_packet_ms = chiaki_time_now_monotonic_ms();
+
+		// D2: Measure inter-frame cadence gap
+		if (video_receiver->prev_frame_first_packet_ms > 0 &&
+			video_receiver->cur_frame_first_packet_ms >= video_receiver->prev_frame_first_packet_ms)
+		{
+			uint64_t gap_ms = video_receiver->cur_frame_first_packet_ms -
+				video_receiver->prev_frame_first_packet_ms;
+			if (video_receiver->cadence_count == 0 || gap_ms < video_receiver->cadence_min_ms)
+				video_receiver->cadence_min_ms = gap_ms;
+			if (gap_ms > video_receiver->cadence_max_ms)
+				video_receiver->cadence_max_ms = gap_ms;
+			video_receiver->cadence_total_ms += gap_ms;
+			video_receiver->cadence_count++;
+		}
+		video_receiver->prev_frame_first_packet_ms = video_receiver->cur_frame_first_packet_ms;
+
 		chiaki_frame_processor_alloc_frame(&video_receiver->frame_processor, packet);
 	}
 
@@ -389,31 +410,11 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
+					succ = false;
+					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
-
-					if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264)
-					{
-						// H.264: feed frame to HW decoder despite missing reference.
-						// SceAvcdec manages its own DPB and uses error concealment,
-						// producing a displayable (possibly glitchy) frame.
-						// This breaks the cascade — frame gets added to reference_frames
-						// so subsequent P-frames decode normally.
-						recovered = true;
-						CHIAKI_LOGW(video_receiver->log,
-							"H264 decode-anyway: missing ref %d for frame %d, forwarding to HW decoder",
-							(int)ref_frame_index, (int)video_receiver->frame_index_cur);
-					}
-					else
-					{
-						// H.265: retain original discard behavior (bitstream rewriting works)
-						succ = false;
-						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
-						CHIAKI_LOGW(video_receiver->log,
-							"Missing reference frame %d for decoding frame %d",
-							(int)ref_frame_index, (int)video_receiver->frame_index_cur);
-					}
-
-					// Request IDR regardless — cleans up visual artifacts
+					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
+					// Request IDR on missing reference (non-blocking — pipeline keeps flowing)
 					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 					if(!video_receiver->idr_request_pending
 						&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
@@ -425,8 +426,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 							video_receiver->idr_request_pending = true;
 							video_receiver->idr_request_start_ms = idr_now_ms;
 							video_receiver->last_idr_request_ms = idr_now_ms;
-							CHIAKI_LOGI(video_receiver->log,
-								"Missing ref for frame %d, requesting IDR (non-blocking)",
+							CHIAKI_LOGI(video_receiver->log, "Missing ref for frame %d, requesting IDR (non-blocking)",
 								(int)video_receiver->frame_index_cur);
 						}
 					}
@@ -473,19 +473,28 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint32_t frames = video_receiver->stage_window_frames;
 		uint64_t avg_assemble_ms = frames > 0 ? video_receiver->stage_assemble_total_ms / frames : 0;
 		uint64_t avg_submit_ms = frames > 0 ? video_receiver->stage_submit_total_ms / frames : 0;
+		uint64_t cadence_avg_ms = video_receiver->cadence_count > 0 ?
+			video_receiver->cadence_total_ms / video_receiver->cadence_count : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu",
+			"PIPE/STAGE frames=%u drops=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu",
 			frames,
 			video_receiver->stage_window_drops,
 			video_receiver->old_frame_rejects_window,
 			(unsigned long long)avg_assemble_ms,
-			(unsigned long long)avg_submit_ms);
+			(unsigned long long)avg_submit_ms,
+			(unsigned long long)video_receiver->cadence_min_ms,
+			(unsigned long long)video_receiver->cadence_max_ms,
+			(unsigned long long)cadence_avg_ms);
 		video_receiver->stage_window_start_ms = now_ms;
 		video_receiver->stage_assemble_total_ms = 0;
 		video_receiver->stage_submit_total_ms = 0;
 		video_receiver->stage_window_frames = 0;
 		video_receiver->stage_window_drops = 0;
 		video_receiver->old_frame_rejects_window = 0;
+		video_receiver->cadence_min_ms = 0;
+		video_receiver->cadence_max_ms = 0;
+		video_receiver->cadence_total_ms = 0;
+		video_receiver->cadence_count = 0;
 	}
 
 	return CHIAKI_ERR_SUCCESS;

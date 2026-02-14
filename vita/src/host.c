@@ -17,6 +17,7 @@
 #include <chiaki/streamconnection.h>
 #include <chiaki/videoreceiver.h>
 #include <chiaki/frameprocessor.h>
+#include <psp2/net/netctl.h>
 
 static void reset_stream_metrics(bool preserve_recovery_state);
 static void update_latency_metrics(void);
@@ -235,12 +236,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
 	      context.stream.loss_restart_grace_until_us =
 	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
-      if (context.stream.reconnect_generation > 0) {
-        context.stream.post_reconnect_window_until_us =
-            context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
-      } else {
-        context.stream.post_reconnect_window_until_us = 0;
-      }
+      context.stream.post_reconnect_window_until_us = 0;
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
       context.stream.retry_holdoff_ms = 0;
@@ -289,6 +285,15 @@ static void event_cb(ChiakiEvent *event, void *user) {
            context.stream.reconnect_generation,
            context.stream.fps_under_target_windows,
            context.stream.post_reconnect_low_fps_windows);
+      // Roll back session_generation for failed connections that never streamed.
+      // This prevents "RP already in use" failures from inflating reconnect_gen.
+      if (!context.stream.is_streaming && !user_stop_requested &&
+          context.stream.session_generation > 0) {
+        LOGD("PIPE/SESSION failed before streaming, rolling back gen %u -> %u",
+             context.stream.session_generation,
+             context.stream.session_generation - 1);
+        context.stream.session_generation--;
+      }
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -586,6 +591,35 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.restart_cooloff_until_us = 0;
   context.stream.last_restart_source[0] = '\0';
   context.stream.restart_source_attempts = 0;
+
+  // D1: Decode timing
+  context.stream.decode_time_us = 0;
+  context.stream.decode_avg_us = 0;
+  context.stream.decode_max_us = 0;
+  context.stream.decode_window_total_us = 0;
+  context.stream.decode_window_max_us = 0;
+  context.stream.decode_window_count = 0;
+
+  // D4: Windowed bitrate
+  context.stream.bitrate_prev_bytes = 0;
+  context.stream.bitrate_prev_frames = 0;
+  memset(context.stream.bitrate_window_delta_bytes, 0, sizeof(context.stream.bitrate_window_delta_bytes));
+  memset(context.stream.bitrate_window_delta_frames, 0, sizeof(context.stream.bitrate_window_delta_frames));
+  context.stream.bitrate_window_index = 0;
+  context.stream.bitrate_window_filled = 0;
+  context.stream.windowed_bitrate_mbps = 0.0f;
+
+  // D5: Frame overwrite
+  context.stream.frame_overwrite_count = 0;
+
+  // D6: Wi-Fi RSSI
+  context.stream.wifi_rssi = -1;
+
+  // D7: Display FPS
+  context.stream.display_fps = 0;
+  context.stream.display_frame_count = 0;
+  context.stream.display_fps_window_start_us = 0;
+
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
@@ -770,6 +804,34 @@ static void update_latency_metrics(void) {
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
+  // D4: Windowed bitrate — 3-element ring buffer for rolling 3s average
+  {
+    uint64_t total_bytes = stats->bytes;
+    uint64_t total_frames = stats->frames;
+    uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
+    uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
+    context.stream.bitrate_prev_bytes = total_bytes;
+    context.stream.bitrate_prev_frames = total_frames;
+
+    uint8_t idx = context.stream.bitrate_window_index;
+    context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
+    context.stream.bitrate_window_delta_frames[idx] = delta_frames;
+    context.stream.bitrate_window_index = (idx + 1) % 3;
+    if (context.stream.bitrate_window_filled < 3)
+      context.stream.bitrate_window_filled++;
+
+    uint64_t sum_bytes = 0;
+    uint32_t sum_frames = 0;
+    for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
+      sum_bytes += context.stream.bitrate_window_delta_bytes[i];
+      sum_frames += context.stream.bitrate_window_delta_frames[i];
+    }
+    if (sum_frames > 0 && fps > 0) {
+      float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
+      context.stream.windowed_bitrate_mbps = window_bps / 1000000.0f;
+    }
+  }
+
   uint32_t effective_target_fps =
       context.stream.target_fps ? context.stream.target_fps :
       context.stream.negotiated_fps;
@@ -812,6 +874,13 @@ static void update_latency_metrics(void) {
     context.stream.last_rtt_refresh_us = now_us;
     context.stream.metrics_last_update_us = now_us;
 
+    // D6: Probe Wi-Fi RSSI once per second
+    {
+      SceNetCtlInfo rssi_info;
+      int rssi_ret = sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_RSSI_PERCENTAGE, &rssi_info);
+      context.stream.wifi_rssi = (rssi_ret >= 0) ? (int32_t)rssi_info.rssi_percentage : -1;
+    }
+
     // Count low-fps health once per metrics window (about 1 second), not per frame.
     if (low_fps_window) {
       context.stream.fps_under_target_windows++;
@@ -841,7 +910,7 @@ static void update_latency_metrics(void) {
          context.stream.measured_rtt_ms,
          (uint32_t)(context.stream.session.rtt_us / 1000),
          (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
-    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu",
+    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u",
          context.stream.session_generation,
          context.stream.reconnect_generation,
          incoming_fps,
@@ -852,7 +921,13 @@ static void update_latency_metrics(void) {
                  now_us < context.stream.post_reconnect_window_until_us
              ? (unsigned long long)((context.stream.post_reconnect_window_until_us -
                                      now_us) / 1000ULL)
-             : 0ULL);
+             : 0ULL,
+         context.stream.decode_avg_us / 1000.0f,
+         context.stream.decode_max_us / 1000.0f,
+         context.stream.windowed_bitrate_mbps,
+         context.stream.frame_overwrite_count,
+         context.stream.wifi_rssi,
+         context.stream.display_fps);
     last_log_us = now_us;
   }
 
@@ -920,6 +995,9 @@ static void request_stream_stop(const char *reason) {
     LOGD("Stopping stream (%s)", reason ? reason : "user");
     context.stream.stop_requested = true;
     context.stream.stop_requested_by_user = user_stop;
+    if (user_stop) {
+      context.stream.reset_reconnect_gen = true;
+    }
   }
   context.stream.teardown_in_progress = true;
   context.stream.next_stream_allowed_us = 0;
@@ -2025,6 +2103,7 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
     }
   }
   context.stream.is_streaming = true;
+  context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
   if (ui_connection_overlay_active())
     ui_connection_complete();
   if (context.stream.reconnect_overlay_active)
@@ -2526,8 +2605,15 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   uint32_t new_generation = context.stream.session_generation + 1;
-  context.stream.reconnect_generation =
-      context.stream.session_generation > 0 ? context.stream.session_generation : 0;
+  if (context.stream.reset_reconnect_gen) {
+    context.stream.reconnect_generation = 0;
+    // Don't clear flag here — clear it when streaming actually starts.
+    // This ensures the flag survives RP_IN_USE retry cycles so all
+    // subsequent auto-retries also get reconnect_gen=0.
+  } else {
+    context.stream.reconnect_generation =
+        context.stream.session_generation > 0 ? context.stream.session_generation : 0;
+  }
   context.stream.session_generation = new_generation;
   LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s",
        context.stream.session_generation,
