@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="481"
+VERSION_ITERATION="490"
 
 # Colors for output
 RED='\033[0;31m'
@@ -277,8 +277,8 @@ build_vpk() {
             find . -name '*.vpk' -exec ls -la {} \;
 
             # Copy VPK to expected location
-            if [ -f vita/Vitaki.vpk ]; then
-                cp vita/Vitaki.vpk ${PROJECT_NAME}.vpk
+            if [ -f vita/VitaRPS5.vpk ]; then
+                cp vita/VitaRPS5.vpk ${PROJECT_NAME}.vpk
                 echo 'VPK copied to ${PROJECT_NAME}.vpk'
             fi
 
