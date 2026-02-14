@@ -59,6 +59,7 @@ typedef struct vita_chiaki_stream_t {
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
   uint32_t session_generation;      // increments for each successfully initialized stream session
   uint32_t reconnect_generation;    // non-zero when this session is a reconnect/re-entry
+  uint32_t auto_reconnect_count;    // automatic recovery reconnects in current session (resets per manual connect)
   uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
   uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
   uint64_t post_reconnect_window_until_us; // deadline for post-reconnect low-fps tracking

@@ -78,13 +78,13 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
-#define UNRECOVERED_FRAME_GATE_THRESHOLD 4
+#define UNRECOVERED_FRAME_GATE_THRESHOLD 8
 // Use a wider gate window so single transient bursts don't immediately escalate.
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (2500 * 1000ULL)
-#define UNRECOVERED_PERSIST_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_PERSIST_THRESHOLD 6
-#define UNRECOVERED_IDR_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 5
+#define UNRECOVERED_PERSIST_WINDOW_US (15 * 1000 * 1000ULL)
+#define UNRECOVERED_PERSIST_THRESHOLD 12
+#define UNRECOVERED_IDR_WINDOW_US (15 * 1000 * 1000ULL)
+#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 10
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
@@ -97,7 +97,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
-#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
+#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 12
+#define MAX_AUTO_RECONNECT_ATTEMPTS 3
 #define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
 #define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
 // Stage-2 reconnect recovery uses a conservative bitrate that stays below the
@@ -608,6 +609,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.unrecovered_idr_requests = 0;
   context.stream.unrecovered_idr_window_start_us = 0;
   context.stream.restart_failure_active = false;
+  context.stream.auto_reconnect_count = 0;
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
   vitavideo_hide_poor_net_indicator();
@@ -773,7 +775,7 @@ static void update_latency_metrics(void) {
       context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
-      incoming_fps + 2 < effective_target_fps;
+      incoming_fps + 5 < effective_target_fps;
   bool av_diag_progressed =
       av_diag_missing_ref_count >
           context.stream.av_diag.logged_missing_ref_count ||
@@ -1006,6 +1008,12 @@ static bool request_stream_restart_coordinated(const char *source,
          source_label);
     return false;
   }
+  if (context.stream.auto_reconnect_count >= MAX_AUTO_RECONNECT_ATTEMPTS) {
+    LOGD("PIPE/RESTART source=%s action=suppressed_max_reconnects auto_count=%u gen=%u",
+         source_label, context.stream.auto_reconnect_count,
+         context.stream.reconnect_generation);
+    return false;
+  }
   if (context.stream.fast_restart_active) {
     LOGD("PIPE/RESTART source=%s action=skip reason=restart_active",
          source_label);
@@ -1045,11 +1053,13 @@ static bool request_stream_restart_coordinated(const char *source,
 
   bool ok = request_stream_restart(bitrate_kbps);
   if (ok) {
+    context.stream.auto_reconnect_count++;
     context.stream.last_loss_recovery_action_us = now_us;
-    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u attempt=%u",
+    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u attempt=%u auto_count=%u",
          source_label,
          bitrate_kbps,
-         context.stream.restart_source_attempts);
+         context.stream.restart_source_attempts,
+         context.stream.auto_reconnect_count);
   } else {
     LOGE("PIPE/RESTART source=%s action=failed bitrate=%u attempt=%u",
          source_label,
