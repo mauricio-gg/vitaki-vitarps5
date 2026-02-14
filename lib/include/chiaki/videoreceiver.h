@@ -46,7 +46,10 @@ typedef struct chiaki_video_receiver_t
 	uint64_t stage_submit_total_ms;
 	uint32_t stage_window_frames;
 	uint32_t stage_window_drops;
-	bool waiting_for_idr;
+	bool idr_request_pending;            // IDR requested, tracks state (never blocks decode)
+	uint64_t idr_request_start_ms;       // Timestamp for timeout detection
+	uint32_t old_frame_rejects_window;   // Phase 1: count late-packet rejections per 1s window
+	uint64_t last_idr_request_ms;        // Phase 2: cooldown to prevent IDR flooding
 } ChiakiVideoReceiver;
 
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);
