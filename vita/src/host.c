@@ -46,6 +46,10 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t target_fps,
                                                 bool low_fps_window,
                                                 uint64_t now_us);
+static void handle_stuck_bitrate(bool low_fps_window,
+                                 uint32_t incoming_fps,
+                                 uint32_t effective_target_fps,
+                                 uint64_t now_us);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
@@ -128,6 +132,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_PROFILE_WINDOW_BALANCED_US (7 * 1000 * 1000ULL)
 #define LOSS_PROFILE_WINDOW_HIGH_US (9 * 1000 * 1000ULL)
 #define LOSS_PROFILE_WINDOW_MAX_US (10 * 1000 * 1000ULL)
+#define STUCK_BITRATE_STREAK_THRESHOLD 5
+#define STUCK_BITRATE_STARTUP_GRACE_US (10ULL * 1000000ULL)
 
 typedef enum ReconnectRecoveryStage {
   RECONNECT_RECOVER_STAGE_IDLE = 0,
@@ -620,6 +626,12 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.display_frame_count = 0;
   context.stream.display_fps_window_start_us = 0;
 
+  // Stuck bitrate detection (streak resets always; once-per-session flag
+  // survives fast restarts so we don't re-trigger after our own restart)
+  context.stream.stuck_bitrate_low_fps_streak = 0;
+  if (!preserve_recovery_state)
+    context.stream.stuck_bitrate_restart_used = false;
+
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
@@ -826,9 +838,11 @@ static void update_latency_metrics(void) {
       sum_bytes += context.stream.bitrate_window_delta_bytes[i];
       sum_frames += context.stream.bitrate_window_delta_frames[i];
     }
-    if (sum_frames > 0 && fps > 0) {
+    if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
       float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
-      context.stream.windowed_bitrate_mbps = window_bps / 1000000.0f;
+      float window_mbps = window_bps / 1000000.0f;
+      if (window_mbps > 100.0f) window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
+      context.stream.windowed_bitrate_mbps = window_mbps;
     }
   }
 
@@ -895,6 +909,11 @@ static void update_latency_metrics(void) {
                                         effective_target_fps,
                                         low_fps_window,
                                         now_us);
+
+    handle_stuck_bitrate(low_fps_window,
+                         incoming_fps,
+                         effective_target_fps,
+                         now_us);
   }
 
   if (!context.config.show_latency)
@@ -910,7 +929,7 @@ static void update_latency_metrics(void) {
          context.stream.measured_rtt_ms,
          (uint32_t)(context.stream.session.rtt_us / 1000),
          (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
-    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u",
+    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d",
          context.stream.session_generation,
          context.stream.reconnect_generation,
          incoming_fps,
@@ -927,7 +946,9 @@ static void update_latency_metrics(void) {
          context.stream.windowed_bitrate_mbps,
          context.stream.frame_overwrite_count,
          context.stream.wifi_rssi,
-         context.stream.display_fps);
+         context.stream.display_fps,
+         context.stream.stuck_bitrate_low_fps_streak,
+         (int)context.stream.stuck_bitrate_restart_used);
     last_log_us = now_us;
   }
 
@@ -1210,6 +1231,41 @@ static void start_reconnect_recovery_state(void) {
   context.stream.reconnect.recover_idr_attempts = 0;
   context.stream.reconnect.recover_restart_attempts = 0;
   context.stream.reconnect.recover_stable_windows = 0;
+}
+
+static void handle_stuck_bitrate(bool low_fps_window,
+                                 uint32_t incoming_fps,
+                                 uint32_t effective_target_fps,
+                                 uint64_t now_us) {
+  if (context.stream.stuck_bitrate_restart_used)
+    return;
+  if (!context.stream.stream_start_us ||
+      now_us - context.stream.stream_start_us < STUCK_BITRATE_STARTUP_GRACE_US)
+    return;
+  if (context.stream.fast_restart_active ||
+      context.stream.reconnect.recover_active)
+    return;
+
+  float negotiated_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000000.0f;
+  bool bitrate_stuck = context.stream.bitrate_window_filled >= 2 &&
+                       context.stream.windowed_bitrate_mbps > 0.0f &&
+                       context.stream.windowed_bitrate_mbps < negotiated_mbps * 0.85f;
+
+  if (low_fps_window && bitrate_stuck) {
+    context.stream.stuck_bitrate_low_fps_streak++;
+    if (context.stream.stuck_bitrate_low_fps_streak >= STUCK_BITRATE_STREAK_THRESHOLD) {
+      uint32_t negotiated_kbps = context.stream.session.connect_info.video_profile.bitrate;
+      LOGD("PIPE/STUCK_BITRATE streak=%u incoming=%u target=%u windowed_mbps=%.2f negotiated_mbps=%.2f — triggering soft restart",
+           context.stream.stuck_bitrate_low_fps_streak,
+           incoming_fps, effective_target_fps,
+           context.stream.windowed_bitrate_mbps, negotiated_mbps);
+      request_stream_restart_coordinated("stuck_bitrate", negotiated_kbps, now_us);
+      context.stream.stuck_bitrate_restart_used = true;
+      context.stream.stuck_bitrate_low_fps_streak = 0;
+    }
+  } else {
+    context.stream.stuck_bitrate_low_fps_streak = 0;
+  }
 }
 
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,

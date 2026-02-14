@@ -181,6 +181,10 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t display_fps;          // Frames actually rendered to screen per second
   uint32_t display_frame_count;           // UI-thread-only counter within current window
   uint64_t display_fps_window_start_us;   // UI-thread-only window start timestamp
+
+  // --- Stuck bitrate detection ---
+  bool stuck_bitrate_restart_used;        // Only allow one stuck-bitrate restart per session
+  uint32_t stuck_bitrate_low_fps_streak;  // Consecutive 1s windows qualifying as stuck
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

@@ -57,6 +57,7 @@ typedef struct chiaki_video_receiver_t
 	uint64_t cadence_max_ms;              // Max inter-frame gap in current window
 	uint64_t cadence_total_ms;            // Sum of inter-frame gaps in current window
 	uint32_t cadence_count;               // Number of gaps measured in current window
+	uint32_t cadence_max_alarm_streak;    // Consecutive windows with cadence_max > 80ms
 } ChiakiVideoReceiver;
 
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);

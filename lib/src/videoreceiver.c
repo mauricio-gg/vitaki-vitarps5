@@ -156,6 +156,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->cadence_max_ms = 0;
 	video_receiver->cadence_total_ms = 0;
 	video_receiver->cadence_count = 0;
+	video_receiver->cadence_max_alarm_streak = 0;
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -485,6 +486,20 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			(unsigned long long)video_receiver->cadence_min_ms,
 			(unsigned long long)video_receiver->cadence_max_ms,
 			(unsigned long long)cadence_avg_ms);
+
+		// Cadence max alarm: detect PS5 encoder throttling
+		if (video_receiver->cadence_max_ms > 80) {
+			video_receiver->cadence_max_alarm_streak++;
+			if (video_receiver->cadence_max_alarm_streak >= 3) {
+				CHIAKI_LOGD(video_receiver->log,
+					"PIPE/CADENCE_ALARM streak=%u cadence_max=%llu",
+					video_receiver->cadence_max_alarm_streak,
+					(unsigned long long)video_receiver->cadence_max_ms);
+			}
+		} else {
+			video_receiver->cadence_max_alarm_streak = 0;
+		}
+
 		video_receiver->stage_window_start_ms = now_ms;
 		video_receiver->stage_assemble_total_ms = 0;
 		video_receiver->stage_submit_total_ms = 0;
