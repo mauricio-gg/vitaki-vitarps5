@@ -389,11 +389,31 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					succ = false;
-					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
-					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
-					// Request IDR on missing reference (non-blocking — pipeline keeps flowing)
+
+					if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264)
+					{
+						// H.264: feed frame to HW decoder despite missing reference.
+						// SceAvcdec manages its own DPB and uses error concealment,
+						// producing a displayable (possibly glitchy) frame.
+						// This breaks the cascade — frame gets added to reference_frames
+						// so subsequent P-frames decode normally.
+						recovered = true;
+						CHIAKI_LOGW(video_receiver->log,
+							"H264 decode-anyway: missing ref %d for frame %d, forwarding to HW decoder",
+							(int)ref_frame_index, (int)video_receiver->frame_index_cur);
+					}
+					else
+					{
+						// H.265: retain original discard behavior (bitstream rewriting works)
+						succ = false;
+						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+						CHIAKI_LOGW(video_receiver->log,
+							"Missing reference frame %d for decoding frame %d",
+							(int)ref_frame_index, (int)video_receiver->frame_index_cur);
+					}
+
+					// Request IDR regardless — cleans up visual artifacts
 					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 					if(!video_receiver->idr_request_pending
 						&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
@@ -405,7 +425,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 							video_receiver->idr_request_pending = true;
 							video_receiver->idr_request_start_ms = idr_now_ms;
 							video_receiver->last_idr_request_ms = idr_now_ms;
-							CHIAKI_LOGI(video_receiver->log, "Missing ref for frame %d, requesting IDR (non-blocking)",
+							CHIAKI_LOGI(video_receiver->log,
+								"Missing ref for frame %d, requesting IDR (non-blocking)",
 								(int)video_receiver->frame_index_cur);
 						}
 					}
