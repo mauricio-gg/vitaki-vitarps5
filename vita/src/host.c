@@ -320,7 +320,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
       // Only finalize if not retrying/restarting
       bool should_finalize = !fallback_active && !context.stream.fast_restart_active;
       if (should_finalize) {
-        finalize_session_resources();
+        context.stream.input_thread_should_exit = true;   // Signal early so input thread can exit
+        // Clear session_init so host_stream() doesn't block on the stale flag.
+        // The actual join+fini is deferred to the UI thread.
+        chiaki_mutex_lock(&context.stream.finalization_mutex);
+        context.stream.session_init = false;
+        chiaki_mutex_unlock(&context.stream.finalization_mutex);
+        context.stream.session_finalize_pending = true;    // UI thread will do join+fini
       } else {
         // Manually clear flag when skipping finalization - MUST use mutex
         chiaki_mutex_lock(&context.stream.finalization_mutex);
@@ -513,9 +519,12 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.reconnect_overlay_active = false;
           context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
           context.stream.restart_failure_active = true;
-          // Finalize session since retry failed
-          finalize_session_resources();
-          resume_discovery_if_needed();
+          // Defer finalization — UI thread will join + fini
+          context.stream.input_thread_should_exit = true;
+          chiaki_mutex_lock(&context.stream.finalization_mutex);
+          context.stream.session_init = false;
+          chiaki_mutex_unlock(&context.stream.finalization_mutex);
+          context.stream.session_finalize_pending = true;
         } else {
           context.stream.loss_retry_active = false;
           context.stream.reconnect_overlay_active = false;
@@ -720,20 +729,9 @@ static void finalize_session_resources(void) {
     LOGD("Input thread joined successfully");
   }
 
-  /*
-   * NOTE: We deliberately DO NOT call chiaki_session_join() here.
-   *
-   * This function is invoked from the CHIAKI_EVENT_QUIT callback, which runs
-   * inside the session thread itself (lib/src/session.c:767, session_thread_func).
-   * Attempting to join the session thread from within that thread would cause
-   * sceKernelWaitThreadEnd() to fail with error code 3 (attempting to wait for
-   * the current thread).
-   *
-   * The session thread will exit naturally after the event callback returns.
-   * chiaki_session_fini() below handles all necessary cleanup without requiring
-   * the session thread to be joined first - it tears down network connections,
-   * frees buffers, and destroys synchronization primitives.
-   */
+  // Note: This function is only used by the host_stream() cleanup path (line ~2766)
+  // where the session thread may not have started. The deferred finalization path
+  // (host_finalize_deferred_session) calls chiaki_session_fini() directly.
 
   // Finalize session
   chiaki_session_fini(&context.stream.session);
@@ -745,6 +743,38 @@ static void finalize_session_resources(void) {
    * across multiple streaming sessions. It will be destroyed when the application
    * exits as part of the overall context cleanup.
    */
+}
+
+void host_finalize_deferred_session(void) {
+  if (!context.stream.session_finalize_pending)
+    return;
+
+  uint64_t join_start = sceKernelGetProcessTimeWide();
+  LOGD("Deferred finalization: joining session thread");
+  ChiakiErrorCode err = chiaki_session_join(&context.stream.session);
+  uint64_t join_duration_us = sceKernelGetProcessTimeWide() - join_start;
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Session join failed: %d after %ju us (proceeding with fini)", err, join_duration_us);
+  } else {
+    LOGD("Session thread joined in %ju us", join_duration_us);
+  }
+
+  // Join input thread (may already be exited)
+  err = chiaki_thread_join(&context.stream.input_thread, NULL);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Input thread join failed: %d (deferred path)", err);
+  } else {
+    LOGD("Input thread joined (deferred path)");
+  }
+
+  // Finalize session — session_init was already cleared in event_cb,
+  // so we call chiaki_session_fini() directly instead of going through
+  // finalize_session_resources() which would bail on the guard check.
+  chiaki_session_fini(&context.stream.session);
+  LOGD("Session finalized (deferred path)");
+
+  context.stream.session_finalize_pending = false;
+  resume_discovery_if_needed();
 }
 
 static void update_latency_metrics(void) {
@@ -2563,6 +2593,15 @@ int host_stream(VitaChiakiHost* host) {
   if (!host->hostname || !host->registered_state) {
     return 1;
   }
+  // Drain any pending deferred finalization before starting a new session.
+  // Without this, a rapid reconnect could overwrite the session struct while
+  // the old session thread is still running (race between event_cb clearing
+  // session_init and the UI thread running host_finalize_deferred_session).
+  if (context.stream.session_finalize_pending) {
+    LOGD("Deferred finalization pending; draining before new session");
+    host_finalize_deferred_session();
+    LOGD("Deferred finalization drain completed");
+  }
   if (context.stream.session_init) {
     LOGD("Stream already initialized; ignoring duplicate start request");
     return 1;
@@ -2749,6 +2788,7 @@ cleanup:
     context.stream.is_streaming = false;
     context.stream.inputs_ready = false;
     context.stream.teardown_in_progress = false;
+    context.stream.session_finalize_pending = false;
     resume_discovery_if_needed();
     ui_connection_cancel();
   } else if (resume_inputs) {

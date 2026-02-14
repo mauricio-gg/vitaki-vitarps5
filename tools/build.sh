@@ -13,7 +13,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="506"
+VERSION_ITERATION="514"
 
 # Colors for output
 RED='\033[0;31m'

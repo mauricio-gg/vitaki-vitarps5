@@ -457,6 +457,12 @@ void draw_ui() {
   load_psn_id_if_needed();
 
   while (true) {
+    // --- Deferred session finalization (join + fini on UI thread) ---
+    // Must run BEFORE input processing to prevent reconnect races
+    if (context.stream.session_finalize_pending) {
+      host_finalize_deferred_session();
+    }
+
     // Always read controller input - input thread uses Ext2 variant to access controller independently
     if (!sceCtrlReadBufferPositive(0, &ctrl, 1)) {
       // Try again...

@@ -54,6 +54,7 @@ typedef struct vita_chiaki_stream_t {
   bool stop_requested;
   bool stop_requested_by_user;
   bool teardown_in_progress;
+  volatile bool session_finalize_pending;  // Set by session thread (event_cb), consumed by UI thread for deferred join+fini
   uint32_t negotiated_fps;          // max_fps requested from the console
   uint32_t target_fps;              // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
