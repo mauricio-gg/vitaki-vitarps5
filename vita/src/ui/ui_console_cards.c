@@ -51,6 +51,11 @@ static int scroll_anim_from = 0;           // Scroll offset at animation start
 static int scroll_anim_to = 0;             // Target scroll offset
 static uint64_t scroll_anim_start_us = 0;  // Animation start timestamp
 
+/** Touch drag state for swipe-to-scroll */
+static bool  drag_active = false;
+static float drag_offset_px = 0.0f;
+static int   drag_base_scroll = 0;
+
 // ============================================================================
 // Filter State
 // ============================================================================
@@ -152,6 +157,10 @@ void ui_cards_init(void) {
     scroll_anim_from = 0;
     scroll_anim_to = 0;
     scroll_anim_start_us = 0;
+    /* Reset drag state */
+    drag_active = false;
+    drag_offset_px = 0.0f;
+    drag_base_scroll = 0;
     /* Reset filter state */
     filter_text[0] = '\0';
     filter_len = 0;
@@ -221,6 +230,9 @@ void ui_cards_update_cache(bool force_update) {
         if (context.hosts[i]) {
             ConsoleCardInfo temp;
             ui_cards_map_host(context.hosts[i], &temp);
+            /* Skip unregistered hosts if "show only paired" is enabled */
+            if (context.config.show_only_paired && !temp.is_registered)
+                continue;
             /* Apply filter if active */
             if (filter_active && filter_len > 0) {
                 if (!str_contains_nocase(temp.name, filter_text))
@@ -229,6 +241,17 @@ void ui_cards_update_cache(bool force_update) {
             temp_cards[num_hosts] = temp;
             num_hosts++;
         }
+    }
+
+    /* Stable sort: registered (paired) consoles first, then unregistered */
+    if (num_hosts > 1) {
+        ConsoleCardInfo sorted[MAX_CONTEXT_HOSTS];
+        int out = 0;
+        for (int i = 0; i < num_hosts; i++)
+            if (temp_cards[i].is_registered) sorted[out++] = temp_cards[i];
+        for (int i = 0; i < num_hosts; i++)
+            if (!temp_cards[i].is_registered) sorted[out++] = temp_cards[i];
+        memcpy(temp_cards, sorted, sizeof(ConsoleCardInfo) * num_hosts);
     }
 
     /* Update cache — allow 0 results when filter is active (to show "no matches") */
@@ -569,19 +592,26 @@ void ui_cards_render_single(ConsoleCardInfo* console, int x, int y, bool selecte
             vita2d_draw_texture_scale(ps5_logo, logo_x, logo_y, logo_scale, logo_scale);
         }
     } else if (!is_ps5) {
-        // Fallback to PS4 icon for PS4 consoles (using same centering logic as PS5)
+        // PS4 logo with same scaling logic as PS5 path
         vita2d_texture* logo = img_ps4;
         if (logo) {
             int logo_w = vita2d_texture_get_width(logo);
             int logo_h = vita2d_texture_get_height(logo);
-            int logo_x = draw_x + (card_w / 2) - (logo_w / 2);
-            // Center logo vertically in available space above name bar (consistent with PS5)
-            int logo_y = draw_y + available_top + (available_height - logo_h) / 2;
+
+            // Scale logo with max width constraint (same as PS5 path)
+            float max_logo_w = fminf((float)(CARD_LOGO_MAX_WIDTH * scale), card_w * 0.6f);
+            float logo_scale = max_logo_w / logo_w;
+
+            int logo_scaled_w = (int)(logo_w * logo_scale);
+            int logo_scaled_h = (int)(logo_h * logo_scale);
+            int logo_x = draw_x + (card_w / 2) - (logo_scaled_w / 2);
+            int logo_y = draw_y + available_top + (available_height - logo_scaled_h) / 2;
+
             if (is_unpaired || is_cooldown_card) {
-                vita2d_draw_texture_tint(logo, logo_x, logo_y,
-                                         RGBA8(255, 255, 255, 120));
+                vita2d_draw_texture_tint_scale(logo, logo_x, logo_y, logo_scale, logo_scale,
+                                               RGBA8(255, 255, 255, 120));
             } else {
-                vita2d_draw_texture(logo, logo_x, logo_y);
+                vita2d_draw_texture_scale(logo, logo_x, logo_y, logo_scale, logo_scale);
             }
         }
     }
@@ -758,7 +788,7 @@ void ui_cards_render_grid(void) {
         int fb_y = text_y + 28;
         vita2d_font_draw_text(font, fb_x, fb_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL, filter_bar);
     } else if (num_cards > CARDS_VISIBLE_MAX) {
-        const char* hint = "Start: Search";
+        const char* hint = "Start: Filter";
         int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
         int hint_x = content_center_x - hint_w / 2;
         int hint_y = text_y + 28;
@@ -777,6 +807,16 @@ void ui_cards_render_grid(void) {
 
     // --- Animate scroll ---
     float anim_offset = update_scroll_animation();
+
+    // If dragging, override with pixel-level drag position
+    if (drag_active) {
+        int stride_px = CONSOLE_CARD_WIDTH + CARD_H_GAP;
+        anim_offset = (float)drag_base_scroll + drag_offset_px / (float)stride_px;
+        float max_anim = (float)(card_cache.num_cards - CARDS_VISIBLE_MAX);
+        if (max_anim < 0.0f) max_anim = 0.0f;
+        if (anim_offset < 0.0f) anim_offset = 0.0f;
+        if (anim_offset > max_anim) anim_offset = max_anim;
+    }
 
     // Card stride = card width + gap
     int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
@@ -812,18 +852,24 @@ void ui_cards_render_grid(void) {
     if (num_cards > CARDS_VISIBLE_MAX) {
         int arrow_y = card_y + CONSOLE_CARD_HEIGHT / 2;
         uint32_t arrow_color = RGBA8(200, 200, 200, 180);
+        int arrow_size = 6;
 
         // Left arrow (if not at start)
         if (scroll_offset > 0) {
             int lx = start_x - 30;
-            // Draw simple left triangle
-            vita2d_draw_rectangle(lx, arrow_y - 6, 12, 12, arrow_color);
+            // Draw left-pointing triangle using scanline loop
+            for (int i = 0; i < arrow_size; i++) {
+                vita2d_draw_rectangle(lx + i, arrow_y - i, 1, 1 + i * 2, arrow_color);
+            }
         }
 
         // Right arrow (if not at end)
         if (scroll_offset + CARDS_VISIBLE_MAX < num_cards) {
             int rx = start_x + row_width + 18;
-            vita2d_draw_rectangle(rx, arrow_y - 6, 12, 12, arrow_color);
+            // Draw right-pointing triangle using scanline loop
+            for (int i = 0; i < arrow_size; i++) {
+                vita2d_draw_rectangle(rx + arrow_size - 1 - i, arrow_y - i, 1, 1 + i * 2, arrow_color);
+            }
         }
 
         // Page indicator dots
@@ -892,4 +938,43 @@ ConsoleCardInfo* ui_cards_get_selected_card(void) {
 
 int ui_cards_get_scroll_offset(void) {
     return scroll_offset;
+}
+
+void ui_cards_drag_begin(void) {
+    drag_active = true;
+    drag_offset_px = 0.0f;
+    drag_base_scroll = scroll_offset;
+    // Kill any in-progress animation
+    scroll_anim_progress = 1.0f;
+}
+
+void ui_cards_drag_update(float delta_x) {
+    drag_offset_px = delta_x;
+}
+
+void ui_cards_drag_end(void) {
+    if (!drag_active) return;
+    drag_active = false;
+
+    // Convert accumulated pixel drag to card index offset
+    int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
+    int card_delta = (int)roundf(drag_offset_px / (float)stride);
+    int target = drag_base_scroll + card_delta;
+
+    // Clamp
+    int max_scroll = card_cache.num_cards - CARDS_VISIBLE_MAX;
+    if (max_scroll < 0) max_scroll = 0;
+    if (target < 0) target = 0;
+    if (target > max_scroll) target = max_scroll;
+
+    scroll_offset = drag_base_scroll;
+    start_scroll_animation(target);
+
+    // Update selected index to stay within visible range
+    if (selected_console_index < target)
+        selected_console_index = target;
+    else if (selected_console_index >= target + CARDS_VISIBLE_MAX)
+        selected_console_index = target + CARDS_VISIBLE_MAX - 1;
+
+    drag_offset_px = 0.0f;
 }

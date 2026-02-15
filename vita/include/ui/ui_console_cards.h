@@ -143,3 +143,11 @@ void ui_cards_poll_filter_ime(void);
  * ui_cards_is_filter_active() - Check if filter is active
  */
 bool ui_cards_is_filter_active(void);
+
+// ============================================================================
+// Touch Drag-to-Scroll API
+// ============================================================================
+
+void ui_cards_drag_begin(void);
+void ui_cards_drag_update(float delta_x);
+void ui_cards_drag_end(void);

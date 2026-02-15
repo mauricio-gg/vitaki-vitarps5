@@ -53,6 +53,7 @@ typedef struct vita_chiaki_config_t {
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
   bool show_nav_labels;  // Show text labels below navigation icons when selected
+  bool show_only_paired;  // Only show registered/paired consoles on main screen
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig* cfg);

@@ -319,6 +319,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->show_nav_labels = false;  // Default: no text labels below nav icons
+  cfg->show_only_paired = false;  // Default: show all consoles
   vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
@@ -577,6 +578,15 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (parse_bool_setting_with_migration(settings, parsed,
                                           "show_nav_labels", false,
                                           &cfg->show_nav_labels, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
+
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_only_paired", false,
+                                          &cfg->show_only_paired, &source)) {
       if (source == MIGRATION_SOURCE_LEGACY_SECTION)
         migrated_legacy_settings = true;
       else if (source == MIGRATION_SOURCE_ROOT)
@@ -933,6 +943,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
           cfg->clamp_soft_restart_bitrate ? "true" : "false");
   fprintf(fp, "show_nav_labels = %s\n",
           cfg->show_nav_labels ? "true" : "false");
+  fprintf(fp, "show_only_paired = %s\n",
+          cfg->show_only_paired ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
 
   // Save 3 custom map slots
