@@ -143,6 +143,11 @@
 #define CONSOLE_CARD_FOCUS_DURATION_MS  180
 #define CONSOLE_CARD_GLOW_COLOR         0xFFFF9034  // #3490FF in ABGR
 
+// Horizontal card carousel
+#define CARDS_VISIBLE_MAX               4       // Max cards visible at once
+#define CARD_H_GAP                      20      // Horizontal gap between cards
+#define CARD_SCROLL_ANIM_MS             200     // Scroll animation duration (ms)
+
 // Card typography
 #define CARD_TITLE_FONT_SIZE            20      // Card name text
 #define CARD_LOGO_MAX_WIDTH             120     // PS5 logo max width

@@ -105,3 +105,21 @@ void ui_cards_update_cache(bool force_update);
  * Extracts name, IP, status, and state information from the host.
  */
 void ui_cards_map_host(VitaChiakiHost* host, ConsoleCardInfo* card);
+
+/**
+ * ui_cards_ensure_selected_visible() - Auto-scroll to keep selected card visible
+ * Call after changing selected index to trigger smooth scroll if needed.
+ */
+void ui_cards_ensure_selected_visible(void);
+
+/**
+ * ui_cards_get_selected_card() - Get the selected card's ConsoleCardInfo
+ * Returns: Pointer to the selected card, or NULL if no cards
+ */
+ConsoleCardInfo* ui_cards_get_selected_card(void);
+
+/**
+ * ui_cards_get_scroll_offset() - Get current scroll offset
+ * Returns: Index of the leftmost visible card
+ */
+int ui_cards_get_scroll_offset(void);

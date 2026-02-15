@@ -37,6 +37,19 @@ static CardFocusAnimState card_focus_anim = {
 };
 
 // ============================================================================
+// Horizontal Scroll State
+// ============================================================================
+
+/** Index of leftmost visible card in the carousel */
+static int scroll_offset = 0;
+
+/** Scroll animation state */
+static float scroll_anim_progress = 1.0f;  // 0→1, starts complete
+static int scroll_anim_from = 0;           // Scroll offset at animation start
+static int scroll_anim_to = 0;             // Target scroll offset
+static uint64_t scroll_anim_start_us = 0;  // Animation start timestamp
+
+// ============================================================================
 // Forward Declarations
 // ============================================================================
 
@@ -55,6 +68,12 @@ void ui_cards_init(void) {
     card_focus_anim.focus_start_us = 0;
     card_focus_anim.previous_focused_card_index = -1;
     card_focus_anim.unfocus_start_us = 0;
+    // Reset scroll state
+    scroll_offset = 0;
+    scroll_anim_progress = 1.0f;
+    scroll_anim_from = 0;
+    scroll_anim_to = 0;
+    scroll_anim_start_us = 0;
 }
 
 // ============================================================================
@@ -113,9 +132,9 @@ void ui_cards_update_cache(bool force_update) {
 
     // Count current valid hosts
     int num_hosts = 0;
-    ConsoleCardInfo temp_cards[MAX_NUM_HOSTS];
+    ConsoleCardInfo temp_cards[MAX_CONTEXT_HOSTS];
 
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
         if (context.hosts[i]) {
             ui_cards_map_host(context.hosts[i], &temp_cards[num_hosts]);
             num_hosts++;
@@ -217,6 +236,41 @@ static float get_card_scale(int card_index, bool is_focused) {
     }
 
     return CONSOLE_CARD_FOCUS_SCALE_MIN;
+}
+
+/**
+ * Start a smooth scroll animation to a target offset
+ */
+static void start_scroll_animation(int target_offset) {
+    if (target_offset == scroll_offset && scroll_anim_progress >= 1.0f)
+        return;
+    scroll_anim_from = scroll_offset;
+    scroll_anim_to = target_offset;
+    scroll_anim_progress = 0.0f;
+    scroll_anim_start_us = sceKernelGetProcessTimeWide();
+}
+
+/**
+ * Update scroll animation, returns current interpolated offset as float
+ */
+static float update_scroll_animation(void) {
+    if (scroll_anim_progress >= 1.0f)
+        return (float)scroll_offset;
+
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    float elapsed_ms = (float)(now_us - scroll_anim_start_us) / 1000.0f;
+    float progress = elapsed_ms / (float)CARD_SCROLL_ANIM_MS;
+
+    if (progress >= 1.0f) {
+        scroll_anim_progress = 1.0f;
+        scroll_offset = scroll_anim_to;
+        return (float)scroll_offset;
+    }
+
+    scroll_anim_progress = progress;
+    // Cubic ease-out
+    float eased = 1.0f - powf(1.0f - progress, 3.0f);
+    return ui_lerp((float)scroll_anim_from, (float)scroll_anim_to, eased);
 }
 
 // ============================================================================
@@ -429,29 +483,16 @@ void ui_cards_render_single(ConsoleCardInfo* console, int x, int y, bool selecte
 }
 
 void ui_cards_render_grid(void) {
-    // Center cards within content area (830px starting at x=130)
-    int content_center_x = ui_get_dynamic_content_center_x();
-    int screen_center_y = VITA_HEIGHT / 2;
-
     // Update cache (respects 10-second interval)
     ui_cards_update_cache(false);
+
+    int num_cards = card_cache.num_cards;
 
     // Update card focus animation
     int focused_index = ui_focus_is_content() ? selected_console_index : -1;
     update_card_focus_animation(focused_index);
 
-    // Calculate card position - centered within content area
-    int card_y = screen_center_y - (CONSOLE_CARD_HEIGHT / 2);
-    int card_x = content_center_x - (CONSOLE_CARD_WIDTH / 2);
-
-    // Header text - centered within content area above the card
-    const char* header_text = "Which do you want to connect?";
-    int text_width = vita2d_font_text_width(font, 24, header_text);
-    int text_x = content_center_x - (text_width / 2);
-    int text_y = card_y - 50;  // Position text 50px above card
-
-    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
-
+    // --- Cooldown banner (rendered first so it's behind cards) ---
     uint64_t now_us = sceKernelGetProcessTimeWide();
     uint64_t cooldown_until_us = stream_cooldown_until_us();
     bool cooldown_active = cooldown_until_us && cooldown_until_us > now_us;
@@ -474,34 +515,104 @@ void ui_cards_render_grid(void) {
                         reason);
         int banner_w = VITA_WIDTH;
         int banner_h = 44;
-        int banner_x = 0;
-        int banner_y = 0;
-        vita2d_draw_rectangle(banner_x, banner_y, banner_w, banner_h,
+        vita2d_draw_rectangle(0, 0, banner_w, banner_h,
                               RGBA8(0x05, 0x05, 0x07, 235));
         int banner_text_w = vita2d_font_text_width(font, FONT_SIZE_BODY, banner_text);
-        int banner_text_x = banner_x + (banner_w - banner_text_w) / 2;
-        int banner_text_y = banner_y + banner_h / 2 + (FONT_SIZE_BODY / 2) - 4;
+        int banner_text_x = (banner_w - banner_text_w) / 2;
+        int banner_text_y = banner_h / 2 + (FONT_SIZE_BODY / 2) - 4;
         vita2d_font_draw_text(font, banner_text_x, banner_text_y,
                               UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, banner_text);
     }
 
-    // Use cached cards to prevent flickering
-    if (card_cache.num_cards > 0) {
-        VitaChiakiHost *cooldown_host = cooldown_active ? context.active_host : NULL;
-        for (int i = 0; i < card_cache.num_cards; i++) {
-            // For multiple cards, stack them vertically centered around screen center
-            int this_card_y = card_y + (i * CONSOLE_CARD_SPACING);
+    if (num_cards == 0) return;
 
-            // Only show selection highlight if console cards have focus
-            bool selected = (i == selected_console_index && ui_focus_is_content());
-            bool card_cooldown = cooldown_host &&
-                                 card_cache.cards[i].host == cooldown_host;
+    // --- Horizontal layout math ---
+    int visible = num_cards < CARDS_VISIBLE_MAX ? num_cards : CARDS_VISIBLE_MAX;
+    int row_width = visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP;
 
-            // Get animated scale for this card
-            float scale = get_card_scale(i, selected);
+    // Content area: from nav bar to screen edge
+    int content_center_x = ui_get_dynamic_content_center_x();
+    int start_x = content_center_x - (row_width / 2);
 
-            ui_cards_render_single(&card_cache.cards[i], card_x, this_card_y, selected,
-                                   card_cooldown, scale);
+    // Vertically center cards
+    int card_y = (VITA_HEIGHT / 2) - (CONSOLE_CARD_HEIGHT / 2);
+
+    // Header text
+    const char* header_text = "Which do you want to connect?";
+    int text_width = vita2d_font_text_width(font, 24, header_text);
+    int text_x = content_center_x - (text_width / 2);
+    int text_y = card_y - 50;
+    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
+
+    // --- Animate scroll ---
+    float anim_offset = update_scroll_animation();
+
+    // Card stride = card width + gap
+    int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
+
+    // Calculate pixel offset from animation
+    float base_pixel_x = (float)start_x - anim_offset * (float)stride;
+
+    VitaChiakiHost *cooldown_host = cooldown_active ? context.active_host : NULL;
+
+    // Render visible cards (draw one extra on each side for smooth scroll-in)
+    int draw_start = (int)anim_offset - 1;
+    if (draw_start < 0) draw_start = 0;
+    int draw_end = (int)anim_offset + visible + 1;
+    if (draw_end > num_cards) draw_end = num_cards;
+
+    for (int i = draw_start; i < draw_end; i++) {
+        int card_x = (int)(base_pixel_x + (float)(i * stride));
+
+        // Skip cards fully off-screen
+        if (card_x + CONSOLE_CARD_WIDTH < 0 || card_x > VITA_WIDTH)
+            continue;
+
+        bool selected = (i == selected_console_index && ui_focus_is_content());
+        bool card_cooldown = cooldown_host &&
+                             card_cache.cards[i].host == cooldown_host;
+        float scale = get_card_scale(i, selected);
+
+        ui_cards_render_single(&card_cache.cards[i], card_x, card_y, selected,
+                               card_cooldown, scale);
+    }
+
+    // --- Scroll arrows (drawn when more cards exist off-screen) ---
+    if (num_cards > CARDS_VISIBLE_MAX) {
+        int arrow_y = card_y + CONSOLE_CARD_HEIGHT / 2;
+        uint32_t arrow_color = RGBA8(200, 200, 200, 180);
+
+        // Left arrow (if not at start)
+        if (scroll_offset > 0) {
+            int lx = start_x - 30;
+            // Draw simple left triangle
+            vita2d_draw_rectangle(lx, arrow_y - 6, 12, 12, arrow_color);
+        }
+
+        // Right arrow (if not at end)
+        if (scroll_offset + CARDS_VISIBLE_MAX < num_cards) {
+            int rx = start_x + row_width + 18;
+            vita2d_draw_rectangle(rx, arrow_y - 6, 12, 12, arrow_color);
+        }
+
+        // Page indicator dots
+        int total_pages = (num_cards + CARDS_VISIBLE_MAX - 1) / CARDS_VISIBLE_MAX;
+        int current_page = scroll_offset / CARDS_VISIBLE_MAX;
+        // Clamp: if scroll_offset doesn't align to pages, use selected card's page
+        if (total_pages > 1) {
+            current_page = selected_console_index / CARDS_VISIBLE_MAX;
+            int dot_spacing = 14;
+            int dots_width = total_pages * dot_spacing;
+            int dots_x = content_center_x - dots_width / 2;
+            int dots_y = card_y + CONSOLE_CARD_HEIGHT + 25;
+
+            for (int p = 0; p < total_pages; p++) {
+                uint32_t dot_color = (p == current_page)
+                    ? UI_COLOR_PRIMARY_BLUE
+                    : RGBA8(120, 120, 120, 150);
+                int dx = dots_x + p * dot_spacing + dot_spacing / 2;
+                ui_draw_circle(dx, dots_y, 3, dot_color);
+            }
         }
     }
 }
@@ -520,4 +631,34 @@ void ui_cards_set_selected_index(int index) {
 
 int ui_cards_get_count(void) {
     return card_cache.num_cards;
+}
+
+void ui_cards_ensure_selected_visible(void) {
+    int num_cards = card_cache.num_cards;
+    if (num_cards <= CARDS_VISIBLE_MAX) {
+        if (scroll_offset != 0)
+            start_scroll_animation(0);
+        return;
+    }
+
+    // If selected card is left of visible window, scroll left
+    if (selected_console_index < scroll_offset) {
+        start_scroll_animation(selected_console_index);
+    }
+    // If selected card is right of visible window, scroll right
+    else if (selected_console_index >= scroll_offset + CARDS_VISIBLE_MAX) {
+        start_scroll_animation(selected_console_index - CARDS_VISIBLE_MAX + 1);
+    }
+}
+
+ConsoleCardInfo* ui_cards_get_selected_card(void) {
+    if (card_cache.num_cards == 0)
+        return NULL;
+    if (selected_console_index < 0 || selected_console_index >= card_cache.num_cards)
+        return NULL;
+    return &card_cache.cards[selected_console_index];
+}
+
+int ui_cards_get_scroll_offset(void) {
+    return scroll_offset;
 }

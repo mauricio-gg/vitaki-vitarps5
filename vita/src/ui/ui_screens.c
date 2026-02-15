@@ -123,65 +123,66 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
     if (nav_touch_hit(touch_x, touch_y, &nav_touch_screen))
       return nav_touch_screen;
 
-    // Check console cards (rectangular hitboxes)
+    // Check console cards (horizontal hitboxes matching carousel layout)
     if (num_hosts > 0) {
-      int content_area_x = WAVE_NAV_WIDTH + ((VITA_WIDTH - WAVE_NAV_WIDTH) / 2);
-      for (int i = 0; i < num_hosts; i++) {
-        int card_x = content_area_x - (CONSOLE_CARD_WIDTH / 2);
-        int card_y = CONSOLE_CARD_START_Y + (i * CONSOLE_CARD_SPACING);
+      int content_center_x = ui_get_dynamic_content_center_x();
+      int visible = num_hosts < CARDS_VISIBLE_MAX ? num_hosts : CARDS_VISIBLE_MAX;
+      int row_width = visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP;
+      int h_start_x = content_center_x - (row_width / 2);
+      int card_y = (VITA_HEIGHT / 2) - (CONSOLE_CARD_HEIGHT / 2);
+      int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
+      int offset = ui_cards_get_scroll_offset();
+
+      for (int vi = 0; vi < visible && (offset + vi) < num_hosts; vi++) {
+        int i = offset + vi;
+        int card_x = h_start_x + vi * stride;
 
         if (is_point_in_rect(touch_x, touch_y, card_x, card_y,
             CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT)) {
           // Select card and trigger connect action
           ui_cards_set_selected_index(i);
 
-          // Find and connect to selected host
-          int host_idx = 0;
-          for (int j = 0; j < MAX_NUM_HOSTS; j++) {
-              if (context.hosts[j]) {
-                if (host_idx == ui_cards_get_selected_index()) {
-                  context.active_host = context.hosts[j];
+          // Connect to tapped card using cached host pointer
+          ConsoleCardInfo* card = ui_cards_get_selected_card();
+          if (card && card->host) {
+            context.active_host = card->host;
 
-                  if (takion_cooldown_gate_active()) {
-                    LOGD("Touch connect ignored — network recovery cooldown active");
-                    return UI_SCREEN_TYPE_MAIN;
-                  }
+            if (takion_cooldown_gate_active()) {
+              LOGD("Touch connect ignored — network recovery cooldown active");
+              return UI_SCREEN_TYPE_MAIN;
+            }
 
-                  bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-                  bool registered = context.active_host->type & REGISTERED;
-                bool at_rest = discovered && context.active_host->discovery_state &&
-                               context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+            bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+            bool registered = context.active_host->type & REGISTERED;
+            bool at_rest = discovered && context.active_host->discovery_state &&
+                           context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
-                if (discovered && !at_rest && registered) {
-                  ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-                  if (!start_connection_thread(context.active_host)) {
-                    ui_connection_cancel();
-                    return UI_SCREEN_TYPE_MAIN;
-                  }
-                  ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-                  return UI_SCREEN_TYPE_WAKING;
-                } else if (at_rest) {
-                  LOGD("Touch wake gesture on dormant console");
-                  ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-                  host_wakeup(context.active_host);
-                  return UI_SCREEN_TYPE_WAKING;
-                } else if (!registered) {
-                  return UI_SCREEN_TYPE_REGISTER_HOST;
-                }
-                break;
+            if (discovered && !at_rest && registered) {
+              ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+              if (!start_connection_thread(context.active_host)) {
+                ui_connection_cancel();
+                return UI_SCREEN_TYPE_MAIN;
               }
-              host_idx++;
+              ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+              return UI_SCREEN_TYPE_WAKING;
+            } else if (at_rest) {
+              LOGD("Touch wake gesture on dormant console");
+              ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+              host_wakeup(context.active_host);
+              return UI_SCREEN_TYPE_WAKING;
+            } else if (!registered) {
+              return UI_SCREEN_TYPE_REGISTER_HOST;
             }
           }
           break;
         }
       }
 
-      // Check "Add New" button
+      // Check "Add New" button (positioned below horizontal card row)
       if (button_add_new) {
         int btn_w = vita2d_texture_get_width(button_add_new);
-        int btn_x = content_area_x - (btn_w / 2);
-        int btn_y = CONSOLE_CARD_START_Y + (num_hosts * CONSOLE_CARD_SPACING) + 20;
+        int btn_x = content_center_x - (btn_w / 2);
+        int btn_y = card_y + CONSOLE_CARD_HEIGHT + 60;  // Below cards and page dots
         int btn_h = vita2d_texture_get_height(button_add_new);
 
         if (is_point_in_rect(touch_x, touch_y, btn_x, btn_y, btn_w, btn_h)) {
@@ -396,7 +397,7 @@ UIScreenType draw_main_menu() {
 
   // Count hosts
   int num_hosts = 0;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     if (context.hosts[i]) num_hosts++;
   }
 
@@ -405,15 +406,17 @@ UIScreenType draw_main_menu() {
   // === D-PAD NAVIGATION (moves between console cards in content area) ===
   // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
 
-  if (btn_pressed(SCE_CTRL_UP)) {
+  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP)) {
     if (ui_focus_is_content() && num_hosts > 0) {
-      // Move up within console cards (cycle through)
+      // Move left within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
+      ui_cards_ensure_selected_visible();
     }
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
+  } else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN)) {
     if (ui_focus_is_content() && num_hosts > 0) {
-      // Move down within console cards (cycle through)
+      // Move right within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
+      ui_cards_ensure_selected_visible();
     }
   }
 
@@ -423,7 +426,7 @@ UIScreenType draw_main_menu() {
     if (ui_focus_is_content() && num_hosts > 0) {
       // Connect to selected console
       int host_idx = 0;
-      for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+      for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
         if (context.hosts[i]) {
           if (host_idx == ui_cards_get_selected_index()) {
             context.active_host = context.hosts[i];
@@ -471,7 +474,7 @@ UIScreenType draw_main_menu() {
   // Square: Re-pair selected console (unregister + register again)
   if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0) {
     int host_idx = 0;
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
       if (context.hosts[i]) {
         if (host_idx == ui_cards_get_selected_index()) {
           VitaChiakiHost* host = context.hosts[i];
@@ -527,7 +530,7 @@ UIScreenType draw_main_menu() {
 
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("D-Pad: Navigate | Cross: Connect/Wake | Square: Re-pair");
+    trigger_hints_popup("L/R: Browse | Cross: Connect | Square: Re-pair");
   }
 
   return next_screen;
@@ -921,7 +924,7 @@ static VitaChiakiHost* profile_get_reference_host(void) {
   int selected = ui_cards_get_selected_index();
   int host_idx = 0;
   VitaChiakiHost *first_host = NULL;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     VitaChiakiHost *host = context.hosts[i];
     if (!host) {
       continue;
