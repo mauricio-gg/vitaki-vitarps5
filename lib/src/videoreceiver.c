@@ -15,8 +15,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define VIDEO_GAP_REPORT_FORCE_SPAN 6
 // Guard against pathological spans from corrupted sequence state.
 #define VIDEO_SPAN_SANITY_MAX 4096U
-#define IDR_REQUEST_COOLDOWN_MS 200
-#define IDR_REQUEST_TIMEOUT_MS 2000
+#define IDR_REQUEST_COOLDOWN_MS 100
+#define IDR_REQUEST_TIMEOUT_MS 1000
+#define CASCADE_SKIP_THRESHOLD 3
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
@@ -151,6 +152,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->idr_request_start_ms = 0;
 	video_receiver->old_frame_rejects_window = 0;
 	video_receiver->last_idr_request_ms = 0;
+	video_receiver->consecutive_missing_ref = 0;
+	video_receiver->cascade_skip_count = 0;
 	video_receiver->prev_frame_first_packet_ms = 0;
 	video_receiver->cadence_min_ms = 0;
 	video_receiver->cadence_max_ms = 0;
@@ -316,6 +319,38 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		assemble_ms = flush_start_ms - video_receiver->cur_frame_first_packet_ms;
 	}
+
+	// CASCADE SKIP: after 3+ consecutive missing-ref failures, skip the
+	// expensive flush+decode cycle. The frame will fail anyway (broken
+	// reference chain). Still count as lost and maintain IDR pressure.
+	if(video_receiver->consecutive_missing_ref >= CASCADE_SKIP_THRESHOLD)
+	{
+		video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+		video_receiver->stage_window_drops++;
+		video_receiver->cascade_skip_count++;
+
+		// Keep IDR pressure alive
+		uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
+		if(!video_receiver->idr_request_pending
+			&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
+		{
+			ChiakiErrorCode idr_err =
+				chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
+			if(idr_err == CHIAKI_ERR_SUCCESS)
+			{
+				video_receiver->idr_request_pending = true;
+				video_receiver->idr_request_start_ms = idr_now_ms;
+				video_receiver->last_idr_request_ms = idr_now_ms;
+			}
+		}
+
+		// Advance bookkeeping
+		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
+		video_receiver->cur_frame_first_packet_ms = 0;
+		video_receiver->cur_frame_seen_last_unit = false;
+		return CHIAKI_ERR_UNKNOWN;
+	}
+
 	ChiakiFrameProcessorFlushResult flush_result = chiaki_frame_processor_flush(&video_receiver->frame_processor, &frame, &frame_size);
 
 	if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED
@@ -367,12 +402,16 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	ChiakiBitstreamSlice slice;
 	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
 	{
+		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
+			video_receiver->consecutive_missing_ref = 0;
+
 		if(video_receiver->idr_request_pending)
 		{
 			if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
 			{
 				video_receiver->idr_request_pending = false;
 				video_receiver->idr_request_start_ms = 0;
+				video_receiver->consecutive_missing_ref = 0;
 				CHIAKI_LOGI(video_receiver->log, "Received I-slice after IDR request, recovery complete");
 			}
 			else
@@ -404,6 +443,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 						if(chiaki_bitstream_slice_set_reference_frame(&video_receiver->bitstream, frame, frame_size, i))
 						{
 							recovered = true;
+							video_receiver->consecutive_missing_ref = 0;
 							CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d -> changed to %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur, (int)ref_frame_index_new);
 						}
 						break;
@@ -414,7 +454,10 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 					succ = false;
 					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
-					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
+					video_receiver->consecutive_missing_ref++;
+					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
+						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
+						video_receiver->consecutive_missing_ref);
 					// Request IDR on missing reference (non-blocking — pipeline keeps flowing)
 					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 					if(!video_receiver->idr_request_pending
@@ -450,6 +493,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		else
 		{
 			add_ref_frame(video_receiver, video_receiver->frame_index_cur);
+			video_receiver->consecutive_missing_ref = 0;
 			CHIAKI_LOGV(video_receiver->log, "Added reference %c frame %d", slice.slice_type == CHIAKI_BITSTREAM_SLICE_I ? 'I' : 'P', (int)video_receiver->frame_index_cur);
 		}
 		if(submit_end_ms >= submit_start_ms)
@@ -477,9 +521,10 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint64_t cadence_avg_ms = video_receiver->cadence_count > 0 ?
 			video_receiver->cadence_total_ms / video_receiver->cadence_count : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu",
+			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu",
 			frames,
 			video_receiver->stage_window_drops,
+			video_receiver->cascade_skip_count,
 			video_receiver->old_frame_rejects_window,
 			(unsigned long long)avg_assemble_ms,
 			(unsigned long long)avg_submit_ms,
@@ -506,6 +551,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->stage_window_frames = 0;
 		video_receiver->stage_window_drops = 0;
 		video_receiver->old_frame_rejects_window = 0;
+		video_receiver->cascade_skip_count = 0;
 		video_receiver->cadence_min_ms = 0;
 		video_receiver->cadence_max_ms = 0;
 		video_receiver->cadence_total_ms = 0;

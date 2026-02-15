@@ -186,6 +186,12 @@ typedef struct vita_chiaki_stream_t {
   // --- Stuck bitrate detection ---
   bool stuck_bitrate_restart_used;        // Only allow one stuck-bitrate restart per session
   uint32_t stuck_bitrate_low_fps_streak;  // Consecutive 1s windows qualifying as stuck
+
+  // --- Cascade alarm detection ---
+  uint32_t cascade_prev_missing_ref_count;   // Previous snapshot for delta calc
+  uint32_t cascade_alarm_streak;             // Consecutive 1s windows with cascade_delta >= 2 AND low FPS
+  bool cascade_alarm_restart_used;           // Once per session
+  uint64_t cascade_alarm_last_action_us;     // Cooldown timestamp
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

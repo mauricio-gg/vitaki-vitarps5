@@ -57,7 +57,15 @@
 
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
-#define TAKION_JITTER_MAX_THRESHOLD_US  20000  // 20ms: prevent long head-of-line stalls
+#ifdef __PSVITA__
+#define TAKION_JITTER_MAX_THRESHOLD_US  100000 // 100ms: Vita WiFi jitter regularly exceeds 20ms;
+                                               // allow adaptive threshold to accommodate up to
+                                               // ~40ms measured jitter (2.5×40=100ms).
+                                               // Only affects out-of-order packets; in-order
+                                               // packets flow through with zero added latency.
+#else
+#define TAKION_JITTER_MAX_THRESHOLD_US  20000  // 20ms: wired/stable connections
+#endif
 #define TAKION_JITTER_LOG_INTERVAL_MS   5000   // Log jitter stats every 5 seconds
 
 #define TAKION_MESSAGE_HEADER_SIZE 0x10
@@ -1387,7 +1395,7 @@ static void takion_free_data_entry(TakionDataPacketEntry *entry)
  * Algorithm:
  * 1. Pull consecutive packets normally (in-order delivery)
  * 2. When a gap is encountered, scan for the first available packet after it
- * 3. Calculate adaptive threshold = clamp(2.5 × jitter, 2ms, 20ms)
+ * 3. Calculate adaptive threshold = clamp(2.5 × jitter, min_threshold, max_threshold)
  * 4. Skip gap if packet after gap has been waiting > threshold
  * 5. Otherwise wait for missing packet (preserves in-order delivery)
  *
@@ -1460,11 +1468,11 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 		takion->jitter_stats.last_first_set_offset = first_set_index;
 
 		// Calculate adaptive threshold based on measured jitter
-		// threshold = clamp(2.5 × jitter, 2ms, 20ms)
+		// threshold = clamp(2.5 × jitter, min_threshold, max_threshold)
 		uint64_t jitter = takion->jitter_stats.jitter_us;
 		uint64_t threshold_us = (jitter * 5) / 2; // 2.5 × jitter
 
-		// Clamp to [2ms, 20ms] range
+		// Clamp to configured min/max threshold range
 		if(threshold_us < TAKION_JITTER_MIN_THRESHOLD_US)
 			threshold_us = TAKION_JITTER_MIN_THRESHOLD_US;
 		if(threshold_us > TAKION_JITTER_MAX_THRESHOLD_US)
