@@ -49,15 +49,19 @@ typedef struct vita_chiaki_stream_t {
   bool session_init;
   ChiakiMutex finalization_mutex;  // Protects session_init flag during finalize_session_resources()
   bool is_streaming;
+  bool video_first_frame_logged;
   bool inputs_ready;
   bool stop_requested;
   bool stop_requested_by_user;
   bool teardown_in_progress;
+  volatile bool session_finalize_pending;  // Set by session thread (event_cb), consumed by UI thread for deferred join+fini
   uint32_t negotiated_fps;          // max_fps requested from the console
   uint32_t target_fps;              // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;   // latest measured incoming fps window
   uint32_t session_generation;      // increments for each successfully initialized stream session
   uint32_t reconnect_generation;    // non-zero when this session is a reconnect/re-entry
+  bool reset_reconnect_gen;         // next session should start as fresh (gen 0)
+  uint32_t auto_reconnect_count;    // automatic recovery reconnects in current session (resets per manual connect)
   uint32_t fps_under_target_windows; // one-second windows where incoming fps is materially below target
   uint32_t post_reconnect_low_fps_windows; // low-fps windows observed during post-reconnect grace
   uint64_t post_reconnect_window_until_us; // deadline for post-reconnect low-fps tracking
@@ -95,6 +99,7 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_recovery_window_start_us; // Window start for staged loss recovery
   uint64_t last_loss_recovery_action_us; // Timestamp of last restart/downgrade action from packet loss
   uint64_t stream_start_us;         // Timestamp when streaming connection became active
+  uint64_t loss_restart_soft_grace_until_us; // Short startup grace used for early burst suppression only
   uint64_t loss_restart_grace_until_us; // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;     // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;  // Duration used to compute overlay fade
@@ -104,14 +109,6 @@ typedef struct vita_chiaki_stream_t {
   uint32_t takion_drop_packets;     // Total packets dropped from Takion queue
   uint32_t logged_drop_events;      // Last drop count that was logged
   uint64_t takion_drop_last_us;     // Timestamp of last drop event (us)
-  uint64_t last_takion_overflow_restart_us; // Rate-limit restarts on queue overflow
-  uint32_t takion_overflow_soft_attempts;   // Soft mitigation attempts in current window
-  uint64_t takion_overflow_window_start_us; // Window tracking for overflow attempts
-  uint64_t takion_overflow_backoff_until_us;// Cooldown before next overflow mitigation
-  bool takion_cooldown_overlay_active;      // Block UI taps while Takion cools down
-  uint64_t takion_overflow_drop_window_start_us; // Short window for ignoring transient drops
-  uint32_t takion_overflow_recent_drops;    // Drop counter within ignore window
-  uint64_t takion_startup_grace_last_resync_us; // Rate-limit decoder resync requests during startup grace
   struct {
     uint32_t missing_ref_count;       // Missing reference-frame events from video receiver
     uint32_t corrupt_burst_count;     // Corrupt-frame requests sent to server
@@ -127,6 +124,11 @@ typedef struct vita_chiaki_stream_t {
   } av_diag;
   uint32_t av_diag_stale_snapshot_streak; // Consecutive update_latency_metrics() ticks that missed diag mutex sampling
   uint64_t last_restart_failure_us; // Cooldown gate for repeated restart failures
+  uint32_t restart_handshake_failures; // Count of soft-restart handshake failures in rolling window
+  uint64_t last_restart_handshake_fail_us; // Timestamp of latest handshake failure after soft restart
+  uint64_t restart_cooloff_until_us; // Cooloff deadline that suppresses new soft restarts
+  char last_restart_source[32]; // Last recovery path that requested a soft restart
+  uint32_t restart_source_attempts; // Number of restart attempts from the current source in the rolling window
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
   bool loss_retry_pending;          // Whether a lower bitrate retry is scheduled
@@ -152,6 +154,38 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_idr_requests;           // IDR attempts in rolling window
   uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
+
+  // --- Diagnostic instrumentation (D1: Decode Time) ---
+  volatile uint32_t decode_time_us;       // Latest single-frame decode time (Takion thread writes, UI reads)
+  volatile uint32_t decode_avg_us;        // Window-averaged decode time (published each 1s window)
+  volatile uint32_t decode_max_us;        // Window-max decode time (published each 1s window)
+  uint32_t decode_window_total_us;        // Takion-thread-only accumulator
+  uint32_t decode_window_max_us;          // Takion-thread-only max tracker
+  uint32_t decode_window_count;           // Takion-thread-only frame count
+
+  // --- Diagnostic instrumentation (D4: Windowed Bitrate) ---
+  uint64_t bitrate_prev_bytes;            // Previous snapshot of total bytes for delta
+  uint64_t bitrate_prev_frames;           // Previous snapshot of total frames for delta
+  uint64_t bitrate_window_delta_bytes[3]; // 3-element ring buffer of byte deltas
+  uint32_t bitrate_window_delta_frames[3];// 3-element ring buffer of frame deltas
+  uint8_t  bitrate_window_index;          // Current ring buffer write position
+  uint8_t  bitrate_window_filled;         // Number of valid entries in ring buffer
+  volatile float windowed_bitrate_mbps;   // Rolling 3s bitrate (Takion writes, UI reads)
+
+  // --- Diagnostic instrumentation (D5: Frame Overwrite) ---
+  volatile uint32_t frame_overwrite_count;// Frames overwritten before display consumed them
+
+  // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
+  volatile int32_t wifi_rssi;             // Latest Wi-Fi signal strength (-1 if unavailable)
+
+  // --- Diagnostic instrumentation (D7: Display FPS) ---
+  volatile uint32_t display_fps;          // Frames actually rendered to screen per second
+  uint32_t display_frame_count;           // UI-thread-only counter within current window
+  uint64_t display_fps_window_start_us;   // UI-thread-only window start timestamp
+
+  // --- Stuck bitrate detection ---
+  bool stuck_bitrate_restart_used;        // Only allow one stuck-bitrate restart per session
+  uint32_t stuck_bitrate_low_fps_streak;  // Consecutive 1s windows qualifying as stuck
 } VitaChiakiStream;
 
 typedef struct vita_chiaki_context_t {

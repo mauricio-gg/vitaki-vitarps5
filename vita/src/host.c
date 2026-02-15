@@ -17,6 +17,7 @@
 #include <chiaki/streamconnection.h>
 #include <chiaki/videoreceiver.h>
 #include <chiaki/frameprocessor.h>
+#include <psp2/net/netctl.h>
 
 static void reset_stream_metrics(bool preserve_recovery_state);
 static void update_latency_metrics(void);
@@ -34,7 +35,6 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
 static void handle_takion_overflow(void);
 static bool auto_downgrade_latency_mode(void);
 static const char *latency_mode_label(VitaChiakiLatencyMode mode);
-static bool takion_overflow_has_av_distress(const char **reason_out);
 static bool unrecovered_loss_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
@@ -46,10 +46,15 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t target_fps,
                                                 bool low_fps_window,
                                                 uint64_t now_us);
+static void handle_stuck_bitrate(bool low_fps_window,
+                                 uint32_t incoming_fps,
+                                 uint32_t effective_target_fps,
+                                 uint64_t now_us);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
 static void persist_config_or_warn(void);
+static const char *restart_source_label(const char *source);
 typedef struct {
   uint64_t window_us;
   uint32_t min_frames;
@@ -71,29 +76,20 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
-// Startup can include console wake + decoder warmup; keep a long grace window
-// to prevent restart thrash during initial stream ramp-up.
-#define LOSS_RESTART_STARTUP_GRACE_US (20 * 1000 * 1000ULL)
+// Startup can include console wake + decoder warmup. Keep a short grace for
+// burst suppression and a longer hard grace for severe unrecovered churn.
+#define LOSS_RESTART_STARTUP_SOFT_GRACE_US (2500 * 1000ULL)
+#define LOSS_RESTART_STARTUP_HARD_GRACE_US (20 * 1000 * 1000ULL)
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 // Require multiple unrecovered bursts before escalating to restart logic.
-#define UNRECOVERED_FRAME_GATE_THRESHOLD 4
+#define UNRECOVERED_FRAME_GATE_THRESHOLD 8
 // Use a wider gate window so single transient bursts don't immediately escalate.
 #define UNRECOVERED_FRAME_GATE_WINDOW_US (2500 * 1000ULL)
-#define UNRECOVERED_PERSIST_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_PERSIST_THRESHOLD 6
-#define UNRECOVERED_IDR_WINDOW_US (8 * 1000 * 1000ULL)
-#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 5
-#define TAKION_OVERFLOW_RESTART_DELAY_US (1500 * 1000ULL)
-#define TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US (12 * 1000 * 1000ULL)
-#define TAKION_OVERFLOW_SOFT_RECOVERY_MAX 2
-#define TAKION_OVERFLOW_RECOVERY_BACKOFF_US (6 * 1000 * 1000ULL)
-#define TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS LOSS_RETRY_BITRATE_KBPS
-// During startup grace, limit resync requests to avoid self-inflicted churn.
-#define TAKION_STARTUP_GRACE_RESYNC_COOLDOWN_US (800 * 1000ULL)
-// Ignore the first few overflow drops in-window to absorb short jitter spikes.
-#define TAKION_OVERFLOW_IGNORE_THRESHOLD 4
-#define TAKION_OVERFLOW_IGNORE_WINDOW_US (400 * 1000ULL)
+#define UNRECOVERED_PERSIST_WINDOW_US (15 * 1000 * 1000ULL)
+#define UNRECOVERED_PERSIST_THRESHOLD 12
+#define UNRECOVERED_IDR_WINDOW_US (15 * 1000 * 1000ULL)
+#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 10
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 #define FAST_RESTART_GRACE_DELAY_US (200 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
@@ -106,7 +102,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // RP_IN_USE can persist briefly after wake/quit; hold retries long enough to
 // avoid immediate reconnect churn observed in hardware testing.
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
-#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 6
+#define RECONNECT_RECOVER_LOW_FPS_TRIGGER_WINDOWS 12
+#define MAX_AUTO_RECONNECT_ATTEMPTS 3
 #define RECONNECT_RECOVER_ACTION_COOLDOWN_US (2 * 1000 * 1000ULL)
 #define RECONNECT_RECOVER_STAGE2_WAIT_US (8 * 1000 * 1000ULL)
 // Stage-2 reconnect recovery uses a conservative bitrate that stays below the
@@ -116,6 +113,9 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 // Never let soft restarts ask the console for more than ~1.5 Mbps or the Vita
 // Wi-Fi path risks oscillating into unsustainable bitrates.
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
+#define RESTART_HANDSHAKE_COOLOFF_FIRST_US (8 * 1000 * 1000ULL)
+#define RESTART_HANDSHAKE_COOLOFF_REPEAT_US (12 * 1000 * 1000ULL)
+#define RESTART_HANDSHAKE_REPEAT_WINDOW_US (60 * 1000 * 1000ULL)
 #define SESSION_START_LOW_FPS_WINDOW_US (60 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
@@ -132,6 +132,8 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_PROFILE_WINDOW_BALANCED_US (7 * 1000 * 1000ULL)
 #define LOSS_PROFILE_WINDOW_HIGH_US (9 * 1000 * 1000ULL)
 #define LOSS_PROFILE_WINDOW_MAX_US (10 * 1000 * 1000ULL)
+#define STUCK_BITRATE_STREAK_THRESHOLD 5
+#define STUCK_BITRATE_STARTUP_GRACE_US (10ULL * 1000000ULL)
 
 typedef enum ReconnectRecoveryStage {
   RECONNECT_RECOVER_STAGE_IDLE = 0,
@@ -234,21 +236,23 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	switch(event->type)
 	{
 		case CHIAKI_EVENT_CONNECTED:
-			LOGD("EventCB CHIAKI_EVENT_CONNECTED");
-      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
-      context.stream.loss_restart_grace_until_us =
-          context.stream.stream_start_us + LOSS_RESTART_STARTUP_GRACE_US;
-      if (context.stream.reconnect_generation > 0) {
-        context.stream.post_reconnect_window_until_us =
-            context.stream.stream_start_us + SESSION_START_LOW_FPS_WINDOW_US;
-      } else {
-        context.stream.post_reconnect_window_until_us = 0;
-      }
+				LOGD("EventCB CHIAKI_EVENT_CONNECTED");
+	      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
+	      context.stream.loss_restart_soft_grace_until_us =
+	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
+	      context.stream.loss_restart_grace_until_us =
+	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
+      context.stream.post_reconnect_window_until_us = 0;
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
       context.stream.retry_holdoff_ms = 0;
       context.stream.retry_holdoff_until_us = 0;
       context.stream.retry_holdoff_active = false;
+      context.stream.restart_handshake_failures = 0;
+      context.stream.last_restart_handshake_fail_us = 0;
+      context.stream.restart_cooloff_until_us = 0;
+      context.stream.last_restart_source[0] = '\0';
+      context.stream.restart_source_attempts = 0;
       LOGD("PIPE/SESSION connected gen=%u reconnect_gen=%u post_window_ms=%llu",
            context.stream.session_generation,
            context.stream.reconnect_generation,
@@ -287,6 +291,15 @@ static void event_cb(ChiakiEvent *event, void *user) {
            context.stream.reconnect_generation,
            context.stream.fps_under_target_windows,
            context.stream.post_reconnect_low_fps_windows);
+      // Roll back session_generation for failed connections that never streamed.
+      // This prevents "RP already in use" failures from inflating reconnect_gen.
+      if (!context.stream.is_streaming && !user_stop_requested &&
+          context.stream.session_generation > 0) {
+        LOGD("PIPE/SESSION failed before streaming, rolling back gen %u -> %u",
+             context.stream.session_generation,
+             context.stream.session_generation - 1);
+        context.stream.session_generation--;
+      }
       ui_connection_cancel();
       bool restart_failed = context.stream.fast_restart_active;
       bool retry_pending = context.stream.loss_retry_pending;
@@ -307,7 +320,13 @@ static void event_cb(ChiakiEvent *event, void *user) {
       // Only finalize if not retrying/restarting
       bool should_finalize = !fallback_active && !context.stream.fast_restart_active;
       if (should_finalize) {
-        finalize_session_resources();
+        context.stream.input_thread_should_exit = true;   // Signal early so input thread can exit
+        // Clear session_init so host_stream() doesn't block on the stale flag.
+        // The actual join+fini is deferred to the UI thread.
+        chiaki_mutex_lock(&context.stream.finalization_mutex);
+        context.stream.session_init = false;
+        chiaki_mutex_unlock(&context.stream.finalization_mutex);
+        context.stream.session_finalize_pending = true;    // UI thread will do join+fini
       } else {
         // Manually clear flag when skipping finalization - MUST use mutex
         chiaki_mutex_lock(&context.stream.finalization_mutex);
@@ -315,12 +334,45 @@ static void event_cb(ChiakiEvent *event, void *user) {
         chiaki_mutex_unlock(&context.stream.finalization_mutex);
       }
       uint64_t now_us = sceKernelGetProcessTimeWide();
-      uint64_t takion_backoff_until = context.stream.takion_overflow_backoff_until_us;
-      bool takion_cooldown_active = context.stream.takion_cooldown_overlay_active;
+      uint32_t restart_handshake_failures = context.stream.restart_handshake_failures;
+      uint64_t last_restart_handshake_fail_us = context.stream.last_restart_handshake_fail_us;
+      uint64_t restart_cooloff_until_us = context.stream.restart_cooloff_until_us;
+      char restart_source_snapshot[32];
+      sceClibSnprintf(restart_source_snapshot,
+                      sizeof(restart_source_snapshot),
+                      "%s",
+                      context.stream.last_restart_source);
+      uint32_t restart_source_attempts = context.stream.restart_source_attempts;
       bool remote_in_use =
           event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
       bool remote_crash =
           event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH;
+      bool restart_handshake_failure =
+          !user_stop_requested &&
+          restart_failed &&
+          event->quit.reason == CHIAKI_QUIT_REASON_STOPPED;
+      if (restart_handshake_failure) {
+        bool within_window = last_restart_handshake_fail_us &&
+            now_us - last_restart_handshake_fail_us <=
+                RESTART_HANDSHAKE_REPEAT_WINDOW_US;
+        if (within_window) {
+          if (restart_handshake_failures < UINT32_MAX)
+            restart_handshake_failures++;
+        } else {
+          restart_handshake_failures = 1;
+          restart_source_attempts = 1;
+        }
+        last_restart_handshake_fail_us = now_us;
+        uint64_t cooloff_us =
+            restart_handshake_failures > 1
+                ? RESTART_HANDSHAKE_COOLOFF_REPEAT_US
+                : RESTART_HANDSHAKE_COOLOFF_FIRST_US;
+        restart_cooloff_until_us = now_us + cooloff_us;
+        LOGD("PIPE/RESTART_FAIL source=%s classified=handshake_init_ack failures=%u cooloff_ms=%llu",
+             restart_source_label(restart_source_snapshot),
+             restart_handshake_failures,
+             (unsigned long long)(cooloff_us / 1000ULL));
+      }
       if (context.active_host && (remote_in_use || remote_crash)) {
         const char *hint =
             remote_in_use ? "Remote Play already active on console"
@@ -346,17 +398,12 @@ static void event_cb(ChiakiEvent *event, void *user) {
              context.stream.retry_holdoff_ms);
       }
       uint64_t throttle_until = now_us + retry_delay;
-      if (takion_backoff_until && takion_backoff_until > throttle_until)
-        throttle_until = takion_backoff_until;
       if (context.stream.retry_holdoff_active &&
           context.stream.retry_holdoff_until_us > throttle_until) {
         throttle_until = context.stream.retry_holdoff_until_us;
       }
       if (context.stream.stop_requested) {
-        context.stream.next_stream_allowed_us =
-            (takion_backoff_until && takion_backoff_until > now_us)
-                ? takion_backoff_until
-                : 0;
+        context.stream.next_stream_allowed_us = 0;
       } else {
         context.stream.next_stream_allowed_us = throttle_until;
       }
@@ -388,10 +435,25 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
       reset_stream_metrics(true);
-      context.stream.takion_overflow_backoff_until_us = takion_backoff_until;
-      context.stream.takion_cooldown_overlay_active =
-          takion_cooldown_active &&
-          takion_backoff_until && takion_backoff_until > now_us;
+      if (last_restart_handshake_fail_us &&
+          now_us - last_restart_handshake_fail_us >
+              RESTART_HANDSHAKE_REPEAT_WINDOW_US) {
+        restart_handshake_failures = 0;
+        last_restart_handshake_fail_us = 0;
+        restart_cooloff_until_us = 0;
+        restart_source_snapshot[0] = '\0';
+        restart_source_attempts = 0;
+      }
+      context.stream.restart_handshake_failures = restart_handshake_failures;
+      context.stream.last_restart_handshake_fail_us =
+          last_restart_handshake_fail_us;
+      context.stream.restart_cooloff_until_us =
+          restart_cooloff_until_us > now_us ? restart_cooloff_until_us : 0;
+      sceClibSnprintf(context.stream.last_restart_source,
+                      sizeof(context.stream.last_restart_source),
+                      "%s",
+                      restart_source_snapshot);
+      context.stream.restart_source_attempts = restart_source_attempts;
       context.stream.loss_retry_attempts = retry_attempts;
       context.stream.loss_retry_bitrate_kbps = retry_bitrate;
       context.stream.loss_retry_ready_us = retry_ready;
@@ -457,9 +519,12 @@ static void event_cb(ChiakiEvent *event, void *user) {
           context.stream.reconnect_overlay_active = false;
           context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
           context.stream.restart_failure_active = true;
-          // Finalize session since retry failed
-          finalize_session_resources();
-          resume_discovery_if_needed();
+          // Defer finalization — UI thread will join + fini
+          context.stream.input_thread_should_exit = true;
+          chiaki_mutex_lock(&context.stream.finalization_mutex);
+          context.stream.session_init = false;
+          chiaki_mutex_unlock(&context.stream.finalization_mutex);
+          context.stream.session_finalize_pending = true;
         } else {
           context.stream.loss_retry_active = false;
           context.stream.reconnect_overlay_active = false;
@@ -485,6 +550,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.retry_holdoff_ms = 0;
   context.stream.retry_holdoff_until_us = 0;
   context.stream.retry_holdoff_active = false;
+  context.stream.video_first_frame_logged = false;
   context.stream.measured_incoming_fps = 0;
   context.stream.fps_under_target_windows = 0;
   context.stream.post_reconnect_low_fps_windows = 0;
@@ -512,6 +578,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.loss_recovery_window_start_us = 0;
   context.stream.last_loss_recovery_action_us = 0;
   context.stream.stream_start_us = 0;
+  context.stream.loss_restart_soft_grace_until_us = 0;
   context.stream.loss_restart_grace_until_us = 0;
   context.stream.loss_alert_until_us = 0;
   context.stream.loss_alert_duration_us = 0;
@@ -521,8 +588,6 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.takion_drop_packets = 0;
   context.stream.logged_drop_events = 0;
   context.stream.takion_drop_last_us = 0;
-  context.stream.last_takion_overflow_restart_us = 0;
-  context.stream.takion_startup_grace_last_resync_us = 0;
   context.stream.av_diag.missing_ref_count = 0;
   context.stream.av_diag.corrupt_burst_count = 0;
   context.stream.av_diag.fec_fail_count = 0;
@@ -535,16 +600,47 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.av_diag.last_corrupt_start = 0;
   context.stream.av_diag.last_corrupt_end = 0;
   context.stream.av_diag_stale_snapshot_streak = 0;
-  if (!preserve_recovery_state) {
-  context.stream.takion_overflow_soft_attempts = 0;
-  context.stream.takion_overflow_window_start_us = 0;
-  context.stream.takion_overflow_backoff_until_us = 0;
-  context.stream.takion_cooldown_overlay_active = false;
-  context.stream.takion_overflow_drop_window_start_us = 0;
-  context.stream.takion_overflow_recent_drops = 0;
-  context.stream.takion_startup_grace_last_resync_us = 0;
-  }
   context.stream.last_restart_failure_us = 0;
+  context.stream.restart_handshake_failures = 0;
+  context.stream.last_restart_handshake_fail_us = 0;
+  context.stream.restart_cooloff_until_us = 0;
+  context.stream.last_restart_source[0] = '\0';
+  context.stream.restart_source_attempts = 0;
+
+  // D1: Decode timing
+  context.stream.decode_time_us = 0;
+  context.stream.decode_avg_us = 0;
+  context.stream.decode_max_us = 0;
+  context.stream.decode_window_total_us = 0;
+  context.stream.decode_window_max_us = 0;
+  context.stream.decode_window_count = 0;
+
+  // D4: Windowed bitrate
+  context.stream.bitrate_prev_bytes = 0;
+  context.stream.bitrate_prev_frames = 0;
+  memset(context.stream.bitrate_window_delta_bytes, 0, sizeof(context.stream.bitrate_window_delta_bytes));
+  memset(context.stream.bitrate_window_delta_frames, 0, sizeof(context.stream.bitrate_window_delta_frames));
+  context.stream.bitrate_window_index = 0;
+  context.stream.bitrate_window_filled = 0;
+  context.stream.windowed_bitrate_mbps = 0.0f;
+
+  // D5: Frame overwrite
+  context.stream.frame_overwrite_count = 0;
+
+  // D6: Wi-Fi RSSI
+  context.stream.wifi_rssi = -1;
+
+  // D7: Display FPS
+  context.stream.display_fps = 0;
+  context.stream.display_frame_count = 0;
+  context.stream.display_fps_window_start_us = 0;
+
+  // Stuck bitrate detection (streak resets always; once-per-session flag
+  // survives fast restarts so we don't re-trigger after our own restart)
+  context.stream.stuck_bitrate_low_fps_streak = 0;
+  if (!preserve_recovery_state)
+    context.stream.stuck_bitrate_restart_used = false;
+
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
@@ -568,6 +664,7 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   context.stream.unrecovered_idr_requests = 0;
   context.stream.unrecovered_idr_window_start_us = 0;
   context.stream.restart_failure_active = false;
+  context.stream.auto_reconnect_count = 0;
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
   vitavideo_hide_poor_net_indicator();
@@ -577,11 +674,18 @@ static void shutdown_media_pipeline(void) {
   if (!context.stream.media_initialized)
     return;
 
+  // Stop the video decode thread and clear the frame_ready flag BEFORE freeing
+  // the texture.  The UI thread renders decoded frames from
+  // vita_video_render_latest_frame(); we must ensure it is no longer drawing
+  // the texture when we free it.
+  context.stream.is_streaming = false;   // UI loop stops entering render branch
+  vita_h264_stop();                      // active_video_thread=false, frame_ready=false
+  sceKernelDelayThread(2000);            // 2ms — let any in-flight render + swap finish
+
   chiaki_opus_decoder_fini(&context.stream.opus_decoder);
   vita_h264_cleanup();
   vita_audio_cleanup();
   context.stream.media_initialized = false;
-  context.stream.is_streaming = false;
   context.stream.inputs_ready = false;
   context.stream.fast_restart_active = false;
   context.stream.reconnect_overlay_active = false;
@@ -625,20 +729,9 @@ static void finalize_session_resources(void) {
     LOGD("Input thread joined successfully");
   }
 
-  /*
-   * NOTE: We deliberately DO NOT call chiaki_session_join() here.
-   *
-   * This function is invoked from the CHIAKI_EVENT_QUIT callback, which runs
-   * inside the session thread itself (lib/src/session.c:767, session_thread_func).
-   * Attempting to join the session thread from within that thread would cause
-   * sceKernelWaitThreadEnd() to fail with error code 3 (attempting to wait for
-   * the current thread).
-   *
-   * The session thread will exit naturally after the event callback returns.
-   * chiaki_session_fini() below handles all necessary cleanup without requiring
-   * the session thread to be joined first - it tears down network connections,
-   * frees buffers, and destroys synchronization primitives.
-   */
+  // Note: This function is only used by the host_stream() cleanup path (line ~2766)
+  // where the session thread may not have started. The deferred finalization path
+  // (host_finalize_deferred_session) calls chiaki_session_fini() directly.
 
   // Finalize session
   chiaki_session_fini(&context.stream.session);
@@ -650,6 +743,38 @@ static void finalize_session_resources(void) {
    * across multiple streaming sessions. It will be destroyed when the application
    * exits as part of the overall context cleanup.
    */
+}
+
+void host_finalize_deferred_session(void) {
+  if (!context.stream.session_finalize_pending)
+    return;
+
+  uint64_t join_start = sceKernelGetProcessTimeWide();
+  LOGD("Deferred finalization: joining session thread");
+  ChiakiErrorCode err = chiaki_session_join(&context.stream.session);
+  uint64_t join_duration_us = sceKernelGetProcessTimeWide() - join_start;
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Session join failed: %d after %llu us (proceeding with fini)", err, (unsigned long long)join_duration_us);
+  } else {
+    LOGD("Session thread joined in %llu us", (unsigned long long)join_duration_us);
+  }
+
+  // Join input thread (may already be exited)
+  err = chiaki_thread_join(&context.stream.input_thread, NULL);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Input thread join failed: %d (deferred path)", err);
+  } else {
+    LOGD("Input thread joined (deferred path)");
+  }
+
+  // Finalize session — session_init was already cleared in event_cb,
+  // so we call chiaki_session_fini() directly instead of going through
+  // finalize_session_resources() which would bail on the guard check.
+  chiaki_session_fini(&context.stream.session);
+  LOGD("Session finalized (deferred path)");
+
+  context.stream.session_finalize_pending = false;
+  resume_discovery_if_needed();
 }
 
 static void update_latency_metrics(void) {
@@ -721,12 +846,42 @@ static void update_latency_metrics(void) {
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
+  // D4: Windowed bitrate — 3-element ring buffer for rolling 3s average
+  {
+    uint64_t total_bytes = stats->bytes;
+    uint64_t total_frames = stats->frames;
+    uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
+    uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
+    context.stream.bitrate_prev_bytes = total_bytes;
+    context.stream.bitrate_prev_frames = total_frames;
+
+    uint8_t idx = context.stream.bitrate_window_index;
+    context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
+    context.stream.bitrate_window_delta_frames[idx] = delta_frames;
+    context.stream.bitrate_window_index = (idx + 1) % 3;
+    if (context.stream.bitrate_window_filled < 3)
+      context.stream.bitrate_window_filled++;
+
+    uint64_t sum_bytes = 0;
+    uint32_t sum_frames = 0;
+    for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
+      sum_bytes += context.stream.bitrate_window_delta_bytes[i];
+      sum_frames += context.stream.bitrate_window_delta_frames[i];
+    }
+    if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
+      float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
+      float window_mbps = window_bps / 1000000.0f;
+      if (window_mbps > 100.0f) window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
+      context.stream.windowed_bitrate_mbps = window_mbps;
+    }
+  }
+
   uint32_t effective_target_fps =
       context.stream.target_fps ? context.stream.target_fps :
       context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
-      incoming_fps + 2 < effective_target_fps;
+      incoming_fps + 5 < effective_target_fps;
   bool av_diag_progressed =
       av_diag_missing_ref_count >
           context.stream.av_diag.logged_missing_ref_count ||
@@ -763,6 +918,13 @@ static void update_latency_metrics(void) {
     context.stream.last_rtt_refresh_us = now_us;
     context.stream.metrics_last_update_us = now_us;
 
+    // D6: Probe Wi-Fi RSSI once per second
+    {
+      SceNetCtlInfo rssi_info;
+      int rssi_ret = sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_RSSI_PERCENTAGE, &rssi_info);
+      context.stream.wifi_rssi = (rssi_ret >= 0) ? (int32_t)rssi_info.rssi_percentage : -1;
+    }
+
     // Count low-fps health once per metrics window (about 1 second), not per frame.
     if (low_fps_window) {
       context.stream.fps_under_target_windows++;
@@ -777,6 +939,11 @@ static void update_latency_metrics(void) {
                                         effective_target_fps,
                                         low_fps_window,
                                         now_us);
+
+    handle_stuck_bitrate(low_fps_window,
+                         incoming_fps,
+                         effective_target_fps,
+                         now_us);
   }
 
   if (!context.config.show_latency)
@@ -792,7 +959,7 @@ static void update_latency_metrics(void) {
          context.stream.measured_rtt_ms,
          (uint32_t)(context.stream.session.rtt_us / 1000),
          (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
-    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu",
+    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d",
          context.stream.session_generation,
          context.stream.reconnect_generation,
          incoming_fps,
@@ -803,7 +970,15 @@ static void update_latency_metrics(void) {
                  now_us < context.stream.post_reconnect_window_until_us
              ? (unsigned long long)((context.stream.post_reconnect_window_until_us -
                                      now_us) / 1000ULL)
-             : 0ULL);
+             : 0ULL,
+         context.stream.decode_avg_us / 1000.0f,
+         context.stream.decode_max_us / 1000.0f,
+         context.stream.windowed_bitrate_mbps,
+         context.stream.frame_overwrite_count,
+         context.stream.wifi_rssi,
+         context.stream.display_fps,
+         context.stream.stuck_bitrate_low_fps_streak,
+         (int)context.stream.stuck_bitrate_restart_used);
     last_log_us = now_us;
   }
 
@@ -871,6 +1046,9 @@ static void request_stream_stop(const char *reason) {
     LOGD("Stopping stream (%s)", reason ? reason : "user");
     context.stream.stop_requested = true;
     context.stream.stop_requested_by_user = user_stop;
+    if (user_stop) {
+      context.stream.reset_reconnect_gen = true;
+    }
   }
   context.stream.teardown_in_progress = true;
   context.stream.next_stream_allowed_us = 0;
@@ -943,46 +1121,79 @@ static bool request_stream_restart(uint32_t bitrate_kbps) {
   context.stream.inputs_ready = true;
   context.stream.inputs_resume_pending = true;
   context.stream.restart_failure_active = false;
-  context.stream.takion_cooldown_overlay_active = false;
   return true;
+}
+
+static const char *restart_source_label(const char *source) {
+  return (source && source[0]) ? source : "unknown";
 }
 
 static bool request_stream_restart_coordinated(const char *source,
                                                uint32_t bitrate_kbps,
                                                uint64_t now_us) {
+  const char *source_label = restart_source_label(source);
   if (context.stream.stop_requested) {
     LOGD("PIPE/RESTART source=%s action=skip reason=stop_requested",
-         source ? source : "unknown");
+         source_label);
+    return false;
+  }
+  if (context.stream.auto_reconnect_count >= MAX_AUTO_RECONNECT_ATTEMPTS) {
+    LOGD("PIPE/RESTART source=%s action=suppressed_max_reconnects auto_count=%u gen=%u",
+         source_label, context.stream.auto_reconnect_count,
+         context.stream.reconnect_generation);
     return false;
   }
   if (context.stream.fast_restart_active) {
     LOGD("PIPE/RESTART source=%s action=skip reason=restart_active",
-         source ? source : "unknown");
+         source_label);
     return true;
+  }
+  if (context.stream.restart_cooloff_until_us &&
+      now_us < context.stream.restart_cooloff_until_us) {
+    uint64_t remaining_ms =
+        (context.stream.restart_cooloff_until_us - now_us) / 1000ULL;
+    LOGD("PIPE/RESTART source=%s action=blocked_cooloff remaining=%llums",
+         source_label,
+         (unsigned long long)remaining_ms);
+    return false;
   }
 
   if (context.stream.last_loss_recovery_action_us &&
       now_us - context.stream.last_loss_recovery_action_us <
           LOSS_RECOVERY_ACTION_COOLDOWN_US) {
     uint64_t remaining_ms =
-        (LOSS_RECOVERY_ACTION_COOLDOWN_US -
+         (LOSS_RECOVERY_ACTION_COOLDOWN_US -
          (now_us - context.stream.last_loss_recovery_action_us)) / 1000ULL;
     LOGD("PIPE/RESTART source=%s action=cooldown_skip remaining=%llums",
-         source ? source : "unknown",
+         source_label,
          (unsigned long long)remaining_ms);
     return false;
   }
 
+  if (strcmp(context.stream.last_restart_source, source_label) != 0) {
+    sceClibSnprintf(context.stream.last_restart_source,
+                    sizeof(context.stream.last_restart_source),
+                    "%s",
+                    source_label);
+    context.stream.restart_source_attempts = 1;
+  } else if (context.stream.restart_source_attempts < UINT32_MAX) {
+    context.stream.restart_source_attempts++;
+  }
+
   bool ok = request_stream_restart(bitrate_kbps);
   if (ok) {
+    context.stream.auto_reconnect_count++;
     context.stream.last_loss_recovery_action_us = now_us;
-    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u",
-         source ? source : "unknown",
-         bitrate_kbps);
+    LOGD("PIPE/RESTART source=%s action=requested bitrate=%u attempt=%u auto_count=%u",
+         source_label,
+         bitrate_kbps,
+         context.stream.restart_source_attempts,
+         context.stream.auto_reconnect_count);
   } else {
-    LOGE("PIPE/RESTART source=%s action=failed bitrate=%u",
-         source ? source : "unknown",
-         bitrate_kbps);
+    LOGE("PIPE/RESTART source=%s action=failed bitrate=%u attempt=%u",
+         source_label,
+         bitrate_kbps,
+         context.stream.restart_source_attempts);
   }
   return ok;
 }
@@ -1008,6 +1219,11 @@ static bool request_recovery_restart(const char *source,
     return true;
   }
   mark_restart_failure(now_us);
+  if (context.stream.restart_cooloff_until_us &&
+      now_us < context.stream.restart_cooloff_until_us) {
+    request_decoder_resync("restart cooloff");
+    return false;
+  }
   if (failure_resync_reason) {
     request_decoder_resync(failure_resync_reason);
   }
@@ -1045,6 +1261,41 @@ static void start_reconnect_recovery_state(void) {
   context.stream.reconnect.recover_idr_attempts = 0;
   context.stream.reconnect.recover_restart_attempts = 0;
   context.stream.reconnect.recover_stable_windows = 0;
+}
+
+static void handle_stuck_bitrate(bool low_fps_window,
+                                 uint32_t incoming_fps,
+                                 uint32_t effective_target_fps,
+                                 uint64_t now_us) {
+  if (context.stream.stuck_bitrate_restart_used)
+    return;
+  if (!context.stream.stream_start_us ||
+      now_us - context.stream.stream_start_us < STUCK_BITRATE_STARTUP_GRACE_US)
+    return;
+  if (context.stream.fast_restart_active ||
+      context.stream.reconnect.recover_active)
+    return;
+
+  float negotiated_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
+  bool bitrate_stuck = context.stream.bitrate_window_filled >= 2 &&
+                       context.stream.windowed_bitrate_mbps > 0.0f &&
+                       context.stream.windowed_bitrate_mbps < negotiated_mbps * 0.85f;
+
+  if (low_fps_window && bitrate_stuck) {
+    context.stream.stuck_bitrate_low_fps_streak++;
+    if (context.stream.stuck_bitrate_low_fps_streak >= STUCK_BITRATE_STREAK_THRESHOLD) {
+      uint32_t negotiated_kbps = context.stream.session.connect_info.video_profile.bitrate;
+      LOGD("PIPE/STUCK_BITRATE streak=%u incoming=%u target=%u windowed_mbps=%.2f negotiated_mbps=%.2f — triggering soft restart",
+           context.stream.stuck_bitrate_low_fps_streak,
+           incoming_fps, effective_target_fps,
+           context.stream.windowed_bitrate_mbps, negotiated_mbps);
+      request_stream_restart_coordinated("stuck_bitrate", negotiated_kbps, now_us);
+      context.stream.stuck_bitrate_restart_used = true;
+      context.stream.stuck_bitrate_low_fps_streak = 0;
+    }
+  } else {
+    context.stream.stuck_bitrate_low_fps_streak = 0;
+  }
 }
 
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
@@ -1125,6 +1376,29 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
   }
 
   if (context.stream.reconnect.recover_stage == RECONNECT_RECOVER_STAGE_IDR_REQUESTED) {
+    bool stage2_av_distress = av_diag_progressed;
+    bool restart_cooloff_active = context.stream.restart_cooloff_until_us &&
+        now_us < context.stream.restart_cooloff_until_us;
+    bool stage2_source_backoff = strcmp(context.stream.last_restart_source,
+                                        "post_reconnect_stage2") == 0 &&
+        context.stream.restart_source_attempts > 1 &&
+        context.stream.last_restart_handshake_fail_us &&
+        now_us - context.stream.last_restart_handshake_fail_us <=
+            RESTART_HANDSHAKE_REPEAT_WINDOW_US;
+    if (!stage2_av_distress || restart_cooloff_active || stage2_source_backoff) {
+      const char *reason = !stage2_av_distress ? "no_av_distress"
+          : restart_cooloff_active ? "restart_cooloff"
+          : "source_backoff";
+      request_decoder_resync("post-reconnect stage2 suppressed");
+      context.stream.reconnect.recover_last_action_us = now_us;
+      LOGD("PIPE/RECOVER gen=%u reconnect_gen=%u action=stage2_suppressed reason=%s attempts=%u",
+           context.stream.session_generation,
+           context.stream.reconnect_generation,
+           reason,
+           context.stream.restart_source_attempts);
+      return;
+    }
+
     bool restart_ok = request_stream_restart_coordinated(
         "post_reconnect_stage2",
         RECONNECT_RECOVER_TARGET_KBPS,
@@ -1298,18 +1572,21 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   bool persistent_distress =
       context.stream.unrecovered_persistent_events >=
       UNRECOVERED_PERSIST_THRESHOLD;
-  bool startup_grace_active =
+  bool startup_hard_grace_active =
       context.stream.loss_restart_grace_until_us &&
       now_us < context.stream.loss_restart_grace_until_us;
+  bool startup_soft_grace_active =
+      context.stream.loss_restart_soft_grace_until_us &&
+      now_us < context.stream.loss_restart_soft_grace_until_us;
   const char *unrecovered_distress_reason = NULL;
   bool av_distress =
       unrecovered_loss_has_av_distress(&unrecovered_distress_reason);
 
   if (persistent_distress && idr_ineffective) {
-    if (startup_grace_active) {
+    if (startup_hard_grace_active) {
       uint64_t remaining_ms =
           remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-      LOGD("Unrecovered loss action=restart_suppressed_startup_grace remaining=%llums",
+      LOGD("Unrecovered loss action=restart_suppressed_startup_hard_grace remaining=%llums",
            (unsigned long long)remaining_ms);
       context.stream.unrecovered_idr_requests++;
       request_decoder_resync("unrecovered persistent startup grace");
@@ -1386,10 +1663,10 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
   context.stream.unrecovered_gate_events = 0;
   context.stream.unrecovered_gate_window_start_us = now_us;
   context.stream.unrecovered_idr_requests++;
-  if (startup_grace_active) {
+  if (startup_soft_grace_active) {
     uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Unrecovered streak action=restart_suppressed_startup_grace remaining=%llums",
+        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
+    LOGD("Unrecovered streak action=restart_suppressed_startup_soft_grace remaining=%llums",
          (unsigned long long)remaining_ms);
     request_decoder_resync("unrecovered streak startup grace");
     return triggered;
@@ -1419,52 +1696,6 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
     context.stream.unrecovered_idr_window_start_us = now_us;
   }
   return triggered;
-}
-
-static bool takion_overflow_has_av_distress(const char **reason_out) {
-  bool diag_missing_ref =
-      context.stream.av_diag.missing_ref_count >
-      context.stream.av_diag.logged_missing_ref_count;
-  bool diag_corrupt =
-      context.stream.av_diag.corrupt_burst_count >
-      context.stream.av_diag.logged_corrupt_burst_count;
-  bool diag_fec =
-      context.stream.av_diag.fec_fail_count >
-      context.stream.av_diag.logged_fec_fail_count;
-  bool diag_sendbuf =
-      context.stream.av_diag.sendbuf_overflow_count >
-      context.stream.av_diag.logged_sendbuf_overflow_count;
-
-  if (diag_missing_ref || diag_corrupt || diag_fec || diag_sendbuf) {
-    if (reason_out) {
-      if (diag_missing_ref)
-        *reason_out = "missing_ref";
-      else if (diag_corrupt)
-        *reason_out = "corrupt_burst";
-      else if (diag_fec)
-        *reason_out = "fec_fail";
-      else
-        *reason_out = "sendbuf_overflow";
-    }
-    return true;
-  }
-
-  uint32_t target_fps = context.stream.target_fps ?
-      context.stream.target_fps : context.stream.negotiated_fps;
-  uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  // Overflow path reacts early when cadence drops below 75% of target.
-  // This path is intentionally more sensitive because reorder overflow can
-  // quickly poison decoder dependencies if we wait too long.
-  if (target_fps && incoming_fps &&
-      (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 75ULL) {
-    if (reason_out)
-      *reason_out = "fps_drop";
-    return true;
-  }
-
-  if (reason_out)
-    *reason_out = "av_healthy";
-  return false;
 }
 
 static bool unrecovered_loss_has_av_distress(const char **reason_out) {
@@ -1508,178 +1739,9 @@ static bool unrecovered_loss_has_av_distress(const char **reason_out) {
 }
 
 static void handle_takion_overflow(void) {
-  if (context.stream.stop_requested)
-    return;
-
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us &&
-      now_us >= context.stream.takion_overflow_backoff_until_us) {
-    context.stream.takion_cooldown_overlay_active = false;
-    context.stream.takion_overflow_backoff_until_us = 0;
-  }
-
-  if (context.stream.fast_restart_active) {
-    LOGD("Takion overflow reported while restart active; ignoring");
-    return;
-  }
-
-  if (context.stream.loss_restart_grace_until_us &&
-      now_us < context.stream.loss_restart_grace_until_us) {
-    uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Takion overflow action=restart_suppressed_startup_grace remaining=%llums",
-         (unsigned long long)remaining_ms);
-    // Startup grace intentionally avoids forced resync to prevent churn while
-    // the decoder/transport pipeline is still warming up.
-    return;
-  }
-
-  if (context.stream.takion_overflow_drop_window_start_us == 0 ||
-      now_us - context.stream.takion_overflow_drop_window_start_us >
-          TAKION_OVERFLOW_IGNORE_WINDOW_US) {
-    context.stream.takion_overflow_drop_window_start_us = now_us;
-    context.stream.takion_overflow_recent_drops = 0;
-  }
-
-  context.stream.takion_overflow_recent_drops++;
-  if (context.stream.takion_overflow_recent_drops <=
-      TAKION_OVERFLOW_IGNORE_THRESHOLD) {
-    if (context.config.show_latency) {
-      uint64_t window_elapsed_us =
-          now_us - context.stream.takion_overflow_drop_window_start_us;
-      uint64_t window_ms = window_elapsed_us / 1000ULL;
-      LOGD("Takion overflow tolerated (%u/%u within %llums)",
-           context.stream.takion_overflow_recent_drops,
-           TAKION_OVERFLOW_IGNORE_THRESHOLD,
-           (unsigned long long)window_ms);
-    }
-    return;
-  }
-
-  if (context.config.show_latency &&
-      context.stream.takion_overflow_recent_drops ==
-          (TAKION_OVERFLOW_IGNORE_THRESHOLD + 1)) {
-    uint64_t window_elapsed_us =
-        now_us - context.stream.takion_overflow_drop_window_start_us;
-    uint64_t window_ms = window_elapsed_us / 1000ULL;
-    LOGD("Takion overflow gate tripped after %u drops in %llums",
-         context.stream.takion_overflow_recent_drops,
-         (unsigned long long)window_ms);
-    uint32_t flushed_seq = chiaki_takion_drop_data_queue(
-        &context.stream.session.stream_connection.takion);
-    if (flushed_seq) {
-      LOGD("Takion overflow gate flushed reorder queue (ack %#x)", flushed_seq);
-    }
-    request_decoder_resync("takion overflow gate");
-  }
-
-  const char *distress_reason = NULL;
-  if (!takion_overflow_has_av_distress(&distress_reason)) {
-    LOGD("Takion overflow action=restart_suppressed_av_healthy reason=%s drops=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u} fps=%u/%u",
-         distress_reason ? distress_reason : "unknown",
-         context.stream.takion_overflow_recent_drops,
-         context.stream.av_diag.missing_ref_count,
-         context.stream.av_diag.corrupt_burst_count,
-         context.stream.av_diag.fec_fail_count,
-         context.stream.av_diag.sendbuf_overflow_count,
-         context.stream.measured_incoming_fps,
-         context.stream.target_fps ? context.stream.target_fps :
-             context.stream.negotiated_fps);
-    // Keep the overflow detector armed, but require a fresh drop after suppression.
-    context.stream.takion_overflow_recent_drops = TAKION_OVERFLOW_IGNORE_THRESHOLD;
-    return;
-  }
-
-  if (context.stream.takion_overflow_backoff_until_us &&
-      now_us < context.stream.takion_overflow_backoff_until_us) {
-    uint64_t remaining =
-        context.stream.takion_overflow_backoff_until_us - now_us;
-    LOGD("Takion overflow mitigation cooling down (%llu ms remaining)",
-         remaining / 1000ULL);
-    context.stream.takion_cooldown_overlay_active = true;
-    return;
-  }
-
-  if (context.stream.takion_overflow_window_start_us == 0 ||
-      now_us - context.stream.takion_overflow_window_start_us >
-          TAKION_OVERFLOW_SOFT_RECOVERY_WINDOW_US) {
-    context.stream.takion_overflow_window_start_us = now_us;
-    context.stream.takion_overflow_soft_attempts = 0;
-  }
-
-  if (context.stream.takion_overflow_soft_attempts <
-      TAKION_OVERFLOW_SOFT_RECOVERY_MAX) {
-    uint32_t attempt = context.stream.takion_overflow_soft_attempts + 1;
-    LOGD("Takion overflow — soft recovery %u/%u at %u kbps",
-         attempt,
-         TAKION_OVERFLOW_SOFT_RECOVERY_MAX,
-         TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS);
-    if (FAST_RESTART_GRACE_DELAY_US)
-      sceKernelDelayThread(FAST_RESTART_GRACE_DELAY_US);
-    bool restart_ok = request_recovery_restart(
-        "takion_overflow_soft",
-        TAKION_OVERFLOW_RECOVERY_BITRATE_KBPS,
-        now_us,
-        NULL);
-    context.stream.takion_overflow_backoff_until_us =
-        now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
-    if (context.stream.next_stream_allowed_us <
-        context.stream.takion_overflow_backoff_until_us) {
-      context.stream.next_stream_allowed_us =
-          context.stream.takion_overflow_backoff_until_us;
-    }
-    if (restart_ok) {
-      context.stream.takion_overflow_soft_attempts++;
-      context.stream.last_takion_overflow_restart_us = now_us;
-      context.stream.takion_cooldown_overlay_active = true;
-      if (context.active_host) {
-        host_set_hint(context.active_host,
-                      "Network congestion — reducing bitrate",
-                      false,
-                      HINT_DURATION_RECOVERY_US);
-      }
-      return;
-    }
-    LOGE("Takion overflow soft recovery request failed");
-    context.stream.takion_cooldown_overlay_active = true;
-    return;
-  }
-
-  if (context.stream.last_takion_overflow_restart_us &&
-      now_us - context.stream.last_takion_overflow_restart_us <
-          TAKION_OVERFLOW_RESTART_DELAY_US) {
-    uint64_t remaining =
-        TAKION_OVERFLOW_RESTART_DELAY_US -
-        (now_us - context.stream.last_takion_overflow_restart_us);
-    LOGD("Takion overflow restart throttled (%llu ms remaining)",
-         remaining / 1000ULL);
-    return;
-  }
-
-  context.stream.last_takion_overflow_restart_us = now_us;
-  context.stream.takion_overflow_backoff_until_us =
-      now_us + TAKION_OVERFLOW_RECOVERY_BACKOFF_US;
-  context.stream.takion_cooldown_overlay_active = true;
-  if (context.stream.next_stream_allowed_us <
-      context.stream.takion_overflow_backoff_until_us) {
-    context.stream.next_stream_allowed_us =
-        context.stream.takion_overflow_backoff_until_us;
-  }
-  LOGD("Takion overflow threshold reached — requesting guarded restart");
-  if (!request_recovery_restart("takion_overflow_escalation",
-                                LOSS_RETRY_BITRATE_KBPS,
-                                now_us,
-                                NULL)) {
-    LOGE("Takion overflow restart failed; pausing stream");
-    request_stream_stop("takion overflow");
-  } else if (context.active_host) {
-    host_set_hint(context.active_host,
-                  "Network congestion — rebuilding stream",
-                  true,
-                  HINT_DURATION_RECOVERY_US);
-  }
+  LOGD("Takion overflow reported (drop_events=%u, total_packets=%u) — no action taken",
+       context.stream.takion_drop_events,
+       context.stream.takion_drop_packets);
 }
 
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value) {
@@ -2006,13 +2068,13 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     return;
   }
 
-  bool startup_grace_active =
-      context.stream.loss_restart_grace_until_us &&
-      now_us < context.stream.loss_restart_grace_until_us;
-  if (startup_grace_active) {
+  bool startup_soft_grace_active =
+      context.stream.loss_restart_soft_grace_until_us &&
+      now_us < context.stream.loss_restart_soft_grace_until_us;
+  if (startup_soft_grace_active) {
     uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-    LOGD("Loss recovery action=restart_suppressed_startup_grace trigger=%s remaining=%llums",
+        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
+    LOGD("Loss recovery action=restart_suppressed_startup_soft_grace trigger=%s remaining=%llums",
          trigger,
          (unsigned long long)remaining_ms);
     // Keep stage pinned at 1 while startup grace is active so the next
@@ -2112,12 +2174,11 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
 }
 
 static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
-  static bool first_frame = true;
   if (context.stream.stop_requested)
     return false;
-  if (first_frame) {
+  if (!context.stream.video_first_frame_logged) {
     LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
-    first_frame = false;
+    context.stream.video_first_frame_logged = true;
   }
   if (frames_lost > 0) {
     handle_loss_event(frames_lost, frame_recovered);
@@ -2128,6 +2189,7 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
     }
   }
   context.stream.is_streaming = true;
+  context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
   if (ui_connection_overlay_active())
     ui_connection_complete();
   if (context.stream.reconnect_overlay_active)
@@ -2531,6 +2593,15 @@ int host_stream(VitaChiakiHost* host) {
   if (!host->hostname || !host->registered_state) {
     return 1;
   }
+  // Drain any pending deferred finalization before starting a new session.
+  // Without this, a rapid reconnect could overwrite the session struct while
+  // the old session thread is still running (race between event_cb clearing
+  // session_init and the UI thread running host_finalize_deferred_session).
+  if (context.stream.session_finalize_pending) {
+    LOGD("Deferred finalization pending; draining before new session");
+    host_finalize_deferred_session();
+    LOGD("Deferred finalization drain completed");
+  }
   if (context.stream.session_init) {
     LOGD("Stream already initialized; ignoring duplicate start request");
     return 1;
@@ -2629,8 +2700,15 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   uint32_t new_generation = context.stream.session_generation + 1;
-  context.stream.reconnect_generation =
-      context.stream.session_generation > 0 ? context.stream.session_generation : 0;
+  if (context.stream.reset_reconnect_gen) {
+    context.stream.reconnect_generation = 0;
+    // Don't clear flag here — clear it when streaming actually starts.
+    // This ensures the flag survives RP_IN_USE retry cycles so all
+    // subsequent auto-retries also get reconnect_gen=0.
+  } else {
+    context.stream.reconnect_generation =
+        context.stream.session_generation > 0 ? context.stream.session_generation : 0;
+  }
   context.stream.session_generation = new_generation;
   LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s",
        context.stream.session_generation,
@@ -2710,6 +2788,7 @@ cleanup:
     context.stream.is_streaming = false;
     context.stream.inputs_ready = false;
     context.stream.teardown_in_progress = false;
+    context.stream.session_finalize_pending = false;
     resume_discovery_if_needed();
     ui_connection_cancel();
   } else if (resume_inputs) {

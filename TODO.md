@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-11 (Robustness track added for post-reconnect low-FPS degradation)
+Last Updated: 2026-02-13 (Startup deterministic bootstrap landed)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -42,7 +42,15 @@ Only move a task to "Done" after the reviewer signs off.
    - *Evidence:* `84165791498_vitarps5-testing.log:775-823`, `84165791498_vitarps5-testing.log:917-923`, `84165791498_vitarps5-testing.log:1256-1261`
    - *Scope:* Startup-only receive/reorder pressure handling, reconnect sequencing, and cooldown/holdoff tuning.
    - *Out of scope for current PR:* Mid-session decode/reference-loss recovery loop.
-   - *Next Step:* Create `feat/startup-transport-hardening` from updated `main` and run startup-only A/B tests with `./tools/build.sh --env testing`.
+   - *Progress (2026-02-13):* Landed startup warmup absorb window + one-shot reorder-queue drain/IDR request, increased Takion reorder queue depth to 256 packets, split startup suppression into soft/hard windows, added startup distress scoring, added restart-handshake cooloff gating, and added deterministic startup bootstrap (`~1s` decode-only window + flush+IDR + clean-frame release) to align first-attempt startup behavior with stable runs (`vita/src/host.c`, `vita/src/video.c`, `vita/include/context.h`, `lib/src/takion.c`).
+   - *Instrumentation update (2026-02-12):* Added `PIPE/BUILD` metadata log line (commit/branch/dirty/timestamp) so every test log can be tied to exact binary provenance (`tools/build.sh`, `vita/CMakeLists.txt`, `vita/src/logging.c`).
+   - *Next Step:* Run startup-only A/B validation with `./tools/build.sh --env testing` (cold connect + 3x reconnect without app quit) and compare:
+     - counts for `Takion receive queue overflow`, `missing reference`, and `send buffer overflow`
+     - suppression markers `restart_suppressed_startup_soft_grace` vs `restart_suppressed_startup_hard_grace`
+     - startup distress marker `Takion overflow startup distress score=...`
+     - startup bootstrap markers `PIPE/BOOTSTRAP action=flush_and_idr` and `PIPE/BOOTSTRAP action=ready ...`
+     - restart-churn markers `PIPE/RESTART_FAIL ... handshake_init_ack`, `PIPE/RESTART ... action=blocked_cooloff`, `PIPE/RECOVER ... action=stage2_suppressed`
+     - stability windows (`PIPE/FPS`, reconnect generations) against the 2026-02-11 and 2026-02-12 baselines.
 7. **Follow-up robustness pass (post-merge cleanups)**
    - *Owner:* Implementation agent
    - *Goal:* Close remaining non-blocking review debt without destabilizing the active packet-path baseline PR.

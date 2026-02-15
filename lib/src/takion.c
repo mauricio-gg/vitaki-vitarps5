@@ -40,12 +40,17 @@
 
 // VERY similar to SCTP, see RFC 4960
 
-#define TAKION_A_RWND 0x19000
+#ifdef __PSVITA__
+#define TAKION_A_RWND 0x80000  // 512KB — absorb burst packet loss on Vita
+#else
+#define TAKION_A_RWND 0x19000  // 100KB — original for desktop platforms
+#endif
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
-// Adaptive jitter buffer requires larger queue to handle burst packet loss
-#define TAKION_REORDER_QUEUE_SIZE_EXP 7 // => 128 entries
+// Adaptive jitter buffer requires larger queue to handle burst packet loss.
+// Keep enough headroom for startup bursts without changing queue semantics.
+#define TAKION_REORDER_QUEUE_SIZE_EXP 8 // => 256 entries
 #define TAKION_SEND_BUFFER_SIZE 16
 
 #define TAKION_POSTPONE_PACKETS_SIZE 32
@@ -189,6 +194,8 @@ static ChiakiErrorCode takion_recv_message_init_ack(ChiakiTakion *takion, Takion
 static ChiakiErrorCode takion_recv_message_cookie_ack(ChiakiTakion *takion);
 static void takion_handle_packet_av(ChiakiTakion *takion, uint8_t base_type, uint8_t *buf, size_t buf_size);
 static ChiakiErrorCode takion_read_extra_sock_messages(ChiakiTakion *takion);
+static uint32_t takion_drop_data_queue_locked(ChiakiTakion *takion);
+static bool takion_take_drop_data_queue_request(ChiakiTakion *takion);
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock)
 {
@@ -234,6 +241,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	if(ret != CHIAKI_ERR_SUCCESS)
 		goto error_gkcrypt_local_mutex;
 	CHIAKI_LOGI(takion->log, "Mutex2 created");
+	ret = chiaki_mutex_init(&takion->data_queue_request_mutex, false);
+	if(ret != CHIAKI_ERR_SUCCESS)
+		goto error_seq_num_local_mutex;
+	takion->drop_data_queue_requested = false;
 	takion->tag_remote = 0;
 
 	takion->enable_crypt = info->enable_crypt;
@@ -249,7 +260,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(takion->log, "Takion failed to create stop pipe");
-		goto error_seq_num_local_mutex;
+		goto error_data_queue_request_mutex;
 	}
 
 	if(sock)
@@ -268,6 +279,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_RCVBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
+		}
+		{
+			int actual_rcvbuf = 0;
+			socklen_t optlen = sizeof(actual_rcvbuf);
+			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
 		}
 
 #if defined(__APPLE__)
@@ -362,6 +379,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
 		}
+		{
+			int actual_rcvbuf = 0;
+			socklen_t optlen = sizeof(actual_rcvbuf);
+			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
+		}
 		if(info->ip_dontfrag)
 		{
 #if defined(__APPLE__)
@@ -428,6 +451,8 @@ error_sock:
 	takion->sock = CHIAKI_INVALID_SOCKET;
 error_pipe:
 	chiaki_stop_pipe_fini(&takion->stop_pipe);
+error_data_queue_request_mutex:
+	chiaki_mutex_fini(&takion->data_queue_request_mutex);
 error_seq_num_local_mutex:
 	chiaki_mutex_fini(&takion->seq_num_local_mutex);
 error_gkcrypt_local_mutex:
@@ -441,6 +466,7 @@ CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion)
 	chiaki_thread_join(&takion->thread, NULL);
 	chiaki_stop_pipe_fini(&takion->stop_pipe);
 	chiaki_mutex_fini(&takion->seq_num_local_mutex);
+	chiaki_mutex_fini(&takion->data_queue_request_mutex);
 	chiaki_mutex_fini(&takion->gkcrypt_local_mutex);
 }
 
@@ -930,14 +956,19 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 
 	if(gaps_skipped > 0 || queue_highwater > 0 || force)
 	{
+		uint64_t drain_avg = takion->jitter_stats.drain_cycles > 0
+			? takion->jitter_stats.drain_total_count / takion->jitter_stats.drain_cycles : 0;
 		CHIAKI_LOGI(takion->log,
-			"Takion jitter: rtp=%llu us cadence=%llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu over %llums",
+			"Takion jitter: rtp=%llu us cadence=%llu us, gaps_skipped=%llu, first_set_offset=%llu, head_gap_age=%lluus, queue_highwater=%llu drain_max=%llu drain_avg=%llu drain_cycles=%llu over %llums",
 			(unsigned long long)takion->jitter_stats.jitter_us,
 			(unsigned long long)takion->jitter_stats.cadence_jitter_us,
 			(unsigned long long)gaps_skipped,
 			(unsigned long long)first_set_offset,
 			(unsigned long long)head_gap_age_us,
 			(unsigned long long)queue_highwater,
+			(unsigned long long)takion->jitter_stats.drain_max_count,
+			(unsigned long long)drain_avg,
+			(unsigned long long)takion->jitter_stats.drain_cycles,
 			(unsigned long long)interval_ms);
 	}
 
@@ -945,6 +976,9 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 	takion->jitter_stats.last_head_gap_age_us = 0;
 	takion->jitter_stats.last_first_set_offset = 0;
 	takion->jitter_stats.queue_highwater = 0;
+	takion->jitter_stats.drain_max_count = 0;
+	takion->jitter_stats.drain_total_count = 0;
+	takion->jitter_stats.drain_cycles = 0;
 	takion->jitter_stats.last_log_ms = now_ms;
 }
 
@@ -1004,6 +1038,9 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.last_head_gap_age_us = 0;
 	takion->jitter_stats.last_first_set_offset = 0;
 	takion->jitter_stats.queue_highwater = 0;
+	takion->jitter_stats.drain_max_count = 0;
+	takion->jitter_stats.drain_total_count = 0;
+	takion->jitter_stats.drain_cycles = 0;
 
 	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
 	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
@@ -1033,6 +1070,12 @@ static void *takion_thread_func(void *user)
 
 	while(true)
 	{
+		if(takion_take_drop_data_queue_request(takion))
+		{
+			uint32_t flushed_seq = takion_drop_data_queue_locked(takion);
+			CHIAKI_LOGD(takion->log, "Takion data queue drain request handled (ack=%#x)", flushed_seq);
+		}
+
 		if(takion->enable_crypt && !crypt_available && takion->gkcrypt_remote)
 		{
 			crypt_available = true;
@@ -1086,6 +1129,34 @@ static void *takion_thread_func(void *user)
 			break;
 		}
 		takion_handle_packet(takion, buf, received_size);
+
+		// Drain any additional buffered packets without blocking.
+		// After the first packet wakes us from the blocking select above,
+		// pull all ready packets using zero-timeout polls before blocking again.
+		// This reduces per-packet syscall overhead and keeps the socket buffer drained.
+		{
+			int drain_count = 0;
+			for(int drain_i = 0; drain_i < 64; drain_i++)
+			{
+				size_t drain_size = 1500;
+				uint8_t *drain_buf = malloc(drain_size);
+				if(!drain_buf)
+					break;
+				ChiakiErrorCode drain_err = takion_recv(takion, drain_buf, &drain_size, 0);
+				if(drain_err != CHIAKI_ERR_SUCCESS)
+				{
+					free(drain_buf);
+					break;
+				}
+				takion_handle_packet(takion, drain_buf, drain_size);
+				drain_count++;
+			}
+			// D3: Track drain batch statistics
+			takion->jitter_stats.drain_cycles++;
+			takion->jitter_stats.drain_total_count += drain_count;
+			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
+				takion->jitter_stats.drain_max_count = drain_count;
+		}
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();
@@ -1441,7 +1512,7 @@ static void takion_flush_data_queue(ChiakiTakion *takion)
 		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
 }
 
-CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
+static uint32_t takion_drop_data_queue_locked(ChiakiTakion *takion)
 {
 	if(!takion)
 		return 0;
@@ -1462,6 +1533,35 @@ CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
 		chiaki_takion_send_message_data_ack(takion, (uint32_t)seq_num);
 
 	return dropped ? (uint32_t)seq_num : 0;
+}
+
+static bool takion_take_drop_data_queue_request(ChiakiTakion *takion)
+{
+	if(!takion)
+		return false;
+	bool requested = false;
+	if(chiaki_mutex_lock(&takion->data_queue_request_mutex) == CHIAKI_ERR_SUCCESS)
+	{
+		requested = takion->drop_data_queue_requested;
+		takion->drop_data_queue_requested = false;
+		chiaki_mutex_unlock(&takion->data_queue_request_mutex);
+	}
+	return requested;
+}
+
+CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion)
+{
+	if(!takion)
+		return;
+	if(chiaki_mutex_lock(&takion->data_queue_request_mutex) != CHIAKI_ERR_SUCCESS)
+		return;
+	takion->drop_data_queue_requested = true;
+	chiaki_mutex_unlock(&takion->data_queue_request_mutex);
+}
+
+CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
+{
+	return takion_drop_data_queue_locked(takion);
 }
 
 static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size)

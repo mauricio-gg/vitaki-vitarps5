@@ -457,6 +457,12 @@ void draw_ui() {
   load_psn_id_if_needed();
 
   while (true) {
+    // --- Deferred session finalization (join + fini on UI thread) ---
+    // Must run BEFORE input processing to prevent reconnect races
+    if (context.stream.session_finalize_pending) {
+      host_finalize_deferred_session();
+    }
+
     // Always read controller input - input thread uses Ext2 variant to access controller independently
     if (!sceCtrlReadBufferPositive(0, &ctrl, 1)) {
       // Try again...
@@ -624,6 +630,13 @@ void draw_ui() {
         vita2d_end_drawing();
         vita2d_common_dialog_update();
         vita2d_swap_buffers();
+      } else {
+        // Streaming active — render decoded frames from the UI thread.
+        // This decouples GPU display from the Takion network receive thread,
+        // freeing ~15-20ms per frame on the decode path.
+        if (!vita_video_render_latest_frame()) {
+          sceKernelDelayThread(1000);  // 1ms sleep to avoid busy-spin
+        }
       }
   }
 }

@@ -53,6 +53,22 @@
 #define VITARPS5_USING_FALLBACK_PATH
 #endif
 
+#ifndef VITARPS5_BUILD_GIT_COMMIT
+#define VITARPS5_BUILD_GIT_COMMIT "unknown"
+#endif
+
+#ifndef VITARPS5_BUILD_GIT_BRANCH
+#define VITARPS5_BUILD_GIT_BRANCH "unknown"
+#endif
+
+#ifndef VITARPS5_BUILD_GIT_DIRTY
+#define VITARPS5_BUILD_GIT_DIRTY -1
+#endif
+
+#ifndef VITARPS5_BUILD_TIMESTAMP
+#define VITARPS5_BUILD_TIMESTAMP "unknown"
+#endif
+
 // Compile-time summary: detect if ANY fallbacks are active
 #if defined(VITARPS5_USING_FALLBACK_ENABLED) || \
     defined(VITARPS5_USING_FALLBACK_FORCE_ERRORS) || \
@@ -320,16 +336,21 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
 #endif
 
   // Format a detailed configuration summary
-  char init_msg[512];
+  char init_msg[768];
   sceClibSnprintf(init_msg, sizeof(init_msg),
                   "[LOGGING] Initialized from %s:\n"
-                  "  enabled=%d, force_errors=%d, profile=%s, queue=%zu, path=%s\n",
+                  "  enabled=%d, force_errors=%d, profile=%s, queue=%zu, path=%s\n"
+                  "[PIPE/BUILD] commit=%s branch=%s dirty=%d built=%s\n",
                   config_source,
                   active_cfg.enabled,
                   active_cfg.force_error_logging,
                   vita_logging_profile_to_string(active_cfg.profile),
                   active_cfg.queue_depth,
-                  active_cfg.path);
+                  active_cfg.path,
+                  VITARPS5_BUILD_GIT_COMMIT,
+                  VITARPS5_BUILD_GIT_BRANCH,
+                  VITARPS5_BUILD_GIT_DIRTY,
+                  VITARPS5_BUILD_TIMESTAMP);
 
   // Log initialization details in testing/debug builds where logging is enabled.
   // Production builds (enabled=false) will skip this entirely.

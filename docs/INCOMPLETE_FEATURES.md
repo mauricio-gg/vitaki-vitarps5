@@ -2,7 +2,7 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-11 (Streaming robustness investigation: reconnect low-FPS degradation)
+**Last Updated:** 2026-02-13 (Startup deterministic bootstrap)
 **Status:** Generated from codebase analysis
 
 ---
@@ -83,6 +83,29 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
 - Hard disconnect frequency improved, but some reconnect/re-entry sessions remain degraded with sustained 19-24 FPS and repeated missing reference bursts.
 - Observed in `87116066464_vitarps5-testing.log` after stop/re-entry flow (`:2920`, `:3082`, `:3357`) with low-FPS windows at `:3918`, `:4019`, `:4483`, `:5169`.
 - Companion run shows persistent transport pressure without immediate quits (`86888155925_vitarps5-testing.log:1658`, `86888155925_vitarps5-testing.log:75011334`).
+
+**Current Mitigation Status (2026-02-12):**
+- Added startup warmup absorb logic to reduce initial burst poisoning:
+  - 1.2s startup warmup window
+  - one-shot reorder queue drain + IDR request when early overflow pressure persists
+  - startup warmup presentation gating (decode continues while early frames are withheld)
+- Increased Takion reorder queue depth from 128 to 256 packets for startup headroom.
+- Stream callback logging now uses per-session first-frame state (no static carry-over across reconnects).
+- Split startup suppression into:
+  - short **soft grace** (`2.5s`) for overflow/loss streak suppression
+  - long **hard grace** (`20s`) used only for severe unrecovered-persistent churn
+- Added startup distress scoring so startup overflow recovery escalates earlier when AV distress signals stack (missing refs/corrupt/FEC/sendbuf/low-FPS), instead of staying in repeated soft retries.
+- Added build provenance log marker (`PIPE/BUILD`) so every test log records commit/branch/dirty/timestamp at startup.
+- Added restart-handshake failure classification + cooloff gating to stop soft-restart churn after `Takion failed to receive init ack`:
+  - quit-time marker: `PIPE/RESTART_FAIL ... classified=handshake_init_ack`
+  - restart suppression marker: `PIPE/RESTART ... action=blocked_cooloff`
+  - reconnect stage-2 suppression marker: `PIPE/RECOVER ... action=stage2_suppressed`
+- Post-reconnect stage2 now stays in IDR mode while restart cooloff/source-backoff is active.
+- Added deterministic startup bootstrap so first-attempt sessions begin from a clean decode/reference baseline:
+  - startup marker: `PIPE/BOOTSTRAP action=flush_and_idr ...`
+  - readiness markers: `PIPE/BOOTSTRAP action=ready reason=clean_streak|timeout ...`
+  - during bootstrap, decode continues while presentation is held until a short clean-frame streak or 1s timeout.
+- Files: `vita/src/host.c`, `vita/src/video.c`, `vita/src/logging.c`, `vita/include/context.h`, `lib/src/takion.c`, `tools/build.sh`, `vita/CMakeLists.txt`.
 
 **Investigation/Design Authority:**
 - `docs/ai/STREAM_PIPELINE_ROBUSTNESS_PLAN.md`

@@ -46,6 +46,18 @@ typedef struct chiaki_video_receiver_t
 	uint64_t stage_submit_total_ms;
 	uint32_t stage_window_frames;
 	uint32_t stage_window_drops;
+	bool idr_request_pending;            // IDR requested, tracks state (never blocks decode)
+	uint64_t idr_request_start_ms;       // Timestamp for timeout detection
+	uint32_t old_frame_rejects_window;   // Phase 1: count late-packet rejections per 1s window
+	uint64_t last_idr_request_ms;        // Phase 2: cooldown to prevent IDR flooding
+
+	// --- Diagnostic instrumentation (D2: Frame Cadence Jitter) ---
+	uint64_t prev_frame_first_packet_ms;  // Previous frame's first-packet timestamp
+	uint64_t cadence_min_ms;              // Min inter-frame gap in current window
+	uint64_t cadence_max_ms;              // Max inter-frame gap in current window
+	uint64_t cadence_total_ms;            // Sum of inter-frame gaps in current window
+	uint32_t cadence_count;               // Number of gaps measured in current window
+	uint32_t cadence_max_alarm_streak;    // Consecutive windows with cadence_max > 80ms
 } ChiakiVideoReceiver;
 
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);

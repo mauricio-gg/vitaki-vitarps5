@@ -140,6 +140,7 @@ typedef struct {
 static unsigned numframes;
 static bool active_video_thread = true;
 static bool active_pacer_thread = false;
+static volatile bool frame_ready_for_display = false;
 static indicator_status poor_net_indicator = {0};
 static uint64_t stream_exit_hint_start_us = 0;
 static bool stream_exit_hint_visible_this_frame = false;
@@ -179,6 +180,19 @@ static void record_incoming_frame_sample(void) {
       LOGD("Video FPS — incoming %u fps (requested %u)",
            context.stream.measured_incoming_fps, requested);
     }
+    // D1: Publish decode timing window stats
+    if (context.stream.decode_window_count > 0) {
+      context.stream.decode_avg_us =
+          context.stream.decode_window_total_us / context.stream.decode_window_count;
+      context.stream.decode_max_us = context.stream.decode_window_max_us;
+    } else {
+      context.stream.decode_avg_us = 0;
+      context.stream.decode_max_us = 0;
+    }
+    context.stream.decode_window_total_us = 0;
+    context.stream.decode_window_max_us = 0;
+    context.stream.decode_window_count = 0;
+
     context.stream.fps_window_frame_count = 0;
     context.stream.fps_window_start_us = now_us;
   }
@@ -861,7 +875,15 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // au.es.pBuf = decoder_buffer;
   au.es.pBuf = buf;
   au.es.size = buf_size;
+  uint64_t decode_start_us = sceKernelGetProcessTimeWide();
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
+  uint64_t decode_end_us = sceKernelGetProcessTimeWide();
+  uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
+  context.stream.decode_time_us = decode_elapsed_us;
+  context.stream.decode_window_total_us += decode_elapsed_us;
+  if (decode_elapsed_us > context.stream.decode_window_max_us)
+    context.stream.decode_window_max_us = decode_elapsed_us;
+  context.stream.decode_window_count++;
   if (ret < 0) {
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret, array_picture.numOfOutput);
     // if (isEdited) free(buf);
@@ -892,32 +914,15 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
     // }
     // goto fix;
   }
-  // display:
+  // Signal the UI thread that a new frame is ready for display.
+  // The UI thread owns all vita2d rendering, which decouples the GPU wait
+  // from the Takion network receive path and eliminates ~15-20ms of blocking.
   if (active_video_thread) {
     record_incoming_frame_sample();
-    bool drop_frame = should_drop_frame_for_pacing();
-    if (!drop_frame && need_drop > 0) {
-      LOGD("remain frameskip: %d\n", need_drop);
-      need_drop--;
-      drop_frame = true;
-    }
-    if (!drop_frame) {
-      vita2d_start_drawing();
-
-      draw_streaming(frame_texture);
-      // draw_fps();
-      draw_stream_exit_hint();
-      draw_stream_stats_panel();
-      draw_indicators();
-
-      vita2d_end_drawing();
-
-      vita2d_wait_rendering_done();
-      vita2d_swap_buffers();
-
-      frame_count++;
-      // LOGD("frc: %d", frame_count);
-    }
+    // D5: Count frames overwritten before display consumed them
+    if (frame_ready_for_display)
+      context.stream.frame_overwrite_count++;
+    frame_ready_for_display = true;
   } else {
     LOGD("inactive video thread");
   }
@@ -1148,17 +1153,65 @@ static void draw_stream_stats_panel(void) {
   }
 }
 
+bool vita_video_render_latest_frame(void) {
+  if (!frame_ready_for_display)
+    return false;
+
+  frame_ready_for_display = false;
+
+  bool drop_frame = should_drop_frame_for_pacing();
+  if (!drop_frame && need_drop > 0) {
+    need_drop--;
+    drop_frame = true;
+  }
+  if (drop_frame)
+    return true;  // consumed the frame but skipped display
+
+  vita2d_start_drawing();
+
+  draw_streaming(frame_texture);
+  draw_stream_exit_hint();
+  draw_stream_stats_panel();
+  draw_indicators();
+
+  vita2d_end_drawing();
+
+  vita2d_wait_rendering_done();
+  vita2d_swap_buffers();
+
+  // D7: Track actual frames rendered to screen per second
+  {
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    if (context.stream.display_fps_window_start_us == 0)
+      context.stream.display_fps_window_start_us = now_us;
+    context.stream.display_frame_count++;
+    if (now_us - context.stream.display_fps_window_start_us >= 1000000) {
+      context.stream.display_fps = context.stream.display_frame_count;
+      context.stream.display_frame_count = 0;
+      context.stream.display_fps_window_start_us = now_us;
+    }
+  }
+
+  frame_count++;
+  return true;
+}
+
 void vita_h264_start() {
   active_video_thread = true;
 	chiaki_mutex_init(&mtx, false);
   vita2d_set_vblank_wait(false);
   stream_exit_hint_start_us = 0;
   stream_exit_hint_visible_this_frame = false;
+  frame_ready_for_display = false;
+  context.stream.display_fps = 0;
+  context.stream.display_frame_count = 0;
+  context.stream.display_fps_window_start_us = 0;
 }
 
 void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
+  frame_ready_for_display = false;
 	chiaki_mutex_fini(&mtx);
   stream_exit_hint_start_us = 0;
   stream_exit_hint_visible_this_frame = false;
@@ -1167,6 +1220,7 @@ void vita_h264_stop() {
 void vitavideo_show_poor_net_indicator() {
   if (!context.config.show_network_indicator)
     return;
+  LOGD("PIPE/NET_UNSTABLE activated");
   poor_net_indicator.activated = true;
 }
 

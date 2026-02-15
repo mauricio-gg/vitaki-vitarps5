@@ -513,12 +513,6 @@ static void debug_menu_apply_action(int action_index) {
                             "Connection interrupted (debug)");
             context.stream.disconnect_banner_until_us = now_us + demo_duration_us;
             context.stream.next_stream_allowed_us = now_us + demo_duration_us;
-            context.stream.takion_cooldown_overlay_active = true;
-            if (context.stream.takion_overflow_backoff_until_us <
-                context.stream.next_stream_allowed_us) {
-                context.stream.takion_overflow_backoff_until_us =
-                    context.stream.next_stream_allowed_us;
-            }
             LOGD("Debug menu: simulated disconnect banner for %llums",
                  (unsigned long long)(demo_duration_us / 1000ULL));
             break;

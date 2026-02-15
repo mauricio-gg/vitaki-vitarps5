@@ -156,6 +156,8 @@ typedef struct chiaki_takion_t
 
 	ChiakiSeqNum32 seq_num_local;
 	ChiakiMutex seq_num_local_mutex;
+	ChiakiMutex data_queue_request_mutex;
+	bool drop_data_queue_requested;
 
 	/**
 	 * Advertised Receiver Window Credit
@@ -187,12 +189,24 @@ typedef struct chiaki_takion_t
 		uint64_t last_head_gap_age_us;   // Gap age that most recently blocked/triggered skip
 		uint64_t last_first_set_offset;  // Offset from begin to first available packet
 		uint64_t queue_highwater;        // Max queue occupancy seen since last summary
+
+		uint64_t drain_max_count;         // Max drain-loop iterations in a single cycle
+		uint64_t drain_total_count;       // Total drain-loop iterations across all cycles
+		uint64_t drain_cycles;            // Number of drain cycles (wakeups)
 	} jitter_stats;
 } ChiakiTakion;
 
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, ChiakiTakionConnectInfo *info, chiaki_socket_t *sock);
 CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion);
+/**
+ * Thread-safe while Takion is running.
+ * Queues a request for the Takion thread to drain its data reorder queue.
+ */
+CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion);
+/**
+ * Must be called from within the Takion thread.
+ */
 CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion);
 
 /**

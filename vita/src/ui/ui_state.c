@@ -216,32 +216,14 @@ bool ui_connection_start_thread(VitaChiakiHost *host) {
 // ============================================================================
 
 bool ui_cooldown_active(void) {
-  uint64_t until_us = 0;
-
-  // Check Takion overflow backoff
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us > until_us) {
-    until_us = context.stream.takion_overflow_backoff_until_us;
-  }
-
-  // Check general stream cooldown
-  if (context.stream.next_stream_allowed_us > until_us) {
-    until_us = context.stream.next_stream_allowed_us;
-  }
+  uint64_t until_us = context.stream.next_stream_allowed_us;
 
   if (!until_us)
     return false;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
   if (now_us >= until_us) {
-    // Cooldown expired - clear the flags
-    if (context.stream.takion_cooldown_overlay_active &&
-        context.stream.takion_overflow_backoff_until_us <= now_us) {
-      context.stream.takion_cooldown_overlay_active = false;
-      context.stream.takion_overflow_backoff_until_us = 0;
-    }
-    if (context.stream.next_stream_allowed_us <= now_us)
-      context.stream.next_stream_allowed_us = 0;
+    context.stream.next_stream_allowed_us = 0;
     return false;
   }
 
@@ -249,17 +231,7 @@ bool ui_cooldown_active(void) {
 }
 
 uint64_t ui_cooldown_remaining_us(void) {
-  uint64_t until_us = 0;
-
-  if (context.stream.takion_cooldown_overlay_active &&
-      context.stream.takion_overflow_backoff_until_us > until_us) {
-    until_us = context.stream.takion_overflow_backoff_until_us;
-  }
-  if (context.stream.next_stream_allowed_us > until_us) {
-    until_us = context.stream.next_stream_allowed_us;
-  }
-
-  return until_us;
+  return context.stream.next_stream_allowed_us;
 }
 
 bool ui_cooldown_takion_gate_active(void) {
