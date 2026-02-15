@@ -268,7 +268,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(takion->log, "Takion failed to create stop pipe");
-		goto error_seq_num_local_mutex;
+		goto error_data_queue_request_mutex;
 	}
 
 	if(sock)
