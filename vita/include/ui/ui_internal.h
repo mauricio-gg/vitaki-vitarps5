@@ -254,4 +254,4 @@ void handle_debug_menu_input(void);
 extern const bool debug_menu_enabled;
 extern const uint32_t DEBUG_MENU_COMBO_MASK;
 extern const char *debug_menu_options[];
-#define DEBUG_MENU_OPTION_COUNT 3
+#define DEBUG_MENU_OPTION_COUNT 4
