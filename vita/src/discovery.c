@@ -63,7 +63,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   parse_mac(host->host_id, host_mac);
 
   // Check if there is an identical discovered host in context; return if so
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost* h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
       if (mac_addrs_match(&(h->server_mac), &host_mac)) {
@@ -92,7 +92,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
   // Determine whether there is room in context for a new host to be added
   int target_idx = -1;
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost* h = context.hosts[host_idx];
     if (h == NULL) {
       target_idx = host_idx;
@@ -213,7 +213,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 // remove discovered hosts if they haven't been seen for longer than the grace window
 static void remove_lost_discovered_hosts(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost* h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
       bool active_streaming = (context.active_host == h) &&
@@ -277,7 +277,7 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
   opts.cb_user = context.discovery_cb_state;
   opts.ping_ms = 500;
   opts.ping_initial_ms = opts.ping_ms;
-  opts.hosts_max = MAX_NUM_HOSTS;
+  opts.hosts_max = MAX_CONTEXT_HOSTS;
   opts.host_drop_pings = HOST_DROP_PINGS;
 
   sockaddr_in addr = {};
@@ -304,7 +304,7 @@ void stop_discovery(bool keep_hosts) {
   chiaki_discovery_service_fini(&(context.discovery));
   context.discovery_enabled = false;
   if (!keep_hosts) {
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
       VitaChiakiHost* h = context.hosts[i];
       if (h == NULL) {
         continue;

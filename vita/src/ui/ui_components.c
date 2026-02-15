@@ -479,7 +479,7 @@ static void ensure_active_host_for_debug(void);
 static void ensure_active_host_for_debug(void) {
     if (context.active_host)
         return;
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
         if (context.hosts[i]) {
             context.active_host = context.hosts[i];
             break;

@@ -651,7 +651,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     toml_array_t* regist_hosts = toml_array_in(parsed, "registered_hosts");
     if (regist_hosts && toml_array_kind(regist_hosts) == 't') {
       int num_rhosts = toml_array_nelem(regist_hosts);
-      for (int i=0; i < MIN(MAX_NUM_HOSTS, num_rhosts); i++) {
+      for (int i=0; i < MIN(MAX_REGISTERED_HOSTS, num_rhosts); i++) {
         VitaChiakiHost* host = malloc(sizeof(VitaChiakiHost));
         ChiakiRegisteredHost* rstate = malloc(sizeof(ChiakiRegisteredHost));
         LOGD("Assigning registered state: 0x%x", rstate);
@@ -733,7 +733,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (manual_hosts && toml_array_kind(manual_hosts) == 't') {
       int num_mhosts = toml_array_nelem(manual_hosts);
       LOGD("Found %d manual hosts", num_mhosts);
-      for (int i=0; i < MIN(MAX_NUM_HOSTS, num_mhosts) ; i++) {
+      for (int i=0; i < MIN(MAX_MANUAL_HOSTS, num_mhosts) ; i++) {
         VitaChiakiHost* host = NULL;
 
         bool has_mac = false;
@@ -780,7 +780,7 @@ void config_parse(VitaChiakiConfig* cfg) {
 
         if (has_hostname && has_mac) {
           size_t slot = cfg->num_manual_hosts;
-          if (slot >= MAX_NUM_HOSTS) {
+          if (slot >= MAX_MANUAL_HOSTS) {
             CHIAKI_LOGW(&(context.log), "Manual host capacity reached, skipping entry %d", i);
             host_free(host);
             continue;
@@ -817,10 +817,12 @@ void config_free(VitaChiakiConfig* cfg) {
     return;
   }
   free(cfg->psn_account_id);
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+  for (int i = 0; i < MAX_MANUAL_HOSTS; i++) {
     if (cfg->manual_hosts[i] != NULL) {
       host_free(cfg->manual_hosts[i]);
     }
+  }
+  for (int i = 0; i < MAX_REGISTERED_HOSTS; i++) {
     if (cfg->registered_hosts[i] != NULL) {
       host_free(cfg->registered_hosts[i]);
     }
