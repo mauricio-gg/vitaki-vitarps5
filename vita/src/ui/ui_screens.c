@@ -140,8 +140,8 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
   // ── Phase A: Touch-down (finger just made contact) ──
   if (touch.reportNum > 0 && !touch_is_down) {
-    float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-    float touch_y_sc = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
 
     // Nav bar fires immediately (unchanged)
     UIScreenType nav_touch_screen;
@@ -187,8 +187,8 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
   // ── Phase B: Finger moving (detect swipe) ──
   if (touch.reportNum > 0 && touch_is_down) {
-    float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-    float touch_y_sc = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
 
     if (!touch_is_swipe) {
       float dx = touch_x - touch_start_x;
@@ -2182,8 +2182,8 @@ static void handle_mapping_popup_input(void) {
     SceTouchData touch;
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
     if (touch.reportNum > 0) {
-        float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-        float touch_y = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+        float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+        float touch_y = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
         bool inside_popup = touch_x >= popup_x && touch_x <= popup_x + popup_w &&
                             touch_y >= popup_y && touch_y <= popup_y + popup_h;
         if (inside_popup) {
@@ -2461,8 +2461,8 @@ UIScreenType draw_controller_config_screen() {
         sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_front, 1);
         if (touch_front.reportNum > 0 && ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY) {
             if (current_frame - last_touch_frame >= TOUCH_DEBOUNCE_FRAMES) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (touch_x >= diagram_x && touch_x <= diagram_x + diagram_w &&
                     touch_y >= diagram_y && touch_y <= diagram_y + diagram_h) {
                     last_touch_frame = current_frame;
@@ -2502,8 +2502,8 @@ UIScreenType draw_controller_config_screen() {
 
         if (ctrl_diagram.detail_view == CTRL_DETAIL_FRONT_MAPPING) {
             if (touch_front.reportNum > 0) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (!ctrl_front_touch_active) {
                     ctrl_front_touch_active = true;
                     controller_front_selection_clear();
@@ -2568,8 +2568,8 @@ UIScreenType draw_controller_config_screen() {
             }
         } else if (ctrl_diagram.detail_view == CTRL_DETAIL_BACK_MAPPING) {
             if (touch_front.reportNum > 0) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (!ctrl_back_touch_active) {
                     ctrl_back_touch_active = true;
                     controller_back_selection_clear();

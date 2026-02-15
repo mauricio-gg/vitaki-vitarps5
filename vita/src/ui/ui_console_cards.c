@@ -112,16 +112,17 @@ static bool str_contains_nocase(const char* haystack, const char* needle) {
 /**
  * utf16_to_utf8() - Convert UTF-16 to UTF-8
  * @src: Source UTF-16 string (SceWChar16)
+ * @src_max: Maximum number of UTF-16 characters to read from source
  * @dst: Destination UTF-8 buffer
  * @dst_size: Size of destination buffer
  *
  * Simple converter for IME dialog output. Handles BMP (Basic Multilingual Plane)
  * characters only, which covers most common use cases on Vita.
  */
-static void utf16_to_utf8(const SceWChar16* src, char* dst, size_t dst_size) {
+static void utf16_to_utf8(const SceWChar16* src, size_t src_max, char* dst, size_t dst_size) {
     size_t i = 0;
     size_t o = 0;
-    while (src[i] && o < dst_size - 1) {
+    while (i < src_max && src[i] && o < dst_size - 1) {
         if (src[i] < 0x80) {
             dst[o++] = (char)src[i];
         } else if (src[i] < 0x800) {
@@ -466,7 +467,7 @@ void ui_cards_poll_filter_ime(void) {
 
         if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
             /* User confirmed — convert UTF-16 to UTF-8 */
-            utf16_to_utf8(ime_input_buf, filter_text, sizeof(filter_text));
+            utf16_to_utf8(ime_input_buf, FILTER_MAX_LEN + 1, filter_text, sizeof(filter_text));
             filter_len = (int)strlen(filter_text);
             filter_active = (filter_len > 0);
         }
@@ -903,6 +904,12 @@ int ui_cards_get_selected_index(void) {
 }
 
 void ui_cards_set_selected_index(int index) {
+    if (card_cache.num_cards == 0) {
+        selected_console_index = 0;
+        return;
+    }
+    if (index < 0) index = 0;
+    if (index >= card_cache.num_cards) index = card_cache.num_cards - 1;
     selected_console_index = index;
 }
 
@@ -955,6 +962,13 @@ void ui_cards_drag_update(float delta_x) {
 void ui_cards_drag_end(void) {
     if (!drag_active) return;
     drag_active = false;
+
+    if (card_cache.num_cards == 0) {
+        scroll_offset = 0;
+        selected_console_index = 0;
+        drag_offset_px = 0.0f;
+        return;
+    }
 
     // Convert accumulated pixel drag to card index offset
     int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;

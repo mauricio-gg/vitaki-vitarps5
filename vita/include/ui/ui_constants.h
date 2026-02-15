@@ -18,8 +18,8 @@
 #define VITA_HEIGHT 544
 
 // Touch panel dimensions (native resolution)
-#define TOUCH_PANEL_WIDTH 1920
-#define TOUCH_PANEL_HEIGHT 1088
+#define VITA_TOUCH_PANEL_WIDTH  1920
+#define VITA_TOUCH_PANEL_HEIGHT 1088
 
 // ============================================================================
 // Legacy Colors (kept for compatibility)
