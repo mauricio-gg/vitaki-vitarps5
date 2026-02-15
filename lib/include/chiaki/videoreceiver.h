@@ -50,6 +50,8 @@ typedef struct chiaki_video_receiver_t
 	uint64_t idr_request_start_ms;       // Timestamp for timeout detection
 	uint32_t old_frame_rejects_window;   // Phase 1: count late-packet rejections per 1s window
 	uint64_t last_idr_request_ms;        // Phase 2: cooldown to prevent IDR flooding
+	uint32_t consecutive_missing_ref;    // Consecutive unrecovered missing-ref P-frames
+	uint32_t cascade_skip_count;         // Frames skipped during cascade (per 1s window, diagnostic only)
 
 	// --- Diagnostic instrumentation (D2: Frame Cadence Jitter) ---
 	uint64_t prev_frame_first_packet_ms;  // Previous frame's first-packet timestamp

@@ -50,6 +50,8 @@ static void handle_stuck_bitrate(bool low_fps_window,
                                  uint32_t incoming_fps,
                                  uint32_t effective_target_fps,
                                  uint64_t now_us);
+static void handle_cascade_alarm(bool low_fps_window, uint32_t incoming_fps,
+                                 uint32_t effective_target_fps, uint64_t now_us);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
@@ -134,6 +136,10 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define LOSS_PROFILE_WINDOW_MAX_US (10 * 1000 * 1000ULL)
 #define STUCK_BITRATE_STREAK_THRESHOLD 5
 #define STUCK_BITRATE_STARTUP_GRACE_US (10ULL * 1000000ULL)
+#define CASCADE_ALARM_DELTA_THRESHOLD 2     // missing-ref events per 1s window
+#define CASCADE_ALARM_STREAK_THRESHOLD 2    // consecutive qualifying windows
+#define CASCADE_ALARM_COOLDOWN_US (5 * 1000 * 1000ULL)
+#define CASCADE_ALARM_BITRATE_FACTOR 75     // 75% of negotiated
 
 typedef enum ReconnectRecoveryStage {
   RECONNECT_RECOVER_STAGE_IDLE = 0,
@@ -641,6 +647,14 @@ static void reset_stream_metrics(bool preserve_recovery_state) {
   if (!preserve_recovery_state)
     context.stream.stuck_bitrate_restart_used = false;
 
+  // Cascade alarm (streak resets always; once-per-session flag
+  // survives fast restarts so we don't re-trigger after our own restart)
+  context.stream.cascade_prev_missing_ref_count = 0;
+  context.stream.cascade_alarm_streak = 0;
+  if (!preserve_recovery_state)
+    context.stream.cascade_alarm_restart_used = false;
+  context.stream.cascade_alarm_last_action_us = 0;
+
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
@@ -944,6 +958,11 @@ static void update_latency_metrics(void) {
                          incoming_fps,
                          effective_target_fps,
                          now_us);
+
+    // CASCADE_ALARM disabled: soft restarts fail at Takion v12 handshake,
+    // killing playable-but-degraded sessions. Keep diagnostic fields for
+    // future re-enablement when restart reliability improves.
+    // handle_cascade_alarm(low_fps_window, incoming_fps, effective_target_fps, now_us);
   }
 
   if (!context.config.show_latency)
@@ -959,7 +978,7 @@ static void update_latency_metrics(void) {
          context.stream.measured_rtt_ms,
          (uint32_t)(context.stream.session.rtt_us / 1000),
          (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
-    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d",
+    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d cascade_streak=%u cascade_used=%d",
          context.stream.session_generation,
          context.stream.reconnect_generation,
          incoming_fps,
@@ -978,7 +997,9 @@ static void update_latency_metrics(void) {
          context.stream.wifi_rssi,
          context.stream.display_fps,
          context.stream.stuck_bitrate_low_fps_streak,
-         (int)context.stream.stuck_bitrate_restart_used);
+         (int)context.stream.stuck_bitrate_restart_used,
+         context.stream.cascade_alarm_streak,
+         (int)context.stream.cascade_alarm_restart_used);
     last_log_us = now_us;
   }
 
@@ -1295,6 +1316,48 @@ static void handle_stuck_bitrate(bool low_fps_window,
     }
   } else {
     context.stream.stuck_bitrate_low_fps_streak = 0;
+  }
+}
+
+static void handle_cascade_alarm(bool low_fps_window,
+                                 uint32_t incoming_fps,
+                                 uint32_t effective_target_fps,
+                                 uint64_t now_us) {
+  if (context.stream.cascade_alarm_restart_used)
+    return;
+  if (!context.stream.stream_start_us ||
+      now_us - context.stream.stream_start_us < STUCK_BITRATE_STARTUP_GRACE_US)
+    return;
+  if (context.stream.fast_restart_active ||
+      context.stream.reconnect.recover_active)
+    return;
+  if (context.stream.cascade_alarm_last_action_us &&
+      now_us - context.stream.cascade_alarm_last_action_us < CASCADE_ALARM_COOLDOWN_US)
+    return;
+
+  uint32_t current = context.stream.av_diag.missing_ref_count;
+  uint32_t delta = current - context.stream.cascade_prev_missing_ref_count;
+  context.stream.cascade_prev_missing_ref_count = current;
+
+  if (delta >= CASCADE_ALARM_DELTA_THRESHOLD && low_fps_window) {
+    context.stream.cascade_alarm_streak++;
+    if (context.stream.cascade_alarm_streak >= CASCADE_ALARM_STREAK_THRESHOLD) {
+      uint32_t negotiated_kbps = context.stream.session.connect_info.video_profile.bitrate;
+      uint32_t target_kbps = (uint32_t)(((uint64_t)negotiated_kbps * CASCADE_ALARM_BITRATE_FACTOR) / 100ULL);
+      if (target_kbps < 500) target_kbps = 500;
+      if (target_kbps > FAST_RESTART_BITRATE_CAP_KBPS) target_kbps = FAST_RESTART_BITRATE_CAP_KBPS;
+
+      LOGD("PIPE/CASCADE_ALARM streak=%u delta=%u incoming=%u target=%u missing_ref=%u — soft restart at %u kbps",
+           context.stream.cascade_alarm_streak, delta,
+           incoming_fps, effective_target_fps, current, target_kbps);
+
+      bool ok = request_stream_restart_coordinated("cascade_alarm", target_kbps, now_us);
+      if (ok) context.stream.cascade_alarm_last_action_us = now_us;
+      context.stream.cascade_alarm_restart_used = true;
+      context.stream.cascade_alarm_streak = 0;
+    }
+  } else {
+    context.stream.cascade_alarm_streak = 0;
   }
 }
 

@@ -104,7 +104,7 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 
 **Risk:** Low. Already dropping the frame; this just avoids wasted decoder work.
 
-### 3. Proactive Soft Restart on Cascade Detection (HIGH IMPACT)
+### 3. Proactive Soft Restart on Cascade Detection (CASCADE_ALARM) — **DISABLED**
 
 **Problem:** Current stuck-bitrate detector waits 5+ seconds (5 consecutive bad windows) before triggering a soft restart. Cadence alarm waits 12 windows. Both are too slow for sudden cascade events.
 
@@ -113,15 +113,28 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 - Cadence alarm needs 12 low-FPS windows during post-reconnect recovery
 - `LOSS_RECOVERY_ACTION_COOLDOWN_US` = 10 seconds between recovery actions
 
-**Proposed changes:**
-- Add "cascade alarm" that triggers after 2 consecutive `missing_ref` events within 1 second
+**Implementation (P1b):**
+- Added "cascade alarm" that triggers after 2 consecutive `missing_ref` events within 1 second
 - On cascade alarm: immediately request soft restart at 75% of negotiated bitrate
-- Separate cooldown from loss recovery cooldown (use 3s instead of 10s for cascade-specific restarts)
+- Separate cooldown from loss recovery cooldown (3s instead of 10s for cascade-specific restarts)
 - The 75% bitrate gives PS5 encoder headroom to produce smaller packets that survive lossy Wi-Fi
 
-**Impact:** Reduces time-to-recovery from 5-12 seconds to ~3 seconds during cascade events.
+**Hardware Testing Results (February 2026):**
+- ❌ CASCADE_ALARM soft restarts **consistently failed at Takion v12 handshake**
+- Playable 21 FPS degraded sessions were **killed by failed reconnect attempts** instead of improved
+- Handshake failure root cause unclear (network, timing, or state management issue)
+- **Feature disabled at `vita/src/host.c:962`** via single-line comment-out
+- All diagnostic infrastructure preserved for future investigation
 
-**Risk:** Medium. More aggressive restarts could cause oscillation on borderline Wi-Fi. Needs testing with degraded-signal scenarios.
+**Current Status:**
+- **DISABLED** — `handle_cascade_alarm()` call commented out
+- P0 (faster IDR recovery) and P1a (cascade decode skip) remain active and working
+- Diagnostic counters still tracked (cascade events visible in logs)
+- Re-enable pending Takion handshake reliability investigation
+
+**Impact (if re-enabled after fix):** Would reduce time-to-recovery from 5-12 seconds to ~3 seconds during cascade events.
+
+**Risk (current):** None. Feature cleanly disabled with zero side effects.
 
 ### 4. Congestion Control Self-Adaptation (MEDIUM IMPACT)
 
@@ -197,15 +210,15 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 
 ---
 
-## Files to Modify
+## Implementation Status
 
-| File | Change | Priority |
-|------|--------|----------|
-| `lib/src/videoreceiver.c:18-19` | Reduce IDR cooldown/timeout constants | P0 |
-| `lib/src/videoreceiver.c:320-342` | Add cascade skip logic (3+ missing refs) | P1 |
-| `vita/src/host.c:1266-1299` | Add cascade alarm (faster restart trigger) | P1 |
-| `lib/src/congestioncontrol.c` | Add self-adaptation on sustained loss | P2 |
-| `vita/src/host.c` (D6 region) | RSSI trend tracking + pre-emptive action | P3 |
+| File | Change | Priority | Status |
+|------|--------|----------|--------|
+| `lib/src/videoreceiver.c:18-19` | Reduce IDR cooldown/timeout constants | P0 | ✅ **Implemented** (100ms cooldown, 1000ms timeout) |
+| `lib/src/videoreceiver.c:320-342` | Add cascade skip logic (3+ missing refs) | P1a | ✅ **Implemented** (skip decode on 3+ consecutive missing refs) |
+| `vita/src/host.c:1266-1299` | Add cascade alarm (faster restart trigger) | P1b | ⚠️ **DISABLED** (Takion v12 handshake failures, line 962 commented out) |
+| `lib/src/congestioncontrol.c` | Add self-adaptation on sustained loss | P2 | 🔜 **Deferred** (pending P0+P1a validation) |
+| `vita/src/host.c` (D6 region) | RSSI trend tracking + pre-emptive action | P3 | 🔜 **Deferred** (diagnostic enhancement) |
 
 ---
 
@@ -213,10 +226,29 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 
 1. Build with `./tools/build.sh --env testing`
 2. Deploy to Vita, stream to PS5
-3. **Baseline test:** Stream at normal distance, verify stable 30fps
+3. **Baseline test:** Stream at normal distance, verify stable 30fps with P0/P1a improvements
 4. **Degraded test:** Move 2x distance from router, observe:
-   - Time from first `missing_ref` to FPS recovery
+   - Time from first `missing_ref` to FPS recovery (expect faster due to P0: 100ms IDR cooldown)
    - Number of cascade events per minute
-   - Whether soft restart triggers and at what latency
-5. Compare before/after for each change
-6. Check for "PIPE/RESTART source=cascade_alarm" log messages during degradation
+   - Whether P1a cascade skip reduces decoder blocking time
+   - Verify CASCADE_ALARM does NOT trigger (disabled at line 962)
+5. Compare before/after metrics:
+   - Cascade recovery time (target: <200ms vs previous ~400ms)
+   - Frames lost per cascade event (target: <3 vs previous ~6-9)
+   - Session stability during degraded Wi-Fi (should stay connected at 21fps vs disconnect)
+6. Log analysis:
+   - Check for "PIPE/RESTART" messages (should NOT see "source=cascade_alarm")
+   - Check for reduced `missing_ref` counts due to faster IDR recovery
+   - Verify `decode_avg_ms` stays low (P1a skip prevents 55ms decode spikes)
+
+## Hardware Test Results (February 2026)
+
+**P0 + P1a:** Working as designed, pending full validation
+**P1b CASCADE_ALARM:** ❌ **Disabled due to Takion v12 handshake failures**
+
+- Multiple soft restart attempts during degraded sessions
+- All attempts failed at Takion v12 handshake stage
+- Session forced to terminate instead of gracefully recovering
+- 21 FPS was playable; forced disconnect made experience worse
+- Root cause unclear (network, timing, or state management issue)
+- Feature disabled at `vita/src/host.c:962` pending investigation
