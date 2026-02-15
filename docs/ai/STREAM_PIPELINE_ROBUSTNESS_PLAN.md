@@ -1,6 +1,6 @@
 # Stream Pipeline Robustness Plan
 
-Last Updated: 2026-02-12
+Last Updated: 2026-02-15
 Owner: Streaming/Latency track
 
 ## Why This Exists
@@ -38,6 +38,32 @@ Recent testing shows a change in failure mode: fewer hard disconnects, but persi
   - `vita/src/video.c`
   - `vita/include/context.h`
   - `lib/src/takion.c`
+
+## Stable Recovery Path (2026-02-15)
+- Collapsed runtime recovery strategy to a single stable default path (removed `stability_profile` toggle).
+- Stable default keeps Vitaki-like startup bitrate policy (preset bitrate from `chiaki_connect_video_profile_preset`) and avoids aggressive restart escalation.
+- Stable default keeps relaxed video-gap escalation thresholds (hold/force windows = `24/12`) to reduce over-eager corrupt/missing-ref cascades on jittery links.
+- Wiring paths:
+  - `vita/src/host.c` (stable host-side recovery + preset bitrate policy)
+  - `lib/src/videoreceiver.c` (stable missing-ref / IDR and gap behavior)
+  - `vita/src/config.c`, `vita/include/config.h` (removed `stability_profile` config surface)
+  - `lib/include/chiaki/session.h`, `lib/src/session.c` (removed profile transport flag)
+
+## A/B Validation Snapshot (2026-02-15)
+Reference run: `31595612449_vitarps5-testing.log` (user-reported "perfect", matching Vitaki baseline feel).
+
+- Baseline markers present:
+  - `Bitrate policy: preset_default (6000 kbps @ 960x540)` (`:407`)
+  - `Recovery profile: stable_default`
+  - `Video gap profile: stable_default (hold_ms=24 force_span=12)` (`:515`)
+- Stream cadence stabilized at target:
+  - Repeated `PIPE/FPS` windows around incoming/display ~30 FPS (`:752`, `:826`, `:1102`, etc.).
+- Visual-corruption counters stayed clean:
+  - `AV diag — missing_ref=0, corrupt_bursts=0, fec_fail=0` persisted across windows (`:615`, `:964`, `:1302`, `:1977`).
+
+Interpretation:
+- The biggest practical deltas against degraded runs were startup bitrate policy and video-gap aggressiveness, not raw decode speed.
+- Stable default is now the only recovery path to reduce config ambiguity and race/regression surface area.
 
 ## Investigation + Mitigation Tracks
 

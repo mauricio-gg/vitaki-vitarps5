@@ -22,7 +22,6 @@
 static void reset_stream_metrics(bool preserve_recovery_state);
 static void update_latency_metrics(void);
 static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode);
-static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode);
 static void request_stream_stop(const char *reason);
 static bool request_stream_restart(uint32_t bitrate_kbps);
 static bool request_stream_restart_coordinated(const char *source,
@@ -33,25 +32,15 @@ static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, 
 static void handle_loss_event(int32_t frames_lost, bool frame_recovered);
 static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered);
 static void handle_takion_overflow(void);
-static bool auto_downgrade_latency_mode(void);
-static const char *latency_mode_label(VitaChiakiLatencyMode mode);
-static bool unrecovered_loss_has_av_distress(const char **reason_out);
 static void shutdown_media_pipeline(void);
 static void finalize_session_resources(void);
 static uint32_t clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value);
-static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us);
 static void request_decoder_resync(const char *reason);
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t incoming_fps,
                                                 uint32_t target_fps,
                                                 bool low_fps_window,
                                                 uint64_t now_us);
-static void handle_stuck_bitrate(bool low_fps_window,
-                                 uint32_t incoming_fps,
-                                 uint32_t effective_target_fps,
-                                 uint64_t now_us);
-static void handle_cascade_alarm(bool low_fps_window, uint32_t incoming_fps,
-                                 uint32_t effective_target_fps, uint64_t now_us);
 static const char *quit_reason_label(ChiakiQuitReason reason);
 static bool quit_reason_requires_retry(ChiakiQuitReason reason);
 static void update_disconnect_banner(const char *reason);
@@ -953,16 +942,7 @@ static void update_latency_metrics(void) {
                                         effective_target_fps,
                                         low_fps_window,
                                         now_us);
-
-    handle_stuck_bitrate(low_fps_window,
-                         incoming_fps,
-                         effective_target_fps,
-                         now_us);
-
-    // CASCADE_ALARM disabled: soft restarts fail at Takion v12 handshake,
-    // killing playable-but-degraded sessions. Keep diagnostic fields for
-    // future re-enablement when restart reliability improves.
-    // handle_cascade_alarm(low_fps_window, incoming_fps, effective_target_fps, now_us);
+    // Keep diagnostics passive here; stability path avoids restart escalation.
   }
 
   if (!context.config.show_latency)
@@ -1047,12 +1027,6 @@ static unsigned int latency_mode_target_kbps(VitaChiakiLatencyMode mode) {
     default:
       return 2600;
   }
-}
-
-static void apply_latency_mode(ChiakiConnectVideoProfile *profile, VitaChiakiLatencyMode mode) {
-  unsigned int target = latency_mode_target_kbps(mode);
-  profile->bitrate = target;
-  LOGD("Latency mode applied: %u kbps @ %ux%u", target, profile->width, profile->height);
 }
 
 static void request_stream_stop(const char *reason) {
@@ -1219,38 +1193,6 @@ static bool request_stream_restart_coordinated(const char *source,
   return ok;
 }
 
-static void mark_restart_failure(uint64_t now_us) {
-  context.stream.last_restart_failure_us = now_us;
-  context.stream.restart_failure_active = true;
-}
-
-static void mark_restart_success(uint64_t now_us) {
-  context.stream.last_restart_failure_us = 0;
-  context.stream.restart_failure_active = false;
-  context.stream.last_loss_recovery_action_us = now_us;
-}
-
-static bool request_recovery_restart(const char *source,
-                                     uint32_t bitrate_kbps,
-                                     uint64_t now_us,
-                                     const char *failure_resync_reason) {
-  bool ok = request_stream_restart_coordinated(source, bitrate_kbps, now_us);
-  if (ok) {
-    mark_restart_success(now_us);
-    return true;
-  }
-  mark_restart_failure(now_us);
-  if (context.stream.restart_cooloff_until_us &&
-      now_us < context.stream.restart_cooloff_until_us) {
-    request_decoder_resync("restart cooloff");
-    return false;
-  }
-  if (failure_resync_reason) {
-    request_decoder_resync(failure_resync_reason);
-  }
-  return false;
-}
-
 static void request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
@@ -1282,83 +1224,6 @@ static void start_reconnect_recovery_state(void) {
   context.stream.reconnect.recover_idr_attempts = 0;
   context.stream.reconnect.recover_restart_attempts = 0;
   context.stream.reconnect.recover_stable_windows = 0;
-}
-
-static void handle_stuck_bitrate(bool low_fps_window,
-                                 uint32_t incoming_fps,
-                                 uint32_t effective_target_fps,
-                                 uint64_t now_us) {
-  if (context.stream.stuck_bitrate_restart_used)
-    return;
-  if (!context.stream.stream_start_us ||
-      now_us - context.stream.stream_start_us < STUCK_BITRATE_STARTUP_GRACE_US)
-    return;
-  if (context.stream.fast_restart_active ||
-      context.stream.reconnect.recover_active)
-    return;
-
-  float negotiated_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000000.0f;
-  bool bitrate_stuck = context.stream.bitrate_window_filled >= 2 &&
-                       context.stream.windowed_bitrate_mbps > 0.0f &&
-                       context.stream.windowed_bitrate_mbps < negotiated_mbps * 0.85f;
-
-  if (low_fps_window && bitrate_stuck) {
-    context.stream.stuck_bitrate_low_fps_streak++;
-    if (context.stream.stuck_bitrate_low_fps_streak >= STUCK_BITRATE_STREAK_THRESHOLD) {
-      uint32_t negotiated_kbps = context.stream.session.connect_info.video_profile.bitrate;
-      LOGD("PIPE/STUCK_BITRATE streak=%u incoming=%u target=%u windowed_mbps=%.2f negotiated_mbps=%.2f — triggering soft restart",
-           context.stream.stuck_bitrate_low_fps_streak,
-           incoming_fps, effective_target_fps,
-           context.stream.windowed_bitrate_mbps, negotiated_mbps);
-      request_stream_restart_coordinated("stuck_bitrate", negotiated_kbps, now_us);
-      context.stream.stuck_bitrate_restart_used = true;
-      context.stream.stuck_bitrate_low_fps_streak = 0;
-    }
-  } else {
-    context.stream.stuck_bitrate_low_fps_streak = 0;
-  }
-}
-
-static void handle_cascade_alarm(bool low_fps_window,
-                                 uint32_t incoming_fps,
-                                 uint32_t effective_target_fps,
-                                 uint64_t now_us) {
-  if (context.stream.cascade_alarm_restart_used)
-    return;
-  if (!context.stream.stream_start_us ||
-      now_us - context.stream.stream_start_us < STUCK_BITRATE_STARTUP_GRACE_US)
-    return;
-  if (context.stream.fast_restart_active ||
-      context.stream.reconnect.recover_active)
-    return;
-  if (context.stream.cascade_alarm_last_action_us &&
-      now_us - context.stream.cascade_alarm_last_action_us < CASCADE_ALARM_COOLDOWN_US)
-    return;
-
-  uint32_t current = context.stream.av_diag.missing_ref_count;
-  uint32_t delta = current - context.stream.cascade_prev_missing_ref_count;
-  context.stream.cascade_prev_missing_ref_count = current;
-
-  if (delta >= CASCADE_ALARM_DELTA_THRESHOLD && low_fps_window) {
-    context.stream.cascade_alarm_streak++;
-    if (context.stream.cascade_alarm_streak >= CASCADE_ALARM_STREAK_THRESHOLD) {
-      uint32_t negotiated_kbps = context.stream.session.connect_info.video_profile.bitrate;
-      uint32_t target_kbps = (uint32_t)(((uint64_t)negotiated_kbps * CASCADE_ALARM_BITRATE_FACTOR) / 100ULL);
-      if (target_kbps < 500) target_kbps = 500;
-      if (target_kbps > FAST_RESTART_BITRATE_CAP_KBPS) target_kbps = FAST_RESTART_BITRATE_CAP_KBPS;
-
-      LOGD("PIPE/CASCADE_ALARM streak=%u delta=%u incoming=%u target=%u missing_ref=%u — soft restart at %u kbps",
-           context.stream.cascade_alarm_streak, delta,
-           incoming_fps, effective_target_fps, current, target_kbps);
-
-      bool ok = request_stream_restart_coordinated("cascade_alarm", target_kbps, now_us);
-      if (ok) context.stream.cascade_alarm_last_action_us = now_us;
-      context.stream.cascade_alarm_restart_used = true;
-      context.stream.cascade_alarm_streak = 0;
-    }
-  } else {
-    context.stream.cascade_alarm_streak = 0;
-  }
 }
 
 static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
@@ -1571,28 +1436,6 @@ static void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, 
   }
 }
 
-static const char *latency_mode_label(VitaChiakiLatencyMode mode) {
-  switch (mode) {
-    case VITA_LATENCY_MODE_ULTRA_LOW: return "Ultra Low";
-    case VITA_LATENCY_MODE_LOW: return "Low";
-    case VITA_LATENCY_MODE_BALANCED: return "Balanced";
-    case VITA_LATENCY_MODE_HIGH: return "High";
-    case VITA_LATENCY_MODE_MAX: return "Max";
-    default: return "Unknown";
-  }
-}
-
-static bool auto_downgrade_latency_mode(void) {
-  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW)
-    return false;
-  context.config.latency_mode =
-      (VitaChiakiLatencyMode)(context.config.latency_mode - 1);
-  context.stream.auto_loss_downgrades++;
-  LOGD("Auto latency mode downgrade triggered (%s)",
-       latency_mode_label(context.config.latency_mode));
-  return true;
-}
-
 static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered) {
   bool triggered = false;
   if (frames_lost <= 0) {
@@ -1614,191 +1457,11 @@ static bool handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recove
     return triggered;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (context.stream.unrecovered_persistent_window_start_us == 0 ||
-      now_us - context.stream.unrecovered_persistent_window_start_us >
-          UNRECOVERED_PERSIST_WINDOW_US) {
-    context.stream.unrecovered_persistent_window_start_us = now_us;
-    context.stream.unrecovered_persistent_events = 0;
-  }
-  context.stream.unrecovered_persistent_events++;
-
-  if (context.stream.unrecovered_idr_window_start_us == 0 ||
-      now_us - context.stream.unrecovered_idr_window_start_us >
-          UNRECOVERED_IDR_WINDOW_US) {
-    context.stream.unrecovered_idr_window_start_us = now_us;
-    context.stream.unrecovered_idr_requests = 0;
-  }
-
-  bool idr_ineffective =
-      context.stream.unrecovered_idr_requests >=
-      UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD;
-  bool persistent_distress =
-      context.stream.unrecovered_persistent_events >=
-      UNRECOVERED_PERSIST_THRESHOLD;
-  bool startup_hard_grace_active =
-      context.stream.loss_restart_grace_until_us &&
-      now_us < context.stream.loss_restart_grace_until_us;
-  bool startup_soft_grace_active =
-      context.stream.loss_restart_soft_grace_until_us &&
-      now_us < context.stream.loss_restart_soft_grace_until_us;
-  const char *unrecovered_distress_reason = NULL;
-  bool av_distress =
-      unrecovered_loss_has_av_distress(&unrecovered_distress_reason);
-
-  if (persistent_distress && idr_ineffective) {
-    if (startup_hard_grace_active) {
-      uint64_t remaining_ms =
-          remaining_ms_until(context.stream.loss_restart_grace_until_us, now_us);
-      LOGD("Unrecovered loss action=restart_suppressed_startup_hard_grace remaining=%llums",
-           (unsigned long long)remaining_ms);
-      context.stream.unrecovered_idr_requests++;
-      request_decoder_resync("unrecovered persistent startup grace");
-      return triggered;
-    }
-    if (!av_distress) {
-      LOGD("Unrecovered loss action=restart_suppressed_no_av_distress events=%u idr=%u",
-           context.stream.unrecovered_persistent_events,
-           context.stream.unrecovered_idr_requests);
-      context.stream.unrecovered_idr_requests++;
-      request_decoder_resync("unrecovered persistent no av distress");
-      return triggered;
-    }
-    if (context.stream.last_loss_recovery_action_us &&
-        now_us - context.stream.last_loss_recovery_action_us <
-            LOSS_RECOVERY_ACTION_COOLDOWN_US) {
-      uint64_t remaining_ms =
-          (LOSS_RECOVERY_ACTION_COOLDOWN_US -
-           (now_us - context.stream.last_loss_recovery_action_us)) / 1000ULL;
-      LOGD("Unrecovered loss escalation cooled down (%llums remaining)",
-           (unsigned long long)remaining_ms);
-    } else {
-      LOGD("Unrecovered loss persistent (%u events/%llums, %u IDRs/%llums) — escalating to soft restart",
-           context.stream.unrecovered_persistent_events,
-           (unsigned long long)(UNRECOVERED_PERSIST_WINDOW_US / 1000ULL),
-           context.stream.unrecovered_idr_requests,
-           (unsigned long long)(UNRECOVERED_IDR_WINDOW_US / 1000ULL));
-      if (!request_recovery_restart("unrecovered_persistent",
-                                    LOSS_RETRY_BITRATE_KBPS,
-                                    now_us,
-                                    "unrecovered persistent restart failed")) {
-        LOGE("Soft restart request failed after persistent unrecovered frames; keeping stream alive (reason=%s)",
-             unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
-      } else if (context.active_host) {
-        host_set_hint(context.active_host,
-                      "Video desync — rebuilding stream",
-                      true,
-                      HINT_DURATION_RECOVERY_US);
-        triggered = true;
-        context.stream.unrecovered_persistent_events = 0;
-        context.stream.unrecovered_persistent_window_start_us = now_us;
-        context.stream.unrecovered_idr_requests = 0;
-        context.stream.unrecovered_idr_window_start_us = now_us;
-      }
-      return triggered;
-    }
-  }
-
-  if (context.stream.unrecovered_gate_window_start_us == 0 ||
-      now_us - context.stream.unrecovered_gate_window_start_us >
-          UNRECOVERED_FRAME_GATE_WINDOW_US) {
-    context.stream.unrecovered_gate_window_start_us = now_us;
-    context.stream.unrecovered_gate_events = 0;
-  }
-
-  context.stream.unrecovered_gate_events++;
-  if (context.stream.unrecovered_gate_events <=
-      UNRECOVERED_FRAME_GATE_THRESHOLD) {
-    if (context.config.show_latency) {
-      uint32_t remaining = UNRECOVERED_FRAME_GATE_THRESHOLD -
-          context.stream.unrecovered_gate_events + 1;
-      LOGD("Unrecovered frame gate tolerated (%u event(s) remaining)",
-           remaining);
-    }
-    vitavideo_show_poor_net_indicator();
-    context.stream.loss_alert_until_us =
-        now_us + LOSS_ALERT_DURATION_US;
-    context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
-    context.stream.unrecovered_idr_requests++;
-    request_decoder_resync("unrecovered frame gate");
-    return triggered;
-  }
-
-  context.stream.unrecovered_gate_events = 0;
-  context.stream.unrecovered_gate_window_start_us = now_us;
-  context.stream.unrecovered_idr_requests++;
-  if (startup_soft_grace_active) {
-    uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
-    LOGD("Unrecovered streak action=restart_suppressed_startup_soft_grace remaining=%llums",
-         (unsigned long long)remaining_ms);
-    request_decoder_resync("unrecovered streak startup grace");
-    return triggered;
-  }
-  if (!av_distress) {
-    LOGD("Unrecovered streak action=restart_suppressed_no_av_distress");
-    request_decoder_resync("unrecovered streak no av distress");
-    return triggered;
-  }
-  request_decoder_resync("unrecovered frame streak");
-  LOGD("Unrecovered frame streak detected — requesting soft restart (reason=%s)",
-       unrecovered_distress_reason ? unrecovered_distress_reason : "unknown");
-  if (!request_recovery_restart("unrecovered_streak",
-                                LOSS_RETRY_BITRATE_KBPS,
-                                now_us,
-                                "unrecovered streak restart failed")) {
-    LOGE("Soft restart request failed after unrecovered frames; keeping stream alive");
-  } else if (context.active_host) {
-    host_set_hint(context.active_host,
-                  "Video desync — retrying stream",
-                  true,
-                  HINT_DURATION_RECOVERY_US);
-    triggered = true;
-    context.stream.unrecovered_persistent_events = 0;
-    context.stream.unrecovered_persistent_window_start_us = now_us;
-    context.stream.unrecovered_idr_requests = 0;
-    context.stream.unrecovered_idr_window_start_us = now_us;
-  }
+  vitavideo_show_poor_net_indicator();
+  context.stream.loss_alert_until_us = now_us + LOSS_ALERT_DURATION_US;
+  context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
+  request_decoder_resync("unrecovered frame");
   return triggered;
-}
-
-static bool unrecovered_loss_has_av_distress(const char **reason_out) {
-  if (context.stream.av_diag.missing_ref_count >= 2) {
-    if (reason_out)
-      *reason_out = "missing_ref";
-    return true;
-  }
-  if (context.stream.av_diag.corrupt_burst_count >= 4) {
-    if (reason_out)
-      *reason_out = "corrupt_burst";
-    return true;
-  }
-  if (context.stream.av_diag.fec_fail_count > 0) {
-    if (reason_out)
-      *reason_out = "fec_fail";
-    return true;
-  }
-  if (context.stream.av_diag.sendbuf_overflow_count > 0) {
-    if (reason_out)
-      *reason_out = "sendbuf_overflow";
-    return true;
-  }
-
-  uint32_t target_fps = context.stream.target_fps ?
-      context.stream.target_fps : context.stream.negotiated_fps;
-  uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  // Persistent-loss path allows a slightly lower floor before escalation.
-  // Here we require stronger evidence (70% FPS + stricter counters) to avoid
-  // restart oscillation from short-lived loss bursts.
-  if (target_fps && incoming_fps &&
-      (uint64_t)incoming_fps * 100ULL < (uint64_t)target_fps * 70ULL) {
-    if (reason_out)
-      *reason_out = "fps_drop";
-    return true;
-  }
-
-  if (reason_out)
-    *reason_out = "av_healthy";
-  return false;
 }
 
 static void handle_takion_overflow(void) {
@@ -1833,12 +1496,6 @@ static uint32_t saturating_add_u32_report(uint32_t lhs,
     context.stream.loss_counter_saturated_mask |= counter_mask_bit;
   }
   return sum;
-}
-
-static uint64_t remaining_ms_until(uint64_t deadline_us, uint64_t now_us) {
-  if (deadline_us == 0 || now_us >= deadline_us)
-    return 0;
-  return (deadline_us - now_us) / 1000ULL;
 }
 
 static const char *quit_reason_label(ChiakiQuitReason reason) {
@@ -2131,109 +1788,9 @@ static void handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     return;
   }
 
-  bool startup_soft_grace_active =
-      context.stream.loss_restart_soft_grace_until_us &&
-      now_us < context.stream.loss_restart_soft_grace_until_us;
-  if (startup_soft_grace_active) {
-    uint64_t remaining_ms =
-        remaining_ms_until(context.stream.loss_restart_soft_grace_until_us, now_us);
-    LOGD("Loss recovery action=restart_suppressed_startup_soft_grace trigger=%s remaining=%llums",
-         trigger,
-         (unsigned long long)remaining_ms);
-    // Keep stage pinned at 1 while startup grace is active so the next
-    // non-grace hit resumes from "post-IDR" behavior instead of resetting.
-    context.stream.loss_recovery_gate_hits = 1;
-    request_decoder_resync("packet-loss startup grace");
-    return;
-  }
-
-  if (context.stream.last_loss_recovery_action_us &&
-      now_us - context.stream.last_loss_recovery_action_us <
-          LOSS_RECOVERY_ACTION_COOLDOWN_US) {
-    if (context.config.show_latency) {
-      uint64_t remaining_ms =
-          (LOSS_RECOVERY_ACTION_COOLDOWN_US -
-           (now_us - context.stream.last_loss_recovery_action_us)) /
-          1000ULL;
-      LOGD("Loss recovery action=cooldown_skip trigger=%s remaining=%llums",
-           trigger,
-           (unsigned long long)remaining_ms);
-    }
-    request_decoder_resync("packet-loss cooldown");
-    return;
-  }
-
-  bool downgraded = false;
-  char hint[96];
-  if (context.config.latency_mode == VITA_LATENCY_MODE_ULTRA_LOW) {
-    if (context.stream.loss_retry_attempts < 1 && !context.stream.fast_restart_active) {
-      sceClibSnprintf(
-          hint,
-          sizeof(hint),
-          "Network unstable — retrying at %.1f Mbps",
-          (float)LOSS_RETRY_BITRATE_KBPS / 1000.0f);
-      bool restart_ok = request_recovery_restart(
-          "loss_recovery_gate",
-          LOSS_RETRY_BITRATE_KBPS,
-          now_us,
-          NULL);
-      if (restart_ok) {
-        uint32_t recovery_stage = context.stream.loss_recovery_gate_hits;
-        context.stream.loss_retry_attempts++;
-        context.stream.loss_retry_bitrate_kbps = LOSS_RETRY_BITRATE_KBPS;
-        context.stream.loss_retry_active = true;
-        context.stream.loss_recovery_gate_hits = 0;
-        if (context.config.show_latency) {
-          LOGD("Loss recovery action=restart trigger=%s stage=%u av_diag={missing_ref=%u,corrupt=%u,fec_fail=%u,sendbuf_overflow=%u,last=%u-%u}",
-               trigger,
-               recovery_stage,
-               context.stream.av_diag.missing_ref_count,
-               context.stream.av_diag.corrupt_burst_count,
-               context.stream.av_diag.fec_fail_count,
-               context.stream.av_diag.sendbuf_overflow_count,
-               context.stream.av_diag.last_corrupt_start,
-               context.stream.av_diag.last_corrupt_end);
-        }
-        LOGD("Packet loss fallback scheduled (attempt %u, target %u kbps)",
-             context.stream.loss_retry_attempts,
-             context.stream.loss_retry_bitrate_kbps);
-        if (context.active_host) {
-          host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
-        }
-        return;
-      } else {
-        LOGE("Soft restart request failed; falling back to full reconnect");
-      }
-    }
-    if (context.stream.loss_retry_attempts >= 1 || context.stream.fast_restart_active) {
-      sceClibSnprintf(
-          hint,
-          sizeof(hint),
-          "Severe packet loss — pausing stream");
-      context.stream.reconnect_overlay_active = false;
-    }
-  } else if (auto_downgrade_latency_mode()) {
-    downgraded = true;
-    sceClibSnprintf(
-        hint,
-        sizeof(hint),
-        "Network unstable — switching to %s preset",
-        latency_mode_label(context.config.latency_mode));
-    context.stream.reconnect_overlay_active = false;
-  } else {
-    sceClibSnprintf(
-        hint,
-        sizeof(hint),
-        "Severe packet loss — pausing stream");
-    context.stream.reconnect_overlay_active = false;
-  }
-  if (context.active_host) {
-    host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
-  }
-  context.stream.last_loss_recovery_action_us = now_us;
-  context.stream.loss_recovery_gate_hits = 0;
-  context.stream.inputs_resume_pending = true;
-  request_stream_stop("packet loss");
+  request_decoder_resync("packet-loss follow-up");
+  context.stream.loss_recovery_gate_hits = 1;
+  return;
 }
 
 static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
@@ -2719,7 +2276,8 @@ int host_stream(VitaChiakiHost* host) {
   ChiakiConnectVideoProfile profile = {};
 	chiaki_connect_video_profile_preset(&profile,
 			requested_resolution, context.config.fps);
-  apply_latency_mode(&profile, context.config.latency_mode);
+  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)",
+       profile.bitrate, profile.width, profile.height);
   if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
     profile.bitrate = context.stream.loss_retry_bitrate_kbps;
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
@@ -2746,6 +2304,7 @@ int host_stream(VitaChiakiHost* host) {
 	     host->hostname ? host->hostname : "<null>",
 	     profile.bitrate,
 	     profile.max_fps);
+  LOGD("Recovery profile: stable_default");
 
 	ChiakiErrorCode err = chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
 	if(err != CHIAKI_ERR_SUCCESS) {

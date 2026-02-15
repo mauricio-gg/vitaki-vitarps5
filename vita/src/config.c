@@ -820,6 +820,12 @@ void config_parse(VitaChiakiConfig* cfg) {
       }
     }
   }
+
+  LOGD("Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s clamp_soft_restart_bitrate=%s",
+       serialize_latency_mode(cfg->latency_mode),
+       cfg->force_30fps ? "true" : "false",
+       cfg->send_actual_start_bitrate ? "true" : "false",
+       cfg->clamp_soft_restart_bitrate ? "true" : "false");
 }
 
 void config_free(VitaChiakiConfig* cfg) {
