@@ -754,9 +754,9 @@ void host_finalize_deferred_session(void) {
   ChiakiErrorCode err = chiaki_session_join(&context.stream.session);
   uint64_t join_duration_us = sceKernelGetProcessTimeWide() - join_start;
   if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Session join failed: %d after %ju us (proceeding with fini)", err, join_duration_us);
+    LOGE("Session join failed: %d after %llu us (proceeding with fini)", err, (unsigned long long)join_duration_us);
   } else {
-    LOGD("Session thread joined in %ju us", join_duration_us);
+    LOGD("Session thread joined in %llu us", (unsigned long long)join_duration_us);
   }
 
   // Join input thread (may already be exited)
@@ -1276,7 +1276,7 @@ static void handle_stuck_bitrate(bool low_fps_window,
       context.stream.reconnect.recover_active)
     return;
 
-  float negotiated_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000000.0f;
+  float negotiated_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
   bool bitrate_stuck = context.stream.bitrate_window_filled >= 2 &&
                        context.stream.windowed_bitrate_mbps > 0.0f &&
                        context.stream.windowed_bitrate_mbps < negotiated_mbps * 0.85f;
