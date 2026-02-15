@@ -62,6 +62,17 @@ static bool pin_entry_initialized = false;
 // Touch input state pointers (initialized in ui_screens_init)
 static bool *touch_block_active = NULL;
 static bool *touch_block_pending_clear = NULL;
+
+// Gesture recognition state for tap vs. swipe disambiguation
+#define TAP_SWIPE_THRESHOLD 25.0f
+
+static bool  touch_is_down = false;
+static bool  touch_is_swipe = false;
+static float touch_start_x = 0.0f;
+static float touch_start_y = 0.0f;
+static int   touch_start_card_index = -1;
+static bool  touch_start_was_add_btn = false;
+
 // ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
@@ -105,92 +116,159 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
   if (*touch_block_active) {
     if (touch.reportNum == 0) {
-      // Finger lifted - clear the block
       *touch_block_active = false;
       *touch_block_pending_clear = false;
     } else {
-      return UI_SCREEN_TYPE_MAIN;  // Still blocking while finger is down
+      return UI_SCREEN_TYPE_MAIN;
     }
+    // Also reset gesture state when touch block clears
+    touch_is_down = false;
+    touch_is_swipe = false;
+    touch_start_card_index = -1;
+    touch_start_was_add_btn = false;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  if (touch.reportNum > 0) {
-    // Convert touch coordinates to screen coordinates
-    // Convert touch coordinates from native resolution to screen resolution
-    float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-    float touch_y = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+  // Precompute card layout (needed by all phases)
+  int content_center_x = ui_get_dynamic_content_center_x();
+  int visible = (num_hosts < CARDS_VISIBLE_MAX) ? num_hosts : CARDS_VISIBLE_MAX;
+  int row_width = visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP;
+  int h_start_x = content_center_x - (row_width / 2);
+  int card_y = (VITA_HEIGHT / 2) - (CONSOLE_CARD_HEIGHT / 2);
+  int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
+  int offset = ui_cards_get_scroll_offset();
 
+  // ── Phase A: Touch-down (finger just made contact) ──
+  if (touch.reportNum > 0 && !touch_is_down) {
+    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+
+    // Nav bar fires immediately (unchanged)
     UIScreenType nav_touch_screen;
-    if (nav_touch_hit(touch_x, touch_y, &nav_touch_screen))
+    if (nav_touch_hit(touch_x, touch_y_sc, &nav_touch_screen))
       return nav_touch_screen;
 
-    // Check console cards (rectangular hitboxes)
+    touch_is_down = true;
+    touch_is_swipe = false;
+    touch_start_x = touch_x;
+    touch_start_y = touch_y_sc;
+    touch_start_card_index = -1;
+    touch_start_was_add_btn = false;
+
+    // Begin drag tracking for swipe-to-scroll
+    ui_cards_drag_begin();
+
+    // Check card hitboxes — record index but do NOT fire action
     if (num_hosts > 0) {
-      int content_area_x = WAVE_NAV_WIDTH + ((VITA_WIDTH - WAVE_NAV_WIDTH) / 2);
-      for (int i = 0; i < num_hosts; i++) {
-        int card_x = content_area_x - (CONSOLE_CARD_WIDTH / 2);
-        int card_y = CONSOLE_CARD_START_Y + (i * CONSOLE_CARD_SPACING);
-
-        if (is_point_in_rect(touch_x, touch_y, card_x, card_y,
-            CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT)) {
-          // Select card and trigger connect action
-          ui_cards_set_selected_index(i);
-
-          // Find and connect to selected host
-          int host_idx = 0;
-          for (int j = 0; j < MAX_NUM_HOSTS; j++) {
-              if (context.hosts[j]) {
-                if (host_idx == ui_cards_get_selected_index()) {
-                  context.active_host = context.hosts[j];
-
-                  if (takion_cooldown_gate_active()) {
-                    LOGD("Touch connect ignored — network recovery cooldown active");
-                    return UI_SCREEN_TYPE_MAIN;
-                  }
-
-                  bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-                  bool registered = context.active_host->type & REGISTERED;
-                bool at_rest = discovered && context.active_host->discovery_state &&
-                               context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-                if (discovered && !at_rest && registered) {
-                  ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-                  if (!start_connection_thread(context.active_host)) {
-                    ui_connection_cancel();
-                    return UI_SCREEN_TYPE_MAIN;
-                  }
-                  ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-                  return UI_SCREEN_TYPE_WAKING;
-                } else if (at_rest) {
-                  LOGD("Touch wake gesture on dormant console");
-                  ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-                  host_wakeup(context.active_host);
-                  return UI_SCREEN_TYPE_WAKING;
-                } else if (!registered) {
-                  return UI_SCREEN_TYPE_REGISTER_HOST;
-                }
-                break;
-              }
-              host_idx++;
-            }
-          }
+      for (int vi = 0; vi < visible && (offset + vi) < num_hosts; vi++) {
+        int i = offset + vi;
+        int card_x = h_start_x + vi * stride;
+        if (is_point_in_rect(touch_x, touch_y_sc, card_x, card_y,
+                             CONSOLE_CARD_WIDTH, CONSOLE_CARD_HEIGHT)) {
+          touch_start_card_index = i;
           break;
         }
       }
 
       // Check "Add New" button
-      if (button_add_new) {
+      if (button_add_new && touch_start_card_index < 0) {
         int btn_w = vita2d_texture_get_width(button_add_new);
-        int btn_x = content_area_x - (btn_w / 2);
-        int btn_y = CONSOLE_CARD_START_Y + (num_hosts * CONSOLE_CARD_SPACING) + 20;
+        int btn_x = content_center_x - (btn_w / 2);
+        int btn_y = card_y + CONSOLE_CARD_HEIGHT + 60;
         int btn_h = vita2d_texture_get_height(button_add_new);
-
-        if (is_point_in_rect(touch_x, touch_y, btn_x, btn_y, btn_w, btn_h)) {
-          if (!context.discovery_enabled) {
-            start_discovery(NULL, NULL);
-          }
+        if (is_point_in_rect(touch_x, touch_y_sc, btn_x, btn_y, btn_w, btn_h)) {
+          touch_start_was_add_btn = true;
         }
       }
     }
+
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
+  // ── Phase B: Finger moving (detect swipe) ──
+  if (touch.reportNum > 0 && touch_is_down) {
+    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+
+    if (!touch_is_swipe) {
+      float dx = touch_x - touch_start_x;
+      float dy = touch_y_sc - touch_start_y;
+      if ((dx * dx + dy * dy) > (TAP_SWIPE_THRESHOLD * TAP_SWIPE_THRESHOLD)) {
+        touch_is_swipe = true;
+      }
+    }
+
+    // Feed drag offset to card carousel (drag left = positive = scroll right)
+    if (touch_is_swipe) {
+      float drag_dx = touch_start_x - touch_x;
+      ui_cards_drag_update(drag_dx);
+    }
+
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
+  // ── Phase C: Finger lifted (fire tap if not a swipe) ──
+  if (touch.reportNum == 0 && touch_is_down) {
+    bool was_swipe = touch_is_swipe;
+    int card_idx = touch_start_card_index;
+    bool was_add_btn = touch_start_was_add_btn;
+
+    // Finish drag tracking (snap-scrolls on swipe, no-ops on tap)
+    ui_cards_drag_end();
+
+    // Reset state
+    touch_is_down = false;
+    touch_is_swipe = false;
+    touch_start_card_index = -1;
+    touch_start_was_add_btn = false;
+
+    if (!was_swipe) {
+      // Tap on a console card
+      if (card_idx >= 0 && num_hosts > 0) {
+        ui_cards_set_selected_index(card_idx);
+
+        ConsoleCardInfo* card = ui_cards_get_selected_card();
+        if (card && card->host) {
+          context.active_host = card->host;
+
+          if (takion_cooldown_gate_active()) {
+            LOGD("Touch connect ignored — network recovery cooldown active");
+            return UI_SCREEN_TYPE_MAIN;
+          }
+
+          bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+          bool registered = context.active_host->type & REGISTERED;
+          bool at_rest = discovered && context.active_host->discovery_state &&
+                         context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+
+          if (!registered) {
+            return UI_SCREEN_TYPE_REGISTER_HOST;
+          } else if (at_rest) {
+            LOGD("Touch wake gesture on dormant console");
+            ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+            host_wakeup(context.active_host);
+            return UI_SCREEN_TYPE_WAKING;
+          } else if (registered) {
+            ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+            if (!start_connection_thread(context.active_host)) {
+              ui_connection_cancel();
+              return UI_SCREEN_TYPE_MAIN;
+            }
+            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+            return UI_SCREEN_TYPE_WAKING;
+          }
+        }
+      }
+
+      // Tap on "Add New" button
+      if (was_add_btn) {
+        if (!context.discovery_enabled) {
+          start_discovery(NULL, NULL);
+        }
+      }
+    }
+
+    return UI_SCREEN_TYPE_MAIN;
   }
 
   return UI_SCREEN_TYPE_MAIN;
@@ -391,143 +469,135 @@ UIScreenType draw_main_menu() {
   if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_MAIN, &nav_screen, true))
     return nav_screen;
 
-  // Render VitaRPS5 console cards instead of host tiles
+  /* Render VitaRPS5 console cards instead of host tiles */
   ui_cards_render_grid();
 
-  // Count hosts
-  int num_hosts = 0;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
-    if (context.hosts[i]) num_hosts++;
-  }
+  /* Get cached card count (fresh from render_grid call above) */
+  int num_hosts = ui_cards_get_count();
 
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
   // === D-PAD NAVIGATION (moves between console cards in content area) ===
   // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
 
-  if (btn_pressed(SCE_CTRL_UP)) {
+  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP)) {
     if (ui_focus_is_content() && num_hosts > 0) {
-      // Move up within console cards (cycle through)
+      // Move left within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
+      ui_cards_ensure_selected_visible();
     }
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
+  } else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN)) {
     if (ui_focus_is_content() && num_hosts > 0) {
-      // Move down within console cards (cycle through)
+      // Move right within console cards (cycle through)
       ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
+      ui_cards_ensure_selected_visible();
     }
   }
 
-  // === X BUTTON (Activate/Select highlighted element) ===
+  /* === X BUTTON (Activate/Select highlighted element) === */
 
   if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Connect to selected console
-      int host_idx = 0;
-      for (int i = 0; i < MAX_NUM_HOSTS; i++) {
-        if (context.hosts[i]) {
-          if (host_idx == ui_cards_get_selected_index()) {
-            context.active_host = context.hosts[i];
+    if (ui_focus_is_content() && ui_cards_get_count() > 0) {
+      /* Connect to selected console using card cache */
+      ConsoleCardInfo* card = ui_cards_get_selected_card();
+      if (card && card->host) {
+        context.active_host = card->host;
 
-            if (takion_cooldown_gate_active()) {
-              LOGD("Ignoring connect request — network recovery cooldown active");
-              return UI_SCREEN_TYPE_MAIN;
+        if (takion_cooldown_gate_active()) {
+          LOGD("Ignoring connect request — network recovery cooldown active");
+          return UI_SCREEN_TYPE_MAIN;
+        }
+
+        bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+        bool registered = context.active_host->type & REGISTERED;
+        bool at_rest = discovered && context.active_host->discovery_state &&
+                       context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+
+        if (!registered) {
+          /* Unregistered console - start registration */
+          next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
+        } else if (at_rest) {
+          /* Dormant console - wake and show waking screen */
+          LOGD("Waking dormant console...");
+          ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+          host_wakeup(context.active_host);
+          next_screen = UI_SCREEN_TYPE_WAKING;
+        } else if (registered) {
+          /* Ready console - start streaming with feedback */
+          ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+          next_screen = UI_SCREEN_TYPE_WAKING;
+          if (!start_connection_thread(context.active_host)) {
+            ui_connection_cancel();
+            next_screen = UI_SCREEN_TYPE_MAIN;
+          } else {
+            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+          }
+        }
+      }
+    }
+  }
+
+  /* === OTHER BUTTONS === */
+
+  /* Square: Re-pair selected console (unregister + register again) */
+  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && ui_cards_get_count() > 0) {
+    ConsoleCardInfo* card = ui_cards_get_selected_card();
+    if (card && card->host) {
+      VitaChiakiHost* host = card->host;
+      bool registered = host->type & REGISTERED;
+
+      if (registered) {
+        /* Remove registration and trigger re-pairing */
+        LOGD("Re-pairing console: %s", host->hostname);
+
+        /* Free registered state memory */
+        if (host->registered_state) {
+          free(host->registered_state);
+          host->registered_state = NULL;
+        }
+
+        /* Remove from config.registered_hosts array */
+        for (int j = 0; j < context.config.num_registered_hosts; j++) {
+          if (context.config.registered_hosts[j] == host) {
+            /* Shift remaining elements left */
+            for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
+              context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
             }
-
-            bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-            bool registered = context.active_host->type & REGISTERED;
-            bool at_rest = discovered && context.active_host->discovery_state &&
-                           context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-            if (!registered) {
-              // Unregistered console - start registration
-              next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-            } else if (at_rest) {
-              // Dormant console - wake and show waking screen
-              LOGD("Waking dormant console...");
-              ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-              host_wakeup(context.active_host);
-              next_screen = UI_SCREEN_TYPE_WAKING;
-            } else if (registered) {
-              // Ready console - start streaming with feedback
-              ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-              next_screen = UI_SCREEN_TYPE_WAKING;
-              if (!start_connection_thread(context.active_host)) {
-                ui_connection_cancel();
-                next_screen = UI_SCREEN_TYPE_MAIN;
-              } else {
-                ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-              }
-            }
+            context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
+            context.config.num_registered_hosts--;
             break;
           }
-          host_idx++;
         }
+
+        /* Clear registered flag */
+        host->type &= ~REGISTERED;
+
+        /* Save config to persist changes */
+        persist_config_or_warn();
+
+        LOGD("Registration data deleted for console: %s", host->hostname);
+
+        /* Trigger registration screen */
+        context.active_host = host;
+        next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
       }
     }
   }
 
-  // === OTHER BUTTONS ===
-
-  // Square: Re-pair selected console (unregister + register again)
-  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0) {
-    int host_idx = 0;
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
-      if (context.hosts[i]) {
-        if (host_idx == ui_cards_get_selected_index()) {
-          VitaChiakiHost* host = context.hosts[i];
-          bool registered = host->type & REGISTERED;
-
-          if (registered) {
-            // Remove registration and trigger re-pairing
-            LOGD("Re-pairing console: %s", host->hostname);
-
-            // Free registered state memory
-            if (host->registered_state) {
-              free(host->registered_state);
-              host->registered_state = NULL;
-            }
-
-            // Remove from config.registered_hosts array
-            for (int j = 0; j < context.config.num_registered_hosts; j++) {
-              if (context.config.registered_hosts[j] == host) {
-                // Shift remaining elements left
-                for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
-                  context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
-                }
-                context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
-                context.config.num_registered_hosts--;
-                break;
-              }
-            }
-
-            // Clear registered flag
-            host->type &= ~REGISTERED;
-
-            // Save config to persist changes
-            persist_config_or_warn();
-
-            LOGD("Registration data deleted for console: %s", host->hostname);
-
-            // Trigger registration screen
-            context.active_host = host;
-            next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-          }
-          break;
-        }
-        host_idx++;
-      }
-    }
-  }
-
-  // Handle touch screen input for VitaRPS5 UI
+  /* Handle touch screen input for VitaRPS5 UI */
   UIScreenType touch_screen = handle_vitarps5_touch_input(num_hosts);
   if (touch_screen != UI_SCREEN_TYPE_MAIN) {
     return touch_screen;
   }
 
-  // Select button shows hints popup
+  /* Start: Open/clear console filter */
+  if (btn_pressed(SCE_CTRL_START) && ui_focus_is_content()) {
+    ui_cards_open_filter();
+  }
+
+  /* Select button shows hints popup */
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("D-Pad: Navigate | Cross: Connect/Wake | Square: Re-pair");
+    trigger_hints_popup("L/R: Browse | Cross: Connect | Start: Filter");
   }
 
   return next_screen;
@@ -550,7 +620,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 8 toggles + 1 circle-confirm toggle
+#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 10 toggles
 
 // Shared toggle geometry for settings rows
 #define SETTINGS_TOGGLE_X_OFFSET    70
@@ -567,6 +637,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT  9
 #define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS       10
 #define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
+#define SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED  11
 
 static void settings_update_scroll_for_selection(void) {
     int total_items = SETTINGS_STREAMING_ITEMS;
@@ -724,6 +795,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                            selected);
         vita2d_font_draw_text(font, content_x + 15, y + item_h/2 + 6,
                               UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, "Circle Button Confirm");
+        break;
+      case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Show Only Paired", SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
+                                  context.config.show_only_paired, selected);
         break;
       default:
         if (last_invalid_settings_item != i) {
@@ -885,6 +961,12 @@ UIScreenType draw_settings() {
       start_toggle_animation(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
                              context.config.circle_btn_confirm);
       persist_config_or_warn();
+    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED) {
+      context.config.show_only_paired = !context.config.show_only_paired;
+      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
+                             context.config.show_only_paired);
+      persist_config_or_warn();
+      ui_cards_update_cache(true);  // Force refresh to apply filter immediately
     }
   }
 
@@ -921,7 +1003,7 @@ static VitaChiakiHost* profile_get_reference_host(void) {
   int selected = ui_cards_get_selected_index();
   int host_idx = 0;
   VitaChiakiHost *first_host = NULL;
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     VitaChiakiHost *host = context.hosts[i];
     if (!host) {
       continue;
@@ -2100,8 +2182,8 @@ static void handle_mapping_popup_input(void) {
     SceTouchData touch;
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
     if (touch.reportNum > 0) {
-        float touch_x = (touch.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-        float touch_y = (touch.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+        float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+        float touch_y = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
         bool inside_popup = touch_x >= popup_x && touch_x <= popup_x + popup_w &&
                             touch_y >= popup_y && touch_y <= popup_y + popup_h;
         if (inside_popup) {
@@ -2379,8 +2461,8 @@ UIScreenType draw_controller_config_screen() {
         sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_front, 1);
         if (touch_front.reportNum > 0 && ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY) {
             if (current_frame - last_touch_frame >= TOUCH_DEBOUNCE_FRAMES) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (touch_x >= diagram_x && touch_x <= diagram_x + diagram_w &&
                     touch_y >= diagram_y && touch_y <= diagram_y + diagram_h) {
                     last_touch_frame = current_frame;
@@ -2420,8 +2502,8 @@ UIScreenType draw_controller_config_screen() {
 
         if (ctrl_diagram.detail_view == CTRL_DETAIL_FRONT_MAPPING) {
             if (touch_front.reportNum > 0) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (!ctrl_front_touch_active) {
                     ctrl_front_touch_active = true;
                     controller_front_selection_clear();
@@ -2486,8 +2568,8 @@ UIScreenType draw_controller_config_screen() {
             }
         } else if (ctrl_diagram.detail_view == CTRL_DETAIL_BACK_MAPPING) {
             if (touch_front.reportNum > 0) {
-                float touch_x = (touch_front.report[0].x / (float)TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-                float touch_y = (touch_front.report[0].y / (float)TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+                float touch_x = (touch_front.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+                float touch_y = (touch_front.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
                 if (!ctrl_back_touch_active) {
                     ctrl_back_touch_active = true;
                     controller_back_selection_clear();

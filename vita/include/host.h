@@ -6,7 +6,12 @@
 #include <chiaki/discovery.h>
 #include <chiaki/regist.h>
 
-#define MAX_NUM_HOSTS 4
+// Host limits for multi-console discovery
+#define MAX_REGISTERED_HOSTS    8    // Persisted paired consoles
+#define MAX_MANUAL_HOSTS        8    // Manually-added by IP
+#define MAX_CONTEXT_HOSTS      64    // Display array (discovered + manual)
+// Deprecated: use specific constants above
+#define MAX_NUM_HOSTS          MAX_CONTEXT_HOSTS
 #define HOST_DROP_PINGS 3;
 
 typedef enum vita_chiaki_host_type_t {

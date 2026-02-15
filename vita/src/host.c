@@ -2905,7 +2905,7 @@ void save_manual_host(VitaChiakiHost* rhost, char* new_hostname) {
 
   CHIAKI_LOGI(&(context.log), "--");
 
-  if (context.config.num_manual_hosts >= MAX_NUM_HOSTS) { // TODO change to manual max
+  if (context.config.num_manual_hosts >= MAX_MANUAL_HOSTS) {
     CHIAKI_LOGE(&(context.log), "Max manual hosts reached; could not save.");
     return;
   }
@@ -2955,7 +2955,7 @@ void delete_manual_host(VitaChiakiHost* mhost) {
 
 int count_nonnull_context_hosts() {
   int sum = 0;
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost *h = context.hosts[host_idx];
     if (h) {
       sum += 1;
@@ -2968,7 +2968,7 @@ void update_context_hosts() {
   bool hide_remote_if_discovered = true;
 
   // Remove any no-longer-existent manual hosts
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost* h = context.hosts[host_idx];
     if (h && (h->type & MANUALLY_ADDED)) {
 
@@ -2988,10 +2988,10 @@ void update_context_hosts() {
 
   // Remove any manual hosts matching discovered hosts
   if (hide_remote_if_discovered) {
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
       VitaChiakiHost* mhost = context.hosts[i];
       if (!(mhost && mhost->server_mac && (mhost->type & MANUALLY_ADDED))) continue;
-      for (int j = 0; j < MAX_NUM_HOSTS; j++) {
+      for (int j = 0; j < MAX_CONTEXT_HOSTS; j++) {
         if (j == i) continue;
         VitaChiakiHost* h = context.hosts[j];
         if (!(h && h->server_mac && (h->type & DISCOVERED) && !(h->type & MANUALLY_ADDED))) continue;
@@ -3004,14 +3004,14 @@ void update_context_hosts() {
 
 
   // Remove any empty slots
-  for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
       VitaChiakiHost* h = context.hosts[host_idx];
       if (!h) {
         // slide all hosts back one slot
-        for (int j = host_idx+1; j < MAX_NUM_HOSTS; j++) {
+        for (int j = host_idx+1; j < MAX_CONTEXT_HOSTS; j++) {
           context.hosts[j-1] = context.hosts[j];
         }
-        context.hosts[MAX_NUM_HOSTS-1] = NULL;
+        context.hosts[MAX_CONTEXT_HOSTS-1] = NULL;
       }
   }
 
@@ -3021,7 +3021,7 @@ void update_context_hosts() {
 
     // first, check if it (or the local discovered version of the same console) is already in context
     bool already_in_context = false;
-    for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+    for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
       VitaChiakiHost* h = context.hosts[host_idx];
       if (!h) continue;
       if ((!h->server_mac) || (!h->hostname)) continue;
@@ -3048,7 +3048,7 @@ void update_context_hosts() {
 
     // the host is not in the context yet. Find an empty spot for it, if possible.
     bool added_to_context = false;
-    for (int host_idx = 0; host_idx < MAX_NUM_HOSTS; host_idx++) {
+    for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
       VitaChiakiHost* h = context.hosts[host_idx];
       if (h == NULL) {
         // empty spot

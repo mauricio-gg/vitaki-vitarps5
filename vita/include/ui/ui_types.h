@@ -167,7 +167,7 @@ typedef struct console_card_info_t {
  * Console card cache to prevent flickering during discovery
  */
 typedef struct console_card_cache_t {
-    ConsoleCardInfo cards[4];   // MAX_NUM_HOSTS
+    ConsoleCardInfo cards[64];  // MAX_CONTEXT_HOSTS — keep in sync with host.h
     int num_cards;
     uint64_t last_update_time;  // Microseconds since epoch
 } ConsoleCardCache;

@@ -807,8 +807,8 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
     }
 
     if (nav_touch.reportNum > 0) {
-        float tx = (nav_touch.report[0].x / 1920.0f) * 960.0f;
-        float ty = (nav_touch.report[0].y / 1088.0f) * 544.0f;
+        float tx = (nav_touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * VITA_WIDTH;
+        float ty = (nav_touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * VITA_HEIGHT;
 
         // Check pill touch first when collapsed
         if (ui_nav_handle_pill_touch(tx, ty)) {

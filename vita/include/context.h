@@ -200,7 +200,7 @@ typedef struct vita_chiaki_context_t {
   bool discovery_enabled;
   bool discovery_resume_after_stream;
   VitaChiakiDiscoveryCallbackState* discovery_cb_state;
-  VitaChiakiHost* hosts[MAX_NUM_HOSTS];
+  VitaChiakiHost* hosts[MAX_CONTEXT_HOSTS];
   VitaChiakiHost* active_host;
   VitaChiakiStream stream;
   VitaChiakiConfig config;

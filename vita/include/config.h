@@ -33,9 +33,9 @@ typedef struct vita_chiaki_config_t {
   ChiakiVideoResolutionPreset resolution;
   ChiakiVideoFPSPreset fps;
   size_t num_manual_hosts;
-  VitaChiakiHost* manual_hosts[MAX_NUM_HOSTS];
+  VitaChiakiHost* manual_hosts[MAX_MANUAL_HOSTS];
   size_t num_registered_hosts;
-  VitaChiakiHost* registered_hosts[MAX_NUM_HOSTS];
+  VitaChiakiHost* registered_hosts[MAX_REGISTERED_HOSTS];
   // TODO: Logfile path
   // TODO: Loglevel
   // controller map id - corresponds to custom slot index (0, 1, or 2)
@@ -53,6 +53,7 @@ typedef struct vita_chiaki_config_t {
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
   bool show_nav_labels;  // Show text labels below navigation icons when selected
+  bool show_only_paired;  // Only show registered/paired consoles on main screen
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig* cfg);

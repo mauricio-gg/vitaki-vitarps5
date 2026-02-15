@@ -29,9 +29,10 @@ typedef enum ui_settings_streaming_item_t {
   UI_SETTINGS_ITEM_FILL_SCREEN = 9,
   UI_SETTINGS_ITEM_SHOW_NAV_LABELS = 10,
   UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 11,
+  UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED = 12,
 } UISettingsStreamingItem;
 
-#define UI_SETTINGS_STREAMING_ITEM_COUNT 12
+#define UI_SETTINGS_STREAMING_ITEM_COUNT 13
 
 // ============================================================================
 // Screen Initialization
@@ -112,3 +113,4 @@ bool ui_screen_draw_stream(void);
  * @return true to stay on messages screen, false to exit
  */
 bool ui_screen_draw_messages(void);
+

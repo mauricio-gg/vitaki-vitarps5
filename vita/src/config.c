@@ -319,6 +319,7 @@ void config_parse(VitaChiakiConfig* cfg) {
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->show_nav_labels = false;  // Default: no text labels below nav icons
+  cfg->show_only_paired = false;  // Default: show all consoles
   vita_logging_config_set_defaults(&cfg->logging);
 
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
@@ -583,6 +584,15 @@ void config_parse(VitaChiakiConfig* cfg) {
         migrated_root_settings = true;
     }
 
+    if (parse_bool_setting_with_migration(settings, parsed,
+                                          "show_only_paired", false,
+                                          &cfg->show_only_paired, &source)) {
+      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+        migrated_legacy_settings = true;
+      else if (source == MIGRATION_SOURCE_ROOT)
+        migrated_root_settings = true;
+    }
+
     str_value = NULL;
     source = MIGRATION_SOURCE_NONE;
     if (settings) {
@@ -651,7 +661,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     toml_array_t* regist_hosts = toml_array_in(parsed, "registered_hosts");
     if (regist_hosts && toml_array_kind(regist_hosts) == 't') {
       int num_rhosts = toml_array_nelem(regist_hosts);
-      for (int i=0; i < MIN(MAX_NUM_HOSTS, num_rhosts); i++) {
+      for (int i=0; i < MIN(MAX_REGISTERED_HOSTS, num_rhosts); i++) {
         VitaChiakiHost* host = malloc(sizeof(VitaChiakiHost));
         ChiakiRegisteredHost* rstate = malloc(sizeof(ChiakiRegisteredHost));
         LOGD("Assigning registered state: 0x%x", rstate);
@@ -733,7 +743,7 @@ void config_parse(VitaChiakiConfig* cfg) {
     if (manual_hosts && toml_array_kind(manual_hosts) == 't') {
       int num_mhosts = toml_array_nelem(manual_hosts);
       LOGD("Found %d manual hosts", num_mhosts);
-      for (int i=0; i < MIN(MAX_NUM_HOSTS, num_mhosts) ; i++) {
+      for (int i=0; i < MIN(MAX_MANUAL_HOSTS, num_mhosts) ; i++) {
         VitaChiakiHost* host = NULL;
 
         bool has_mac = false;
@@ -780,7 +790,7 @@ void config_parse(VitaChiakiConfig* cfg) {
 
         if (has_hostname && has_mac) {
           size_t slot = cfg->num_manual_hosts;
-          if (slot >= MAX_NUM_HOSTS) {
+          if (slot >= MAX_MANUAL_HOSTS) {
             CHIAKI_LOGW(&(context.log), "Manual host capacity reached, skipping entry %d", i);
             host_free(host);
             continue;
@@ -817,10 +827,12 @@ void config_free(VitaChiakiConfig* cfg) {
     return;
   }
   free(cfg->psn_account_id);
-  for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+  for (int i = 0; i < MAX_MANUAL_HOSTS; i++) {
     if (cfg->manual_hosts[i] != NULL) {
       host_free(cfg->manual_hosts[i]);
     }
+  }
+  for (int i = 0; i < MAX_REGISTERED_HOSTS; i++) {
     if (cfg->registered_hosts[i] != NULL) {
       host_free(cfg->registered_hosts[i]);
     }
@@ -931,6 +943,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
           cfg->clamp_soft_restart_bitrate ? "true" : "false");
   fprintf(fp, "show_nav_labels = %s\n",
           cfg->show_nav_labels ? "true" : "false");
+  fprintf(fp, "show_only_paired = %s\n",
+          cfg->show_only_paired ? "true" : "false");
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
 
   // Save 3 custom map slots

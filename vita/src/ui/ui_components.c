@@ -14,9 +14,12 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_focus.h"
+#include "ui/ui_console_cards.h"
 #include "video.h"
 
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include <psp2/kernel/clib.h>
 
 // ============================================================================
@@ -37,6 +40,7 @@ const char *debug_menu_options[] = {
     "Show Remote Play error popup",
     "Simulate disconnect banner",
     "Trigger network unstable badge",
+    "Spawn fake consoles (x12)",
 };
 
 // PIN digit constants
@@ -479,7 +483,7 @@ static void ensure_active_host_for_debug(void);
 static void ensure_active_host_for_debug(void) {
     if (context.active_host)
         return;
-    for (int i = 0; i < MAX_NUM_HOSTS; i++) {
+    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
         if (context.hosts[i]) {
             context.active_host = context.hosts[i];
             break;
@@ -526,6 +530,106 @@ static void debug_menu_apply_action(int action_index) {
             vitavideo_show_poor_net_indicator();
             LOGD("Debug menu: triggered network unstable indicator for %llums",
                  (unsigned long long)(alert_duration_us / 1000ULL));
+            break;
+        }
+        case 3: {
+            // Spawn/remove fake consoles for carousel testing
+            // Check if fakes already exist (look for our sentinel MAC prefix 0xDE, 0xAD)
+            bool fakes_exist = false;
+            for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+                if (context.hosts[i] &&
+                    context.hosts[i]->server_mac[0] == 0xDE &&
+                    context.hosts[i]->server_mac[1] == 0xAD) {
+                    fakes_exist = true;
+                    break;
+                }
+            }
+
+            if (fakes_exist) {
+                // Remove all fake hosts
+                int removed = 0;
+                for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+                    if (context.hosts[i] &&
+                        context.hosts[i]->server_mac[0] == 0xDE &&
+                        context.hosts[i]->server_mac[1] == 0xAD) {
+                        host_free(context.hosts[i]);
+                        context.hosts[i] = NULL;
+                        removed++;
+                    }
+                }
+                update_context_hosts();
+                ui_cards_update_cache(true);
+                LOGD("Debug menu: removed %d fake consoles", removed);
+            } else {
+                // Spawn 12 fake consoles
+                const char* names[] = {
+                    "PS5-Dorm-001", "PS5-Dorm-002", "PS5-Dorm-003",
+                    "PS5-Dorm-004", "PS5-Dorm-005", "PS5-Dorm-006",
+                    "PS5-Lounge",   "PS5-Library",  "PS5-Lab",
+                    "PS4-Room-A",   "PS4-Room-B",   "PS4-Room-C",
+                };
+                const char* ips[] = {
+                    "192.168.1.101", "192.168.1.102", "192.168.1.103",
+                    "192.168.1.104", "192.168.1.105", "192.168.1.106",
+                    "192.168.1.107", "192.168.1.108", "192.168.1.109",
+                    "192.168.1.110", "192.168.1.111", "192.168.1.112",
+                };
+
+                int spawned = 0;
+                for (int n = 0; n < 12; n++) {
+                    // Find empty slot
+                    int slot = -1;
+                    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+                        if (!context.hosts[i]) {
+                            slot = i;
+                            break;
+                        }
+                    }
+                    if (slot < 0) break;  // No room
+
+                    VitaChiakiHost* h = (VitaChiakiHost*)malloc(sizeof(VitaChiakiHost));
+                    if (!h) break;
+                    memset(h, 0, sizeof(VitaChiakiHost));
+
+                    h->type = DISCOVERED;
+                    // PS4 for last 3, PS5 for first 9
+                    h->target = (n < 9) ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_10;
+
+                    // Sentinel MAC: DE:AD:xx:xx:xx:xx
+                    h->server_mac[0] = 0xDE;
+                    h->server_mac[1] = 0xAD;
+                    h->server_mac[2] = 0x00;
+                    h->server_mac[3] = 0x00;
+                    h->server_mac[4] = 0x00;
+                    h->server_mac[5] = (uint8_t)(n + 1);
+
+                    h->hostname = strdup(ips[n]);
+
+                    // Create discovery state
+                    ChiakiDiscoveryHost* ds = (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
+                    if (!ds) { free(h->hostname); free(h); break; }
+                    memset(ds, 0, sizeof(ChiakiDiscoveryHost));
+
+                    // Alternate between Ready and Standby
+                    ds->state = (n % 3 == 2) ? CHIAKI_DISCOVERY_HOST_STATE_STANDBY
+                                             : CHIAKI_DISCOVERY_HOST_STATE_READY;
+                    ds->host_name = strdup(names[n]);
+                    ds->host_addr = strdup(ips[n]);
+                    h->discovery_state = ds;
+
+                    h->last_discovery_seen_us = sceKernelGetProcessTimeWide();
+                    h->status_hint[0] = '\0';
+                    h->status_hint_expire_us = 0;
+                    h->status_hint_is_error = false;
+
+                    context.hosts[slot] = h;
+                    context.num_hosts++;
+                    spawned++;
+                }
+
+                ui_cards_update_cache(true);
+                LOGD("Debug menu: spawned %d fake consoles", spawned);
+            }
             break;
         }
         default:
@@ -595,7 +699,7 @@ void ui_debug_render(void) {
 
     // Panel dimensions
     const int panel_w = 560;
-    const int panel_h = 240;
+    const int panel_h = 290;
     int panel_x = (VITA_WIDTH - panel_w) / 2;
     int panel_y = (VITA_HEIGHT - panel_h) / 2;
     ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18,
