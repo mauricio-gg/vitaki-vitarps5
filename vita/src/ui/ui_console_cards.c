@@ -239,7 +239,9 @@ void ui_cards_update_cache(bool force_update) {
         card_cache.last_update_time = current_time;
 
         /* Clamp selection and scroll offset to valid range */
-        if (selected_console_index >= card_cache.num_cards && card_cache.num_cards > 0) {
+        if (card_cache.num_cards == 0) {
+            selected_console_index = 0;
+        } else if (selected_console_index >= card_cache.num_cards) {
             selected_console_index = card_cache.num_cards - 1;
         }
         int max_scroll = card_cache.num_cards - CARDS_VISIBLE_MAX;
