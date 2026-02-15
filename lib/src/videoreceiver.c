@@ -10,9 +10,9 @@
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
 // Hold tiny gap reports briefly so out-of-order packets can fill them first.
-#define VIDEO_GAP_REPORT_HOLD_MS 12
+#define VIDEO_GAP_REPORT_HOLD_MS 24
 // Force-report larger contiguous spans immediately instead of waiting.
-#define VIDEO_GAP_REPORT_FORCE_SPAN 6
+#define VIDEO_GAP_REPORT_FORCE_SPAN 12
 // Guard against pathological spans from corrupted sequence state.
 #define VIDEO_SPAN_SANITY_MAX 4096U
 #define IDR_REQUEST_COOLDOWN_MS 100
@@ -160,6 +160,10 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->cadence_total_ms = 0;
 	video_receiver->cadence_count = 0;
 	video_receiver->cadence_max_alarm_streak = 0;
+	CHIAKI_LOGI(video_receiver->log,
+		"Video gap profile: stable_default (hold_ms=%u force_span=%u)",
+		VIDEO_GAP_REPORT_HOLD_MS,
+		VIDEO_GAP_REPORT_FORCE_SPAN);
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -358,21 +362,24 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		video_receiver->stage_window_drops++;
 
-		// Request IDR for ANY frame failure (non-blocking — pipeline keeps flowing)
-		uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
-		if(!video_receiver->idr_request_pending
-			&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
+		// Request IDR only for hard FEC failures to avoid over-driving keyframe requests.
+		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
-			ChiakiErrorCode idr_err =
-				chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
-			if(idr_err == CHIAKI_ERR_SUCCESS)
+			uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
+			if(!video_receiver->idr_request_pending
+				&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
 			{
-				video_receiver->idr_request_pending = true;
-				video_receiver->idr_request_start_ms = idr_now_ms;
-				video_receiver->last_idr_request_ms = idr_now_ms;
-				CHIAKI_LOGI(video_receiver->log, "Frame %d flush failed (%s), requesting IDR (non-blocking)",
-					(int)video_receiver->frame_index_cur,
-					flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED ? "fec" : "incomplete");
+				ChiakiErrorCode idr_err =
+					chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
+				if(idr_err == CHIAKI_ERR_SUCCESS)
+				{
+					video_receiver->idr_request_pending = true;
+					video_receiver->idr_request_start_ms = idr_now_ms;
+					video_receiver->last_idr_request_ms = idr_now_ms;
+					CHIAKI_LOGI(video_receiver->log, "Frame %d flush failed (%s), requesting IDR (non-blocking)",
+						(int)video_receiver->frame_index_cur,
+						flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED ? "fec" : "incomplete");
+				}
 			}
 		}
 
@@ -458,22 +465,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
 						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
 						video_receiver->consecutive_missing_ref);
-					// Request IDR on missing reference (non-blocking — pipeline keeps flowing)
-					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
-					if(!video_receiver->idr_request_pending
-						&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
-					{
-						ChiakiErrorCode idr_err =
-							chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
-						if(idr_err == CHIAKI_ERR_SUCCESS)
-						{
-							video_receiver->idr_request_pending = true;
-							video_receiver->idr_request_start_ms = idr_now_ms;
-							video_receiver->last_idr_request_ms = idr_now_ms;
-							CHIAKI_LOGI(video_receiver->log, "Missing ref for frame %d, requesting IDR (non-blocking)",
-								(int)video_receiver->frame_index_cur);
-						}
-					}
+					// Keep missing-ref handling passive to avoid aggressive restart/keyframe churn.
 				}
 			}
 		}

@@ -18,6 +18,11 @@ Use `.env` files in the repo root to seed compile-time defaults. The build scrip
 ./tools/build.sh --env-file /path/to/custom.env
 ```
 
+Important command behavior:
+- `./tools/build.sh` and `./tools/build.sh debug` produce installable `.vpk` outputs.
+- `./tools/build.sh test` only builds the `vitarps5_tests` binary and does not produce/update a `.vpk`.
+- If your on-device behavior changed, verify you installed a fresh VPK from a `build`/`debug` command rather than a `test` command.
+
 Supported keys inside `.env.*`:
 
 | Variable | Purpose | Example |
@@ -51,6 +56,7 @@ Even if `enabled = false`, the worker always writes `CHIAKI_LOG_ERROR` and `LOGE
 - Default output file: `ux0:data/vita-chiaki/vitarps5.log` (configurable via `.env` or `[logging].path`).
 - Pull the file from VitaShell (`ux0:/data/vita-chiaki/`) instead of copying console text.
 - The logging worker (`VitaLogThread`) buffers writes through a fixed queue (default 64) to avoid blocking Chiaki threads; bump `queue_depth` in verbose builds if you see drops.
+- For A/B stability runs, prefer `./tools/build.sh --env testing` so logs are written to `ux0:data/vita-chiaki/vitarps5-testing.log` with verbose transport markers.
 
 ## Adding New Logs
 - Prefer the existing `LOGD`/`LOGE` macros (`vita/include/context.h`). They route through the shared worker and honor the active profile.

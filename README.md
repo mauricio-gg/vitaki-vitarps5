@@ -139,6 +139,8 @@ Runtime logs (including Chiaki transport warnings) are also written to `ux0:data
 
 **Environment profiles:** the build script auto-loads `.env.prod` (default) or any profile you pass via `--env`. For verbose developer builds run `./tools/build.sh --env testing`; for production-ready builds stick with `--env prod`. See `docs/ai/LOGGING.md` for the variables each profile controls.
 
+`./tools/build.sh test` only compiles the `vitarps5_tests` executable and does not build or update a `.vpk`. Use `./tools/build.sh` or `./tools/build.sh debug` when validating streaming behavior on hardware.
+
 **Note:** Always use `./tools/build.sh` - never call Docker manually. The script ensures the correct environment and handles versioning automatically.
 
 ### Legacy Build System
@@ -248,6 +250,7 @@ Some configuration lacks a UI but can be set in the config file located at `ux0:
 - `auto_discovery = false` makes Vitaki not start discovery on launch. It can still be started manually by selecting the wifi icon.
 - `latency_mode = "balanced"` targets a specific bitrate for PS5 streaming. Options:  
   `ultra_low` (≈1.2 Mbps), `low` (≈1.8 Mbps), `balanced` (≈2.6 Mbps), `high` (≈3.2 Mbps), `max` (≈3.8 Mbps, ~95% of Vita Wi-Fi). Use the new latency dropdown in Settings to switch modes without editing the file.
+- Startup/recovery now uses a single stable default path (Vitaki-like preset bitrate plus conservative recovery), so no `stability_profile` toggle is required.
 - `stretch_video = false` keeps incoming frames centered with letterboxing. Set to `true` (or toggle “Fill Screen” under Streaming Settings) if you prefer the 360p/540p output stretched across the display.
 - `force_30fps = false` disables the new 30 fps presentation clamp. Set to `true` (or toggle “Force 30 FPS Output” under Streaming Settings) to make the Vita drop frames locally whenever the PS5 insists on a 60 fps stream. This keeps GPU workload and perceived latency closer to native 30 fps behavior at the cost of visual smoothness.
 - `send_actual_start_bitrate = true` sends the requested bitrate (from the latency preset) in the `RP-StartBitrate` header. Flip to `false` to fall back to zeroed headers while A/B testing packet-loss behavior.
@@ -264,6 +267,15 @@ If problems arise:
 - Try restarting Vitaki first.
 - Then, try deleting/renaming the config file (`ux0:data/vita-chiaki/chiaki.toml`). 
 - If that doesn't help, create a new [issue](https://github.com/ywnico/vitaki-fork/issues) (or comment on an existing issue).
+
+If two builds feel different, confirm what is actually running:
+- `./tools/build.sh --env testing` builds a testing-profile VPK and writes logs to `ux0:data/vita-chiaki/vitarps5-testing.log`.
+- `./tools/build.sh test` does not produce/install a VPK, so gameplay should not change from that command alone.
+- Check these log markers in the active log file:
+  - `Bitrate policy: preset_default (...)`
+  - `Recovery profile: stable_default`
+  - `Video gap profile: stable_default (hold_ms=24 force_span=12)`
+See `docs/ai/STABILITY_AB_TESTING_GUIDE.md` for a full A/B procedure.
 
 ### Crash dump analysis
 If Vita throws a `C2-12828-1` crash, you can pull the generated `.psp2dmp` from `ux0:data/` and decode it locally:
