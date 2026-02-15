@@ -10,6 +10,8 @@
 #include <string.h>
 #include <math.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/ime_dialog.h>
+#include <psp2/common_dialog.h>
 
 #include "ui/ui_internal.h"
 #include "ui/ui_console_cards.h"
@@ -50,11 +52,87 @@ static int scroll_anim_to = 0;             // Target scroll offset
 static uint64_t scroll_anim_start_us = 0;  // Animation start timestamp
 
 // ============================================================================
+// Filter State
+// ============================================================================
+
+#define FILTER_MAX_LEN  31
+static char filter_text[FILTER_MAX_LEN + 1] = {0};
+static int filter_len = 0;
+static bool filter_active = false;
+
+/** IME dialog state */
+static bool ime_running = false;
+static SceWChar16 ime_input_buf[FILTER_MAX_LEN + 1];
+static SceWChar16 ime_initial_text[FILTER_MAX_LEN + 1];
+static char ime_title_buf[64];
+
+// ============================================================================
 // Forward Declarations
 // ============================================================================
 
 static void update_card_focus_animation(int new_focus_index);
 static float get_card_scale(int card_index, bool is_focused);
+
+// ============================================================================
+// Filter Helpers
+// ============================================================================
+
+/**
+ * str_contains_nocase() - Case-insensitive substring search
+ * @haystack: String to search in
+ * @needle: String to search for
+ *
+ * Returns: true if needle is found in haystack (case-insensitive ASCII)
+ */
+static bool str_contains_nocase(const char* haystack, const char* needle) {
+    if (!haystack || !needle || !*needle) return true;
+    size_t needle_len = strlen(needle);
+    size_t haystack_len = strlen(haystack);
+    if (needle_len > haystack_len) return false;
+    for (size_t i = 0; i <= haystack_len - needle_len; i++) {
+        bool match = true;
+        for (size_t j = 0; j < needle_len; j++) {
+            char a = haystack[i + j];
+            char b = needle[j];
+            /* Simple ASCII case-insensitive */
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+/**
+ * utf16_to_utf8() - Convert UTF-16 to UTF-8
+ * @src: Source UTF-16 string (SceWChar16)
+ * @dst: Destination UTF-8 buffer
+ * @dst_size: Size of destination buffer
+ *
+ * Simple converter for IME dialog output. Handles BMP (Basic Multilingual Plane)
+ * characters only, which covers most common use cases on Vita.
+ */
+static void utf16_to_utf8(const SceWChar16* src, char* dst, size_t dst_size) {
+    size_t i = 0;
+    size_t o = 0;
+    while (src[i] && o < dst_size - 1) {
+        if (src[i] < 0x80) {
+            dst[o++] = (char)src[i];
+        } else if (src[i] < 0x800) {
+            if (o + 1 >= dst_size - 1) break;
+            dst[o++] = (char)(0xC0 | (src[i] >> 6));
+            dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+        } else {
+            if (o + 2 >= dst_size - 1) break;
+            dst[o++] = (char)(0xE0 | (src[i] >> 12));
+            dst[o++] = (char)(0x80 | ((src[i] >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+        }
+        i++;
+    }
+    dst[o] = '\0';
+}
 
 // ============================================================================
 // Initialization
@@ -68,12 +146,17 @@ void ui_cards_init(void) {
     card_focus_anim.focus_start_us = 0;
     card_focus_anim.previous_focused_card_index = -1;
     card_focus_anim.unfocus_start_us = 0;
-    // Reset scroll state
+    /* Reset scroll state */
     scroll_offset = 0;
     scroll_anim_progress = 1.0f;
     scroll_anim_from = 0;
     scroll_anim_to = 0;
     scroll_anim_start_us = 0;
+    /* Reset filter state */
+    filter_text[0] = '\0';
+    filter_len = 0;
+    filter_active = false;
+    ime_running = false;
 }
 
 // ============================================================================
@@ -130,22 +213,38 @@ void ui_cards_update_cache(bool force_update) {
         return;
     }
 
-    // Count current valid hosts
+    /* Count current valid hosts and apply filter */
     int num_hosts = 0;
     ConsoleCardInfo temp_cards[MAX_CONTEXT_HOSTS];
 
     for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
         if (context.hosts[i]) {
-            ui_cards_map_host(context.hosts[i], &temp_cards[num_hosts]);
+            ConsoleCardInfo temp;
+            ui_cards_map_host(context.hosts[i], &temp);
+            /* Apply filter if active */
+            if (filter_active && filter_len > 0) {
+                if (!str_contains_nocase(temp.name, filter_text))
+                    continue;
+            }
+            temp_cards[num_hosts] = temp;
             num_hosts++;
         }
     }
 
-    // Only update cache if we have valid hosts (prevents storing empty state during discovery updates)
-    if (num_hosts > 0) {
+    /* Update cache — allow 0 results when filter is active (to show "no matches") */
+    if (num_hosts > 0 || filter_active) {
         card_cache.num_cards = num_hosts;
-        memcpy(card_cache.cards, temp_cards, sizeof(ConsoleCardInfo) * num_hosts);
+        if (num_hosts > 0)
+            memcpy(card_cache.cards, temp_cards, sizeof(ConsoleCardInfo) * num_hosts);
         card_cache.last_update_time = current_time;
+
+        /* Clamp selection and scroll offset to valid range */
+        if (selected_console_index >= card_cache.num_cards && card_cache.num_cards > 0) {
+            selected_console_index = card_cache.num_cards - 1;
+        }
+        int max_scroll = card_cache.num_cards - CARDS_VISIBLE_MAX;
+        if (max_scroll < 0) max_scroll = 0;
+        if (scroll_offset > max_scroll) scroll_offset = max_scroll;
     }
 }
 
@@ -268,9 +367,112 @@ static float update_scroll_animation(void) {
     }
 
     scroll_anim_progress = progress;
-    // Cubic ease-out
+    /* Cubic ease-out */
     float eased = 1.0f - powf(1.0f - progress, 3.0f);
     return ui_lerp((float)scroll_anim_from, (float)scroll_anim_to, eased);
+}
+
+// ============================================================================
+// Filter IME Dialog
+// ============================================================================
+
+/**
+ * ui_cards_open_filter() - Open IME keyboard to filter consoles
+ *
+ * If filter is already active, clears it instead of opening IME.
+ * Press Start to toggle filter on/off.
+ */
+void ui_cards_open_filter(void) {
+    if (ime_running) return;
+
+    /* If filter is already active, clear it instead of opening IME */
+    if (filter_active) {
+        filter_text[0] = '\0';
+        filter_len = 0;
+        filter_active = false;
+        ui_cards_update_cache(true);
+        ui_cards_ensure_selected_visible();
+        return;
+    }
+
+    memset(ime_input_buf, 0, sizeof(ime_input_buf));
+    memset(ime_initial_text, 0, sizeof(ime_initial_text));
+    sceClibSnprintf(ime_title_buf, sizeof(ime_title_buf), "Filter Consoles");
+
+    /* Convert title to UTF-16 for IME */
+    SceWChar16 ime_title_w[64];
+    for (int i = 0; i < 63 && ime_title_buf[i]; i++) {
+        ime_title_w[i] = (SceWChar16)ime_title_buf[i];
+        ime_title_w[i + 1] = 0;
+    }
+
+    SceImeDialogParam param;
+    sceImeDialogParamInit(&param);
+    param.supportedLanguages = 0;  /* All languages */
+    param.languagesForced = SCE_FALSE;
+    param.type = SCE_IME_TYPE_DEFAULT;
+    param.option = 0;
+    param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_DEFAULT;
+    param.maxTextLength = FILTER_MAX_LEN;
+    param.title = ime_title_w;
+    param.initialText = ime_initial_text;
+    param.inputTextBuffer = ime_input_buf;
+
+    int ret = sceImeDialogInit(&param);
+    if (ret >= 0) {
+        ime_running = true;
+    }
+}
+
+/**
+ * ui_cards_poll_filter_ime() - Poll IME dialog state
+ *
+ * Call each frame to check for user input completion.
+ * Handles Enter (confirm) and Cancel/Close (discard) actions.
+ */
+void ui_cards_poll_filter_ime(void) {
+    if (!ime_running) return;
+
+    SceCommonDialogStatus status = sceImeDialogGetStatus();
+    if (status == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+        SceImeDialogResult result;
+        memset(&result, 0, sizeof(result));
+        sceImeDialogGetResult(&result);
+
+        if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
+            /* User confirmed — convert UTF-16 to UTF-8 */
+            utf16_to_utf8(ime_input_buf, filter_text, sizeof(filter_text));
+            filter_len = (int)strlen(filter_text);
+            filter_active = (filter_len > 0);
+        }
+        /* Cancel or empty = clear filter */
+        if (result.button != SCE_IME_DIALOG_BUTTON_ENTER || filter_len == 0) {
+            filter_text[0] = '\0';
+            filter_len = 0;
+            filter_active = false;
+        }
+
+        sceImeDialogTerm();
+        ime_running = false;
+
+        /* Force cache refresh to apply filter */
+        ui_cards_update_cache(true);
+        /* Clamp selection */
+        if (selected_console_index >= card_cache.num_cards && card_cache.num_cards > 0) {
+            selected_console_index = card_cache.num_cards - 1;
+        }
+        scroll_offset = 0;
+        ui_cards_ensure_selected_visible();
+    }
+}
+
+/**
+ * ui_cards_is_filter_active() - Check if filter is active
+ *
+ * Returns: true if console filter is currently applied
+ */
+bool ui_cards_is_filter_active(void) {
+    return filter_active;
 }
 
 // ============================================================================
@@ -524,25 +726,52 @@ void ui_cards_render_grid(void) {
                               UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, banner_text);
     }
 
-    if (num_cards == 0) return;
-
-    // --- Horizontal layout math ---
+    /* --- Horizontal layout math --- */
     int visible = num_cards < CARDS_VISIBLE_MAX ? num_cards : CARDS_VISIBLE_MAX;
-    int row_width = visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP;
+    int row_width = (num_cards > 0) ? (visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP) : 0;
 
-    // Content area: from nav bar to screen edge
+    /* Content area: from nav bar to screen edge */
     int content_center_x = ui_get_dynamic_content_center_x();
     int start_x = content_center_x - (row_width / 2);
 
-    // Vertically center cards
+    /* Vertically center cards */
     int card_y = (VITA_HEIGHT / 2) - (CONSOLE_CARD_HEIGHT / 2);
 
-    // Header text
+    /* Header text */
     const char* header_text = "Which do you want to connect?";
     int text_width = vita2d_font_text_width(font, 24, header_text);
     int text_x = content_center_x - (text_width / 2);
     int text_y = card_y - 50;
     vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
+
+    /* --- Poll IME dialog if running --- */
+    ui_cards_poll_filter_ime();
+
+    /* --- Filter bar --- */
+    if (filter_active) {
+        char filter_bar[80];
+        sceClibSnprintf(filter_bar, sizeof(filter_bar), "Filter: \"%s\" (%d found)", filter_text, num_cards);
+        int fb_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, filter_bar);
+        int fb_x = content_center_x - fb_w / 2;
+        int fb_y = text_y + 28;
+        vita2d_font_draw_text(font, fb_x, fb_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL, filter_bar);
+    } else if (num_cards > CARDS_VISIBLE_MAX) {
+        const char* hint = "Start: Search";
+        int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+        int hint_x = content_center_x - hint_w / 2;
+        int hint_y = text_y + 28;
+        vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
+    }
+
+    /* Show empty state message if no cards */
+    if (num_cards == 0) {
+        const char* empty_msg = filter_active ? "No consoles match filter" : "Searching for consoles...";
+        int em_w = vita2d_font_text_width(font, FONT_SIZE_BODY, empty_msg);
+        int em_x = content_center_x - em_w / 2;
+        int em_y = (VITA_HEIGHT / 2) + 10;
+        vita2d_font_draw_text(font, em_x, em_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, empty_msg);
+        return;
+    }
 
     // --- Animate scroll ---
     float anim_offset = update_scroll_animation();

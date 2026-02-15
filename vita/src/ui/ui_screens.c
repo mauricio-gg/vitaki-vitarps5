@@ -392,14 +392,11 @@ UIScreenType draw_main_menu() {
   if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_MAIN, &nav_screen, true))
     return nav_screen;
 
-  // Render VitaRPS5 console cards instead of host tiles
+  /* Render VitaRPS5 console cards instead of host tiles */
   ui_cards_render_grid();
 
-  // Count hosts
-  int num_hosts = 0;
-  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-    if (context.hosts[i]) num_hosts++;
-  }
+  /* Get cached card count (fresh from render_grid call above) */
+  int num_hosts = ui_cards_get_count();
 
   UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
 
@@ -420,117 +417,110 @@ UIScreenType draw_main_menu() {
     }
   }
 
-  // === X BUTTON (Activate/Select highlighted element) ===
+  /* === X BUTTON (Activate/Select highlighted element) === */
 
   if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Connect to selected console
-      int host_idx = 0;
-      for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-        if (context.hosts[i]) {
-          if (host_idx == ui_cards_get_selected_index()) {
-            context.active_host = context.hosts[i];
+    if (ui_focus_is_content() && ui_cards_get_count() > 0) {
+      /* Connect to selected console using card cache */
+      ConsoleCardInfo* card = ui_cards_get_selected_card();
+      if (card && card->host) {
+        context.active_host = card->host;
 
-            if (takion_cooldown_gate_active()) {
-              LOGD("Ignoring connect request — network recovery cooldown active");
-              return UI_SCREEN_TYPE_MAIN;
+        if (takion_cooldown_gate_active()) {
+          LOGD("Ignoring connect request — network recovery cooldown active");
+          return UI_SCREEN_TYPE_MAIN;
+        }
+
+        bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+        bool registered = context.active_host->type & REGISTERED;
+        bool at_rest = discovered && context.active_host->discovery_state &&
+                       context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+
+        if (!registered) {
+          /* Unregistered console - start registration */
+          next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
+        } else if (at_rest) {
+          /* Dormant console - wake and show waking screen */
+          LOGD("Waking dormant console...");
+          ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+          host_wakeup(context.active_host);
+          next_screen = UI_SCREEN_TYPE_WAKING;
+        } else if (registered) {
+          /* Ready console - start streaming with feedback */
+          ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+          next_screen = UI_SCREEN_TYPE_WAKING;
+          if (!start_connection_thread(context.active_host)) {
+            ui_connection_cancel();
+            next_screen = UI_SCREEN_TYPE_MAIN;
+          } else {
+            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+          }
+        }
+      }
+    }
+  }
+
+  /* === OTHER BUTTONS === */
+
+  /* Square: Re-pair selected console (unregister + register again) */
+  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && ui_cards_get_count() > 0) {
+    ConsoleCardInfo* card = ui_cards_get_selected_card();
+    if (card && card->host) {
+      VitaChiakiHost* host = card->host;
+      bool registered = host->type & REGISTERED;
+
+      if (registered) {
+        /* Remove registration and trigger re-pairing */
+        LOGD("Re-pairing console: %s", host->hostname);
+
+        /* Free registered state memory */
+        if (host->registered_state) {
+          free(host->registered_state);
+          host->registered_state = NULL;
+        }
+
+        /* Remove from config.registered_hosts array */
+        for (int j = 0; j < context.config.num_registered_hosts; j++) {
+          if (context.config.registered_hosts[j] == host) {
+            /* Shift remaining elements left */
+            for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
+              context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
             }
-
-            bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-            bool registered = context.active_host->type & REGISTERED;
-            bool at_rest = discovered && context.active_host->discovery_state &&
-                           context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-            if (!registered) {
-              // Unregistered console - start registration
-              next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-            } else if (at_rest) {
-              // Dormant console - wake and show waking screen
-              LOGD("Waking dormant console...");
-              ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-              host_wakeup(context.active_host);
-              next_screen = UI_SCREEN_TYPE_WAKING;
-            } else if (registered) {
-              // Ready console - start streaming with feedback
-              ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-              next_screen = UI_SCREEN_TYPE_WAKING;
-              if (!start_connection_thread(context.active_host)) {
-                ui_connection_cancel();
-                next_screen = UI_SCREEN_TYPE_MAIN;
-              } else {
-                ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-              }
-            }
+            context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
+            context.config.num_registered_hosts--;
             break;
           }
-          host_idx++;
         }
+
+        /* Clear registered flag */
+        host->type &= ~REGISTERED;
+
+        /* Save config to persist changes */
+        persist_config_or_warn();
+
+        LOGD("Registration data deleted for console: %s", host->hostname);
+
+        /* Trigger registration screen */
+        context.active_host = host;
+        next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
       }
     }
   }
 
-  // === OTHER BUTTONS ===
-
-  // Square: Re-pair selected console (unregister + register again)
-  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0) {
-    int host_idx = 0;
-    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-      if (context.hosts[i]) {
-        if (host_idx == ui_cards_get_selected_index()) {
-          VitaChiakiHost* host = context.hosts[i];
-          bool registered = host->type & REGISTERED;
-
-          if (registered) {
-            // Remove registration and trigger re-pairing
-            LOGD("Re-pairing console: %s", host->hostname);
-
-            // Free registered state memory
-            if (host->registered_state) {
-              free(host->registered_state);
-              host->registered_state = NULL;
-            }
-
-            // Remove from config.registered_hosts array
-            for (int j = 0; j < context.config.num_registered_hosts; j++) {
-              if (context.config.registered_hosts[j] == host) {
-                // Shift remaining elements left
-                for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
-                  context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
-                }
-                context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
-                context.config.num_registered_hosts--;
-                break;
-              }
-            }
-
-            // Clear registered flag
-            host->type &= ~REGISTERED;
-
-            // Save config to persist changes
-            persist_config_or_warn();
-
-            LOGD("Registration data deleted for console: %s", host->hostname);
-
-            // Trigger registration screen
-            context.active_host = host;
-            next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-          }
-          break;
-        }
-        host_idx++;
-      }
-    }
-  }
-
-  // Handle touch screen input for VitaRPS5 UI
+  /* Handle touch screen input for VitaRPS5 UI */
   UIScreenType touch_screen = handle_vitarps5_touch_input(num_hosts);
   if (touch_screen != UI_SCREEN_TYPE_MAIN) {
     return touch_screen;
   }
 
-  // Select button shows hints popup
+  /* Start: Open/clear console filter */
+  if (btn_pressed(SCE_CTRL_START) && ui_focus_is_content()) {
+    ui_cards_open_filter();
+  }
+
+  /* Select button shows hints popup */
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("L/R: Browse | Cross: Connect | Square: Re-pair");
+    trigger_hints_popup("L/R: Browse | Cross: Connect | Start: Search");
   }
 
   return next_screen;

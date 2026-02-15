@@ -123,3 +123,23 @@ ConsoleCardInfo* ui_cards_get_selected_card(void);
  * Returns: Index of the leftmost visible card
  */
 int ui_cards_get_scroll_offset(void);
+
+// ============================================================================
+// Filter
+// ============================================================================
+
+/**
+ * ui_cards_open_filter() - Open IME keyboard to filter consoles
+ * If filter is active, clears it instead. Press Start to toggle.
+ */
+void ui_cards_open_filter(void);
+
+/**
+ * ui_cards_poll_filter_ime() - Poll IME dialog state (call each frame)
+ */
+void ui_cards_poll_filter_ime(void);
+
+/**
+ * ui_cards_is_filter_active() - Check if filter is active
+ */
+bool ui_cards_is_filter_active(void);
