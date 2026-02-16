@@ -7,42 +7,13 @@
 #include "audio.h"
 #include "context.h"
 
-// The following parameters may need to be changed if audio problems crop up
-//
-// DEVICE_BUFFERS: number of device buffers in the intermediate buffer
-// A larger value should make queue clearing and the corresponding audio chop
-// less frequent.
 #define DEVICE_BUFFERS 4
-// DEVICE_FRAME_QUEUE_LIMIT: Send more audio to the device when there are
-// samples corresponding to this many frames remaining in the device queue
 #define DEVICE_FRAME_QUEUE_LIMIT 0
-
-// Notes:
-// 1. The Vita requires a sample count divisible by 64.
-//    In my (ywnico) testing on a PS5, the frame size is 480 (480/64 = 7.5).
-//    So we need to create an intermediate buffer of length frame_size * mult,
-//    where mult is 2, 4, etc. as needed to make the length divisible by 64.
-// 2. Our intermediate buffer is longer than the buffer we send to the audio
-//    device. We call the latter the `device_buffer` (sorry for my poor naming
-//    skills). So the intermediate buffer (`buffer`) consists of a total of
-//    `DEVICE_BUFFERS` device buffers, and each of these consists of
-//    mult * frame_size samples in order to be divisible by 64.
-//    As we receive data from Chiaki (`buf_in`), we add it onto `buffer`. As
-//    each device_buffer segment gets filled out, we send it to the audio device.
-// 3. Audio is not sent to the device until it has has <=
-//    DEVICE_FRAME_QUEUE_LIMIT*frame_size samples remaining (gotten through
-//    sceAudioOutGetRestSample). This value, along with the DEVICE_BUFFERS
-//    parameter, may need to be adjusted if there are audio problems in
-//    different situations. I have tested only on decent wifi and a PS5, for
-//    which DEVICE_FRAME_QUEUE_LIMIT=0 works and the audio data from chiaki
-//    never gets ahead of the audio output device.
 
 int port = -1;
 int rate = -1;
 int channels = -1;
 
-// on first call to vita_audio_cb, get the actual frame size, re-init audio
-// port, and set up intermediate buffer
 bool did_secondary_init = false;
 size_t frame_size; // # of samples in frame
 
@@ -121,8 +92,7 @@ void vita_audio_init(unsigned int channels_, unsigned int rate_, void *user) {
 }
 
 
-// Determine required buffer size and allocate the required memory
-void init_buffer() {
+static void init_buffer() {
     // set global buffer_frames
     int two_pow = frame_size & ((~frame_size)+1); // highest power of 2 dividing frame_size
     if (two_pow >= 64) {
@@ -152,20 +122,24 @@ void init_buffer() {
     LOGD("VITA AUDIO :: buffer init: buffer_frames %d, buffer_samples %d, buffer_bytes %d, frame_size %d, sample_bytes %d", buffer_frames, buffer_samples, buffer_bytes, frame_size, sample_bytes);
 }
 
-void vita_audio_cleanup() {
-    if (did_secondary_init) {
-        // Log final audio buffer stats
-        if (audio_frames_processed > 0) {
-            float catchup_rate = (float)audio_catchup_count / (float)audio_frames_processed * 100.0f;
-            LOGD("VITA AUDIO :: Session stats - Frames: %lu, Catchups: %lu (%.2f%%)",
-                 audio_frames_processed, audio_catchup_count, catchup_rate);
-        }
+static void log_audio_session_stats(void) {
+    if (audio_frames_processed == 0)
+        return;
+    float catchup_rate = (float)audio_catchup_count / (float)audio_frames_processed * 100.0f;
+    LOGD("VITA AUDIO :: Session stats - Frames: %lu, Catchups: %lu (%.2f%%)",
+         audio_frames_processed, audio_catchup_count, catchup_rate);
+}
 
-        free(buffer);
-        did_secondary_init = false;
-        audio_catchup_count = 0;
-        audio_frames_processed = 0;
-    }
+void vita_audio_cleanup() {
+    if (!did_secondary_init)
+        return;
+
+    log_audio_session_stats();
+    free(buffer);
+    buffer = NULL;
+    did_secondary_init = false;
+    audio_catchup_count = 0;
+    audio_frames_processed = 0;
 }
 
 void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
@@ -186,26 +160,22 @@ void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
         LOGD("VITA AUDIO :: secondary init complete");
     }
 
-    if (samples_count == frame_size) {
-
-        // write to buffer
-        memcpy(buffer + write_frame_offset*frame_size*sample_steps, buf_in, frame_size * sample_bytes);
-        write_frame_offset = (write_frame_offset + 1) % buffer_frames;
-        write_read_framediff++;
-        audio_frames_processed++;
-
-        if (write_read_framediff >= device_buffer_frames) {
-
-            if (audio_should_output_now()) {
-                sceAudioOutOutput(port, buffer + device_buffer_offset*device_buffer_samples*sample_steps);
-                device_buffer_offset = (device_buffer_offset + 1) % DEVICE_BUFFERS;
-                write_read_framediff -= device_buffer_frames;
-            }
-            //LOGD("VITA AUDIO :: Vita audio output write_read_framediff: %d", write_read_framediff);
-        }
-
-    } else {
+    if (samples_count != frame_size) {
         LOGD("VITA AUDIO :: Expected %d (frame_size) samples but received %d.", frame_size, samples_count);
+        return;
     }
 
+    memcpy(buffer + write_frame_offset*frame_size*sample_steps, buf_in, frame_size * sample_bytes);
+    write_frame_offset = (write_frame_offset + 1) % buffer_frames;
+    write_read_framediff++;
+    audio_frames_processed++;
+
+    if (write_read_framediff < device_buffer_frames)
+        return;
+    if (!audio_should_output_now())
+        return;
+
+    sceAudioOutOutput(port, buffer + device_buffer_offset*device_buffer_samples*sample_steps);
+    device_buffer_offset = (device_buffer_offset + 1) % DEVICE_BUFFERS;
+    write_read_framediff -= device_buffer_frames;
 }

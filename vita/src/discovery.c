@@ -1,5 +1,3 @@
-#include <inttypes.h>
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <chiaki/discoveryservice.h>
@@ -115,9 +113,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
   int existing_idx = find_discovered_host_index_by_mac(&host_mac);
   if (existing_idx >= 0) {
-    VitaChiakiHost *existing_host = context.hosts[existing_idx];
-    if (!set_host_discovery_snapshot(existing_host, host, now_us))
-      return existing_idx;
+    set_host_discovery_snapshot(context.hosts[existing_idx], host, now_us);
     return existing_idx;
   }
 
@@ -153,16 +149,10 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
   // Check if the newly discovered host is a known registered one
   for (int rhost_idx = 0; rhost_idx < context.config.num_registered_hosts; rhost_idx++) {
-    VitaChiakiHost* rhost =
-        context.config.registered_hosts[rhost_idx];
+    VitaChiakiHost* rhost = context.config.registered_hosts[rhost_idx];
     if (rhost == NULL) {
       continue;
     }
-    /*CHIAKI_LOGI(&(context.log), "  Checking rhost %d for match", rhost_idx);
-    CHIAKI_LOGI(&(context.log), "  %X%X%X%X%X%X (r) vs %X%X%X%X%X%X\n",
-                rhost->server_mac[0], rhost->server_mac[1], rhost->server_mac[2], rhost->server_mac[3], rhost->server_mac[4], rhost->server_mac[5],
-                h->server_mac[0], h->server_mac[1], h->server_mac[2], h->server_mac[3], h->server_mac[4], h->server_mac[5]
-                );*/
 
     if (mac_addrs_match(&(rhost->server_mac), &(h->server_mac))) {
       CHIAKI_LOGI(&(context.log), "Found registered host (%s) matching discovered host (%s).",
@@ -230,6 +220,12 @@ static void remove_lost_discovered_hosts(void) {
   update_context_hosts();
 }
 
+static void invoke_discovery_callback(void *user) {
+  VitaChiakiDiscoveryCallbackState *cb_state = (VitaChiakiDiscoveryCallbackState *)user;
+  if (cb_state && cb_state->cb)
+    cb_state->cb(cb_state->cb_user);
+}
+
 /// Called whenever new hosts are discovered
 void discovery_cb(ChiakiDiscoveryHost* hosts, size_t hosts_count, void* user) {
   for (int dhost_idx = 0; dhost_idx < hosts_count; dhost_idx++) {
@@ -237,13 +233,7 @@ void discovery_cb(ChiakiDiscoveryHost* hosts, size_t hosts_count, void* user) {
   }
 
   remove_lost_discovered_hosts();
-
-  // Call caller-defined callback
-  VitaChiakiDiscoveryCallbackState* cb_state =
-      (VitaChiakiDiscoveryCallbackState*)user;
-  if (cb_state && cb_state->cb) {
-    cb_state->cb(cb_state->cb_user);
-  }
+  invoke_discovery_callback(user);
 }
 
 /// Initiate the Chiaki discovery thread
@@ -269,10 +259,10 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
   opts.hosts_max = MAX_CONTEXT_HOSTS;
   opts.host_drop_pings = HOST_DROP_PINGS;
 
-  sockaddr_in addr = {};
+  struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = INADDR_BROADCAST;
-  opts.send_addr = (struct sockaddr*) &addr;
+  opts.send_addr = (struct sockaddr_in6 *)(void *)&addr;
   opts.send_addr_size = sizeof(addr);
   opts.send_host = NULL;
 
