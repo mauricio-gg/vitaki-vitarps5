@@ -69,8 +69,34 @@ int write_read_framediff;
 static uint64_t audio_catchup_count = 0;
 static uint64_t audio_frames_processed = 0;
 
+static int audio_port_format(void) {
+    return channels == 2 ? SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO
+                         : SCE_AUDIO_OUT_PARAM_FORMAT_S16_MONO;
+}
+
 size_t device_buffer_from_frame(int frame) {
     return (size_t) ( (frame + buffer_frames) % buffer_frames ) / device_buffer_frames;
+}
+
+static void audio_catchup_to_latest_frame(void) {
+    audio_catchup_count++;
+    LOGD("VITA AUDIO :: audio catchup: [before] write_read_framediff %d, write_frame_offset %d, device_buffer_offset %d (read frame offset %d)",
+         write_read_framediff, write_frame_offset, device_buffer_offset, device_buffer_offset*device_buffer_frames);
+
+    device_buffer_offset = device_buffer_from_frame(((int)write_frame_offset) - 1);
+    write_read_framediff = device_buffer_frames + write_frame_offset % device_buffer_frames;
+
+    LOGD("VITA AUDIO :: audio catchup: [after] write_read_framediff %d, write_frame_offset %d, device_buffer_offset %d (read frame offset %d)",
+         write_read_framediff, write_frame_offset, device_buffer_offset, device_buffer_offset*device_buffer_frames);
+}
+
+static bool audio_should_output_now(void) {
+    if (write_read_framediff >= buffer_frames) {
+        audio_catchup_to_latest_frame();
+        return true;
+    }
+    int remaining_samples = sceAudioOutGetRestSample(port);
+    return remaining_samples <= DEVICE_FRAME_QUEUE_LIMIT * frame_size;
 }
 
 
@@ -85,7 +111,7 @@ void vita_audio_init(unsigned int channels_, unsigned int rate_, void *user) {
 
         LOGD("VITA AUDIO :: init with %d channels at %dHz", channels, rate);
         // Note: initializing to 960 is arbitrary since we'll reset the value when we re-init
-        port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, 960, rate, channels == 2 ? SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO : SCE_AUDIO_OUT_PARAM_FORMAT_S16_MONO);
+        port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, 960, rate, audio_port_format());
            if (port < 0) {
             LOGD("VITA AUDIO :: STARTUP ERROR 0x%x", port);
             return;
@@ -115,6 +141,10 @@ void init_buffer() {
 
     // initialize buffer
     buffer = (int16_t*)malloc(buffer_bytes);
+    if (buffer == NULL) {
+        LOGD("VITA AUDIO :: failed to allocate %d bytes for audio buffer", buffer_bytes);
+        return;
+    }
     write_frame_offset = 0;
     device_buffer_offset = 0;
     write_read_framediff = 0;
@@ -147,8 +177,10 @@ void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
         frame_size = samples_count;
 
         init_buffer();
+        if (buffer == NULL)
+            return;
 
-        sceAudioOutSetConfig(port, device_buffer_samples, rate, channels == 2 ? SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO : SCE_AUDIO_OUT_PARAM_FORMAT_S16_MONO);
+        sceAudioOutSetConfig(port, device_buffer_samples, rate, audio_port_format());
 
         did_secondary_init = true;
         LOGD("VITA AUDIO :: secondary init complete");
@@ -164,42 +196,7 @@ void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
 
         if (write_read_framediff >= device_buffer_frames) {
 
-            bool should_output = false;
-            if (write_read_framediff >= buffer_frames) {
-                // If the incoming buffers (write) have caught up to the audio
-                // (read), just skip ahead. This should be analogous to the
-                // queue clearing in the nintendo switch code.
-                //
-                // Specifically: if we have just written to a frame filling up
-                // the device buffer behind the current device buffer offset,
-                // move the device buffer offset back by one so that we output
-                // the data just written. Otherwise, if we wait for the next
-                // frame, we'll be stuck playing a device buffer which contains
-                // one frame of new data and the rest old data.
-
-                audio_catchup_count++;
-
-                LOGD("VITA AUDIO :: audio catchup: [before] write_read_framediff %d, write_frame_offset %d, device_buffer_offset %d (read frame offset %d)", write_read_framediff, write_frame_offset, device_buffer_offset, device_buffer_offset*device_buffer_frames);
-
-                device_buffer_offset = device_buffer_from_frame( ((int) write_frame_offset) - 1 );
-
-                write_read_framediff = device_buffer_frames + write_frame_offset % device_buffer_frames;
-
-                LOGD("VITA AUDIO :: audio catchup: [before] write_read_framediff %d, write_frame_offset %d, device_buffer_offset %d (read frame offset %d)", write_read_framediff, write_frame_offset, device_buffer_offset, device_buffer_offset*device_buffer_frames);
-                should_output = true;
-            } else {
-                // Otherwise, tell the device to output only if it has <=
-                // DEVICE_FRAME_QUEUE_LIMIT*frame_size samples remaining.
-                //
-                // NOTE: I'm not sure how the Vita audio out works. I think we
-                // want to avoid too long of an audio queue, but this has never
-                // happened in my testing. If we run into audio problems this
-                // would be a good place to start debugging.
-                int remaining_samples = sceAudioOutGetRestSample(port);
-                if (remaining_samples <= DEVICE_FRAME_QUEUE_LIMIT*frame_size) should_output = true;
-            }
-
-            if (should_output) {
+            if (audio_should_output_now()) {
                 sceAudioOutOutput(port, buffer + device_buffer_offset*device_buffer_samples*sample_steps);
                 device_buffer_offset = (device_buffer_offset + 1) % DEVICE_BUFFERS;
                 write_read_framediff -= device_buffer_frames;
