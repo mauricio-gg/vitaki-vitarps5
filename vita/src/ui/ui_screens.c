@@ -265,6 +265,81 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   return UI_SCREEN_TYPE_MAIN;
 }
 
+static void main_menu_move_selection(int delta, int num_hosts) {
+  if (!ui_focus_is_content() || num_hosts <= 0)
+    return;
+  int selected = ui_cards_get_selected_index();
+  ui_cards_set_selected_index((selected + delta + num_hosts) % num_hosts);
+  ui_cards_ensure_selected_visible();
+}
+
+static UIScreenType main_menu_activate_selected_card(void) {
+  ConsoleCardInfo *card = ui_cards_get_selected_card();
+  if (!card || !card->host)
+    return UI_SCREEN_TYPE_MAIN;
+
+  context.active_host = card->host;
+  if (takion_cooldown_gate_active()) {
+    LOGD("Ignoring connect request — network recovery cooldown active");
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
+  bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+  bool registered = context.active_host->type & REGISTERED;
+  bool at_rest = discovered && context.active_host->discovery_state &&
+                 context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+
+  if (!registered)
+    return UI_SCREEN_TYPE_REGISTER_HOST;
+  if (at_rest) {
+    LOGD("Waking dormant console...");
+    ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+    host_wakeup(context.active_host);
+    return UI_SCREEN_TYPE_WAKING;
+  }
+
+  ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+  if (!start_connection_thread(context.active_host)) {
+    ui_connection_cancel();
+    return UI_SCREEN_TYPE_MAIN;
+  }
+  ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+  return UI_SCREEN_TYPE_WAKING;
+}
+
+static UIScreenType main_menu_repair_selected_card(void) {
+  ConsoleCardInfo *card = ui_cards_get_selected_card();
+  if (!card || !card->host)
+    return UI_SCREEN_TYPE_MAIN;
+
+  VitaChiakiHost *host = card->host;
+  if (!(host->type & REGISTERED))
+    return UI_SCREEN_TYPE_MAIN;
+
+  LOGD("Re-pairing console: %s", host->hostname);
+  if (host->registered_state) {
+    free(host->registered_state);
+    host->registered_state = NULL;
+  }
+
+  for (int j = 0; j < context.config.num_registered_hosts; j++) {
+    if (context.config.registered_hosts[j] == host) {
+      for (int k = j; k < context.config.num_registered_hosts - 1; k++)
+        context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
+      context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
+      context.config.num_registered_hosts--;
+      break;
+    }
+  }
+
+  host->type &= ~REGISTERED;
+  persist_config_or_warn();
+  LOGD("Registration data deleted for console: %s", host->hostname);
+
+  context.active_host = host;
+  return UI_SCREEN_TYPE_REGISTER_HOST;
+}
+
 UIScreenType draw_main_menu() {
   // Update and render VitaRPS5 particle background
   ui_particles_update();
@@ -285,109 +360,21 @@ UIScreenType draw_main_menu() {
   // === D-PAD NAVIGATION (moves between console cards in content area) ===
   // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
 
-  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Move left within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
-      ui_cards_ensure_selected_visible();
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Move right within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-      ui_cards_ensure_selected_visible();
-    }
-  }
+  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP))
+    main_menu_move_selection(-1, num_hosts);
+  else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN))
+    main_menu_move_selection(1, num_hosts);
 
   /* === X BUTTON (Activate/Select highlighted element) === */
 
-  if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (ui_focus_is_content() && ui_cards_get_count() > 0) {
-      /* Connect to selected console using card cache */
-      ConsoleCardInfo* card = ui_cards_get_selected_card();
-      if (card && card->host) {
-        context.active_host = card->host;
-
-        if (takion_cooldown_gate_active()) {
-          LOGD("Ignoring connect request — network recovery cooldown active");
-          return UI_SCREEN_TYPE_MAIN;
-        }
-
-        bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-        bool registered = context.active_host->type & REGISTERED;
-        bool at_rest = discovered && context.active_host->discovery_state &&
-                       context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-        if (!registered) {
-          /* Unregistered console - start registration */
-          next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-        } else if (at_rest) {
-          /* Dormant console - wake and show waking screen */
-          LOGD("Waking dormant console...");
-          ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-          host_wakeup(context.active_host);
-          next_screen = UI_SCREEN_TYPE_WAKING;
-        } else if (registered) {
-          /* Ready console - start streaming with feedback */
-          ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-          next_screen = UI_SCREEN_TYPE_WAKING;
-          if (!start_connection_thread(context.active_host)) {
-            ui_connection_cancel();
-            next_screen = UI_SCREEN_TYPE_MAIN;
-          } else {
-            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-          }
-        }
-      }
-    }
-  }
+  if (btn_pressed(SCE_CTRL_CROSS) && ui_focus_is_content() && num_hosts > 0)
+    next_screen = main_menu_activate_selected_card();
 
   /* === OTHER BUTTONS === */
 
   /* Square: Re-pair selected console (unregister + register again) */
-  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && ui_cards_get_count() > 0) {
-    ConsoleCardInfo* card = ui_cards_get_selected_card();
-    if (card && card->host) {
-      VitaChiakiHost* host = card->host;
-      bool registered = host->type & REGISTERED;
-
-      if (registered) {
-        /* Remove registration and trigger re-pairing */
-        LOGD("Re-pairing console: %s", host->hostname);
-
-        /* Free registered state memory */
-        if (host->registered_state) {
-          free(host->registered_state);
-          host->registered_state = NULL;
-        }
-
-        /* Remove from config.registered_hosts array */
-        for (int j = 0; j < context.config.num_registered_hosts; j++) {
-          if (context.config.registered_hosts[j] == host) {
-            /* Shift remaining elements left */
-            for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
-              context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
-            }
-            context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
-            context.config.num_registered_hosts--;
-            break;
-          }
-        }
-
-        /* Clear registered flag */
-        host->type &= ~REGISTERED;
-
-        /* Save config to persist changes */
-        persist_config_or_warn();
-
-        LOGD("Registration data deleted for console: %s", host->hostname);
-
-        /* Trigger registration screen */
-        context.active_host = host;
-        next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-      }
-    }
-  }
+  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0)
+    next_screen = main_menu_repair_selected_card();
 
   /* Handle touch screen input for VitaRPS5 UI */
   UIScreenType touch_screen = handle_vitarps5_touch_input(num_hosts);
