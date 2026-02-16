@@ -363,6 +363,49 @@ static void serialize_bool_settings(FILE *fp, const BoolSerializeSpec *specs, si
   }
 }
 
+static void parse_logging_settings(VitaChiakiConfig *cfg, toml_table_t *parsed) {
+#if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
+  toml_table_t *logging = toml_table_in(parsed, "logging");
+  if (!logging)
+    return;
+
+  toml_datum_t datum = toml_bool_in(logging, "enabled");
+  if (datum.ok)
+    cfg->logging.enabled = datum.u.b;
+
+  datum = toml_bool_in(logging, "force_error_logging");
+  if (datum.ok)
+    cfg->logging.force_error_logging = datum.u.b;
+
+  datum = toml_string_in(logging, "profile");
+  if (datum.ok) {
+    cfg->logging.profile = vita_logging_profile_from_string(datum.u.s);
+    free(datum.u.s);
+  }
+
+  datum = toml_int_in(logging, "queue_depth");
+  if (datum.ok) {
+    if (datum.u.i < 8)
+      cfg->logging.queue_depth = 8;
+    else if (datum.u.i > 256)
+      cfg->logging.queue_depth = 256;
+    else
+      cfg->logging.queue_depth = datum.u.i;
+  }
+
+  datum = toml_string_in(logging, "path");
+  if (datum.ok) {
+    strncpy(cfg->logging.path, datum.u.s, sizeof(cfg->logging.path) - 1);
+    cfg->logging.path[sizeof(cfg->logging.path) - 1] = '\0';
+    free(datum.u.s);
+  }
+#else
+  // Production build: Ignore [logging] section in TOML entirely.
+  (void)cfg;
+  (void)toml_table_in(parsed, "logging");
+#endif
+}
+
 static void parse_resolution_with_migration(VitaChiakiConfig *cfg,
                                             toml_table_t *settings,
                                             toml_table_t *parsed,
@@ -582,47 +625,8 @@ void config_parse(VitaChiakiConfig* cfg) {
                                       &migrated_legacy_settings,
                                       &migrated_root_settings);
 
-    // Security: Only allow runtime TOML to override logging settings if explicitly enabled
-    // In production builds, this is disabled to prevent accidental logging activation
-#if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
-    toml_table_t* logging = toml_table_in(parsed, "logging");
-    if (logging) {
-      datum = toml_bool_in(logging, "enabled");
-      if (datum.ok)
-        cfg->logging.enabled = datum.u.b;
-
-      datum = toml_bool_in(logging, "force_error_logging");
-      if (datum.ok)
-        cfg->logging.force_error_logging = datum.u.b;
-
-      datum = toml_string_in(logging, "profile");
-      if (datum.ok) {
-        cfg->logging.profile = vita_logging_profile_from_string(datum.u.s);
-        free(datum.u.s);
-      }
-
-      datum = toml_int_in(logging, "queue_depth");
-      if (datum.ok) {
-        if (datum.u.i < 8)
-          cfg->logging.queue_depth = 8;
-        else if (datum.u.i > 256)
-          cfg->logging.queue_depth = 256;
-        else
-          cfg->logging.queue_depth = datum.u.i;
-      }
-
-      datum = toml_string_in(logging, "path");
-      if (datum.ok) {
-        strncpy(cfg->logging.path, datum.u.s, sizeof(cfg->logging.path) - 1);
-        cfg->logging.path[sizeof(cfg->logging.path) - 1] = '\0';
-        free(datum.u.s);
-      }
-    }
-#else
-    // Production build: Ignore [logging] section in TOML entirely
-    // Compiled defaults are immutable at runtime for security
-    (void)toml_table_in(parsed, "logging");  // Acknowledge section exists but don't parse
-#endif
+    // Security: runtime logging overrides are compile-time gated.
+    parse_logging_settings(cfg, parsed);
 
     config_parse_registered_hosts(cfg, parsed);
     config_parse_manual_hosts(cfg, parsed);
