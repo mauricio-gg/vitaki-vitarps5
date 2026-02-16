@@ -13,8 +13,11 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui.c
     src/util.c
     src/host.c
+    src/host_input.c
+    src/host_storage.c
     src/controller.c
     src/video.c
+    src/video_overlay.c
     src/audio.c
     src/message_log.c
     src/logging.c

@@ -300,6 +300,21 @@ static bool parse_bool_setting_with_migration(toml_table_t *settings,
   return true;
 }
 
+typedef struct bool_setting_spec_t {
+  const char *key;
+  bool default_value;
+  bool *out_value;
+} BoolSettingSpec;
+
+static void apply_migration_source(MigrationSource source,
+                                   bool *migrated_legacy_settings,
+                                   bool *migrated_root_settings) {
+  if (source == MIGRATION_SOURCE_LEGACY_SECTION)
+    *migrated_legacy_settings = true;
+  else if (source == MIGRATION_SOURCE_ROOT)
+    *migrated_root_settings = true;
+}
+
 void config_parse(VitaChiakiConfig* cfg) {
   cfg->psn_account_id = NULL;
   cfg->auto_discovery = true;
@@ -503,94 +518,28 @@ void config_parse(VitaChiakiConfig* cfg) {
       cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
     }
 
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "circle_btn_confirm", circle_btn_confirm_default,
-                                          &cfg->circle_btn_confirm, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "show_latency", false,
-                                          &cfg->show_latency, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "show_network_indicator", true,
-                                          &cfg->show_network_indicator, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "show_stream_exit_hint", true,
-                                          &cfg->show_stream_exit_hint, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "stretch_video", false,
-                                          &cfg->stretch_video, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "force_30fps", false,
-                                          &cfg->force_30fps, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "send_actual_start_bitrate", true,
-                                          &cfg->send_actual_start_bitrate, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "clamp_soft_restart_bitrate", true,
-                                          &cfg->clamp_soft_restart_bitrate, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "show_nav_labels", false,
-                                          &cfg->show_nav_labels, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
-    }
-
-    if (parse_bool_setting_with_migration(settings, parsed,
-                                          "show_only_paired", false,
-                                          &cfg->show_only_paired, &source)) {
-      if (source == MIGRATION_SOURCE_LEGACY_SECTION)
-        migrated_legacy_settings = true;
-      else if (source == MIGRATION_SOURCE_ROOT)
-        migrated_root_settings = true;
+    BoolSettingSpec bool_settings[] = {
+      {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
+      {"show_latency", false, &cfg->show_latency},
+      {"show_network_indicator", true, &cfg->show_network_indicator},
+      {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
+      {"stretch_video", false, &cfg->stretch_video},
+      {"force_30fps", false, &cfg->force_30fps},
+      {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
+      {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
+      {"show_nav_labels", false, &cfg->show_nav_labels},
+      {"show_only_paired", false, &cfg->show_only_paired},
+    };
+    size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
+    for (size_t i = 0; i < bool_settings_count; i++) {
+      source = MIGRATION_SOURCE_NONE;
+      parse_bool_setting_with_migration(settings,
+                                        parsed,
+                                        bool_settings[i].key,
+                                        bool_settings[i].default_value,
+                                        bool_settings[i].out_value,
+                                        &source);
+      apply_migration_source(source, &migrated_legacy_settings, &migrated_root_settings);
     }
 
     str_value = NULL;
@@ -760,16 +709,13 @@ void config_parse(VitaChiakiConfig* cfg) {
           has_mac = true;
           free(datum.u.s);
           for (int hidx=0; hidx < cfg->num_registered_hosts; hidx++) {
-            uint8_t* candidate_mac = cfg->registered_hosts[hidx]->server_mac;
-            if (candidate_mac) {
-              if (mac_addrs_match(&server_mac, candidate_mac)) {
-                // copy registered host (TODO for the registered_state, should we use a pointer instead?)
-                host = malloc(sizeof(VitaChiakiHost));
-                copy_host(host, cfg->registered_hosts[hidx], false);
-                host->type = REGISTERED;
-                has_registration = true;
-                break;
-              }
+            if (mac_addrs_match(&server_mac, &cfg->registered_hosts[hidx]->server_mac)) {
+              // copy registered host (TODO for the registered_state, should we use a pointer instead?)
+              host = malloc(sizeof(VitaChiakiHost));
+              copy_host(host, cfg->registered_hosts[hidx], false);
+              host->type = REGISTERED;
+              has_registration = true;
+              break;
             }
           }
         }
@@ -799,7 +745,7 @@ void config_parse(VitaChiakiConfig* cfg) {
           cfg->num_manual_hosts++;
         } else {
           CHIAKI_LOGW(&(context.log), "Failed to parse manual host due to missing hostname or mac.");
-          free(host);
+          host_free(host);
         }
       }
     }

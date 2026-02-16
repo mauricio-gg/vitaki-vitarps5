@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-13 (Startup deterministic bootstrap landed)
+Last Updated: 2026-02-16 (Codebase cleanup wave 1 kickoff)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -59,6 +59,19 @@ Only move a task to "Done" after the reviewer signs off.
      - Split `vita/src/host.c` recovery and diagnostics logic into smaller modules/functions.
      - Add focused tests for recovery timing/state transitions (stale diagnostics windows, reconnect stage transitions, span edge cases).
    - *Next Step:* Open dedicated follow-up PR immediately after baseline merge and land test-first where possible.
+8. **Codebase cleanup wave 1 (Vitaki delta-guided)**
+   - *Owner:* Implementation agent
+   - *Goal:* Reduce runtime complexity in inflated non-UI files while preserving all VitaRPS5 enhancements and behavior.
+   - *Spec:* `docs/ai/CODEBASE_CLEANUP_PLAN.md`
+   - *Progress (2026-02-16):* Added delta tooling (`tools/analysis/compare_vitaki_delta.sh`), created cleanup plan doc, refactored repetitive config migration bool parsing into a table-driven path in `vita/src/config.c`, extracted stream HUD/indicator rendering from `vita/src/video.c` to `vita/src/video_overlay.c`, extracted host/manual-host storage utilities from `vita/src/host.c` to `vita/src/host_storage.c`, and extracted input-thread/controller-touch mapping logic from `vita/src/host.c` to `vita/src/host_input.c` with a narrow stop-request bridge API.
+   - *Next Step:* Continue micro-batch decomposition of stream lifecycle and recovery logic in `vita/src/host.c`, validating each batch with `./tools/build.sh debug` and `./tools/build.sh --env testing` (and run `./tools/build.sh test` once `vitarps5_tests` target exists again).
+9. **Freeze-recovery hard fallback (separate branch post-cleanup)**
+   - *Owner:* Implementation agent
+   - *Goal:* Address rare “video freeze while session remains connected” cases by escalating to a hard fallback when unrecovered/corrupt-frame held streaks persist after non-blocking IDR resync attempts.
+   - *Evidence:* `35786104837_vitarps5-testing.log:2329`, `35786104837_vitarps5-testing.log:2334`, `35786104837_vitarps5-testing.log:4907`
+   - *Scope:* Add a guarded escalation path in `vita/src/host.c` loss/recovery flow (around decoder resync and unrecovered-frame counters), with cooldown and single-use safeguards to avoid reconnect oscillation.
+   - *Branching:* Implement on a dedicated follow-up branch after current codebase-cleanup objective is complete.
+   - *Next Step:* Draft branch-level acceptance criteria and log markers before coding.
 
 ---
 
