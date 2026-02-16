@@ -19,6 +19,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_lifecycle.c
     src/host_loss_profile.c
     src/host_metrics.c
+    src/host_quit.c
     src/host_registration.c
     src/host_recovery.c
     src/host_storage.c
