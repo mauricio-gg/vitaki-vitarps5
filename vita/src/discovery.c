@@ -51,6 +51,43 @@ static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
   return true;
 }
 
+static void log_discovered_host_details(const ChiakiDiscoveryHost *host) {
+  CHIAKI_LOGI(&(context.log), "--");
+  CHIAKI_LOGI(&(context.log), "Discovered Host:");
+  CHIAKI_LOGI(&(context.log), "State:                             %s", chiaki_discovery_host_state_string(host->state));
+
+  if (host->system_version)
+    CHIAKI_LOGI(&(context.log), "System Version:                    %s", host->system_version);
+  if (host->device_discovery_protocol_version)
+    CHIAKI_LOGI(&(context.log), "Device Discovery Protocol Version: %s", host->device_discovery_protocol_version);
+  if (host->host_request_port)
+    CHIAKI_LOGI(&(context.log), "Request Port:                      %hu", (unsigned short)host->host_request_port);
+  if (host->host_name)
+    CHIAKI_LOGI(&(context.log), "Host Name:                         %s", host->host_name);
+  if (host->host_type)
+    CHIAKI_LOGI(&(context.log), "Host Type:                         %s", host->host_type);
+  if (host->host_id)
+    CHIAKI_LOGI(&(context.log), "Host ID:                           %s", host->host_id);
+  if (host->running_app_titleid)
+    CHIAKI_LOGI(&(context.log), "Running App Title ID:              %s", host->running_app_titleid);
+  if (host->running_app_name)
+    CHIAKI_LOGI(&(context.log), "Running App Name:                  %s%s",
+                host->running_app_name,
+                (strcmp(host->running_app_name, "Persona 5") == 0 ? " (best game ever)" : ""));
+}
+
+static bool clear_discovery_host_for_stop(VitaChiakiHost *host_entry) {
+  if (!(host_entry->type & MANUALLY_ADDED)) {
+    host_free(host_entry);
+    return true;
+  }
+  if (host_entry->type & DISCOVERED) {
+    destroy_discovery_host(host_entry->discovery_state);
+    host_entry->discovery_state = NULL;
+  }
+  return false;
+}
+
 ChiakiDiscoveryHost* copy_discovery_host(const ChiakiDiscoveryHost* src) {
   if (!src)
     return NULL;
@@ -125,35 +162,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   }
 
   // print some info about the host
-
-  CHIAKI_LOGI(&(context.log), "--");
-  CHIAKI_LOGI(&(context.log), "Discovered Host:");
-  CHIAKI_LOGI(&(context.log), "State:                             %s", chiaki_discovery_host_state_string(host->state));
-
-  if(host->system_version)
-    CHIAKI_LOGI(&(context.log), "System Version:                    %s", host->system_version);
-
-  if(host->device_discovery_protocol_version)
-    CHIAKI_LOGI(&(context.log), "Device Discovery Protocol Version: %s", host->device_discovery_protocol_version);
-
-  if(host->host_request_port)
-    CHIAKI_LOGI(&(context.log), "Request Port:                      %hu", (unsigned short)host->host_request_port);
-
-  if(host->host_name)
-    CHIAKI_LOGI(&(context.log), "Host Name:                         %s", host->host_name);
-
-  if(host->host_type)
-    CHIAKI_LOGI(&(context.log), "Host Type:                         %s", host->host_type);
-
-  if(host->host_id)
-    CHIAKI_LOGI(&(context.log), "Host ID:                           %s", host->host_id);
-
-  if(host->running_app_titleid)
-    CHIAKI_LOGI(&(context.log), "Running App Title ID:              %s", host->running_app_titleid);
-
-  if(host->running_app_name)
-    CHIAKI_LOGI(&(context.log), "Running App Name:                  %s%s", host->running_app_name, (strcmp(host->running_app_name, "Persona 5") == 0 ? " (best game ever)" : ""));
-
+  log_discovered_host_details(host);
 
   VitaChiakiHost* h = (VitaChiakiHost*)calloc(1, sizeof(VitaChiakiHost));
   if (!h) {
@@ -330,13 +339,9 @@ void stop_discovery(bool keep_hosts) {
       if (h == NULL) {
         continue;
       }
-      if (!(h->type & MANUALLY_ADDED)) {
-        host_free(h);
+      if (clear_discovery_host_for_stop(h)) {
         context.hosts[i] = NULL;
         context.num_hosts--;
-      } else if (h->type & DISCOVERED) {
-        destroy_discovery_host(h->discovery_state);
-        h->discovery_state = NULL;
       }
     }
   }
