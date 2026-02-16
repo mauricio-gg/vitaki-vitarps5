@@ -78,15 +78,6 @@ static bool  touch_start_was_add_btn = false;
 // ============================================================================
 
 
-// Legacy helper function for touch detection (should use is_point_in_rect from ui_input.c)
-static bool is_touched(int x, int y, int width, int height) {
-  SceTouchData* tdf = &(context.ui_state.touch_state_front);
-  if (!tdf) {
-    return false;
-  }
-  return tdf->report->x > x && tdf->report->x <= x + width &&
-         tdf->report->y > y && tdf->report->y <= y + height;
-}
 static void reset_pin_entry(void);
 static void update_cursor_blink(void);
 static bool is_pin_complete(void);
@@ -106,7 +97,7 @@ static void persist_config_or_warn(void) {
 // Touch Input Handler
 // ============================================================================
 
-UIScreenType handle_vitarps5_touch_input(int num_hosts) {
+static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
 
@@ -273,192 +264,6 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
   return UI_SCREEN_TYPE_MAIN;
 }
-
-/// Draw the tile for a host
-/// @return The action to take for the host
-UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
-  int active_id = context.ui_state.active_item;
-  bool is_active = active_id == (UI_MAIN_WIDGET_HOST_TILE | host_slot);
-  bool discovered = (host->type & DISCOVERED) && (host->discovery_state);
-  bool registered = host->type & REGISTERED;
-  bool added = host->type & MANUALLY_ADDED;
-  bool mutable = (added || registered);
-  bool at_rest = discovered && host->discovery_state->state ==
-                                   CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-  int x = HOST_SLOTS_X + (host_slot % 2) * (HOST_SLOT_W + 58);
-  int y = HOST_SLOTS_Y;
-  if (host_slot > 1) {
-    y += HOST_SLOT_H + 11;
-  }
-  // Draw card with shadow for modern look
-  if (is_active) {
-    // Active selection border with glow effect
-    ui_draw_rounded_rect(x - 3, y - 3, HOST_SLOT_W + 6, HOST_SLOT_H + 6, 8, UI_COLOR_PRIMARY_BLUE);
-  }
-  ui_draw_card_with_shadow(x, y, HOST_SLOT_W, HOST_SLOT_H, 8, UI_COLOR_CARD_BG);
-
-  // Draw host name (nickname) and host id (mac)
-  if (discovered) {
-    vita2d_draw_texture(img_discovery_host, x, y);
-    vita2d_font_draw_text(font, x + 68, y + 40, COLOR_WHITE, 40,
-                         host->discovery_state->host_name);
-    vita2d_font_draw_text(font, x + 255, y + 23, COLOR_WHITE, 20,
-                         host->discovery_state->host_id);
-  } else if (registered) {
-    char* nickname = host->registered_state->server_nickname;
-    if (!nickname) nickname = "";
-    uint8_t* host_mac = host->server_mac;
-    vita2d_font_draw_text(font, x + 68, y + 40, COLOR_WHITE, 40,
-                          nickname);
-    vita2d_font_draw_textf(font, x + 255, y + 23, COLOR_WHITE, 20,
-                          "%X%X%X%X%X%X", host_mac[0], host_mac[1], host_mac[2],
-                          host_mac[3], host_mac[4], host_mac[5]);
-  }
-
-  // Draw how many manually added instances of this console exist
-  if (discovered && registered) {
-    int num_mhosts = count_manual_hosts_of_console(host);
-    if (num_mhosts == 1) {
-      vita2d_font_draw_text(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "(1 manual remote host)");
-    } else if (num_mhosts > 1) {
-      vita2d_font_draw_textf(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "(%d manual remote hosts)", num_mhosts);
-    } else {
-      vita2d_font_draw_textf(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "[%d manual remote hosts]", num_mhosts);
-    }
-  }
-
-  // Draw host address
-  vita2d_font_draw_text(font, x + 260, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, host->hostname);
-
-  vita2d_texture* console_img;
-  bool is_ps5 = chiaki_target_is_ps5(host->target);
-  // TODO: Don't use separate textures for off/on/rest, use tinting instead
-  if (added) {// && !discovered) {
-    console_img = is_ps5 ? img_ps5_off : img_ps4_off;
-  } else if (at_rest) {
-    console_img = is_ps5 ? img_ps5_rest : img_ps4_rest;
-  } else {
-    console_img = is_ps5 ? img_ps5 : img_ps4;
-  }
-  vita2d_draw_texture(console_img, x + 64, y + 64);
-  if (discovered && !at_rest) {
-    const char* app_name = host->discovery_state->running_app_name;
-    const char* app_id = host->discovery_state->running_app_titleid;
-    if (app_name && app_id) {
-      vita2d_font_draw_text(font, x + 32, y + 16, COLOR_WHITE, 16, app_name);
-      vita2d_font_draw_text(font, x + 300, y + 170, COLOR_WHITE, 16, app_id);
-    }
-  }
-
-  // set tooltip
-  if (is_active) {
-    if (at_rest) {
-      if (registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: send wake signal (note: console may be temporarily undetected during wakeup)", confirm_btn_str);
-      } else {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "Cannot send wake signal to unregistered console.");
-      }
-    } else {
-      if (discovered && !registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: begin pairing process", confirm_btn_str);
-      } else if (discovered && registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: start remote play;  Square: re-pair", confirm_btn_str);
-      } else if (added) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: send wake signal and/or start remote play (wakeup takes time);  SELECT button: delete host (no confirmation)", confirm_btn_str);
-      } else {
-        // there should never be tiles that are neither discovered nor added
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "");
-      }
-    }
-  }
-
-  // Handle navigation
-  int btn = context.ui_state.button_state;
-  int old_btn = context.ui_state.old_button_state;
-  int last_slot = context.num_hosts - 1;
-  if (is_active) {
-    if (context.active_host != host) {
-      context.active_host = host;
-    }
-    if (btn_pressed(SCE_CTRL_UP)) {
-      if (host_slot < 2) {
-        // Set focus on the last button of the header bar
-        context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
-      } else {
-        // Set focus on the host tile directly above
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot - 2);
-      }
-    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-      if (host_slot != last_slot && (host_slot == 0 || host_slot == 2)) {
-        // Set focus on the host tile to the right
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot + 1);
-      }
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      if (last_slot >= host_slot + 2 && host_slot < 2) {
-        // Set focus on the host tile directly below
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot + 2);
-      }
-    } else if (btn_pressed(SCE_CTRL_LEFT)) {
-      if (host_slot == 1 || host_slot == 3) {
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot - 1);
-      }
-    }
-
-    if (btn_pressed(SCE_CTRL_SELECT) && added) {
-      delete_manual_host(host);
-      // TODO delete from manual hosts
-
-      // refresh tiles
-      update_context_hosts();
-    }
-
-    if (registered && btn_pressed(SCE_CTRL_CONFIRM)) {
-      if (takion_cooldown_gate_active()) {
-        LOGD("Ignoring connect request — network recovery cooldown active");
-        return UI_HOST_ACTION_NONE;
-      }
-      if (at_rest) {
-        ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-        host_wakeup(context.active_host);
-        return UI_HOST_ACTION_WAKEUP;
-      } else {
-        // since we don't know if the remote host is awake, send wakeup signal
-        if (added) host_wakeup(context.active_host);
-        vita2d_end_drawing();
-        vita2d_common_dialog_update();
-        vita2d_swap_buffers();
-        ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-        if (!start_connection_thread(context.active_host)) {
-          ui_connection_cancel();
-          return UI_HOST_ACTION_NONE;
-        }
-        ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-        return UI_HOST_ACTION_STREAM;
-      }
-    } else if (!registered && !added && discovered && btn_pressed(SCE_CTRL_CONFIRM)){
-      if (at_rest) {
-        LOGD("Cannot wake unregistered console.");
-        return UI_HOST_ACTION_NONE;
-      }
-      return UI_HOST_ACTION_REGISTER;
-    } else if (discovered && btn_pressed(SCE_CTRL_SQUARE)) {
-      return UI_HOST_ACTION_REGISTER;
-    }
-  }
-  if (is_touched(x, y, HOST_SLOT_W, HOST_SLOT_H)) {
-    context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | host_slot;
-  }
-  return UI_HOST_ACTION_NONE;
-}
-
-bool showingIME = false;
-
-
 
 UIScreenType draw_main_menu() {
   // Update and render VitaRPS5 particle background
