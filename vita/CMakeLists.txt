@@ -12,6 +12,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/config_hosts.c
     src/context.c
     src/discovery.c
+    src/discovery_host.c
     src/main.c
     src/ui.c
     src/util.c

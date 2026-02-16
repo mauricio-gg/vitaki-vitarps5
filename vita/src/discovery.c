@@ -18,13 +18,6 @@
 /// Allow some grace time before removing a flapping host
 #define DISCOVERY_LOST_GRACE_US (3 * 1000 * 1000ULL)
 
-static char* duplicate_string(const char* src) {
-  if (!src)
-    return NULL;
-  char* copy = strdup(src);
-  return copy;
-}
-
 static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
                                         const ChiakiDiscoveryHost *discovery_host,
                                         uint64_t now_us) {
@@ -49,6 +42,30 @@ static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
 
   host_entry->last_discovery_seen_us = now_us;
   return true;
+}
+
+static int find_discovered_host_index_by_mac(MacAddr *host_mac) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
+    VitaChiakiHost *host_entry = context.hosts[host_idx];
+    if (host_entry && (host_entry->type & DISCOVERED) &&
+        mac_addrs_match(&(host_entry->server_mac), host_mac)) {
+      return host_idx;
+    }
+  }
+  return -1;
+}
+
+static int find_target_slot_for_discovered_host(MacAddr *host_mac) {
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
+    VitaChiakiHost *host_entry = context.hosts[host_idx];
+    if (host_entry == NULL)
+      return host_idx;
+    if ((host_entry->type & MANUALLY_ADDED) &&
+        mac_addrs_match(&(host_entry->server_mac), host_mac)) {
+      return host_idx;
+    }
+  }
+  return -1;
 }
 
 static void log_discovered_host_details(const ChiakiDiscoveryHost *host) {
@@ -88,74 +105,23 @@ static bool clear_discovery_host_for_stop(VitaChiakiHost *host_entry) {
   return false;
 }
 
-ChiakiDiscoveryHost* copy_discovery_host(const ChiakiDiscoveryHost* src) {
-  if (!src)
-    return NULL;
-  ChiakiDiscoveryHost* dest = (ChiakiDiscoveryHost*)malloc(sizeof(ChiakiDiscoveryHost));
-  if (!dest)
-    return NULL;
-  memcpy(dest, src, sizeof(ChiakiDiscoveryHost));
-#define DUP_FIELD(name) dest->name = duplicate_string(src->name);
-  CHIAKI_DISCOVERY_HOST_STRING_FOREACH(DUP_FIELD)
-#undef DUP_FIELD
-  return dest;
-}
-
-void destroy_discovery_host(ChiakiDiscoveryHost* host) {
-  if (!host)
-    return;
-#define FREE_FIELD(name)           \
-  do {                             \
-    if (host->name) {              \
-      free((void*)host->name);     \
-      host->name = NULL;           \
-    }                              \
-  } while (0)
-  CHIAKI_DISCOVERY_HOST_STRING_FOREACH(FREE_FIELD)
-#undef FREE_FIELD
-  free(host);
-}
-
 /// Save a newly discovered host into the context
 // Returns the index in context.hosts where it is saved (-1 if not saved)
 int save_discovered_host(ChiakiDiscoveryHost* host) {
   CHIAKI_LOGI(&(context.log), "Saving discovered host...");
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  // Check if the host is already known, and if not, locate a free spot for it
   uint8_t host_mac[6];
   parse_mac(host->host_id, host_mac);
 
-  // Check if there is an identical discovered host in context; return if so
-  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
-    VitaChiakiHost* h = context.hosts[host_idx];
-    if (h && (h->type & DISCOVERED)) {
-      if (mac_addrs_match(&(h->server_mac), &host_mac)) {
-        // Already known discovered host. Just copy the discovery state and exit.
-        if (!set_host_discovery_snapshot(h, host, now_us))
-          return host_idx;
-        return host_idx;
-      }
-    }
+  int existing_idx = find_discovered_host_index_by_mac(&host_mac);
+  if (existing_idx >= 0) {
+    VitaChiakiHost *existing_host = context.hosts[existing_idx];
+    if (!set_host_discovery_snapshot(existing_host, host, now_us))
+      return existing_idx;
+    return existing_idx;
   }
 
-  // Determine whether there is room in context for a new host to be added
-  int target_idx = -1;
-  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
-    VitaChiakiHost* h = context.hosts[host_idx];
-    if (h == NULL) {
-      target_idx = host_idx;
-      break;
-    } else if (h->type & MANUALLY_ADDED) {
-      if (mac_addrs_match(&(h->server_mac), &host_mac)) {
-        // Manually added host matched this discovered host, so there is space available
-        target_idx = host_idx;
-        break;
-      }
-    }
-  }
-
-  // Maximum number of hosts reached, can't save host
-  // TODO: Indicate to user
+  int target_idx = find_target_slot_for_discovered_host(&host_mac);
   if (target_idx < 0) {
     CHIAKI_LOGE(&(context.log), "Max # of hosts reached; could not save newly discovered host.");
     return -1;
