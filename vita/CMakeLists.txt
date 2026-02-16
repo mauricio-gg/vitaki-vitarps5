@@ -29,6 +29,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_recovery.c
     src/host_storage.c
     src/controller.c
+    src/controller_metadata.c
     src/video.c
     src/video_overlay.c
     src/audio.c
