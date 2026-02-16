@@ -3,6 +3,7 @@
 #include "controller.h"
 #include "host.h"
 #include "host_input.h"
+#include "host_disconnect.h"
 #include "discovery.h"
 #include "audio.h"
 #include "video.h"
@@ -38,9 +39,6 @@ static void handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                 uint32_t target_fps,
                                                 bool low_fps_window,
                                                 uint64_t now_us);
-static const char *quit_reason_label(ChiakiQuitReason reason);
-static bool quit_reason_requires_retry(ChiakiQuitReason reason);
-static void update_disconnect_banner(const char *reason);
 static void persist_config_or_warn(void);
 static const char *restart_source_label(const char *source);
 typedef struct {
@@ -110,7 +108,6 @@ static void adjust_loss_profile_with_metrics(LossDetectionProfile *profile);
 #define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
 #define HINT_DURATION_RECOVERY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_ERROR_US (7 * 1000 * 1000ULL)
-#define DISCONNECT_BANNER_DEFAULT_US HINT_DURATION_LINK_WAIT_US
 #define LOSS_PROFILE_BURST_BASE_US (200 * 1000ULL)
 #define LOSS_PROFILE_BURST_LOW_US (220 * 1000ULL)
 #define LOSS_PROFILE_BURST_BALANCED_US (240 * 1000ULL)
@@ -267,7 +264,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
 	case CHIAKI_EVENT_QUIT: {
       bool user_stop_requested =
           context.stream.stop_requested || context.stream.stop_requested_by_user;
-      const char *reason_label = quit_reason_label(event->quit.reason);
+      const char *reason_label = host_quit_reason_label(event->quit.reason);
 			LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
 				 event->quit.reason_str ? event->quit.reason_str : "unknown",
 				 event->quit.reason,
@@ -422,7 +419,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
               : reason_label;
         }
 
-        update_disconnect_banner(banner_reason);
+        host_update_disconnect_banner(banner_reason);
       }
       context.stream.stop_requested = false;
       bool should_resume_discovery = !retry_pending;
@@ -461,7 +458,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
       context.stream.loss_retry_active = false;
       context.stream.reconnect_overlay_active = false;
 
-      bool retry_allowed_reason = quit_reason_requires_retry(event->quit.reason);
+      bool retry_allowed_reason = host_quit_reason_requires_retry(event->quit.reason);
       bool schedule_retry = restart_failed && context.active_host &&
           retry_allowed_reason &&
           retry_bitrate > 0 && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
@@ -1497,52 +1494,6 @@ static uint32_t saturating_add_u32_report(uint32_t lhs,
     context.stream.loss_counter_saturated_mask |= counter_mask_bit;
   }
   return sum;
-}
-
-static const char *quit_reason_label(ChiakiQuitReason reason) {
-  switch (reason) {
-    case CHIAKI_QUIT_REASON_NONE: return "No quit";
-    case CHIAKI_QUIT_REASON_STOPPED: return "User stopped";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN: return "Session request failed";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_CONNECTION_REFUSED: return "Connection refused";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE: return "Remote Play already in use";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH: return "Remote Play crashed";
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_VERSION_MISMATCH: return "Remote Play version mismatch";
-    case CHIAKI_QUIT_REASON_CTRL_UNKNOWN: return "Control channel failure";
-    case CHIAKI_QUIT_REASON_CTRL_CONNECT_FAILED: return "Control connection failed";
-    case CHIAKI_QUIT_REASON_CTRL_CONNECTION_REFUSED: return "Control connection refused";
-    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN: return "Stream connection failure";
-    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED: return "Console disconnected";
-    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN: return "Console shutdown";
-    case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED: return "PSN registration failed";
-    default:
-      return "Unspecified";
-  }
-}
-
-static bool quit_reason_requires_retry(ChiakiQuitReason reason) {
-  switch (reason) {
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE:
-    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH:
-      return false;
-    default:
-      return true;
-  }
-}
-
-static void update_disconnect_banner(const char *reason) {
-  if (!reason || !reason[0])
-    return;
-
-  sceClibSnprintf(context.stream.disconnect_reason,
-                  sizeof(context.stream.disconnect_reason),
-                  "%s",
-                  reason);
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-  uint64_t until = context.stream.next_stream_allowed_us;
-  if (!until)
-    until = now_us + DISCONNECT_BANNER_DEFAULT_US;
-  context.stream.disconnect_banner_until_us = until;
 }
 
 static LossDetectionProfile loss_profile_for_mode(VitaChiakiLatencyMode mode) {
