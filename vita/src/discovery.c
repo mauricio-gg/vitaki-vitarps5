@@ -25,6 +25,32 @@ static char* duplicate_string(const char* src) {
   return copy;
 }
 
+static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
+                                        const ChiakiDiscoveryHost *discovery_host,
+                                        uint64_t now_us) {
+  ChiakiDiscoveryHost *new_state = copy_discovery_host(discovery_host);
+  if (!new_state) {
+    CHIAKI_LOGE(&(context.log), "Failed to cache discovery state (out of memory)");
+    return false;
+  }
+
+  if (host_entry->discovery_state) {
+    destroy_discovery_host(host_entry->discovery_state);
+    host_entry->discovery_state = NULL;
+  }
+  host_entry->discovery_state = new_state;
+
+  if (host_entry->hostname) {
+    free(host_entry->hostname);
+    host_entry->hostname = NULL;
+  }
+  if (new_state->host_addr)
+    host_entry->hostname = strdup(new_state->host_addr);
+
+  host_entry->last_discovery_seen_us = now_us;
+  return true;
+}
+
 ChiakiDiscoveryHost* copy_discovery_host(const ChiakiDiscoveryHost* src) {
   if (!src)
     return NULL;
@@ -68,23 +94,8 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     if (h && (h->type & DISCOVERED)) {
       if (mac_addrs_match(&(h->server_mac), &host_mac)) {
         // Already known discovered host. Just copy the discovery state and exit.
-        ChiakiDiscoveryHost* new_state = copy_discovery_host(host);
-        if (!new_state) {
-          CHIAKI_LOGE(&(context.log), "Failed to cache discovery state (out of memory)");
+        if (!set_host_discovery_snapshot(h, host, now_us))
           return host_idx;
-        }
-        if (h->discovery_state && (h->discovery_state != host)) {
-          destroy_discovery_host(h->discovery_state);
-        }
-        h->discovery_state = new_state;
-        if (h->hostname) {
-          free(h->hostname);
-          h->hostname = NULL;
-        }
-        if (h->discovery_state->host_addr) {
-          h->hostname = strdup(h->discovery_state->host_addr);
-        }
-        h->last_discovery_seen_us = now_us;
         return host_idx;
       }
     }
@@ -144,26 +155,21 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     CHIAKI_LOGI(&(context.log), "Running App Name:                  %s%s", host->running_app_name, (strcmp(host->running_app_name, "Persona 5") == 0 ? " (best game ever)" : ""));
 
 
-  VitaChiakiHost* h = (VitaChiakiHost*)malloc(sizeof(VitaChiakiHost));
-  h->registered_state = NULL;
+  VitaChiakiHost* h = (VitaChiakiHost*)calloc(1, sizeof(VitaChiakiHost));
+  if (!h) {
+    CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
+    return -1;
+  }
   h->type = DISCOVERED;
 
   ChiakiTarget target = chiaki_discovery_host_system_version_target(host);
   CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");
   h->target = target;
   memcpy(&(h->server_mac), &host_mac, 6);
-  h->discovery_state = copy_discovery_host(host);
-  if (!h->discovery_state) {
-    CHIAKI_LOGE(&(context.log), "Failed to allocate discovery state");
+  if (!set_host_discovery_snapshot(h, host, now_us)) {
     free(h);
     return -1;
   }
-  if (h->discovery_state->host_addr) {
-    h->hostname = strdup(h->discovery_state->host_addr);
-  } else {
-    h->hostname = NULL;
-  }
-  h->last_discovery_seen_us = now_us;
   h->status_hint[0] = '\0';
   h->status_hint_expire_us = 0;
   h->status_hint_is_error = false;
@@ -193,8 +199,12 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
       // copy registered state
       h->registered_state = NULL;
       if (rhost->registered_state) {
-        h->registered_state = malloc(sizeof(ChiakiRegisteredHost));;
-        copy_host_registered_state(h->registered_state, rhost->registered_state);
+        h->registered_state = malloc(sizeof(ChiakiRegisteredHost));
+        if (h->registered_state) {
+          copy_host_registered_state(h->registered_state, rhost->registered_state);
+        } else {
+          CHIAKI_LOGE(&(context.log), "Failed to allocate registered host state");
+        }
       }
 
       break;
@@ -269,6 +279,10 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
   if (cb != NULL) {
     context.discovery_cb_state =
         malloc(sizeof(VitaChiakiDiscoveryCallbackState));
+    if (!context.discovery_cb_state) {
+      CHIAKI_LOGE(&(context.log), "Failed to allocate discovery callback state");
+      return CHIAKI_ERR_MEMORY;
+    }
     context.discovery_cb_state->cb = cb;
     context.discovery_cb_state->cb_user = cb_user;
   }
@@ -289,6 +303,13 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
 
   ChiakiErrorCode err = chiaki_discovery_service_init(&(context.discovery),
                                                       &opts, &(context.log));
+  if (err != CHIAKI_ERR_SUCCESS) {
+    if (context.discovery_cb_state != NULL) {
+      free(context.discovery_cb_state);
+      context.discovery_cb_state = NULL;
+    }
+    return err;
+  }
   context.discovery_enabled = true;
 
   update_context_hosts();
