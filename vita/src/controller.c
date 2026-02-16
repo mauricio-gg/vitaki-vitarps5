@@ -70,6 +70,37 @@ static void apply_default_custom_map(VitakiCtrlMapInfo* vcmi) {
   vcmi->did_init = true;
 }
 
+static void controller_map_apply_common_bindings(VitakiCtrlMapInfo *vcmi) {
+  vcmi->in_out_btn[VITAKI_CTRL_IN_L1] = VITAKI_CTRL_OUT_L1;
+  vcmi->in_out_btn[VITAKI_CTRL_IN_R1] = VITAKI_CTRL_OUT_R1;
+  vcmi->in_out_btn[VITAKI_CTRL_IN_SELECT_START] = VITAKI_CTRL_OUT_PS;
+}
+
+static bool controller_map_try_apply_custom_preset(VitakiCtrlMapInfo *vcmi,
+                                                   VitakiControllerMapId controller_map_id) {
+  int slot = -1;
+  switch (controller_map_id) {
+    case VITAKI_CONTROLLER_MAP_CUSTOM_1:
+      slot = 0;
+      break;
+    case VITAKI_CONTROLLER_MAP_CUSTOM_2:
+      slot = 1;
+      break;
+    case VITAKI_CONTROLLER_MAP_CUSTOM_3:
+      slot = 2;
+      break;
+    default:
+      return false;
+  }
+
+  if (context.config.custom_maps_valid[slot]) {
+    controller_map_storage_apply(&context.config.custom_maps[slot], vcmi);
+  } else {
+    apply_default_custom_map(vcmi);
+  }
+  return true;
+}
+
 const char* controller_output_symbol(VitakiCtrlOut button) {
   switch (button) {
     case VITAKI_CTRL_OUT_TRIANGLE: return "△";
@@ -116,160 +147,117 @@ void init_controller_map(VitakiCtrlMapInfo* vcmi, VitakiControllerMapId controll
   vcmi->in_l2 = VITAKI_CTRL_IN_NONE;
   vcmi->in_r2 = VITAKI_CTRL_IN_NONE;
 
-
   // L1, R1, Select+Start are common in all maps currently
-  vcmi->in_out_btn[VITAKI_CTRL_IN_L1]                  = VITAKI_CTRL_OUT_L1;
-  vcmi->in_out_btn[VITAKI_CTRL_IN_R1]                  = VITAKI_CTRL_OUT_R1;
-  vcmi->in_out_btn[VITAKI_CTRL_IN_SELECT_START]        = VITAKI_CTRL_OUT_PS;
+  controller_map_apply_common_bindings(vcmi);
 
-  // Handle custom preset slots
-  if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_1 ||
-      controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2 ||
-      controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_3) {
-    int slot = 0;
-    if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2) slot = 1;
-    else if (controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_3) slot = 2;
-
-    if (context.config.custom_maps_valid[slot]) {
-      controller_map_storage_apply(&context.config.custom_maps[slot], vcmi);
-      return;
-    }
-    apply_default_custom_map(vcmi);
+  if (controller_map_try_apply_custom_preset(vcmi, controller_map_id))
     return;
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_1) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC]   = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC]   = VITAKI_CTRL_OUT_R3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
 
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_2) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT]      = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT]     = VITAKI_CTRL_OUT_R3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_3) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT]      = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT]     = VITAKI_CTRL_OUT_R3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_4) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY]   = VITAKI_CTRL_OUT_TOUCHPAD;
-    // no L2, R2, L3, R3
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_5) {
-    // no L2, R2, L3, R3, touchpad
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_6) {
-    // no L3, R3
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_7) {
-    // no L3, R3
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_25) {
-    // no touchpad
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC]   = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC]   = VITAKI_CTRL_OUT_R3;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_199) {
-    vcmi->in_l2 = VITAKI_CTRL_IN_LEFT_SQUARE;
-    vcmi->in_r2 = VITAKI_CTRL_IN_RIGHT_CIRCLE;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY]      = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT_L1] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_101) {
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_102) {
-    vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LEFT;
-    vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_RIGHT;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_103) {
-    vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LEFT;
-    vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_RIGHT;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_104) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY]   = VITAKI_CTRL_OUT_TOUCHPAD;
-    // no L2, R2, L3, R3
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_105) {
-    // no L2, R2, L3, R3, touchpad
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_106) {
-    // no L2, R2
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_107) {
-    // no L2, R2
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER]   = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_125) {
-    // no touchpad
-    vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
-    vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
-
-  } else if (controller_map_id == VITAKI_CONTROLLER_MAP_100) {
-    vcmi->in_out_btn[VITAKI_CTRL_IN_L1]                  = VITAKI_CTRL_OUT_L1;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_R1]                  = VITAKI_CTRL_OUT_R1;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_SELECT_START]        = VITAKI_CTRL_OUT_PS;
-    vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LL;
-    vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_LR;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY]      = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UL] = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UR] = VITAKI_CTRL_OUT_R3;
-  } else { // default, VITAKI_CONTROLLER_MAP_0
-    vcmi->in_out_btn[VITAKI_CTRL_IN_L1]                  = VITAKI_CTRL_OUT_L1;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_R1]                  = VITAKI_CTRL_OUT_R1;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_SELECT_START]        = VITAKI_CTRL_OUT_PS;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LL]        = VITAKI_CTRL_OUT_L3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LR]        = VITAKI_CTRL_OUT_R3;
-    vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY]      = VITAKI_CTRL_OUT_TOUCHPAD;
-
-    vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_UL;
-    vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_UR;
+  switch (controller_map_id) {
+    case VITAKI_CONTROLLER_MAP_1:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_2:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT] = VITAKI_CTRL_OUT_R3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_3:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT] = VITAKI_CTRL_OUT_R3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_4:
+    case VITAKI_CONTROLLER_MAP_104:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] = VITAKI_CTRL_OUT_TOUCHPAD;
+      break;
+    case VITAKI_CONTROLLER_MAP_5:
+    case VITAKI_CONTROLLER_MAP_105:
+      break;
+    case VITAKI_CONTROLLER_MAP_6:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_7:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_25:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC;
+      break;
+    case VITAKI_CONTROLLER_MAP_125:
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_199:
+      vcmi->in_l2 = VITAKI_CTRL_IN_LEFT_SQUARE;
+      vcmi->in_r2 = VITAKI_CTRL_IN_RIGHT_CIRCLE;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT_L1] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_101:
+      vcmi->in_l2 = VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC;
+      vcmi->in_r2 = VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_102:
+      vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LEFT;
+      vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_RIGHT;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_103:
+      vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LEFT;
+      vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_RIGHT;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_106:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_107:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_100:
+      vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_LL;
+      vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_LR;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UL] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UR] = VITAKI_CTRL_OUT_R3;
+      break;
+    case VITAKI_CONTROLLER_MAP_0:
+    case VITAKI_CONTROLLER_MAP_99:
+    default:
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LL] = VITAKI_CTRL_OUT_L3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LR] = VITAKI_CTRL_OUT_R3;
+      vcmi->in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] = VITAKI_CTRL_OUT_TOUCHPAD;
+      vcmi->in_l2 = VITAKI_CTRL_IN_REARTOUCH_UL;
+      vcmi->in_r2 = VITAKI_CTRL_IN_REARTOUCH_UR;
+      break;
   }
 
   vcmi->did_init = true;
