@@ -7,6 +7,7 @@ set(VITA_VERSION "00.06")
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
+    src/config_values.c
     src/config_hosts.c
     src/context.c
     src/discovery.c
