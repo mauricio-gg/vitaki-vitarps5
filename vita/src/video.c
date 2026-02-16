@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-void draw_streaming(vita2d_texture *frame_texture);
+static void draw_streaming(vita2d_texture *frame_texture);
 
 enum {
   VITA_VIDEO_INIT_OK                    = 0,
@@ -76,8 +76,6 @@ SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 static bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
-uint32_t frame_count = 0;
-uint32_t need_drop = 0;
 
 typedef struct {
   unsigned int texture_width;
@@ -146,6 +144,14 @@ static bool should_drop_frame_for_pacing(void) {
 
   context.stream.pacing_accumulator -= source;
   return false;
+}
+
+static void record_decode_timing_sample(uint32_t decode_elapsed_us) {
+  context.stream.decode_time_us = decode_elapsed_us;
+  context.stream.decode_window_total_us += decode_elapsed_us;
+  if (decode_elapsed_us > context.stream.decode_window_max_us)
+    context.stream.decode_window_max_us = decode_elapsed_us;
+  context.stream.decode_window_count++;
 }
 
 void update_scaling_settings(int width, int height) {
@@ -487,11 +493,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
-  context.stream.decode_time_us = decode_elapsed_us;
-  context.stream.decode_window_total_us += decode_elapsed_us;
-  if (decode_elapsed_us > context.stream.decode_window_max_us)
-    context.stream.decode_window_max_us = decode_elapsed_us;
-  context.stream.decode_window_count++;
+  record_decode_timing_sample(decode_elapsed_us);
   if (ret < 0) {
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret, array_picture.numOfOutput);
     chiaki_mutex_unlock(&mtx);
@@ -520,7 +522,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   return 0;
 }
 
-void draw_streaming(vita2d_texture *frame_texture) {
+static void draw_streaming(vita2d_texture *frame_texture) {
   // ui is still rendering in the background, clear the screen first
   vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RGBA8(0, 0, 0, 255));
 
@@ -575,10 +577,6 @@ bool vita_video_render_latest_frame(void) {
   frame_ready_for_display = false;
 
   bool drop_frame = should_drop_frame_for_pacing();
-  if (!drop_frame && need_drop > 0) {
-    need_drop--;
-    drop_frame = true;
-  }
   if (drop_frame)
     return true;  // consumed the frame but skipped display
 
@@ -605,7 +603,6 @@ bool vita_video_render_latest_frame(void) {
     }
   }
 
-  frame_count++;
   return true;
 }
 
