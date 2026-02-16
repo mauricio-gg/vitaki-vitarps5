@@ -507,6 +507,79 @@ static void apply_force_30fps_runtime(void) {
   context.stream.pacing_accumulator = 0;
 }
 
+static void settings_toggle_bool(bool *value, int anim_index) {
+  *value = !(*value);
+  start_toggle_animation(anim_index, *value);
+  persist_config_or_warn();
+}
+
+static void settings_activate_selected_item(void) {
+  switch (settings_state.selected_item) {
+    case UI_SETTINGS_ITEM_QUALITY_PRESET:
+      switch (context.config.resolution) {
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
+        default:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+          break;
+      }
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_LATENCY_MODE:
+      context.config.latency_mode = (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_FPS_TARGET:
+      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ? CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_FORCE_30_FPS:
+      settings_toggle_bool(&context.config.force_30fps, SETTINGS_TOGGLE_ANIM_FORCE_30FPS);
+      apply_force_30fps_runtime();
+      break;
+    case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
+      settings_toggle_bool(&context.config.auto_discovery, SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_LATENCY:
+      settings_toggle_bool(&context.config.show_latency, SETTINGS_TOGGLE_ANIM_SHOW_LATENCY);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS:
+      settings_toggle_bool(&context.config.show_network_indicator, SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS);
+      if (!context.config.show_network_indicator)
+        vitavideo_hide_poor_net_indicator();
+      break;
+    case UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT:
+      settings_toggle_bool(&context.config.show_stream_exit_hint, SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT);
+      break;
+    case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
+      settings_toggle_bool(&context.config.clamp_soft_restart_bitrate, SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART);
+      break;
+    case UI_SETTINGS_ITEM_FILL_SCREEN:
+      settings_toggle_bool(&context.config.stretch_video, SETTINGS_TOGGLE_ANIM_FILL_SCREEN);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_NAV_LABELS:
+      settings_toggle_bool(&context.config.show_nav_labels, SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS);
+      break;
+    case UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM:
+      settings_toggle_bool(&context.config.circle_btn_confirm, SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
+      settings_toggle_bool(&context.config.show_only_paired, SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED);
+      ui_cards_update_cache(true);
+      break;
+    default:
+      break;
+  }
+}
+
 /// Helper to draw a single settings item (toggle with label)
 static void draw_settings_toggle_item(int x, int y, int w, int h, const char* label,
                                       int anim_index, bool value, bool selected) {
@@ -689,91 +762,8 @@ UIScreenType draw_settings() {
   }
 
   // X: Activate selected item (toggle or cycle dropdown)
-  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
-    // Streaming tab input handling
-    if (settings_state.selected_item == UI_SETTINGS_ITEM_QUALITY_PRESET) {
-      // Cycle resolution: 360p <-> 540p (720p/1080p are unavailable on Vita)
-      switch (context.config.resolution) {
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-          // Legacy/unsupported values are normalized to supported presets on interaction.
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        default:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-      }
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_LATENCY_MODE) {
-      // Cycle latency modes
-      context.config.latency_mode =
-        (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FPS_TARGET) {
-      // Cycle FPS
-      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
-        CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FORCE_30_FPS) {
-      context.config.force_30fps = !context.config.force_30fps;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FORCE_30FPS, context.config.force_30fps);
-      persist_config_or_warn();
-      apply_force_30fps_runtime();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_AUTO_DISCOVERY) {
-      // Auto discovery toggle
-      context.config.auto_discovery = !context.config.auto_discovery;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY, context.config.auto_discovery);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_LATENCY) {
-      // Show latency toggle
-      context.config.show_latency = !context.config.show_latency;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_LATENCY, context.config.show_latency);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS) {
-      context.config.show_network_indicator = !context.config.show_network_indicator;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
-                             context.config.show_network_indicator);
-      if (!context.config.show_network_indicator) {
-        vitavideo_hide_poor_net_indicator();
-      }
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT) {
-      context.config.show_stream_exit_hint = !context.config.show_stream_exit_hint;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT,
-                             context.config.show_stream_exit_hint);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE) {
-      context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
-                             context.config.clamp_soft_restart_bitrate);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FILL_SCREEN) {
-      context.config.stretch_video = !context.config.stretch_video;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FILL_SCREEN, context.config.stretch_video);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NAV_LABELS) {
-      context.config.show_nav_labels = !context.config.show_nav_labels;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS, context.config.show_nav_labels);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM) {
-      context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
-                             context.config.circle_btn_confirm);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED) {
-      context.config.show_only_paired = !context.config.show_only_paired;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
-                             context.config.show_only_paired);
-      persist_config_or_warn();
-      ui_cards_update_cache(true);  // Force refresh to apply filter immediately
-    }
-  }
+  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar())
+    settings_activate_selected_item();
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
