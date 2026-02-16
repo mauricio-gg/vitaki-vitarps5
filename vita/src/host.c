@@ -7,6 +7,7 @@
 #include "host_feedback.h"
 #include "host_recovery.h"
 #include "host_metrics.h"
+#include "host_lifecycle.h"
 #include "discovery.h"
 #include "audio.h"
 #include "video.h"
@@ -15,116 +16,6 @@
 #include <chiaki/session.h>
 
 static void request_stream_stop(const char *reason);
-static void resume_discovery_if_needed(void);
-static void shutdown_media_pipeline(void);
-static void finalize_session_resources(void);
-
-static void shutdown_media_pipeline(void) {
-  if (!context.stream.media_initialized)
-    return;
-
-  // Stop the video decode thread and clear the frame_ready flag BEFORE freeing
-  // the texture.  The UI thread renders decoded frames from
-  // vita_video_render_latest_frame(); we must ensure it is no longer drawing
-  // the texture when we free it.
-  context.stream.is_streaming = false;   // UI loop stops entering render branch
-  vita_h264_stop();                      // active_video_thread=false, frame_ready=false
-  sceKernelDelayThread(2000);            // 2ms — let any in-flight render + swap finish
-
-  chiaki_opus_decoder_fini(&context.stream.opus_decoder);
-  vita_h264_cleanup();
-  vita_audio_cleanup();
-  context.stream.media_initialized = false;
-  context.stream.inputs_ready = false;
-  context.stream.fast_restart_active = false;
-  context.stream.reconnect_overlay_active = false;
-}
-
-/**
- * Finalizes session resources in a thread-safe manner.
- *
- * This function can be called from multiple concurrent threads (quit event handler,
- * retry failure path, init failure cleanup). The mutex ensures only one thread
- * performs the actual finalization, preventing double-free and use-after-free bugs.
- */
-static void finalize_session_resources(void) {
-  // Acquire mutex for atomic check-and-set operation
-  chiaki_mutex_lock(&context.stream.finalization_mutex);
-
-  if (!context.stream.session_init) {
-    // Already finalized by another thread
-    chiaki_mutex_unlock(&context.stream.finalization_mutex);
-    return;
-  }
-
-  // Mark as finalized immediately while holding mutex
-  // This prevents any other thread from getting past the guard check
-  context.stream.session_init = false;
-
-  chiaki_mutex_unlock(&context.stream.finalization_mutex);
-
-  // Perform the actual finalization outside the critical section
-  // Only one thread can reach here due to the atomic check-and-set above
-  LOGD("Finalizing session resources");
-
-  // Signal input thread to exit
-  context.stream.input_thread_should_exit = true;
-
-  // Join input thread
-  ChiakiErrorCode err = chiaki_thread_join(&context.stream.input_thread, NULL);
-  if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Failed to join input thread: %d", err);
-  } else {
-    LOGD("Input thread joined successfully");
-  }
-
-  // Note: This function is only used by the host_stream() cleanup path (line ~2766)
-  // where the session thread may not have started. The deferred finalization path
-  // (host_finalize_deferred_session) calls chiaki_session_fini() directly.
-
-  // Finalize session
-  chiaki_session_fini(&context.stream.session);
-  LOGD("Session finalized");
-
-  /*
-   * NOTE: We do NOT destroy the finalization_mutex here.
-   * The mutex is initialized once in vita_chiaki_init_context() and should persist
-   * across multiple streaming sessions. It will be destroyed when the application
-   * exits as part of the overall context cleanup.
-   */
-}
-
-void host_finalize_deferred_session(void) {
-  if (!context.stream.session_finalize_pending)
-    return;
-
-  uint64_t join_start = sceKernelGetProcessTimeWide();
-  LOGD("Deferred finalization: joining session thread");
-  ChiakiErrorCode err = chiaki_session_join(&context.stream.session);
-  uint64_t join_duration_us = sceKernelGetProcessTimeWide() - join_start;
-  if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Session join failed: %d after %ju us (proceeding with fini)", err, join_duration_us);
-  } else {
-    LOGD("Session thread joined in %ju us", join_duration_us);
-  }
-
-  // Join input thread (may already be exited)
-  err = chiaki_thread_join(&context.stream.input_thread, NULL);
-  if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Input thread join failed: %d (deferred path)", err);
-  } else {
-    LOGD("Input thread joined (deferred path)");
-  }
-
-  // Finalize session — session_init was already cleared in event_cb,
-  // so we call chiaki_session_fini() directly instead of going through
-  // finalize_session_resources() which would bail on the guard check.
-  chiaki_session_fini(&context.stream.session);
-  LOGD("Session finalized (deferred path)");
-
-  context.stream.session_finalize_pending = false;
-  resume_discovery_if_needed();
-}
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
@@ -259,7 +150,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
       bool retry_holdoff_active = context.stream.retry_holdoff_active;
       if (retry_pending && !context.active_host)
         retry_pending = false;
-      shutdown_media_pipeline();
+      host_shutdown_media_pipeline();
       context.stream.inputs_resume_pending = fallback_active;
       ui_clear_waking_wait();
 
@@ -438,7 +329,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
       }
 
       if (should_resume_discovery)
-        resume_discovery_if_needed();
+        host_resume_discovery_if_needed();
 
       if (schedule_retry && context.active_host) {
         uint64_t now_retry = sceKernelGetProcessTimeWide();
@@ -474,7 +365,7 @@ static void event_cb(ChiakiEvent *event, void *user) {
         } else {
           context.stream.loss_retry_active = false;
           context.stream.reconnect_overlay_active = false;
-          resume_discovery_if_needed();
+          host_resume_discovery_if_needed();
         }
       } else if (restart_failed && !retry_allowed_reason) {
         LOGD("Skipping hard fallback retry for quit reason %d (%s)",
@@ -515,14 +406,6 @@ void host_cancel_stream_request(void) {
 
 void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
-}
-
-static void resume_discovery_if_needed(void) {
-  if (context.discovery_resume_after_stream) {
-    LOGD("Resuming discovery after stream");
-    start_discovery(NULL, NULL);
-    context.discovery_resume_after_stream = false;
-  }
 }
 
 static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
@@ -744,10 +627,10 @@ int host_stream(VitaChiakiHost* host) {
 cleanup:
   if (result != 0) {
     context.stream.inputs_resume_pending = false;
-    shutdown_media_pipeline();
+    host_shutdown_media_pipeline();
     // Finalize if session was partially initialized
     if (context.stream.session_init) {
-      finalize_session_resources();
+      host_finalize_session_resources();
     }
     // No else needed - flag is already false or will be cleared by finalize
     context.stream.fast_restart_active = false;
@@ -758,7 +641,7 @@ cleanup:
     context.stream.inputs_ready = false;
     context.stream.teardown_in_progress = false;
     context.stream.session_finalize_pending = false;
-    resume_discovery_if_needed();
+    host_resume_discovery_if_needed();
     ui_connection_cancel();
   } else if (resume_inputs) {
     context.stream.inputs_ready = true;
