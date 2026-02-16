@@ -340,7 +340,7 @@ static UIScreenType main_menu_repair_selected_card(void) {
   return UI_SCREEN_TYPE_REGISTER_HOST;
 }
 
-UIScreenType draw_main_menu() {
+UIScreenType ui_screen_draw_main(void) {
   // Update and render VitaRPS5 particle background
   ui_particles_update();
   ui_particles_render();
@@ -699,7 +699,7 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
 
 /// Main Settings screen rendering function
 /// @return next screen to display
-UIScreenType draw_settings() {
+UIScreenType ui_screen_draw_settings(void) {
   // Render particle background
   ui_particles_update();
   ui_particles_render();
@@ -1073,7 +1073,7 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 
 /// Main Profile & Registration screen
 /// @return next screen type to display
-UIScreenType draw_profile_screen() {
+UIScreenType ui_screen_draw_profile(void) {
   // Render particle background
   ui_particles_update();
   ui_particles_render();
@@ -2163,7 +2163,7 @@ static void render_controller_legend(int preset_index, int scroll, int x, int y,
  * - Front Mapping View: Interactive front view for button remapping
  * - Back Mapping View: Interactive rear touchpad zone mapping
  */
-UIScreenType draw_controller_config_screen() {
+UIScreenType ui_screen_draw_controller(void) {
     if (!ctrl_initialized) {
         ui_diagram_init(&ctrl_diagram);
         ctrl_initialized = true;
@@ -2534,7 +2534,7 @@ uint32_t pin_to_number() {
 
 /// Draw VitaRPS5-style PIN entry registration screen
 /// @return whether the dialog should keep rendering
-bool draw_registration_dialog() {
+bool ui_screen_draw_registration(void) {
   // Initialize PIN entry on first render
   if (!pin_entry_initialized) {
     reset_pin_entry();
@@ -2643,7 +2643,7 @@ bool draw_registration_dialog() {
 
 /// Render the current frame of an active stream
 /// @return whether the stream should keep rendering
-bool draw_stream() {
+bool ui_screen_draw_stream(void) {
   // Match ywnico: immediately return false, let video callback handle everything
   // UI loop will skip rendering when is_streaming is true
   if (context.stream.is_streaming) context.stream.is_streaming = false;
@@ -2654,7 +2654,7 @@ bool draw_stream() {
 /// Draw the "Waking up console..." screen with spinner animation
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
-UIScreenType draw_waking_screen() {
+UIScreenType ui_screen_draw_waking(void) {
   if (!ui_connection_overlay_active()) {
     ui_state_set_waking_start_time_us(0);
     ui_state_set_waking_wait_for_stream_us(0);
@@ -2793,7 +2793,7 @@ UIScreenType draw_waking_screen() {
 /// Draw reconnecting screen with modern polished UI
 /// Shows during packet loss recovery with spinner animation
 /// @return the next screen type
-UIScreenType draw_reconnecting_screen() {
+UIScreenType ui_screen_draw_reconnecting(void) {
   // Check if we should still be showing this screen
   if (!context.stream.reconnect_overlay_active) {
     ui_state_set_reconnect_start_time(0);
@@ -2873,7 +2873,7 @@ UIScreenType draw_reconnecting_screen() {
 
 /// Draw the debug messages screen
 /// @return whether the dialog should keep rendering
-bool draw_messages() {
+bool ui_screen_draw_messages(void) {
   vita2d_set_clear_color(RGBA8(0x00, 0x00, 0x00, 0xFF));
   context.ui_state.next_active_item = -1;
 
@@ -3014,40 +3014,4 @@ void ui_screens_init(void) {
   // Get touch input state pointers from ui_input module
   touch_block_active = ui_input_get_touch_block_active_ptr();
   touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
-}
-
-UIScreenType ui_screen_draw_main(void) {
-  return draw_main_menu();
-}
-
-UIScreenType ui_screen_draw_settings(void) {
-  return draw_settings();
-}
-
-UIScreenType ui_screen_draw_profile(void) {
-  return draw_profile_screen();
-}
-
-UIScreenType ui_screen_draw_controller(void) {
-  return draw_controller_config_screen();
-}
-
-UIScreenType ui_screen_draw_waking(void) {
-  return draw_waking_screen();
-}
-
-UIScreenType ui_screen_draw_reconnecting(void) {
-  return draw_reconnecting_screen();
-}
-
-bool ui_screen_draw_registration(void) {
-  return draw_registration_dialog();
-}
-
-bool ui_screen_draw_stream(void) {
-  return draw_stream();
-}
-
-bool ui_screen_draw_messages(void) {
-  return draw_messages();
 }
