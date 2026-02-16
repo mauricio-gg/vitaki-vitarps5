@@ -507,147 +507,195 @@ static void parse_latency_mode_with_migration(VitaChiakiConfig *cfg,
   }
 }
 
+static bool config_parse_file_with_queue_fix(toml_table_t **parsed_out) {
+  char errbuf[200];
+  bool attempted_queue_fix = false;
+
+  while (true) {
+    FILE *fp = fopen(CFG_FILENAME, "r");
+    if (!fp) {
+      CHIAKI_LOGE(&(context.log), "Failed to open %s for reading", CFG_FILENAME);
+      return false;
+    }
+
+    toml_table_t *parsed = toml_parse_file(fp, errbuf, sizeof(errbuf));
+    fclose(fp);
+    if (parsed) {
+      *parsed_out = parsed;
+      return true;
+    }
+
+    if (attempted_queue_fix || !config_fix_legacy_queue_depth()) {
+      CHIAKI_LOGE(&(context.log), "Failed to parse config due to illegal TOML: %s", errbuf);
+      return false;
+    }
+
+    attempted_queue_fix = true;
+    CHIAKI_LOGW(&(context.log),
+                "Recovered invalid logging.queue_depth entry, resetting to default (%u)",
+                VITA_LOG_DEFAULT_QUEUE_DEPTH);
+  }
+}
+
+static bool config_validate_general_section(toml_table_t *parsed) {
+  toml_table_t *general = toml_table_in(parsed, "general");
+  if (!general) {
+    CHIAKI_LOGE(&(context.log), "Failed to parse config due to missing [general] section");
+    return false;
+  }
+
+  toml_datum_t datum = toml_int_in(general, "version");
+  if (!datum.ok || datum.u.i != CFG_VERSION) {
+    CHIAKI_LOGE(&(context.log), "Failed to parse config due to bad general.version, expected %d.", CFG_VERSION);
+    return false;
+  }
+
+  return true;
+}
+
+static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  toml_datum_t datum;
+  if (!settings)
+    return;
+
+  datum = toml_bool_in(settings, "auto_discovery");
+  cfg->auto_discovery = datum.ok ? datum.u.b : true;
+
+  datum = toml_string_in(settings, "psn_account_id");
+  if (datum.ok)
+    cfg->psn_account_id = datum.u.s;
+
+  datum = toml_int_in(settings, "controller_map_id");
+  if (datum.ok)
+    cfg->controller_map_id = datum.u.i;
+}
+
+static void normalize_controller_map_id(VitaChiakiConfig *cfg) {
+  if (cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_1 ||
+      cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2 ||
+      cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_3) {
+    return;
+  }
+  cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
+}
+
+static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg,
+                                               toml_table_t *settings,
+                                               toml_table_t *parsed,
+                                               bool circle_btn_confirm_default,
+                                               bool *migrated_legacy_settings,
+                                               bool *migrated_root_settings) {
+  BoolSettingSpec bool_settings[] = {
+    {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
+    {"show_latency", false, &cfg->show_latency},
+    {"show_network_indicator", true, &cfg->show_network_indicator},
+    {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
+    {"stretch_video", false, &cfg->stretch_video},
+    {"force_30fps", false, &cfg->force_30fps},
+    {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
+    {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
+    {"show_nav_labels", false, &cfg->show_nav_labels},
+    {"show_only_paired", false, &cfg->show_only_paired},
+  };
+
+  size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
+  for (size_t i = 0; i < bool_settings_count; i++) {
+    MigrationSource source = MIGRATION_SOURCE_NONE;
+    parse_bool_setting_with_migration(settings,
+                                      parsed,
+                                      bool_settings[i].key,
+                                      bool_settings[i].default_value,
+                                      bool_settings[i].out_value,
+                                      &source);
+    apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
+  }
+}
+
+static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg,
+                                              bool migrated_legacy_settings,
+                                              bool migrated_root_settings,
+                                              bool migrated_resolution_policy) {
+  if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy))
+    return;
+
+  if (migrated_root_settings) {
+    LOGD("Recovered settings via root-level fallback and rewriting %s",
+         CFG_FILENAME);
+  } else if (migrated_resolution_policy) {
+    LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
+  } else {
+    LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
+         CFG_FILENAME);
+  }
+
+  if (!config_serialize(cfg)) {
+    LOGE("Failed to persist migrated config to %s; using in-memory settings for this session",
+         CFG_FILENAME);
+  }
+}
+
 void config_parse(VitaChiakiConfig* cfg) {
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
-  if (access(CFG_FILENAME, F_OK) == 0) {
-    char errbuf[200];
-    bool attempted_queue_fix = false;
-    toml_table_t* parsed = NULL;
-    while (true) {
-      FILE* fp = fopen(CFG_FILENAME, "r");
-      if (!fp) {
-        CHIAKI_LOGE(&(context.log), "Failed to open %s for reading", CFG_FILENAME);
-        return;
-      }
-      parsed = toml_parse_file(fp, errbuf, sizeof(errbuf));
-      fclose(fp);
-      if (parsed) {
-        break;
-      }
-      if (attempted_queue_fix || !config_fix_legacy_queue_depth()) {
-        CHIAKI_LOGE(&(context.log), "Failed to parse config due to illegal TOML: %s", errbuf);
-        return;
-      }
-      attempted_queue_fix = true;
-      CHIAKI_LOGW(&(context.log),
-                  "Recovered invalid logging.queue_depth entry, resetting to default (%u)",
-                  VITA_LOG_DEFAULT_QUEUE_DEPTH);
-    }
-    toml_table_t* general = toml_table_in(parsed, "general");
-    if (!general) {
-      CHIAKI_LOGE(&(context.log), "Failed to parse config due to missing [general] section");
-      toml_free(parsed);
-      return;
-    }
-    toml_datum_t datum;
-    datum = toml_int_in(general, "version");
-    if (!datum.ok || datum.u.i != CFG_VERSION) {
-      CHIAKI_LOGE(&(context.log), "Failed to parse config due to bad general.version, expected %d.", CFG_VERSION);
-      toml_free(parsed);
-      return;
-    }
+  if (access(CFG_FILENAME, F_OK) != 0)
+    goto config_done;
 
-    bool migrated_legacy_settings = false;
-    bool migrated_root_settings = false;
-    bool migrated_resolution_policy = false;
-    toml_table_t* settings = toml_table_in(parsed, "settings");
-    if (settings) {
-      datum = toml_bool_in(settings, "auto_discovery");
-      cfg->auto_discovery = datum.ok ? datum.u.b : true;
-    }
+  toml_table_t *parsed = NULL;
+  if (!config_parse_file_with_queue_fix(&parsed))
+    return;
 
-    parse_resolution_with_migration(cfg,
+  if (!config_validate_general_section(parsed)) {
+    toml_free(parsed);
+    return;
+  }
+
+  bool migrated_legacy_settings = false;
+  bool migrated_root_settings = false;
+  bool migrated_resolution_policy = false;
+  toml_table_t *settings = toml_table_in(parsed, "settings");
+
+  parse_basic_settings(cfg, settings);
+  parse_resolution_with_migration(cfg,
+                                  settings,
+                                  parsed,
+                                  &migrated_legacy_settings,
+                                  &migrated_root_settings,
+                                  &migrated_resolution_policy);
+  parse_fps_with_migration(cfg,
+                           settings,
+                           parsed,
+                           &migrated_legacy_settings,
+                           &migrated_root_settings);
+
+  parse_custom_map_slots(cfg, parsed);
+  migrate_legacy_custom_map_if_needed(cfg, parsed);
+  normalize_controller_map_id(cfg);
+
+  parse_bool_settings_with_migration(cfg,
+                                     settings,
+                                     parsed,
+                                     circle_btn_confirm_default,
+                                     &migrated_legacy_settings,
+                                     &migrated_root_settings);
+  parse_latency_mode_with_migration(cfg,
                                     settings,
                                     parsed,
                                     &migrated_legacy_settings,
-                                    &migrated_root_settings,
-                                    &migrated_resolution_policy);
-    parse_fps_with_migration(cfg,
-                             settings,
-                             parsed,
-                             &migrated_legacy_settings,
-                             &migrated_root_settings);
+                                    &migrated_root_settings);
 
-    if (settings) {
-      datum = toml_string_in(settings, "psn_account_id");
-      if (datum.ok) {
-        cfg->psn_account_id = datum.u.s;
-      }
-    }
+  // Security: runtime logging overrides are compile-time gated.
+  parse_logging_settings(cfg, parsed);
 
-    if (settings) {
-      datum = toml_int_in(settings, "controller_map_id");
-      if (datum.ok) {
-        cfg->controller_map_id = datum.u.i;
-      }
-    }
+  config_parse_registered_hosts(cfg, parsed);
+  config_parse_manual_hosts(cfg, parsed);
+  toml_free(parsed);
+  persist_migrated_config_if_needed(cfg,
+                                    migrated_legacy_settings,
+                                    migrated_root_settings,
+                                    migrated_resolution_policy);
 
-    parse_custom_map_slots(cfg, parsed);
-    migrate_legacy_custom_map_if_needed(cfg, parsed);
-
-    // Migration: Convert old controller_map_id values to Custom 1
-    // Old values: 0, 1, 3, 4, 25, 99 -> all map to Custom 1 (201)
-    if (cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_1 &&
-        cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_2 &&
-        cfg->controller_map_id != VITAKI_CONTROLLER_MAP_CUSTOM_3) {
-      cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
-    }
-
-    BoolSettingSpec bool_settings[] = {
-      {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
-      {"show_latency", false, &cfg->show_latency},
-      {"show_network_indicator", true, &cfg->show_network_indicator},
-      {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
-      {"stretch_video", false, &cfg->stretch_video},
-      {"force_30fps", false, &cfg->force_30fps},
-      {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
-      {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
-      {"show_nav_labels", false, &cfg->show_nav_labels},
-      {"show_only_paired", false, &cfg->show_only_paired},
-    };
-    size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
-    for (size_t i = 0; i < bool_settings_count; i++) {
-      MigrationSource source = MIGRATION_SOURCE_NONE;
-      parse_bool_setting_with_migration(settings,
-                                        parsed,
-                                        bool_settings[i].key,
-                                        bool_settings[i].default_value,
-                                        bool_settings[i].out_value,
-                                        &source);
-      apply_migration_source(source, &migrated_legacy_settings, &migrated_root_settings);
-    }
-
-    parse_latency_mode_with_migration(cfg,
-                                      settings,
-                                      parsed,
-                                      &migrated_legacy_settings,
-                                      &migrated_root_settings);
-
-    // Security: runtime logging overrides are compile-time gated.
-    parse_logging_settings(cfg, parsed);
-
-    config_parse_registered_hosts(cfg, parsed);
-    config_parse_manual_hosts(cfg, parsed);
-    toml_free(parsed);
-    if (migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy) {
-      if (migrated_root_settings) {
-        LOGD("Recovered settings via root-level fallback and rewriting %s",
-             CFG_FILENAME);
-      } else if (migrated_resolution_policy) {
-        LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
-      } else {
-        LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
-             CFG_FILENAME);
-      }
-      if (!config_serialize(cfg)) {
-        LOGE("Failed to persist migrated config to %s; using in-memory settings for this session",
-             CFG_FILENAME);
-      }
-    }
-  }
-
+config_done:
   LOGD("Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s clamp_soft_restart_bitrate=%s",
        serialize_latency_mode(cfg->latency_mode),
        cfg->force_30fps ? "true" : "false",
