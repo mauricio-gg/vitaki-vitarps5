@@ -6,7 +6,7 @@
 #include "host_feedback.h"
 #include "host_metrics.h"
 #include "host_lifecycle.h"
-#include "host_quit.h"
+#include "host_callbacks.h"
 #include "discovery.h"
 #include "audio.h"
 #include "video.h"
@@ -16,18 +16,6 @@
 
 static void request_stream_stop(const char *reason);
 
-// Startup can include console wake + decoder warmup. Keep a short grace for
-// burst suppression and a longer hard grace for severe unrecovered churn.
-#define LOSS_RESTART_STARTUP_SOFT_GRACE_US (2500 * 1000ULL)
-#define LOSS_RESTART_STARTUP_HARD_GRACE_US (20 * 1000 * 1000ULL)
-// Require multiple unrecovered bursts before escalating to restart logic.
-#define UNRECOVERED_FRAME_GATE_THRESHOLD 8
-// Use a wider gate window so single transient bursts don't immediately escalate.
-#define UNRECOVERED_FRAME_GATE_WINDOW_US (2500 * 1000ULL)
-#define UNRECOVERED_PERSIST_WINDOW_US (15 * 1000 * 1000ULL)
-#define UNRECOVERED_PERSIST_THRESHOLD 12
-#define UNRECOVERED_IDR_WINDOW_US (15 * 1000 * 1000ULL)
-#define UNRECOVERED_IDR_INEFFECTIVE_THRESHOLD 10
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
 
 void host_free(VitaChiakiHost *host) {
@@ -43,52 +31,6 @@ void host_free(VitaChiakiHost *host) {
       free(host->hostname);
     }
   }
-}
-
-static void event_cb(ChiakiEvent *event, void *user) {
-	switch(event->type)
-	{
-		case CHIAKI_EVENT_CONNECTED:
-				LOGD("EventCB CHIAKI_EVENT_CONNECTED");
-	      context.stream.stream_start_us = sceKernelGetProcessTimeWide();
-	      context.stream.loss_restart_soft_grace_until_us =
-	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_SOFT_GRACE_US;
-	      context.stream.loss_restart_grace_until_us =
-	          context.stream.stream_start_us + LOSS_RESTART_STARTUP_HARD_GRACE_US;
-      context.stream.post_reconnect_window_until_us = 0;
-      context.stream.inputs_ready = true;
-      context.stream.next_stream_allowed_us = 0;
-      context.stream.retry_holdoff_ms = 0;
-      context.stream.retry_holdoff_until_us = 0;
-      context.stream.retry_holdoff_active = false;
-      context.stream.restart_handshake_failures = 0;
-      context.stream.last_restart_handshake_fail_us = 0;
-      context.stream.restart_cooloff_until_us = 0;
-      context.stream.last_restart_source[0] = '\0';
-      context.stream.restart_source_attempts = 0;
-      LOGD("PIPE/SESSION connected gen=%u reconnect_gen=%u post_window_ms=%llu",
-           context.stream.session_generation,
-           context.stream.reconnect_generation,
-           context.stream.post_reconnect_window_until_us ?
-               (unsigned long long)((context.stream.post_reconnect_window_until_us -
-                                     context.stream.stream_start_us) / 1000ULL)
-               : 0ULL);
-      ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
-      if (context.stream.fast_restart_active) {
-        context.stream.fast_restart_active = false;
-        context.stream.reconnect_overlay_active = false;
-      }
-			break;
-		case CHIAKI_EVENT_LOGIN_PIN_REQUEST:
-			LOGD("EventCB CHIAKI_EVENT_LOGIN_PIN_REQUEST");
-			break;
-		case CHIAKI_EVENT_RUMBLE:
-			LOGD("EventCB CHIAKI_EVENT_RUMBLE");
-			break;
-	case CHIAKI_EVENT_QUIT:
-      host_handle_quit_event(event);
-			break;
-	}
 }
 
 static void request_stream_stop(const char *reason) {
@@ -118,36 +60,6 @@ void host_cancel_stream_request(void) {
 
 void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
-}
-
-static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
-  if (context.stream.stop_requested)
-    return false;
-  if (!context.stream.video_first_frame_logged) {
-    LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
-    context.stream.video_first_frame_logged = true;
-  }
-  if (frames_lost > 0) {
-    host_handle_loss_event(frames_lost, frame_recovered);
-    bool restart_pending = host_handle_unrecovered_frame_loss(frames_lost, frame_recovered);
-    if (restart_pending) {
-      context.stream.is_streaming = false;
-      return true;
-    }
-  }
-  context.stream.is_streaming = true;
-  context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
-  if (ui_connection_overlay_active())
-    ui_connection_complete();
-  if (context.stream.reconnect_overlay_active)
-    context.stream.reconnect_overlay_active = false;
-  int err = vita_h264_decode_frame(buf, buf_size);
-  if (err != 0) {
-		LOGE("Error during video decode: %d", err);
-    return false;
-  }
-  host_metrics_update_latency();
-  return true;
 }
 
 int host_stream(VitaChiakiHost* host) {
@@ -309,8 +221,8 @@ int host_stream(VitaChiakiHost* host) {
 	chiaki_opus_decoder_get_sink(&context.stream.opus_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&context.stream.session, &audio_sink);
   context.stream.media_initialized = true;
-	chiaki_session_set_video_sample_cb(&context.stream.session, video_cb, NULL);
-	chiaki_session_set_event_cb(&context.stream.session, event_cb, NULL);
+	chiaki_session_set_video_sample_cb(&context.stream.session, host_video_cb, NULL);
+	chiaki_session_set_event_cb(&context.stream.session, host_event_cb, NULL);
 	chiaki_controller_state_set_idle(&context.stream.controller_state);
 
   err = vita_h264_setup(profile.width, profile.height);
