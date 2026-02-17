@@ -87,7 +87,7 @@ static uint32_t pin_to_number(void);
 static UIScreenType handle_vitarps5_touch_input(int num_hosts);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static void persist_config_or_warn(void);
-static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason);
+static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason, bool continue_on_failure);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -95,7 +95,7 @@ static void persist_config_or_warn(void) {
   }
 }
 
-static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason) {
+static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason, bool continue_on_failure) {
   if (!host) {
     LOGE("Wake requested with null host (%s)", reason ? reason : "unknown");
     return false;
@@ -114,7 +114,17 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
        at_rest ? 1 : 0);
 
   if (host_wakeup(host) != 0) {
-    host_set_hint(host, "Wake signal failed. Check pairing and network.", true, WAKE_ERROR_HINT_DURATION_US);
+    if (continue_on_failure) {
+      host_set_hint(host,
+                    "Wake signal failed; attempting connection anyway.",
+                    false,
+                    WAKE_ERROR_HINT_DURATION_US);
+    } else {
+      host_set_hint(host,
+                    "Wake signal failed. Check pairing and network.",
+                    true,
+                    WAKE_ERROR_HINT_DURATION_US);
+    }
     LOGE("Wake request failed (%s): host=%s",
          reason ? reason : "unknown",
          host->hostname ? host->hostname : "<null>");
@@ -269,7 +279,7 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
           } else if (at_rest) {
             LOGD("Touch wake gesture on dormant console");
             ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-            if (request_host_wakeup_with_feedback(context.active_host, "touch-standby"))
+            if (request_host_wakeup_with_feedback(context.active_host, "touch-standby", false))
               return UI_SCREEN_TYPE_WAKING;
             ui_connection_cancel();
             return UI_SCREEN_TYPE_MAIN;
@@ -329,7 +339,7 @@ static UIScreenType main_menu_activate_selected_card(void) {
   if (at_rest) {
     LOGD("Waking dormant console...");
     ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby"))
+    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby", false))
       return UI_SCREEN_TYPE_WAKING;
     ui_connection_cancel();
     return UI_SCREEN_TYPE_MAIN;
@@ -337,7 +347,7 @@ static UIScreenType main_menu_activate_selected_card(void) {
 
   if (added) {
     // Manual hosts may not have fresh discovery state; nudge wake before connect.
-    request_host_wakeup_with_feedback(context.active_host, "cross-manual-preconnect");
+    request_host_wakeup_with_feedback(context.active_host, "cross-manual-preconnect", true);
   }
 
   ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
