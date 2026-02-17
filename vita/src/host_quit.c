@@ -1,5 +1,6 @@
 #include "context.h"
 #include "host.h"
+#include "host_constants.h"
 #include "host_disconnect.h"
 #include "host_feedback.h"
 #include "host_lifecycle.h"
@@ -10,12 +11,10 @@
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
-#define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
 #define RESTART_HANDSHAKE_COOLOFF_FIRST_US (8 * 1000 * 1000ULL)
 #define RESTART_HANDSHAKE_COOLOFF_REPEAT_US (12 * 1000 * 1000ULL)
-#define RESTART_HANDSHAKE_REPEAT_WINDOW_US (60 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
 #define HINT_DURATION_ERROR_US (7 * 1000 * 1000ULL)
 

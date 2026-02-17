@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="540"
+VERSION_ITERATION="543"
 
 # Colors for output
 RED='\033[0;31m'
@@ -376,7 +376,7 @@ run_tests() {
             echo 'Setting up test build environment...'
             export VITASDK=/usr/local/vitasdk
             export PATH=\$VITASDK/bin:\$PATH
-            mkdir -p ${TEST_BUILD_DIR} && cd ${TEST_BUILD_DIR}
+            mkdir -p \"${TEST_BUILD_DIR}\" && cd \"${TEST_BUILD_DIR}\"
             
             echo 'Running CMake with test configuration...'
             cmake .. \

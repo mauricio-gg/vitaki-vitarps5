@@ -77,8 +77,12 @@ void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, const ChiakiR
 }
 
 void parse_b64(const char *val, uint8_t *dest, size_t len) {
-  (void)val;
   memset(dest, 0, len);
+  if (!val || !val[0] || !dest || len == 0)
+    return;
+  for (size_t i = 0; i < len; i++) {
+    dest[i] = (uint8_t)((i + 1u) & 0xFFu);
+  }
 }
 
 void parse_mac(const char *mac_str, uint8_t *mac_dest) {
@@ -437,6 +441,34 @@ static void test_settings_streaming_item_invariants(void) {
   assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
 }
 
+static void test_registered_hosts_require_required_fields(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[[registered_hosts]]\n"
+      "target = \"ps5_1\"\n"
+      "rp_key_type = 2\n"
+      "server_nickname = \"invalid\"\n"
+      "\n"
+      "[[registered_hosts]]\n"
+      "server_mac = \"AQIDBAUG\"\n"
+      "server_nickname = \"valid\"\n"
+      "target = \"ps5_1\"\n"
+      "rp_key = \"AQIDBAUGBwgJCgsMDQ4PEA==\"\n"
+      "rp_key_type = 2\n"
+      "rp_regist_key = \"0011223344556677\"\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.num_registered_hosts == 1);
+  assert(cfg.registered_hosts[0] != NULL);
+  assert(cfg.registered_hosts[0]->registered_state != NULL);
+  assert(cfg.registered_hosts[0]->target == CHIAKI_TARGET_PS5_1);
+  assert(cfg.registered_hosts[0]->registered_state->rp_regist_key[0] != '\0');
+}
+
 void run_packet_path_tests(void);
 
 int main(void) {
@@ -447,6 +479,7 @@ int main(void) {
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
   test_settings_streaming_item_invariants();
+  test_registered_hosts_require_required_fields();
   run_packet_path_tests();
   reset_config_file();
   puts("vitarps5 config tests passed");

@@ -60,7 +60,7 @@ static int vita_init() {
   RAND_seed(random_seed, sizeof(random_seed));
   OpenSSL_add_all_algorithms();
 
-  LOGI("Vita Chiaki %s", CHIAKI_VERSION);
+  LOGD("Vita Chiaki %s", CHIAKI_VERSION);
 
   sceAppUtilInit(&(SceAppUtilInitParam){}, &(SceAppUtilBootParam){});
   sceCommonDialogSetConfigParam(&(SceCommonDialogConfigParam){});

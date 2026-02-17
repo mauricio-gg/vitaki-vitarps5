@@ -1,11 +1,11 @@
 #include "context.h"
+#include "host_constants.h"
 #include "host_recovery.h"
 #include "host_feedback.h"
 
 #include <psp2/kernel/processmgr.h>
 #include <string.h>
 
-#define LOSS_RETRY_BITRATE_KBPS 800
 #define LOSS_RECOVERY_ACTION_COOLDOWN_US (10 * 1000 * 1000ULL)
 #define RESTART_FAILURE_COOLDOWN_US (5000 * 1000ULL)
 #define FAST_RESTART_RETRY_DELAY_US (250 * 1000ULL)
@@ -17,9 +17,6 @@
 #define RECONNECT_RECOVER_TARGET_KBPS 900
 #define RECONNECT_RECOVER_MIN_HEALTHY_FPS 27
 #define FAST_RESTART_BITRATE_CAP_KBPS 1500
-#define RESTART_HANDSHAKE_REPEAT_WINDOW_US (60 * 1000 * 1000ULL)
-#define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
-#define HINT_DURATION_RECOVERY_US (5 * 1000 * 1000ULL)
 
 #define RECONNECT_RECOVER_STAGE_IDLE 0
 #define RECONNECT_RECOVER_STAGE_IDR_REQUESTED 1

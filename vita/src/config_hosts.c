@@ -21,6 +21,16 @@ static void zero_pad(char *buf, size_t size) {
     buf[size - 1] = '\0';
 }
 
+static bool bytes_nonzero(const uint8_t *buf, size_t len) {
+  if (!buf)
+    return false;
+  for (size_t i = 0; i < len; i++) {
+    if (buf[i] != 0)
+      return true;
+  }
+  return false;
+}
+
 static ChiakiTarget parse_target(const char *target_name) {
   if (strcmp("ps4_unknown", target_name) == 0) {
     return CHIAKI_TARGET_PS4_UNKNOWN;
@@ -45,6 +55,10 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
 
   int num_rhosts = toml_array_nelem(regist_hosts);
   for (int i = 0; i < MIN(MAX_REGISTERED_HOSTS, num_rhosts); i++) {
+    if (cfg->num_registered_hosts >= MAX_REGISTERED_HOSTS) {
+      CHIAKI_LOGW(&(context.log), "Registered host capacity reached; skipping entry %d", i);
+      break;
+    }
     VitaChiakiHost *host = malloc(sizeof(VitaChiakiHost));
     ChiakiRegisteredHost *rstate = malloc(sizeof(ChiakiRegisteredHost));
     if (!host || !rstate) {
@@ -74,8 +88,9 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
 
     datum = toml_string_in(host_cfg, "target");
     if (datum.ok) {
-      rstate->target = parse_target(datum.u.s);
-      host->target = parse_target(datum.u.s);
+      ChiakiTarget parsed_target = parse_target(datum.u.s);
+      rstate->target = parsed_target;
+      host->target = parsed_target;
       free(datum.u.s);
     }
 
@@ -96,7 +111,15 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
       free(datum.u.s);
     }
 
-    cfg->registered_hosts[i] = host;
+    if (!bytes_nonzero(host->server_mac, sizeof(host->server_mac)) ||
+        !bytes_nonzero(rstate->rp_key, sizeof(rstate->rp_key)) ||
+        rstate->rp_regist_key[0] == '\0') {
+      CHIAKI_LOGW(&(context.log), "Skipping invalid registered host entry %d (missing required fields)", i);
+      host_free(host);
+      continue;
+    }
+
+    cfg->registered_hosts[cfg->num_registered_hosts] = host;
     cfg->num_registered_hosts++;
   }
 }
@@ -144,6 +167,7 @@ void config_parse_manual_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) {
 
     datum = toml_string_in(host_cfg, "hostname");
     if (datum.ok) {
+      // Takes ownership of toml-allocated string; host_free() releases it.
       host->hostname = datum.u.s;
       has_hostname = true;
     }

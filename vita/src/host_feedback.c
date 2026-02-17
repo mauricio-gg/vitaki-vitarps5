@@ -1,4 +1,5 @@
 #include "context.h"
+#include "host_constants.h"
 #include "host_feedback.h"
 #include "host_loss_profile.h"
 #include "video.h"
@@ -11,7 +12,6 @@
 #define UNRECOVERED_FRAME_THRESHOLD 3
 #define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
 #define LOSS_COUNTER_SATURATED_BURST_FRAMES  (1u << 1)
-#define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
 
 void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us) {
   if (!host)
