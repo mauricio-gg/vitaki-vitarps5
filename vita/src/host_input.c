@@ -23,6 +23,8 @@ typedef struct mapped_touch_slot_t {
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
 
+// If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
+// touch-event path instead of being OR'd into button bits.
 static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_l2 == ctrl_in) {
@@ -37,6 +39,8 @@ static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool 
   }
 }
 
+// If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
+// touch-event path instead of being OR'd into button bits.
 static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_r2 == ctrl_in) {
@@ -410,15 +414,19 @@ void *host_input_thread_func(void* user) {
 
       if (ctrl.buttons & SCE_CTRL_LTRIGGER) {
         if (reartouch_left && vitaki_reartouch_left_l1_mapped) {
+          // Rear-touch path has no touch-coordinate emission; keep button semantics.
           set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1, NULL);
         } else {
+          // Non-front path: TOUCHPAD outputs (if configured) are treated as button bits.
           set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1, NULL);
         }
       }
       if (ctrl.buttons & SCE_CTRL_RTRIGGER) {
         if (reartouch_right && vitaki_reartouch_right_r1_mapped) {
+          // Rear-touch path has no touch-coordinate emission; keep button semantics.
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1, NULL);
         } else {
+          // Non-front path: TOUCHPAD outputs (if configured) are treated as button bits.
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1, NULL);
         }
       }
@@ -435,6 +443,7 @@ void *host_input_thread_func(void* user) {
         if ((ctrl.buttons & SCE_CTRL_LEFT) && (ctrl.buttons & SCE_CTRL_SQUARE)) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_BOX;
+          // Combo path is button-only; no touchpad coordinate emission here.
           set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE, NULL);
         }
       }
@@ -443,6 +452,7 @@ void *host_input_thread_func(void* user) {
         if ((ctrl.buttons & SCE_CTRL_RIGHT) && (ctrl.buttons & SCE_CTRL_CIRCLE)) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_MOON;
+          // Combo path is button-only; no touchpad coordinate emission here.
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE, NULL);
         }
       }
