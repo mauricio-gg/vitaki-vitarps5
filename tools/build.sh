@@ -8,12 +8,13 @@ set -e  # Exit on any error
 PROJECT_NAME="vitaki-fork"
 DOCKER_IMAGE="vitaki-fork-dev:latest"
 BUILD_DIR="./build"
+TEST_BUILD_DIR="./build-test"
 SOURCE_DIR="./vita/src"
 CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="540"
+VERSION_ITERATION="543"
 
 # Colors for output
 RED='\033[0;31m'
@@ -316,6 +317,7 @@ build_vpk() {
 clean_build() {
     log_info "Cleaning build artifacts..."
     rm -rf "$BUILD_DIR"
+    rm -rf "$TEST_BUILD_DIR"
     log_success "Build directory cleaned"
 }
 
@@ -374,25 +376,31 @@ run_tests() {
             echo 'Setting up test build environment...'
             export VITASDK=/usr/local/vitasdk
             export PATH=\$VITASDK/bin:\$PATH
-            mkdir -p build && cd build
+            mkdir -p \"${TEST_BUILD_DIR}\" && cd \"${TEST_BUILD_DIR}\"
             
             echo 'Running CMake with test configuration...'
-            cmake .. -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake -DCHIAKI_ENABLE_TESTS=ON ${cmake_logging_flags}
+            cmake .. \
+                     -DCMAKE_TOOLCHAIN_FILE=\$VITASDK/share/vita.toolchain.cmake \
+                     -DCHIAKI_ENABLE_TESTS=ON \
+                     -DCHIAKI_ENABLE_GUI=OFF \
+                     -DCHIAKI_ENABLE_CLI=OFF \
+                     -DCHIAKI_ENABLE_VITA=ON \
+                     ${cmake_logging_flags}
             
             echo 'Building test suite...'
             make -j\$(nproc) vitarps5_tests
             
             echo 'Test executable built successfully!'
-            ls -la vitarps5_tests* || echo 'Test files:'
+            ls -la test/vitarps5_tests* || echo 'Test files:'
             find . -name '*test*' -exec ls -la {} \;
         "
     
     # Check if test executable was created
     local test_executable=""
-    if [ -f "$BUILD_DIR/vitarps5_tests" ]; then
-        test_executable="$BUILD_DIR/vitarps5_tests"
-    elif [ -f "$BUILD_DIR/test/vitarps5_tests" ]; then
-        test_executable="$BUILD_DIR/test/vitarps5_tests"
+    if [ -f "$TEST_BUILD_DIR/vitarps5_tests" ]; then
+        test_executable="$TEST_BUILD_DIR/vitarps5_tests"
+    elif [ -f "$TEST_BUILD_DIR/test/vitarps5_tests" ]; then
+        test_executable="$TEST_BUILD_DIR/test/vitarps5_tests"
     fi
 
     if [ -n "$test_executable" ]; then

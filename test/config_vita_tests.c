@@ -71,14 +71,18 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
     memcpy(h_dest, h_src, sizeof(*h_dest));
 }
 
-void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, ChiakiRegisteredHost *rstate_src) {
+void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, const ChiakiRegisteredHost *rstate_src) {
   if (rstate_dest && rstate_src)
     memcpy(rstate_dest, rstate_src, sizeof(*rstate_dest));
 }
 
 void parse_b64(const char *val, uint8_t *dest, size_t len) {
-  (void)val;
   memset(dest, 0, len);
+  if (!val || !val[0] || !dest || len == 0)
+    return;
+  for (size_t i = 0; i < len; i++) {
+    dest[i] = (uint8_t)((i + 1u) & 0xFFu);
+  }
 }
 
 void parse_mac(const char *mac_str, uint8_t *mac_dest) {
@@ -309,6 +313,64 @@ static void test_root_level_fallback_migration(void) {
   free(rewritten);
 }
 
+static void test_legacy_bool_and_latency_migration(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "\n"
+      "[controller_custom_map_2]\n"
+      "valid = false\n"
+      "in_l2 = 0\n"
+      "in_r2 = 0\n"
+      "show_network_indicator = false\n"
+      "show_stream_exit_hint = false\n"
+      "send_actual_start_bitrate = false\n"
+      "latency_mode = \"max\"\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_network_indicator == false);
+  assert(cfg.show_stream_exit_hint == false);
+  assert(cfg.send_actual_start_bitrate == false);
+  assert(cfg.latency_mode == VITA_LATENCY_MODE_MAX);
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "[settings]") != NULL);
+  assert(strstr(rewritten, "show_network_indicator = false") != NULL);
+  assert(strstr(rewritten, "show_stream_exit_hint = false") != NULL);
+  assert(strstr(rewritten, "send_actual_start_bitrate = false") != NULL);
+  assert(strstr(rewritten, "latency_mode = \"max\"") != NULL);
+  free(rewritten);
+}
+
+static void test_root_level_bool_migration(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "show_nav_labels = true\n"
+      "show_only_paired = true\n"
+      "clamp_soft_restart_bitrate = false\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_nav_labels == true);
+  assert(cfg.show_only_paired == true);
+  assert(cfg.clamp_soft_restart_bitrate == false);
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "[settings]") != NULL);
+  assert(strstr(rewritten, "show_nav_labels = true") != NULL);
+  assert(strstr(rewritten, "show_only_paired = true") != NULL);
+  assert(strstr(rewritten, "clamp_soft_restart_bitrate = false") != NULL);
+  free(rewritten);
+}
+
 static void test_invalid_fps_falls_back_to_30(void) {
   reset_config_file();
   write_config_text(
@@ -379,14 +441,45 @@ static void test_settings_streaming_item_invariants(void) {
   assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
 }
 
+static void test_registered_hosts_require_required_fields(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[[registered_hosts]]\n"
+      "target = \"ps5_1\"\n"
+      "rp_key_type = 2\n"
+      "server_nickname = \"invalid\"\n"
+      "\n"
+      "[[registered_hosts]]\n"
+      "server_mac = \"AQIDBAUG\"\n"
+      "server_nickname = \"valid\"\n"
+      "target = \"ps5_1\"\n"
+      "rp_key = \"AQIDBAUGBwgJCgsMDQ4PEA==\"\n"
+      "rp_key_type = 2\n"
+      "rp_regist_key = \"0011223344556677\"\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.num_registered_hosts == 1);
+  assert(cfg.registered_hosts[0] != NULL);
+  assert(cfg.registered_hosts[0]->registered_state != NULL);
+  assert(cfg.registered_hosts[0]->target == CHIAKI_TARGET_PS5_1);
+  assert(cfg.registered_hosts[0]->registered_state->rp_regist_key[0] != '\0');
+}
+
 void run_packet_path_tests(void);
 
 int main(void) {
   test_legacy_section_migration();
   test_root_level_fallback_migration();
+  test_legacy_bool_and_latency_migration();
+  test_root_level_bool_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
   test_settings_streaming_item_invariants();
+  test_registered_hosts_require_required_fields();
   run_packet_path_tests();
   reset_config_file();
   puts("vitarps5 config tests passed");

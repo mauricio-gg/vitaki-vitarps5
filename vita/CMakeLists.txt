@@ -7,14 +7,31 @@ set(VITA_VERSION "00.06")
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
+    src/config_migration.c
+    src/config_values.c
+    src/config_hosts.c
     src/context.c
     src/discovery.c
+    src/discovery_host.c
     src/main.c
     src/ui.c
     src/util.c
     src/host.c
+    src/host_input.c
+    src/host_disconnect.c
+    src/host_feedback.c
+    src/host_callbacks.c
+    src/host_lifecycle.c
+    src/host_loss_profile.c
+    src/host_metrics.c
+    src/host_quit.c
+    src/host_registration.c
+    src/host_recovery.c
+    src/host_storage.c
     src/controller.c
+    src/controller_metadata.c
     src/video.c
+    src/video_overlay.c
     src/audio.c
     src/message_log.c
     src/logging.c

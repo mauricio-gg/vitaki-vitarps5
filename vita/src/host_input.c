@@ -1,0 +1,337 @@
+#include "context.h"
+#include "host_input.h"
+
+#include <psp2/ctrl.h>
+#include <psp2/motion.h>
+#include <psp2/touch.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+
+#include <unistd.h>
+
+static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
+  VitakiCtrlMapInfo vcmi = stream->vcmi;
+  if (vcmi.in_l2 == ctrl_in) {
+    stream->controller_state.l2_state = 0xff;
+  } else {
+    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
+  }
+}
+
+static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
+  VitakiCtrlMapInfo vcmi = stream->vcmi;
+  if (vcmi.in_r2 == ctrl_in) {
+    stream->controller_state.r2_state = 0xff;
+  } else {
+    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
+  }
+}
+
+static VitakiCtrlIn front_grid_input_from_touch(int x, int y, int max_w, int max_h) {
+  if (x < 0 || y < 0)
+    return VITAKI_CTRL_IN_NONE;
+  if (x >= max_w)
+    x = max_w - 1;
+  if (y >= max_h)
+    y = max_h - 1;
+  int col = (x * VITAKI_FRONT_TOUCH_GRID_COLS) / max_w;
+  int row = (y * VITAKI_FRONT_TOUCH_GRID_ROWS) / max_h;
+  if (col < 0)
+    col = 0;
+  if (col >= VITAKI_FRONT_TOUCH_GRID_COLS)
+    col = VITAKI_FRONT_TOUCH_GRID_COLS - 1;
+  if (row < 0)
+    row = 0;
+  if (row >= VITAKI_FRONT_TOUCH_GRID_ROWS)
+    row = VITAKI_FRONT_TOUCH_GRID_ROWS - 1;
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS + col);
+}
+
+static VitakiCtrlIn rear_grid_input_from_touch(int x, int y, int max_w, int max_h) {
+  if (x < 0 || y < 0)
+    return VITAKI_CTRL_IN_NONE;
+  if (x >= max_w)
+    x = max_w - 1;
+  if (y >= max_h)
+    y = max_h - 1;
+  int col = (x * VITAKI_REAR_TOUCH_GRID_COLS) / max_w;
+  int row = (y * VITAKI_REAR_TOUCH_GRID_ROWS) / max_h;
+  if (col < 0)
+    col = 0;
+  if (col >= VITAKI_REAR_TOUCH_GRID_COLS)
+    col = VITAKI_REAR_TOUCH_GRID_COLS - 1;
+  if (row < 0)
+    row = 0;
+  if (row >= VITAKI_REAR_TOUCH_GRID_ROWS)
+    row = VITAKI_REAR_TOUCH_GRID_ROWS - 1;
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + row * VITAKI_REAR_TOUCH_GRID_COLS + col);
+}
+
+void *host_input_thread_func(void* user) {
+  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 96);
+  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
+
+  sceMotionStartSampling();
+  sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+  sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
+  SceCtrlData ctrl;
+  SceMotionState motion;
+	VitaChiakiStream *stream = user;
+  int ms_per_loop = 2;
+
+  VitakiCtrlMapInfo vcmi = stream->vcmi;
+
+  if (!vcmi.did_init) init_controller_map(&vcmi, context.config.controller_map_id);
+
+  sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
+  sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
+  sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
+  sceTouchEnableTouchForce(SCE_TOUCH_PORT_BACK);
+	SceTouchData touch[SCE_TOUCH_PORT_MAX_NUM];
+  int TOUCH_MAX_WIDTH = 1919;
+  int TOUCH_MAX_HEIGHT = 1087;
+  int TOUCH_MAX_WIDTH_BY_2 = TOUCH_MAX_WIDTH/2;
+  int TOUCH_MAX_HEIGHT_BY_2 = TOUCH_MAX_HEIGHT/2;
+  int TOUCH_MAX_WIDTH_BY_4 = TOUCH_MAX_WIDTH/4;
+  int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT/4;
+  int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT/3;
+  int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS*FRONT_ARC_RADIUS;
+
+  bool vitaki_reartouch_left_l1_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT_L1] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
+  bool vitaki_reartouch_right_r1_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
+  bool vitaki_select_start_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_SELECT_START] != 0);
+  bool vitaki_left_square_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
+  bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
+
+  static int exit_combo_hold = 0;
+  const int EXIT_COMBO_THRESHOLD = 500;
+  static uint32_t controller_seq_counter = 0;
+  const uint64_t INPUT_STALL_THRESHOLD_US = 300000;
+  const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
+
+  if (context.stream.cached_controller_valid) {
+    stream->controller_state = context.stream.cached_controller_state;
+    context.stream.cached_controller_valid = false;
+  }
+  while (!stream->input_thread_should_exit) {
+    bool controller_gate_open =
+        stream->inputs_ready ||
+        (stream->fast_restart_active && stream->session_init && !stream->stop_requested);
+
+    if (!controller_gate_open) {
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      if (!context.stream.inputs_blocked_since_us)
+        context.stream.inputs_blocked_since_us = now_us;
+      uint64_t delta_since_block =
+          now_us - context.stream.inputs_blocked_since_us;
+      uint64_t delta_since_send =
+          context.stream.last_input_packet_us ?
+          (now_us - context.stream.last_input_packet_us) : 0;
+      uint64_t observed = delta_since_send ? delta_since_send : delta_since_block;
+      if (observed >= INPUT_STALL_THRESHOLD_US) {
+        if (!context.stream.last_input_stall_log_us ||
+            now_us - context.stream.last_input_stall_log_us >= INPUT_STALL_LOG_INTERVAL_US) {
+          float ms = (float)observed / 1000.0f;
+          LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last activity)", ms);
+          context.stream.last_input_stall_log_us = now_us;
+        }
+      }
+    } else {
+      context.stream.inputs_blocked_since_us = 0;
+    }
+
+    if (controller_gate_open) {
+      uint64_t start_time_us = sceKernelGetProcessTimeWide();
+
+      sceCtrlPeekBufferPositive(0, &ctrl, 1);
+
+      bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
+                        (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
+                        (ctrl.buttons & SCE_CTRL_START);
+      if (exit_combo && stream->session_init && !stream->stop_requested) {
+        exit_combo_hold++;
+        if (exit_combo_hold >= EXIT_COMBO_THRESHOLD) {
+          host_request_stream_stop_from_input("L+R+Start");
+          exit_combo_hold = 0;
+          continue;
+        }
+      } else {
+        exit_combo_hold = 0;
+      }
+
+      if (stream->stop_requested) {
+        usleep(ms_per_loop * 1000);
+        continue;
+      }
+
+      for(int port = 0; port < SCE_TOUCH_PORT_MAX_NUM; port++) {
+        sceTouchPeek(port, &touch[port], 1);
+      }
+
+      sceMotionGetState(&motion);
+      stream->controller_state.accel_x = motion.acceleration.x;
+      stream->controller_state.accel_y = motion.acceleration.y;
+      stream->controller_state.accel_z = motion.acceleration.z;
+
+      stream->controller_state.orient_x = motion.deviceQuat.x;
+      stream->controller_state.orient_y = motion.deviceQuat.y;
+      stream->controller_state.orient_z = motion.deviceQuat.z;
+      stream->controller_state.orient_w = motion.deviceQuat.w;
+
+      stream->controller_state.gyro_x = motion.angularVelocity.x;
+      stream->controller_state.gyro_y = motion.angularVelocity.y;
+      stream->controller_state.gyro_z = motion.angularVelocity.z;
+
+      stream->controller_state.left_x = (ctrl.lx - 128) * 2 * 0x7F;
+      stream->controller_state.left_y = (ctrl.ly - 128) * 2 * 0x7F;
+      stream->controller_state.right_x = (ctrl.rx - 128) * 2 * 0x7F;
+      stream->controller_state.right_y = (ctrl.ry - 128) * 2 * 0x7F;
+
+      stream->controller_state.buttons = 0x00;
+      stream->controller_state.l2_state = 0x00;
+      stream->controller_state.r2_state = 0x00;
+
+      bool reartouch_right = false;
+      bool reartouch_left = false;
+
+      for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_BACK].reportNum; touch_i++) {
+        int x = touch[SCE_TOUCH_PORT_BACK].report[touch_i].x;
+        int y = touch[SCE_TOUCH_PORT_BACK].report[touch_i].y;
+
+        stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_ANY];
+
+        if (x > TOUCH_MAX_WIDTH_BY_2) {
+          reartouch_right = true;
+        } else if (x < TOUCH_MAX_WIDTH_BY_2) {
+          reartouch_left = true;
+        }
+
+        VitakiCtrlIn grid_input = rear_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        if (grid_input != VITAKI_CTRL_IN_NONE && grid_input < VITAKI_CTRL_IN_COUNT) {
+          VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
+          if (mapped == VITAKI_CTRL_OUT_L2) {
+            stream->controller_state.l2_state = 0xff;
+          } else if (mapped == VITAKI_CTRL_OUT_R2) {
+            stream->controller_state.r2_state = 0xff;
+          } else if (mapped != VITAKI_CTRL_OUT_NONE) {
+            stream->controller_state.buttons |= mapped;
+          }
+        }
+      }
+
+      for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
+        int x = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].x;
+        int y = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].y;
+        stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY];
+
+        VitakiCtrlIn grid_input = front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        if (grid_input != VITAKI_CTRL_IN_NONE) {
+          VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
+          if (mapped == VITAKI_CTRL_OUT_L2) {
+            stream->controller_state.l2_state = 0xff;
+          } else if (mapped == VITAKI_CTRL_OUT_R2) {
+            stream->controller_state.r2_state = 0xff;
+          } else if (mapped != VITAKI_CTRL_OUT_NONE) {
+            stream->controller_state.buttons |= mapped;
+          }
+        }
+
+        if (x > TOUCH_MAX_WIDTH_BY_2) {
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT);
+
+          if (y*y + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
+            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC);
+          } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
+            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC);
+          }
+        } else if (x < TOUCH_MAX_WIDTH_BY_2) {
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT);
+
+          if (y*y + x*x <= FRONT_ARC_RADIUS_2) {
+            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC);
+          } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + x*x <= FRONT_ARC_RADIUS_2) {
+            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC);
+          }
+        }
+
+        if ((x >= TOUCH_MAX_WIDTH_BY_4) && (x <= TOUCH_MAX_WIDTH - TOUCH_MAX_WIDTH_BY_4)
+            && (y >= TOUCH_MAX_HEIGHT_BY_4) && (y <= TOUCH_MAX_HEIGHT - TOUCH_MAX_HEIGHT_BY_4)
+            ) {
+          stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER];
+        }
+      }
+
+      if (ctrl.buttons & SCE_CTRL_SELECT)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_SHARE;
+      if (ctrl.buttons & SCE_CTRL_START)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_OPTIONS;
+      if (ctrl.buttons & SCE_CTRL_UP)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_UP;
+      if (ctrl.buttons & SCE_CTRL_RIGHT)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
+      if (ctrl.buttons & SCE_CTRL_DOWN)     stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN;
+      if (ctrl.buttons & SCE_CTRL_LEFT)     stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
+      if (ctrl.buttons & SCE_CTRL_TRIANGLE) stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PYRAMID;
+      if (ctrl.buttons & SCE_CTRL_CIRCLE)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_MOON;
+      if (ctrl.buttons & SCE_CTRL_CROSS)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_CROSS;
+      if (ctrl.buttons & SCE_CTRL_SQUARE)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_BOX;
+      if (ctrl.buttons & SCE_CTRL_L3)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_L3;
+      if (ctrl.buttons & SCE_CTRL_R3)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_R3;
+
+      if (ctrl.buttons & SCE_CTRL_LTRIGGER) {
+        if (reartouch_left && vitaki_reartouch_left_l1_mapped) {
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
+        } else {
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1);
+        }
+      }
+      if (ctrl.buttons & SCE_CTRL_RTRIGGER) {
+        if (reartouch_right && vitaki_reartouch_right_r1_mapped) {
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
+        } else {
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1);
+        }
+      }
+
+      if (vitaki_select_start_mapped) {
+        if ((ctrl.buttons & SCE_CTRL_SELECT) && (ctrl.buttons & SCE_CTRL_START)) {
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_SHARE;
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_OPTIONS;
+          stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_SELECT_START];
+        }
+      }
+
+      if (vitaki_left_square_mapped) {
+        if ((ctrl.buttons & SCE_CTRL_LEFT) && (ctrl.buttons & SCE_CTRL_SQUARE)) {
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_BOX;
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE);
+        }
+      }
+
+      if (vitaki_right_circle_mapped) {
+        if ((ctrl.buttons & SCE_CTRL_RIGHT) && (ctrl.buttons & SCE_CTRL_CIRCLE)) {
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
+          stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_MOON;
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE);
+        }
+      }
+
+      chiaki_session_set_controller_state(&stream->session, &stream->controller_state);
+      context.stream.cached_controller_state = stream->controller_state;
+      context.stream.cached_controller_valid = true;
+      context.stream.last_input_packet_us = sceKernelGetProcessTimeWide();
+      context.stream.last_input_stall_log_us = 0;
+      controller_seq_counter++;
+      if ((controller_seq_counter % 500) == 0) {
+        LOGD("Controller send seq %u (Vita)", controller_seq_counter);
+      }
+
+      uint64_t diff_time_us = sceKernelGetProcessTimeWide() - start_time_us;
+      uint64_t loop_budget_us = (uint64_t)ms_per_loop * 1000ULL;
+      if (diff_time_us < loop_budget_us)
+        usleep((useconds_t)(loop_budget_us - diff_time_us));
+
+    } else {
+      usleep(1000);
+    }
+  }
+
+  return 0;
+}

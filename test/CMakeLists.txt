@@ -2,6 +2,9 @@ add_executable(vitarps5_tests
     config_vita_tests.c
     packet_path_tests.c
     ../vita/src/config.c
+    ../vita/src/config_migration.c
+    ../vita/src/config_values.c
+    ../vita/src/config_hosts.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
     ../lib/src/videoreceiver_gap.c

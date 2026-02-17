@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-13 (Startup deterministic bootstrap landed)
+Last Updated: 2026-02-16 (Codebase cleanup wave 1 checkpoint: video monolith deflation)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -59,6 +59,19 @@ Only move a task to "Done" after the reviewer signs off.
      - Split `vita/src/host.c` recovery and diagnostics logic into smaller modules/functions.
      - Add focused tests for recovery timing/state transitions (stale diagnostics windows, reconnect stage transitions, span edge cases).
    - *Next Step:* Open dedicated follow-up PR immediately after baseline merge and land test-first where possible.
+8. **Codebase cleanup wave 1 (Vitaki delta-guided)**
+   - *Owner:* Implementation agent
+   - *Goal:* Reduce runtime complexity in inflated non-UI files while preserving all VitaRPS5 enhancements and behavior.
+   - *Spec:* `docs/ai/CODEBASE_CLEANUP_PLAN.md`
+   - *Progress (2026-02-16):* Added delta tooling (`tools/analysis/compare_vitaki_delta.sh`), created cleanup plan doc, refactored repetitive config migration bool parsing into a table-driven path in `vita/src/config.c`, extracted stream HUD/indicator rendering from `vita/src/video.c` to `vita/src/video_overlay.c`, extracted host/manual-host storage utilities from `vita/src/host.c` to `vita/src/host_storage.c`, extracted input-thread/controller-touch mapping logic from `vita/src/host.c` to `vita/src/host_input.c` with a narrow stop-request bridge API, extracted disconnect/quit-reason banner helpers from `vita/src/host.c` to `vita/src/host_disconnect.c`, extracted loss-profile calculation/saturation helpers from `vita/src/host.c` to `vita/src/host_loss_profile.c`, extracted hint/decoder-resync/loss-event handlers from `vita/src/host.c` to `vita/src/host_feedback.c`, extracted reconnect recovery coordinator logic from `vita/src/host.c` to `vita/src/host_recovery.c`, extracted stream metrics reset/latency diagnostics paths from `vita/src/host.c` to `vita/src/host_metrics.c`, extracted registration/wakeup flow (`host_register`/`host_wakeup` and callback handling) from `vita/src/host.c` to `vita/src/host_registration.c`, extracted stream lifecycle/finalization helpers from `vita/src/host.c` to `vita/src/host_lifecycle.c`, extracted `CHIAKI_EVENT_QUIT` handling/retry orchestration from `vita/src/host.c` to `vita/src/host_quit.c`, extracted session/video callback plumbing (`event_cb`/`video_cb`) from `vita/src/host.c` to `vita/src/host_callbacks.c`, extracted registered/manual host parse+serialize logic from `vita/src/config.c` to `vita/src/config_hosts.c` (including `test/CMakeLists.txt` linkage update for `vitarps5_tests`), added focused config migration tests (`legacy`/`root` bool + `latency_mode`) in `test/config_vita_tests.c`, helperized `config.c` defaults/custom-map parsing plus resolution/FPS/latency migration parsing/serialization loops, and further deflated `vita/src/video.c` by removing dead legacy paths (`vita_h264_process_header`, stale SPS/header experiments, obsolete frame-pacer init status stage, and large commented setup/decode scaffolding), bringing the file down to ~641 lines.
+   - *Next Step:* Complete strict non-UI Vitaki-delta cleanup in this order: (1) finalize `vita/src/controller.c` simplification, (2) finalize `vita/src/discovery.c` simplification + warning cleanup, (3) finalize `vita/src/audio.c` simplification, then run full validation (`./tools/build.sh test`, `./tools/build.sh debug`, `./tools/build.sh --env testing`) and close Wave 1. Defer large UI monolith refactors (for example `vita/src/ui/ui_screens.c`) to a separate phase after Wave 1.
+9. **Freeze-recovery hard fallback (separate branch post-cleanup)**
+   - *Owner:* Implementation agent
+   - *Goal:* Address rare “video freeze while session remains connected” cases by escalating to a hard fallback when unrecovered/corrupt-frame held streaks persist after non-blocking IDR resync attempts.
+   - *Evidence:* `35786104837_vitarps5-testing.log:2329`, `35786104837_vitarps5-testing.log:2334`, `35786104837_vitarps5-testing.log:4907`
+   - *Scope:* Add a guarded escalation path in `vita/src/host.c` loss/recovery flow (around decoder resync and unrecovered-frame counters), with cooldown and single-use safeguards to avoid reconnect oscillation.
+   - *Branching:* Implement on a dedicated follow-up branch after current codebase-cleanup objective is complete.
+   - *Next Step:* Draft branch-level acceptance criteria and log markers before coding.
 
 ---
 
