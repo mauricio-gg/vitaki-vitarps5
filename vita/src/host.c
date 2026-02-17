@@ -17,6 +17,8 @@
 static void request_stream_stop(const char *reason);
 
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
+// Credential mismatch requires user action (re-pair), so keep the hint visible
+// longer than transient link-wait messages.
 #define HINT_DURATION_CREDENTIAL_US (7 * 1000 * 1000ULL)
 
 static bool host_mac_is_zero(const uint8_t mac[6]) {
@@ -63,7 +65,7 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
   if (!matched || !matched->registered_state)
     return false;
 
-  host->registered_state = malloc(sizeof(ChiakiRegisteredHost));
+  host->registered_state = calloc(1, sizeof(ChiakiRegisteredHost));
   if (!host->registered_state) {
     LOGE("Out of memory while hydrating host credentials");
     return false;

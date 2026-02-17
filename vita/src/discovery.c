@@ -173,7 +173,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
                   h->discovery_state->host_name
                   );
       if (rhost->registered_state) {
-        ChiakiRegisteredHost *new_state = malloc(sizeof(ChiakiRegisteredHost));
+        ChiakiRegisteredHost *new_state = calloc(1, sizeof(ChiakiRegisteredHost));
         if (new_state) {
           copy_host_registered_state(new_state, rhost->registered_state);
           if (h->registered_state)
