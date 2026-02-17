@@ -78,15 +78,6 @@ static bool  touch_start_was_add_btn = false;
 // ============================================================================
 
 
-// Legacy helper function for touch detection (should use is_point_in_rect from ui_input.c)
-static bool is_touched(int x, int y, int width, int height) {
-  SceTouchData* tdf = &(context.ui_state.touch_state_front);
-  if (!tdf) {
-    return false;
-  }
-  return tdf->report->x > x && tdf->report->x <= x + width &&
-         tdf->report->y > y && tdf->report->y <= y + height;
-}
 static void reset_pin_entry(void);
 static void update_cursor_blink(void);
 static bool is_pin_complete(void);
@@ -106,7 +97,7 @@ static void persist_config_or_warn(void) {
 // Touch Input Handler
 // ============================================================================
 
-UIScreenType handle_vitarps5_touch_input(int num_hosts) {
+static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
 
@@ -274,193 +265,88 @@ UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   return UI_SCREEN_TYPE_MAIN;
 }
 
-/// Draw the tile for a host
-/// @return The action to take for the host
-UIHostAction host_tile(int host_slot, VitaChiakiHost* host) {
-  int active_id = context.ui_state.active_item;
-  bool is_active = active_id == (UI_MAIN_WIDGET_HOST_TILE | host_slot);
-  bool discovered = (host->type & DISCOVERED) && (host->discovery_state);
-  bool registered = host->type & REGISTERED;
-  bool added = host->type & MANUALLY_ADDED;
-  bool mutable = (added || registered);
-  bool at_rest = discovered && host->discovery_state->state ==
-                                   CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-  int x = HOST_SLOTS_X + (host_slot % 2) * (HOST_SLOT_W + 58);
-  int y = HOST_SLOTS_Y;
-  if (host_slot > 1) {
-    y += HOST_SLOT_H + 11;
-  }
-  // Draw card with shadow for modern look
-  if (is_active) {
-    // Active selection border with glow effect
-    ui_draw_rounded_rect(x - 3, y - 3, HOST_SLOT_W + 6, HOST_SLOT_H + 6, 8, UI_COLOR_PRIMARY_BLUE);
-  }
-  ui_draw_card_with_shadow(x, y, HOST_SLOT_W, HOST_SLOT_H, 8, UI_COLOR_CARD_BG);
-
-  // Draw host name (nickname) and host id (mac)
-  if (discovered) {
-    vita2d_draw_texture(img_discovery_host, x, y);
-    vita2d_font_draw_text(font, x + 68, y + 40, COLOR_WHITE, 40,
-                         host->discovery_state->host_name);
-    vita2d_font_draw_text(font, x + 255, y + 23, COLOR_WHITE, 20,
-                         host->discovery_state->host_id);
-  } else if (registered) {
-    char* nickname = host->registered_state->server_nickname;
-    if (!nickname) nickname = "";
-    uint8_t* host_mac = host->server_mac;
-    vita2d_font_draw_text(font, x + 68, y + 40, COLOR_WHITE, 40,
-                          nickname);
-    vita2d_font_draw_textf(font, x + 255, y + 23, COLOR_WHITE, 20,
-                          "%X%X%X%X%X%X", host_mac[0], host_mac[1], host_mac[2],
-                          host_mac[3], host_mac[4], host_mac[5]);
-  }
-
-  // Draw how many manually added instances of this console exist
-  if (discovered && registered) {
-    int num_mhosts = count_manual_hosts_of_console(host);
-    if (num_mhosts == 1) {
-      vita2d_font_draw_text(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "(1 manual remote host)");
-    } else if (num_mhosts > 1) {
-      vita2d_font_draw_textf(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "(%d manual remote hosts)", num_mhosts);
-    } else {
-      vita2d_font_draw_textf(font, x + 10, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, "[%d manual remote hosts]", num_mhosts);
-    }
-  }
-
-  // Draw host address
-  vita2d_font_draw_text(font, x + 260, y + HOST_SLOT_H - 10, COLOR_WHITE, 20, host->hostname);
-
-  vita2d_texture* console_img;
-  bool is_ps5 = chiaki_target_is_ps5(host->target);
-  // TODO: Don't use separate textures for off/on/rest, use tinting instead
-  if (added) {// && !discovered) {
-    console_img = is_ps5 ? img_ps5_off : img_ps4_off;
-  } else if (at_rest) {
-    console_img = is_ps5 ? img_ps5_rest : img_ps4_rest;
-  } else {
-    console_img = is_ps5 ? img_ps5 : img_ps4;
-  }
-  vita2d_draw_texture(console_img, x + 64, y + 64);
-  if (discovered && !at_rest) {
-    const char* app_name = host->discovery_state->running_app_name;
-    const char* app_id = host->discovery_state->running_app_titleid;
-    if (app_name && app_id) {
-      vita2d_font_draw_text(font, x + 32, y + 16, COLOR_WHITE, 16, app_name);
-      vita2d_font_draw_text(font, x + 300, y + 170, COLOR_WHITE, 16, app_id);
-    }
-  }
-
-  // set tooltip
-  if (is_active) {
-    if (at_rest) {
-      if (registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: send wake signal (note: console may be temporarily undetected during wakeup)", confirm_btn_str);
-      } else {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "Cannot send wake signal to unregistered console.");
-      }
-    } else {
-      if (discovered && !registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: begin pairing process", confirm_btn_str);
-      } else if (discovered && registered) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: start remote play;  Square: re-pair", confirm_btn_str);
-      } else if (added) {
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "%s: send wake signal and/or start remote play (wakeup takes time);  SELECT button: delete host (no confirmation)", confirm_btn_str);
-      } else {
-        // there should never be tiles that are neither discovered nor added
-        snprintf(active_tile_tooltip_msg, MAX_TOOLTIP_CHARS, "");
-      }
-    }
-  }
-
-  // Handle navigation
-  int btn = context.ui_state.button_state;
-  int old_btn = context.ui_state.old_button_state;
-  int last_slot = context.num_hosts - 1;
-  if (is_active) {
-    if (context.active_host != host) {
-      context.active_host = host;
-    }
-    if (btn_pressed(SCE_CTRL_UP)) {
-      if (host_slot < 2) {
-        // Set focus on the last button of the header bar
-        context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
-      } else {
-        // Set focus on the host tile directly above
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot - 2);
-      }
-    } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-      if (host_slot != last_slot && (host_slot == 0 || host_slot == 2)) {
-        // Set focus on the host tile to the right
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot + 1);
-      }
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      if (last_slot >= host_slot + 2 && host_slot < 2) {
-        // Set focus on the host tile directly below
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot + 2);
-      }
-    } else if (btn_pressed(SCE_CTRL_LEFT)) {
-      if (host_slot == 1 || host_slot == 3) {
-        context.ui_state.next_active_item =
-            UI_MAIN_WIDGET_HOST_TILE | (host_slot - 1);
-      }
-    }
-
-    if (btn_pressed(SCE_CTRL_SELECT) && added) {
-      delete_manual_host(host);
-      // TODO delete from manual hosts
-
-      // refresh tiles
-      update_context_hosts();
-    }
-
-    if (registered && btn_pressed(SCE_CTRL_CONFIRM)) {
-      if (takion_cooldown_gate_active()) {
-        LOGD("Ignoring connect request — network recovery cooldown active");
-        return UI_HOST_ACTION_NONE;
-      }
-      if (at_rest) {
-        ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-        host_wakeup(context.active_host);
-        return UI_HOST_ACTION_WAKEUP;
-      } else {
-        // since we don't know if the remote host is awake, send wakeup signal
-        if (added) host_wakeup(context.active_host);
-        vita2d_end_drawing();
-        vita2d_common_dialog_update();
-        vita2d_swap_buffers();
-        ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-        if (!start_connection_thread(context.active_host)) {
-          ui_connection_cancel();
-          return UI_HOST_ACTION_NONE;
-        }
-        ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-        return UI_HOST_ACTION_STREAM;
-      }
-    } else if (!registered && !added && discovered && btn_pressed(SCE_CTRL_CONFIRM)){
-      if (at_rest) {
-        LOGD("Cannot wake unregistered console.");
-        return UI_HOST_ACTION_NONE;
-      }
-      return UI_HOST_ACTION_REGISTER;
-    } else if (discovered && btn_pressed(SCE_CTRL_SQUARE)) {
-      return UI_HOST_ACTION_REGISTER;
-    }
-  }
-  if (is_touched(x, y, HOST_SLOT_W, HOST_SLOT_H)) {
-    context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | host_slot;
-  }
-  return UI_HOST_ACTION_NONE;
+static void main_menu_move_selection(int delta, int num_hosts) {
+  if (!ui_focus_is_content() || num_hosts <= 0)
+    return;
+  int selected = ui_cards_get_selected_index();
+  ui_cards_set_selected_index((selected + delta + num_hosts) % num_hosts);
+  ui_cards_ensure_selected_visible();
 }
 
-bool showingIME = false;
+static UIScreenType main_menu_activate_selected_card(void) {
+  ConsoleCardInfo *card = ui_cards_get_selected_card();
+  if (!card || !card->host)
+    return UI_SCREEN_TYPE_MAIN;
 
+  context.active_host = card->host;
+  if (takion_cooldown_gate_active()) {
+    LOGD("Ignoring connect request — network recovery cooldown active");
+    return UI_SCREEN_TYPE_MAIN;
+  }
 
+  bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
+  bool registered = context.active_host->type & REGISTERED;
+  bool added = context.active_host->type & MANUALLY_ADDED;
+  bool at_rest = discovered && context.active_host->discovery_state &&
+                 context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
-UIScreenType draw_main_menu() {
+  if (!registered)
+    return UI_SCREEN_TYPE_REGISTER_HOST;
+  if (at_rest) {
+    LOGD("Waking dormant console...");
+    ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
+    host_wakeup(context.active_host);
+    return UI_SCREEN_TYPE_WAKING;
+  }
+
+  if (added) {
+    // Manual hosts may not have fresh discovery state; nudge wake before connect.
+    host_wakeup(context.active_host);
+  }
+
+  ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+  if (!start_connection_thread(context.active_host)) {
+    ui_connection_cancel();
+    return UI_SCREEN_TYPE_MAIN;
+  }
+  ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
+  return UI_SCREEN_TYPE_WAKING;
+}
+
+static UIScreenType main_menu_repair_selected_card(void) {
+  ConsoleCardInfo *card = ui_cards_get_selected_card();
+  if (!card || !card->host)
+    return UI_SCREEN_TYPE_MAIN;
+
+  VitaChiakiHost *host = card->host;
+  if (!(host->type & REGISTERED))
+    return UI_SCREEN_TYPE_MAIN;
+
+  LOGD("Re-pairing console: %s", host->hostname);
+  if (host->registered_state) {
+    free(host->registered_state);
+    host->registered_state = NULL;
+  }
+
+  for (int j = 0; j < context.config.num_registered_hosts; j++) {
+    if (context.config.registered_hosts[j] == host) {
+      for (int k = j; k < context.config.num_registered_hosts - 1; k++)
+        context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
+      context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
+      context.config.num_registered_hosts--;
+      break;
+    }
+  }
+
+  host->type &= ~REGISTERED;
+  persist_config_or_warn();
+  LOGD("Registration data deleted for console: %s", host->hostname);
+
+  context.active_host = host;
+  return UI_SCREEN_TYPE_REGISTER_HOST;
+}
+
+UIScreenType ui_screen_draw_main(void) {
   // Update and render VitaRPS5 particle background
   ui_particles_update();
   ui_particles_render();
@@ -480,109 +366,21 @@ UIScreenType draw_main_menu() {
   // === D-PAD NAVIGATION (moves between console cards in content area) ===
   // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
 
-  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Move left within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() - 1 + num_hosts) % num_hosts);
-      ui_cards_ensure_selected_visible();
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN)) {
-    if (ui_focus_is_content() && num_hosts > 0) {
-      // Move right within console cards (cycle through)
-      ui_cards_set_selected_index((ui_cards_get_selected_index() + 1) % num_hosts);
-      ui_cards_ensure_selected_visible();
-    }
-  }
+  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP))
+    main_menu_move_selection(-1, num_hosts);
+  else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN))
+    main_menu_move_selection(1, num_hosts);
 
   /* === X BUTTON (Activate/Select highlighted element) === */
 
-  if (btn_pressed(SCE_CTRL_CROSS)) {
-    if (ui_focus_is_content() && ui_cards_get_count() > 0) {
-      /* Connect to selected console using card cache */
-      ConsoleCardInfo* card = ui_cards_get_selected_card();
-      if (card && card->host) {
-        context.active_host = card->host;
-
-        if (takion_cooldown_gate_active()) {
-          LOGD("Ignoring connect request — network recovery cooldown active");
-          return UI_SCREEN_TYPE_MAIN;
-        }
-
-        bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-        bool registered = context.active_host->type & REGISTERED;
-        bool at_rest = discovered && context.active_host->discovery_state &&
-                       context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-        if (!registered) {
-          /* Unregistered console - start registration */
-          next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-        } else if (at_rest) {
-          /* Dormant console - wake and show waking screen */
-          LOGD("Waking dormant console...");
-          ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-          host_wakeup(context.active_host);
-          next_screen = UI_SCREEN_TYPE_WAKING;
-        } else if (registered) {
-          /* Ready console - start streaming with feedback */
-          ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-          next_screen = UI_SCREEN_TYPE_WAKING;
-          if (!start_connection_thread(context.active_host)) {
-            ui_connection_cancel();
-            next_screen = UI_SCREEN_TYPE_MAIN;
-          } else {
-            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-          }
-        }
-      }
-    }
-  }
+  if (btn_pressed(SCE_CTRL_CROSS) && ui_focus_is_content() && num_hosts > 0)
+    next_screen = main_menu_activate_selected_card();
 
   /* === OTHER BUTTONS === */
 
   /* Square: Re-pair selected console (unregister + register again) */
-  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && ui_cards_get_count() > 0) {
-    ConsoleCardInfo* card = ui_cards_get_selected_card();
-    if (card && card->host) {
-      VitaChiakiHost* host = card->host;
-      bool registered = host->type & REGISTERED;
-
-      if (registered) {
-        /* Remove registration and trigger re-pairing */
-        LOGD("Re-pairing console: %s", host->hostname);
-
-        /* Free registered state memory */
-        if (host->registered_state) {
-          free(host->registered_state);
-          host->registered_state = NULL;
-        }
-
-        /* Remove from config.registered_hosts array */
-        for (int j = 0; j < context.config.num_registered_hosts; j++) {
-          if (context.config.registered_hosts[j] == host) {
-            /* Shift remaining elements left */
-            for (int k = j; k < context.config.num_registered_hosts - 1; k++) {
-              context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
-            }
-            context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
-            context.config.num_registered_hosts--;
-            break;
-          }
-        }
-
-        /* Clear registered flag */
-        host->type &= ~REGISTERED;
-
-        /* Save config to persist changes */
-        persist_config_or_warn();
-
-        LOGD("Registration data deleted for console: %s", host->hostname);
-
-        /* Trigger registration screen */
-        context.active_host = host;
-        next_screen = UI_SCREEN_TYPE_REGISTER_HOST;
-      }
-    }
-  }
+  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0)
+    next_screen = main_menu_repair_selected_card();
 
   /* Handle touch screen input for VitaRPS5 UI */
   UIScreenType touch_screen = handle_vitarps5_touch_input(num_hosts);
@@ -700,6 +498,79 @@ static void apply_force_30fps_runtime(void) {
     clamp = 30;
   context.stream.target_fps = clamp;
   context.stream.pacing_accumulator = 0;
+}
+
+static void settings_toggle_bool(bool *value, int anim_index) {
+  *value = !(*value);
+  start_toggle_animation(anim_index, *value);
+  persist_config_or_warn();
+}
+
+static void settings_activate_selected_item(void) {
+  switch (settings_state.selected_item) {
+    case UI_SETTINGS_ITEM_QUALITY_PRESET:
+      switch (context.config.resolution) {
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+          break;
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+          break;
+        default:
+          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+          break;
+      }
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_LATENCY_MODE:
+      context.config.latency_mode = (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_FPS_TARGET:
+      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ? CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
+      persist_config_or_warn();
+      break;
+    case UI_SETTINGS_ITEM_FORCE_30_FPS:
+      settings_toggle_bool(&context.config.force_30fps, SETTINGS_TOGGLE_ANIM_FORCE_30FPS);
+      apply_force_30fps_runtime();
+      break;
+    case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
+      settings_toggle_bool(&context.config.auto_discovery, SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_LATENCY:
+      settings_toggle_bool(&context.config.show_latency, SETTINGS_TOGGLE_ANIM_SHOW_LATENCY);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS:
+      settings_toggle_bool(&context.config.show_network_indicator, SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS);
+      if (!context.config.show_network_indicator)
+        vitavideo_hide_poor_net_indicator();
+      break;
+    case UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT:
+      settings_toggle_bool(&context.config.show_stream_exit_hint, SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT);
+      break;
+    case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
+      settings_toggle_bool(&context.config.clamp_soft_restart_bitrate, SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART);
+      break;
+    case UI_SETTINGS_ITEM_FILL_SCREEN:
+      settings_toggle_bool(&context.config.stretch_video, SETTINGS_TOGGLE_ANIM_FILL_SCREEN);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_NAV_LABELS:
+      settings_toggle_bool(&context.config.show_nav_labels, SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS);
+      break;
+    case UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM:
+      settings_toggle_bool(&context.config.circle_btn_confirm, SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM);
+      break;
+    case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
+      settings_toggle_bool(&context.config.show_only_paired, SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED);
+      ui_cards_update_cache(true);
+      break;
+    default:
+      break;
+  }
 }
 
 /// Helper to draw a single settings item (toggle with label)
@@ -834,7 +705,7 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
 
 /// Main Settings screen rendering function
 /// @return next screen to display
-UIScreenType draw_settings() {
+UIScreenType ui_screen_draw_settings(void) {
   // Render particle background
   ui_particles_update();
   ui_particles_render();
@@ -884,91 +755,8 @@ UIScreenType draw_settings() {
   }
 
   // X: Activate selected item (toggle or cycle dropdown)
-  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar()) {
-    // Streaming tab input handling
-    if (settings_state.selected_item == UI_SETTINGS_ITEM_QUALITY_PRESET) {
-      // Cycle resolution: 360p <-> 540p (720p/1080p are unavailable on Vita)
-      switch (context.config.resolution) {
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-          // Legacy/unsupported values are normalized to supported presets on interaction.
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        default:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-      }
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_LATENCY_MODE) {
-      // Cycle latency modes
-      context.config.latency_mode =
-        (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FPS_TARGET) {
-      // Cycle FPS
-      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30) ?
-        CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30;
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FORCE_30_FPS) {
-      context.config.force_30fps = !context.config.force_30fps;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FORCE_30FPS, context.config.force_30fps);
-      persist_config_or_warn();
-      apply_force_30fps_runtime();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_AUTO_DISCOVERY) {
-      // Auto discovery toggle
-      context.config.auto_discovery = !context.config.auto_discovery;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY, context.config.auto_discovery);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_LATENCY) {
-      // Show latency toggle
-      context.config.show_latency = !context.config.show_latency;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_LATENCY, context.config.show_latency);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS) {
-      context.config.show_network_indicator = !context.config.show_network_indicator;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
-                             context.config.show_network_indicator);
-      if (!context.config.show_network_indicator) {
-        vitavideo_hide_poor_net_indicator();
-      }
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT) {
-      context.config.show_stream_exit_hint = !context.config.show_stream_exit_hint;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT,
-                             context.config.show_stream_exit_hint);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE) {
-      context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
-                             context.config.clamp_soft_restart_bitrate);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_FILL_SCREEN) {
-      context.config.stretch_video = !context.config.stretch_video;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_FILL_SCREEN, context.config.stretch_video);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_NAV_LABELS) {
-      context.config.show_nav_labels = !context.config.show_nav_labels;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS, context.config.show_nav_labels);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM) {
-      context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
-                             context.config.circle_btn_confirm);
-      persist_config_or_warn();
-    } else if (settings_state.selected_item == UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED) {
-      context.config.show_only_paired = !context.config.show_only_paired;
-      start_toggle_animation(SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
-                             context.config.show_only_paired);
-      persist_config_or_warn();
-      ui_cards_update_cache(true);  // Force refresh to apply filter immediately
-    }
-  }
+  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar())
+    settings_activate_selected_item();
 
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
@@ -1291,7 +1079,7 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 
 /// Main Profile & Registration screen
 /// @return next screen type to display
-UIScreenType draw_profile_screen() {
+UIScreenType ui_screen_draw_profile(void) {
   // Render particle background
   ui_particles_update();
   ui_particles_render();
@@ -2381,7 +2169,7 @@ static void render_controller_legend(int preset_index, int scroll, int x, int y,
  * - Front Mapping View: Interactive front view for button remapping
  * - Back Mapping View: Interactive rear touchpad zone mapping
  */
-UIScreenType draw_controller_config_screen() {
+UIScreenType ui_screen_draw_controller(void) {
     if (!ctrl_initialized) {
         ui_diagram_init(&ctrl_diagram);
         ctrl_initialized = true;
@@ -2752,7 +2540,7 @@ uint32_t pin_to_number() {
 
 /// Draw VitaRPS5-style PIN entry registration screen
 /// @return whether the dialog should keep rendering
-bool draw_registration_dialog() {
+bool ui_screen_draw_registration(void) {
   // Initialize PIN entry on first render
   if (!pin_entry_initialized) {
     reset_pin_entry();
@@ -2861,7 +2649,7 @@ bool draw_registration_dialog() {
 
 /// Render the current frame of an active stream
 /// @return whether the stream should keep rendering
-bool draw_stream() {
+bool ui_screen_draw_stream(void) {
   // Match ywnico: immediately return false, let video callback handle everything
   // UI loop will skip rendering when is_streaming is true
   if (context.stream.is_streaming) context.stream.is_streaming = false;
@@ -2872,7 +2660,7 @@ bool draw_stream() {
 /// Draw the "Waking up console..." screen with spinner animation
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
-UIScreenType draw_waking_screen() {
+UIScreenType ui_screen_draw_waking(void) {
   if (!ui_connection_overlay_active()) {
     ui_state_set_waking_start_time_us(0);
     ui_state_set_waking_wait_for_stream_us(0);
@@ -3011,7 +2799,7 @@ UIScreenType draw_waking_screen() {
 /// Draw reconnecting screen with modern polished UI
 /// Shows during packet loss recovery with spinner animation
 /// @return the next screen type
-UIScreenType draw_reconnecting_screen() {
+UIScreenType ui_screen_draw_reconnecting(void) {
   // Check if we should still be showing this screen
   if (!context.stream.reconnect_overlay_active) {
     ui_state_set_reconnect_start_time(0);
@@ -3091,7 +2879,7 @@ UIScreenType draw_reconnecting_screen() {
 
 /// Draw the debug messages screen
 /// @return whether the dialog should keep rendering
-bool draw_messages() {
+bool ui_screen_draw_messages(void) {
   vita2d_set_clear_color(RGBA8(0x00, 0x00, 0x00, 0xFF));
   context.ui_state.next_active_item = -1;
 
@@ -3232,40 +3020,4 @@ void ui_screens_init(void) {
   // Get touch input state pointers from ui_input module
   touch_block_active = ui_input_get_touch_block_active_ptr();
   touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
-}
-
-UIScreenType ui_screen_draw_main(void) {
-  return draw_main_menu();
-}
-
-UIScreenType ui_screen_draw_settings(void) {
-  return draw_settings();
-}
-
-UIScreenType ui_screen_draw_profile(void) {
-  return draw_profile_screen();
-}
-
-UIScreenType ui_screen_draw_controller(void) {
-  return draw_controller_config_screen();
-}
-
-UIScreenType ui_screen_draw_waking(void) {
-  return draw_waking_screen();
-}
-
-UIScreenType ui_screen_draw_reconnecting(void) {
-  return draw_reconnecting_screen();
-}
-
-bool ui_screen_draw_registration(void) {
-  return draw_registration_dialog();
-}
-
-bool ui_screen_draw_stream(void) {
-  return draw_stream();
-}
-
-bool ui_screen_draw_messages(void) {
-  return draw_messages();
 }
