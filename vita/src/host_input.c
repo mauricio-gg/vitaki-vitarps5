@@ -13,10 +13,15 @@ typedef struct mapped_touch_slot_t {
   bool active;
   uint8_t vita_touch_id;
   int8_t chiaki_touch_id;
+  uint16_t start_x;
+  uint16_t start_y;
+  bool moved;
 } MappedTouchSlot;
 
 #define CHIAKI_TOUCHPAD_WIDTH 1920
 #define CHIAKI_TOUCHPAD_HEIGHT 942
+#define TOUCHPAD_TAP_MOVE_THRESHOLD 24
+#define TOUCHPAD_CLICK_PULSE_FRAMES 2
 
 static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
@@ -154,6 +159,7 @@ void *host_input_thread_func(void* user) {
   int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT/4;
   int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT/3;
   int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS*FRONT_ARC_RADIUS;
+  uint8_t pending_touchpad_click_frames = 0;
   for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++)
     mapped_touch_slots[slot_i].chiaki_touch_id = -1;
 
@@ -250,6 +256,10 @@ void *host_input_thread_func(void* user) {
       stream->controller_state.buttons = 0x00;
       stream->controller_state.l2_state = 0x00;
       stream->controller_state.r2_state = 0x00;
+      if (pending_touchpad_click_frames > 0) {
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
+        pending_touchpad_click_frames--;
+      }
 
       bool reartouch_right = false;
       bool reartouch_left = false;
@@ -355,6 +365,9 @@ void *host_input_thread_func(void* user) {
                   mapped_touch_slots[slot_i].active = true;
                   mapped_touch_slots[slot_i].vita_touch_id = vita_touch_id;
                   mapped_touch_slots[slot_i].chiaki_touch_id = chiaki_touch_id;
+                  mapped_touch_slots[slot_i].start_x = touchpad_x;
+                  mapped_touch_slots[slot_i].start_y = touchpad_y;
+                  mapped_touch_slots[slot_i].moved = false;
                   slot_index = slot_i;
                 }
                 // Only one local slot can be claimed for this Vita touch in this frame.
@@ -364,6 +377,14 @@ void *host_input_thread_func(void* user) {
               }
             }
           } else {
+            int dx = (int)touchpad_x - (int)mapped_touch_slots[slot_index].start_x;
+            int dy = (int)touchpad_y - (int)mapped_touch_slots[slot_index].start_y;
+            if (dx < 0)
+              dx = -dx;
+            if (dy < 0)
+              dy = -dy;
+            if (dx > TOUCHPAD_TAP_MOVE_THRESHOLD || dy > TOUCHPAD_TAP_MOVE_THRESHOLD)
+              mapped_touch_slots[slot_index].moved = true;
             chiaki_controller_state_set_touch_pos(&stream->controller_state,
                                                   (uint8_t)mapped_touch_slots[slot_index].chiaki_touch_id,
                                                   touchpad_x,
@@ -377,6 +398,8 @@ void *host_input_thread_func(void* user) {
 
       for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
         if (mapped_touch_slots[slot_i].active && !mapped_touch_seen[slot_i]) {
+          if (!mapped_touch_slots[slot_i].moved && pending_touchpad_click_frames < TOUCHPAD_CLICK_PULSE_FRAMES)
+            pending_touchpad_click_frames = TOUCHPAD_CLICK_PULSE_FRAMES;
           if (mapped_touch_slots[slot_i].chiaki_touch_id >= 0) {
             chiaki_controller_state_stop_touch(&stream->controller_state,
                                                (uint8_t)mapped_touch_slots[slot_i].chiaki_touch_id);
@@ -384,6 +407,9 @@ void *host_input_thread_func(void* user) {
           mapped_touch_slots[slot_i].active = false;
           mapped_touch_slots[slot_i].vita_touch_id = 0;
           mapped_touch_slots[slot_i].chiaki_touch_id = -1;
+          mapped_touch_slots[slot_i].start_x = 0;
+          mapped_touch_slots[slot_i].start_y = 0;
+          mapped_touch_slots[slot_i].moved = false;
         }
       }
 
