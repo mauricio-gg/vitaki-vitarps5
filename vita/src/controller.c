@@ -82,8 +82,11 @@ static bool controller_map_try_apply_custom_preset(VitakiCtrlMapInfo *vcmi,
   }
 
   if (context.config.custom_maps_valid[slot]) {
+    LOGD("CTRL MAP: using custom slot %d (map_id=%d, valid=1)", slot + 1, (int)controller_map_id);
     controller_map_storage_apply(&context.config.custom_maps[slot], vcmi);
   } else {
+    LOGD("CTRL MAP: custom slot %d invalid for map_id=%d, applying default custom fallback",
+         slot + 1, (int)controller_map_id);
     apply_default_custom_map(vcmi);
   }
   return true;

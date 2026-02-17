@@ -22,6 +22,7 @@ typedef struct mapped_touch_slot_t {
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
+#define REAR_TOUCH_DIAG_INTERVAL_US 1000000ULL
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
@@ -131,10 +132,29 @@ void *host_input_thread_func(void* user) {
 
   if (!vcmi.did_init) init_controller_map(&vcmi, context.config.controller_map_id);
 
-  sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
-  sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
-  sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
-  sceTouchEnableTouchForce(SCE_TOUCH_PORT_BACK);
+  LOGD("INPUT MAP: controller_map_id=%d custom_valid=[%d,%d,%d] in_l2=%d(%s) in_r2=%d(%s)",
+       context.config.controller_map_id,
+       context.config.custom_maps_valid[0] ? 1 : 0,
+       context.config.custom_maps_valid[1] ? 1 : 0,
+       context.config.custom_maps_valid[2] ? 1 : 0,
+       vcmi.in_l2, controller_output_name(vcmi.in_l2 != VITAKI_CTRL_IN_NONE ? VITAKI_CTRL_OUT_L2 : VITAKI_CTRL_OUT_NONE),
+       vcmi.in_r2, controller_output_name(vcmi.in_r2 != VITAKI_CTRL_IN_NONE ? VITAKI_CTRL_OUT_R2 : VITAKI_CTRL_OUT_NONE));
+  LOGD("INPUT MAP REAR: UL=%s UR=%s LL=%s LR=%s LEFT=%s RIGHT=%s L+S=%s R+C=%s",
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UL]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_UR]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LL]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LR]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE]),
+       controller_output_name(vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE]));
+
+  int front_sampling_ret = sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
+  int back_sampling_ret = sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
+  int front_force_ret = sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
+  int back_force_ret = sceTouchEnableTouchForce(SCE_TOUCH_PORT_BACK);
+  LOGD("INPUT TOUCH INIT: front_sampling=%d back_sampling=%d front_force=%d back_force=%d",
+       front_sampling_ret, back_sampling_ret, front_force_ret, back_force_ret);
   SceTouchData touch[SCE_TOUCH_PORT_MAX_NUM];
   MappedTouchSlot mapped_touch_slots[CHIAKI_CONTROLLER_TOUCHES_MAX] = { 0 };
   int TOUCH_MAX_WIDTH = 1919;
@@ -160,6 +180,19 @@ void *host_input_thread_func(void* user) {
   static uint32_t controller_seq_counter = 0;
   const uint64_t INPUT_STALL_THRESHOLD_US = 300000;
   const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
+  uint64_t rear_diag_window_start_us = 0;
+  uint32_t rear_diag_frames = 0;
+  uint32_t rear_diag_frames_with_touch = 0;
+  uint32_t rear_diag_reports_total = 0;
+  uint32_t rear_diag_reports_max = 0;
+  uint32_t rear_diag_map_l3 = 0;
+  uint32_t rear_diag_map_r3 = 0;
+  uint32_t rear_diag_map_l2 = 0;
+  uint32_t rear_diag_map_r2 = 0;
+  uint32_t rear_diag_map_other = 0;
+  uint32_t rear_diag_map_none = 0;
+  uint32_t rear_diag_frames_left_touch = 0;
+  uint32_t rear_diag_frames_right_touch = 0;
 
   if (context.stream.cached_controller_valid) {
     stream->controller_state = context.stream.cached_controller_state;
@@ -250,6 +283,13 @@ void *host_input_thread_func(void* user) {
       bool reartouch_right = false;
       bool reartouch_left = false;
       bool mapped_touch_seen[CHIAKI_CONTROLLER_TOUCHES_MAX] = { false };
+      uint32_t rear_report_num = (uint32_t)touch[SCE_TOUCH_PORT_BACK].reportNum;
+      uint32_t rear_mapped_l3_frame = 0;
+      uint32_t rear_mapped_r3_frame = 0;
+      uint32_t rear_mapped_l2_frame = 0;
+      uint32_t rear_mapped_r2_frame = 0;
+      uint32_t rear_mapped_other_frame = 0;
+      uint32_t rear_mapped_none_frame = 0;
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_BACK].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_BACK].report[touch_i].x;
@@ -268,12 +308,71 @@ void *host_input_thread_func(void* user) {
           VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
           if (mapped == VITAKI_CTRL_OUT_L2) {
             stream->controller_state.l2_state = 0xff;
+            rear_mapped_l2_frame++;
           } else if (mapped == VITAKI_CTRL_OUT_R2) {
             stream->controller_state.r2_state = 0xff;
+            rear_mapped_r2_frame++;
+          } else if (mapped == VITAKI_CTRL_OUT_L3) {
+            stream->controller_state.buttons |= mapped;
+            rear_mapped_l3_frame++;
+          } else if (mapped == VITAKI_CTRL_OUT_R3) {
+            stream->controller_state.buttons |= mapped;
+            rear_mapped_r3_frame++;
           } else if (mapped != VITAKI_CTRL_OUT_NONE) {
             stream->controller_state.buttons |= mapped;
+            rear_mapped_other_frame++;
+          } else {
+            rear_mapped_none_frame++;
           }
         }
+      }
+
+      uint64_t now_us_for_rear_diag = sceKernelGetProcessTimeWide();
+      if (!rear_diag_window_start_us)
+        rear_diag_window_start_us = now_us_for_rear_diag;
+      rear_diag_frames++;
+      rear_diag_reports_total += rear_report_num;
+      if (rear_report_num > rear_diag_reports_max)
+        rear_diag_reports_max = rear_report_num;
+      if (rear_report_num > 0)
+        rear_diag_frames_with_touch++;
+      if (reartouch_left)
+        rear_diag_frames_left_touch++;
+      if (reartouch_right)
+        rear_diag_frames_right_touch++;
+      rear_diag_map_l3 += rear_mapped_l3_frame;
+      rear_diag_map_r3 += rear_mapped_r3_frame;
+      rear_diag_map_l2 += rear_mapped_l2_frame;
+      rear_diag_map_r2 += rear_mapped_r2_frame;
+      rear_diag_map_other += rear_mapped_other_frame;
+      rear_diag_map_none += rear_mapped_none_frame;
+      if (now_us_for_rear_diag - rear_diag_window_start_us >= REAR_TOUCH_DIAG_INTERVAL_US) {
+        LOGD("INPUT REAR DIAG: frames=%u touch_frames=%u reports_total=%u reports_max=%u mapped{L3=%u R3=%u L2=%u R2=%u other=%u none=%u} half_frames{left=%u right=%u}",
+             rear_diag_frames,
+             rear_diag_frames_with_touch,
+             rear_diag_reports_total,
+             rear_diag_reports_max,
+             rear_diag_map_l3,
+             rear_diag_map_r3,
+             rear_diag_map_l2,
+             rear_diag_map_r2,
+             rear_diag_map_other,
+             rear_diag_map_none,
+             rear_diag_frames_left_touch,
+             rear_diag_frames_right_touch);
+        rear_diag_window_start_us = now_us_for_rear_diag;
+        rear_diag_frames = 0;
+        rear_diag_frames_with_touch = 0;
+        rear_diag_reports_total = 0;
+        rear_diag_reports_max = 0;
+        rear_diag_map_l3 = 0;
+        rear_diag_map_r3 = 0;
+        rear_diag_map_l2 = 0;
+        rear_diag_map_r2 = 0;
+        rear_diag_map_other = 0;
+        rear_diag_map_none = 0;
+        rear_diag_frames_left_touch = 0;
+        rear_diag_frames_right_touch = 0;
       }
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
