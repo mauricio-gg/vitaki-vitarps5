@@ -153,9 +153,6 @@ static void video_receiver_apply_cascade_reset(ChiakiVideoReceiver *video_receiv
 {
 	memset(video_receiver->reference_frames, -1, sizeof(video_receiver->reference_frames));
 	video_receiver->consecutive_missing_ref = 0;
-	video_receiver->gap_report_pending = false;
-	video_receiver->last_reported_corrupt_start = 0;
-	video_receiver->last_reported_corrupt_end = 0;
 	video_receiver->cascade_reset_attempts++;
 	CHIAKI_LOGW(video_receiver->log,
 		"Cascade recovery reset applied (attempt=%u)",
@@ -434,7 +431,10 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
 	{
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
+		{
 			video_receiver->consecutive_missing_ref = 0;
+			video_receiver->cascade_reset_attempts = 0;
+		}
 
 		if(video_receiver->idr_request_pending)
 		{
@@ -443,7 +443,6 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				video_receiver->idr_request_pending = false;
 				video_receiver->idr_request_start_ms = 0;
 				video_receiver->consecutive_missing_ref = 0;
-				video_receiver->cascade_reset_attempts = 0;
 				CHIAKI_LOGI(video_receiver->log, "Received I-slice after IDR request, recovery complete");
 			}
 			else
