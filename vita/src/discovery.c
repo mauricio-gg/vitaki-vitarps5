@@ -144,11 +144,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     h->status_hint_expire_us = 0;
     h->status_hint_is_error = false;
   }
-  // Preserve persistent identity flags while normalizing discovered-state bits.
-  // We intentionally keep pointer identity for existing entries so active_host
-  // and UI references remain valid across discovery refresh.
-  VitaChiakiHostType persistent_flags = h->type & (REGISTERED | MANUALLY_ADDED);
-  h->type = persistent_flags | DISCOVERED;
+  h->type |= DISCOVERED;
 
   ChiakiTarget target = chiaki_discovery_host_system_version_target(host);
   CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");
@@ -177,7 +173,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
                   h->discovery_state->host_name
                   );
       if (rhost->registered_state) {
-        ChiakiRegisteredHost *new_state = calloc(1, sizeof(ChiakiRegisteredHost));
+        ChiakiRegisteredHost *new_state = malloc(sizeof(ChiakiRegisteredHost));
         if (new_state) {
           copy_host_registered_state(new_state, rhost->registered_state);
           if (h->registered_state)
