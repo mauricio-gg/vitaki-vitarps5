@@ -286,6 +286,7 @@ static UIScreenType main_menu_activate_selected_card(void) {
 
   bool discovered = (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
   bool registered = context.active_host->type & REGISTERED;
+  bool added = context.active_host->type & MANUALLY_ADDED;
   bool at_rest = discovered && context.active_host->discovery_state &&
                  context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
@@ -296,6 +297,11 @@ static UIScreenType main_menu_activate_selected_card(void) {
     ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
     host_wakeup(context.active_host);
     return UI_SCREEN_TYPE_WAKING;
+  }
+
+  if (added) {
+    // Manual hosts may not have fresh discovery state; nudge wake before connect.
+    host_wakeup(context.active_host);
   }
 
   ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
