@@ -22,6 +22,20 @@ static int count_nonnull_context_hosts(void) {
   return sum;
 }
 
+static void compact_context_hosts(void) {
+  int write_idx = 0;
+  for (int read_idx = 0; read_idx < MAX_CONTEXT_HOSTS; read_idx++) {
+    VitaChiakiHost *h = context.hosts[read_idx];
+    if (!h)
+      continue;
+    if (write_idx != read_idx)
+      context.hosts[write_idx] = h;
+    write_idx++;
+  }
+  for (int i = write_idx; i < MAX_CONTEXT_HOSTS; i++)
+    context.hosts[i] = NULL;
+}
+
 static bool mac_addr_is_zero(const MacAddr *mac) {
   if (!mac)
     return true;
@@ -163,17 +177,7 @@ void update_context_hosts() {
     }
   }
 
-  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS;) {
-      VitaChiakiHost* h = context.hosts[host_idx];
-      if (!h) {
-        for (int j = host_idx+1; j < MAX_CONTEXT_HOSTS; j++) {
-          context.hosts[j-1] = context.hosts[j];
-        }
-        context.hosts[MAX_CONTEXT_HOSTS-1] = NULL;
-        continue;
-      }
-      host_idx++;
-  }
+  compact_context_hosts();
 
   for (int i = 0; i < context.config.num_manual_hosts; i++) {
     VitaChiakiHost* mhost = context.config.manual_hosts[i];
