@@ -17,6 +17,65 @@
 static void request_stream_stop(const char *reason);
 
 #define HINT_DURATION_LINK_WAIT_US (3 * 1000 * 1000ULL)
+#define HINT_DURATION_CREDENTIAL_US (7 * 1000 * 1000ULL)
+
+static bool host_mac_is_zero(const uint8_t mac[6]) {
+  if (!mac)
+    return true;
+  for (int i = 0; i < 6; i++) {
+    if (mac[i] != 0)
+      return false;
+  }
+  return true;
+}
+
+static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) {
+  if (!host)
+    return false;
+  if (host->registered_state)
+    return true;
+
+  VitaChiakiHost *matched = NULL;
+  bool host_has_mac = !host_mac_is_zero(host->server_mac);
+  for (int i = 0; i < context.config.num_registered_hosts; i++) {
+    VitaChiakiHost *candidate = context.config.registered_hosts[i];
+    if (!candidate || !candidate->registered_state)
+      continue;
+
+    if (host_has_mac && mac_addrs_match(&candidate->server_mac, &host->server_mac)) {
+      matched = candidate;
+      break;
+    }
+  }
+
+  if (!matched && host->hostname && host->hostname[0]) {
+    for (int i = 0; i < context.config.num_registered_hosts; i++) {
+      VitaChiakiHost *candidate = context.config.registered_hosts[i];
+      if (!candidate || !candidate->registered_state || !candidate->hostname)
+        continue;
+      if (strcmp(candidate->hostname, host->hostname) == 0) {
+        matched = candidate;
+        break;
+      }
+    }
+  }
+
+  if (!matched || !matched->registered_state)
+    return false;
+
+  host->registered_state = malloc(sizeof(ChiakiRegisteredHost));
+  if (!host->registered_state) {
+    LOGE("Out of memory while hydrating host credentials");
+    return false;
+  }
+  copy_host_registered_state(host->registered_state, matched->registered_state);
+  if (host_mac_is_zero(host->server_mac))
+    memcpy(host->server_mac, matched->server_mac, sizeof(host->server_mac));
+
+  LOGD("Hydrated missing registered_state for host %s from persisted config",
+       host->hostname ? host->hostname : "<null>");
+  return true;
+}
 
 void host_free(VitaChiakiHost *host) {
   if (host) {
@@ -64,7 +123,16 @@ void host_request_stream_stop_from_input(const char *reason) {
 
 int host_stream(VitaChiakiHost* host) {
   LOGD("Preparing to start host_stream");
-  if (!host->hostname || !host->registered_state) {
+  if (!host || !host->hostname || !host->hostname[0]) {
+    return 1;
+  }
+  if (!host_try_hydrate_registered_state_from_config(host)) {
+    LOGE("Missing credentials for host %s; cannot start stream",
+         host->hostname ? host->hostname : "<null>");
+    host_set_hint(host,
+                  "Missing console credentials. Re-pair may be required.",
+                  true,
+                  HINT_DURATION_CREDENTIAL_US);
     return 1;
   }
   // Drain any pending deferred finalization before starting a new session.

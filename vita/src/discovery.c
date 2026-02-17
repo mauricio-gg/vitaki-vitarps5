@@ -132,24 +132,29 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   // print some info about the host
   log_discovered_host_details(host);
 
-  VitaChiakiHost* h = (VitaChiakiHost*)calloc(1, sizeof(VitaChiakiHost));
+  VitaChiakiHost *h = context.hosts[target_idx];
+  bool reuse_existing = h != NULL;
   if (!h) {
-    CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
-    return -1;
+    h = (VitaChiakiHost*)calloc(1, sizeof(VitaChiakiHost));
+    if (!h) {
+      CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
+      return -1;
+    }
+    h->status_hint[0] = '\0';
+    h->status_hint_expire_us = 0;
+    h->status_hint_is_error = false;
   }
-  h->type = DISCOVERED;
+  h->type |= DISCOVERED;
 
   ChiakiTarget target = chiaki_discovery_host_system_version_target(host);
   CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");
   h->target = target;
   memcpy(&(h->server_mac), &host_mac, 6);
   if (!set_host_discovery_snapshot(h, host, now_us)) {
-    free(h);
+    if (!reuse_existing)
+      free(h);
     return -1;
   }
-  h->status_hint[0] = '\0';
-  h->status_hint_expire_us = 0;
-  h->status_hint_is_error = false;
 
   CHIAKI_LOGI(&(context.log), "--");
 
@@ -162,20 +167,28 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
     if (mac_addrs_match(&(rhost->server_mac), &(h->server_mac))) {
       CHIAKI_LOGI(&(context.log), "Found registered host (%s) matching discovered host (%s).",
-                  rhost->registered_state->server_nickname,
+                  (rhost->registered_state && rhost->registered_state->server_nickname)
+                      ? rhost->registered_state->server_nickname
+                      : "<unknown>",
                   h->discovery_state->host_name
                   );
-      h->type |= REGISTERED;
-
-      // copy registered state
-      h->registered_state = NULL;
       if (rhost->registered_state) {
-        h->registered_state = malloc(sizeof(ChiakiRegisteredHost));
-        if (h->registered_state) {
-          copy_host_registered_state(h->registered_state, rhost->registered_state);
+        ChiakiRegisteredHost *new_state = malloc(sizeof(ChiakiRegisteredHost));
+        if (new_state) {
+          copy_host_registered_state(new_state, rhost->registered_state);
+          if (h->registered_state)
+            free(h->registered_state);
+          h->registered_state = new_state;
+          h->type |= REGISTERED;
         } else {
           CHIAKI_LOGE(&(context.log), "Failed to allocate registered host state");
         }
+      } else if (h->registered_state) {
+        h->type |= REGISTERED;
+      } else {
+        h->type &= ~REGISTERED;
+        CHIAKI_LOGW(&(context.log), "Registered host match missing credential state for %s",
+                    h->hostname ? h->hostname : "<null>");
       }
 
       break;
@@ -188,7 +201,8 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   }
 
   // Add to context
-  if (!context.hosts[target_idx]) context.num_hosts++;
+  if (!context.hosts[target_idx])
+    context.num_hosts++;
   context.hosts[target_idx] = h;
 
   update_context_hosts(); // to remove any extra manual host copies
