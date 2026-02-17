@@ -23,31 +23,13 @@ typedef struct mapped_touch_slot_t {
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
 
-static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
-  VitakiCtrlMapInfo vcmi = stream->vcmi;
-  if (vcmi.in_l2 == ctrl_in) {
-    stream->controller_state.l2_state = 0xff;
-  } else {
-    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
-  }
-}
-
-static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
-  VitakiCtrlMapInfo vcmi = stream->vcmi;
-  if (vcmi.in_r2 == ctrl_in) {
-    stream->controller_state.r2_state = 0xff;
-  } else {
-    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
-  }
-}
-
-static void set_front_touch_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
+static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_l2 == ctrl_in) {
     stream->controller_state.l2_state = 0xff;
   } else {
     VitakiCtrlOut out = vcmi.in_out_btn[ctrl_in];
-    if (out == VITAKI_CTRL_OUT_TOUCHPAD) {
+    if (mapped_to_touchpad && out == VITAKI_CTRL_OUT_TOUCHPAD) {
       *mapped_to_touchpad = true;
     } else {
       stream->controller_state.buttons |= out;
@@ -55,13 +37,13 @@ static void set_front_touch_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ct
   }
 }
 
-static void set_front_touch_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
+static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_r2 == ctrl_in) {
     stream->controller_state.r2_state = 0xff;
   } else {
     VitakiCtrlOut out = vcmi.in_out_btn[ctrl_in];
-    if (out == VITAKI_CTRL_OUT_TOUCHPAD) {
+    if (mapped_to_touchpad && out == VITAKI_CTRL_OUT_TOUCHPAD) {
       *mapped_to_touchpad = true;
     } else {
       stream->controller_state.buttons |= out;
@@ -316,20 +298,20 @@ void *host_input_thread_func(void* user) {
         }
 
         if (x > TOUCH_MAX_WIDTH_BY_2) {
-          set_front_touch_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT, &mapped_to_touchpad);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT, &mapped_to_touchpad);
 
           if (y*y + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
-            set_front_touch_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC, &mapped_to_touchpad);
+            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC, &mapped_to_touchpad);
           } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
-            set_front_touch_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC, &mapped_to_touchpad);
+            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC, &mapped_to_touchpad);
           }
         } else if (x < TOUCH_MAX_WIDTH_BY_2) {
-          set_front_touch_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT, &mapped_to_touchpad);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT, &mapped_to_touchpad);
 
           if (y*y + x*x <= FRONT_ARC_RADIUS_2) {
-            set_front_touch_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC, &mapped_to_touchpad);
+            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC, &mapped_to_touchpad);
           } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + x*x <= FRONT_ARC_RADIUS_2) {
-            set_front_touch_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC, &mapped_to_touchpad);
+            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC, &mapped_to_touchpad);
           }
         }
 
@@ -428,16 +410,16 @@ void *host_input_thread_func(void* user) {
 
       if (ctrl.buttons & SCE_CTRL_LTRIGGER) {
         if (reartouch_left && vitaki_reartouch_left_l1_mapped) {
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1, NULL);
         } else {
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1, NULL);
         }
       }
       if (ctrl.buttons & SCE_CTRL_RTRIGGER) {
         if (reartouch_right && vitaki_reartouch_right_r1_mapped) {
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1, NULL);
         } else {
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1, NULL);
         }
       }
 
@@ -453,7 +435,7 @@ void *host_input_thread_func(void* user) {
         if ((ctrl.buttons & SCE_CTRL_LEFT) && (ctrl.buttons & SCE_CTRL_SQUARE)) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_BOX;
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE, NULL);
         }
       }
 
@@ -461,7 +443,7 @@ void *host_input_thread_func(void* user) {
         if ((ctrl.buttons & SCE_CTRL_RIGHT) && (ctrl.buttons & SCE_CTRL_CIRCLE)) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_MOON;
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE, NULL);
         }
       }
 
