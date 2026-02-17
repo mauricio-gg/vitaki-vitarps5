@@ -113,6 +113,12 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
   int existing_idx = find_discovered_host_index_by_mac(&host_mac);
   if (existing_idx >= 0) {
+    VitaChiakiHost *existing = context.hosts[existing_idx];
+    if (existing && (existing->type & REGISTERED) && !existing->registered_state) {
+      LOGE("Discovery integrity warning: existing registered host missing registered_state (idx=%d host=%s)",
+           existing_idx,
+           existing->hostname ? existing->hostname : "<null>");
+    }
     set_host_discovery_snapshot(context.hosts[existing_idx], host, now_us);
     return existing_idx;
   }
@@ -174,6 +180,11 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
       break;
     }
+  }
+
+  if ((h->type & REGISTERED) && !h->registered_state) {
+    LOGE("Discovery integrity warning: discovered registered host missing credential state (host=%s)",
+         h->hostname ? h->hostname : "<null>");
   }
 
   // Add to context

@@ -107,15 +107,48 @@ int host_register(VitaChiakiHost* host, int pin) {
 }
 
 int host_wakeup(VitaChiakiHost* host) {
+  if (!host) {
+    LOGE("Missing host. Cannot send wakeup signal.");
+    return 1;
+  }
   if (!host->hostname) {
     LOGE("Missing hostname. Cannot send wakeup signal.");
     return 1;
   }
-  LOGD("Attempting to send wakeup signal....");
-  uint64_t credential = (uint64_t)strtoull(host->registered_state->rp_regist_key, NULL, 16);
-  chiaki_discovery_wakeup(&context.log,
-                          context.discovery_enabled ? &context.discovery.discovery : NULL,
-                          host->hostname, credential,
-                          chiaki_target_is_ps5(host->target));
+  if (!host->registered_state) {
+    LOGE("Missing registered host state for %s. Cannot send wakeup signal.", host->hostname);
+    return 1;
+  }
+  if (!host->registered_state->rp_regist_key[0]) {
+    LOGE("Missing registration credential for %s. Cannot send wakeup signal.", host->hostname);
+    return 1;
+  }
+
+  char *parse_end = NULL;
+  uint64_t credential = (uint64_t)strtoull(host->registered_state->rp_regist_key, &parse_end, 16);
+  if (parse_end == host->registered_state->rp_regist_key || *parse_end != '\0') {
+    LOGE("Invalid wake credential format for %s: \"%s\"",
+         host->hostname,
+         host->registered_state->rp_regist_key);
+    return 1;
+  }
+
+  bool is_ps5 = chiaki_target_is_ps5(host->target);
+  LOGD("Attempting wake signal to %s (target=%s, discovery_enabled=%d)",
+       host->hostname,
+       is_ps5 ? "PS5" : "PS4",
+       context.discovery_enabled ? 1 : 0);
+
+  ChiakiErrorCode wake_err = chiaki_discovery_wakeup(&context.log,
+                                                     context.discovery_enabled ? &context.discovery.discovery : NULL,
+                                                     host->hostname,
+                                                     credential,
+                                                     is_ps5);
+  if (wake_err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Wake signal failed for %s: %s", host->hostname, chiaki_error_string(wake_err));
+    return 1;
+  }
+
+  LOGD("Wake signal sent successfully to %s", host->hostname);
   return 0;
 }

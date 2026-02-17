@@ -222,6 +222,17 @@ void update_context_hosts() {
 
   }
 
+  for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
+    VitaChiakiHost *h = context.hosts[host_idx];
+    if (!h)
+      continue;
+    if ((h->type & REGISTERED) && !h->registered_state) {
+      LOGE("Context host integrity warning: registered host at slot %d missing registered_state (hostname=%s)",
+           host_idx,
+           h->hostname ? h->hostname : "<null>");
+    }
+  }
+
   context.num_hosts = count_nonnull_context_hosts();
 }
 
