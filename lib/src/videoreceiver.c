@@ -18,7 +18,6 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define IDR_REQUEST_COOLDOWN_MS 100
 #define IDR_REQUEST_TIMEOUT_MS 1000
 #define CASCADE_SKIP_THRESHOLD 3
-#define CASCADE_RESET_ATTEMPT_LIMIT 2
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
@@ -380,13 +379,12 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->stage_window_drops++;
 		video_receiver->cascade_skip_count++;
 
+		// Always apply a local reset on cascade entry so we periodically return
+		// to normal parse/decode and can catch incoming I-slices.
+		video_receiver_apply_cascade_reset(video_receiver);
+
 		uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 		video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "cascade_skip");
-		if(!video_receiver->idr_request_pending
-			&& video_receiver->cascade_reset_attempts < CASCADE_RESET_ATTEMPT_LIMIT)
-		{
-			video_receiver_apply_cascade_reset(video_receiver);
-		}
 
 		// Advance bookkeeping
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
