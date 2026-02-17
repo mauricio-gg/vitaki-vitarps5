@@ -42,6 +42,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->clamp_soft_restart_bitrate = true;
   cfg->show_nav_labels = false;
   cfg->show_only_paired = false;
+  cfg->ps_button_dual_mode = false;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
   vita_logging_config_set_defaults(&cfg->logging);
 }
@@ -229,6 +230,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg,
     {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", false, &cfg->show_nav_labels},
     {"show_only_paired", false, &cfg->show_only_paired},
+    {"ps_button_dual_mode", false, &cfg->ps_button_dual_mode},
   };
 
   size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
@@ -390,6 +392,7 @@ bool config_serialize(VitaChiakiConfig* cfg) {
     {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", cfg->show_nav_labels},
     {"show_only_paired", cfg->show_only_paired},
+    {"ps_button_dual_mode", cfg->ps_button_dual_mode},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));

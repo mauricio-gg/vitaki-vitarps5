@@ -22,6 +22,21 @@ typedef struct mapped_touch_slot_t {
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
+#define PS_DOUBLE_PRESS_WINDOW_US 350000ULL
+
+static bool set_ps_button_intercept_state(bool enabled) {
+#if defined(SCE_CTRL_PSBUTTON)
+  int ret = sceCtrlSetButtonIntercept(enabled ? 1 : 0);
+  if (ret < 0) {
+    LOGE("Failed to set PS button intercept=%d (0x%x)", enabled ? 1 : 0, ret);
+    return false;
+  }
+  return true;
+#else
+  (void)enabled;
+  return false;
+#endif
+}
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
@@ -160,6 +175,17 @@ void *host_input_thread_func(void* user) {
   static uint32_t controller_seq_counter = 0;
   const uint64_t INPUT_STALL_THRESHOLD_US = 300000;
   const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
+  bool ps_button_dual_mode_active = false;
+  bool ps_intercept_enabled = false;
+  int ps_intercept_original = 0;
+  bool ps_prev_down = false;
+  bool ps_single_pending = false;
+  uint64_t ps_first_press_us = 0;
+
+#if defined(SCE_CTRL_PSBUTTON)
+  if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
+    ps_intercept_original = 0;
+#endif
 
   if (context.stream.cached_controller_valid) {
     stream->controller_state = context.stream.cached_controller_state;
@@ -193,9 +219,26 @@ void *host_input_thread_func(void* user) {
     }
 
     if (controller_gate_open) {
+      if (context.config.ps_button_dual_mode && !ps_button_dual_mode_active) {
+        ps_button_dual_mode_active = set_ps_button_intercept_state(true);
+        ps_intercept_enabled = ps_button_dual_mode_active;
+        if (!ps_button_dual_mode_active) {
+          LOGE("PS button dual mode requested but intercept could not be enabled");
+        }
+      } else if (!context.config.ps_button_dual_mode && ps_button_dual_mode_active) {
+        if (ps_intercept_enabled) {
+          set_ps_button_intercept_state(ps_intercept_original != 0);
+          ps_intercept_enabled = false;
+        }
+        ps_button_dual_mode_active = false;
+        ps_single_pending = false;
+        ps_first_press_us = 0;
+        ps_prev_down = false;
+      }
+
       uint64_t start_time_us = sceKernelGetProcessTimeWide();
 
-      sceCtrlPeekBufferPositive(0, &ctrl, 1);
+      sceCtrlPeekBufferPositiveExt(0, &ctrl, 1);
 
       bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
                         (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
@@ -242,6 +285,47 @@ void *host_input_thread_func(void* user) {
       stream->controller_state.buttons = 0x00;
       stream->controller_state.l2_state = 0x00;
       stream->controller_state.r2_state = 0x00;
+
+#if defined(SCE_CTRL_PSBUTTON)
+      if (ps_button_dual_mode_active) {
+        uint64_t now_us = sceKernelGetProcessTimeWide();
+        bool ps_down = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
+        bool ps_pressed = ps_down && !ps_prev_down;
+
+        if (ps_single_pending && !ps_intercept_enabled && ps_pressed) {
+          // Treat a second press during passthrough window as "Vita PS action requested".
+          ps_single_pending = false;
+          ps_first_press_us = 0;
+        }
+
+        if (ps_single_pending && (now_us - ps_first_press_us > PS_DOUBLE_PRESS_WINDOW_US)) {
+          if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
+            ps_intercept_enabled = set_ps_button_intercept_state(true);
+          }
+          stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
+          ps_single_pending = false;
+          ps_first_press_us = 0;
+        }
+
+        if (ps_pressed && !ps_single_pending) {
+          if (ps_intercept_enabled && set_ps_button_intercept_state(false)) {
+            ps_intercept_enabled = false;
+            ps_single_pending = true;
+            ps_first_press_us = now_us;
+          } else {
+            // Fallback if passthrough mode can't be armed: preserve remote PS behavior.
+            stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
+          }
+        }
+
+        if (!ps_intercept_enabled && !ps_single_pending && !ps_down && context.config.ps_button_dual_mode) {
+          ps_intercept_enabled = set_ps_button_intercept_state(true);
+        }
+
+        ps_prev_down = ps_down;
+      }
+#endif
+
       if (pending_touchpad_click_frames > 0) {
         stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
         pending_touchpad_click_frames--;
@@ -476,6 +560,14 @@ void *host_input_thread_func(void* user) {
       usleep(1000);
     }
   }
+
+#if defined(SCE_CTRL_PSBUTTON)
+  if (ps_intercept_enabled) {
+    set_ps_button_intercept_state(ps_intercept_original != 0);
+  } else if (ps_button_dual_mode_active && ps_intercept_original != 0) {
+    set_ps_button_intercept_state(true);
+  }
+#endif
 
   return 0;
 }
