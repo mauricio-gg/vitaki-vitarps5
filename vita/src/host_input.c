@@ -141,7 +141,7 @@ void *host_input_thread_func(void* user) {
     }
 
     if (controller_gate_open) {
-      int start_time_us = sceKernelGetProcessTimeWide();
+      uint64_t start_time_us = sceKernelGetProcessTimeWide();
 
       sceCtrlPeekBufferPositive(0, &ctrl, 1);
 
@@ -323,9 +323,10 @@ void *host_input_thread_func(void* user) {
         LOGD("Controller send seq %u (Vita)", controller_seq_counter);
       }
 
-      int diff_time_us = sceKernelGetProcessTimeWide() - start_time_us;
-      if (diff_time_us < ms_per_loop*1000)
-        usleep(ms_per_loop*1000 - diff_time_us);
+      uint64_t diff_time_us = sceKernelGetProcessTimeWide() - start_time_us;
+      uint64_t loop_budget_us = (uint64_t)ms_per_loop * 1000ULL;
+      if (diff_time_us < loop_budget_us)
+        usleep((useconds_t)(loop_budget_us - diff_time_us));
 
     } else {
       usleep(1000);

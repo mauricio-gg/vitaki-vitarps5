@@ -26,7 +26,7 @@ bool config_fix_legacy_queue_depth(void) {
   }
 
   size_t size = (size_t)len;
-  char* data = malloc(size);
+  char* data = malloc(size + 1);
   if (!data) {
     fclose(fp);
     return false;
@@ -37,6 +37,7 @@ bool config_fix_legacy_queue_depth(void) {
     free(data);
     return false;
   }
+  data[size] = '\0';
 
   const char* prefix = "queue_depth = ";
   char* prefix_pos = strstr(data, prefix);

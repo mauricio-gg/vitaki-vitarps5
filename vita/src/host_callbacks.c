@@ -66,11 +66,7 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   }
   if (frames_lost > 0) {
     host_handle_loss_event(frames_lost, frame_recovered);
-    bool restart_pending = host_handle_unrecovered_frame_loss(frames_lost, frame_recovered);
-    if (restart_pending) {
-      context.stream.is_streaming = false;
-      return true;
-    }
+    host_handle_unrecovered_frame_loss(frames_lost, frame_recovered);
   }
   context.stream.is_streaming = true;
   context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag

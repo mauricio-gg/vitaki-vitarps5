@@ -4,7 +4,6 @@
 
 #include <chiaki/base64.h>
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,35 +15,61 @@ static void persist_config_or_warn(void) {
 
 static ChiakiRegist regist = {};
 
+static bool host_update_registered_state_from_event(VitaChiakiHost *host,
+                                                    const ChiakiRegisteredHost *event_host) {
+  if (!host || !event_host) {
+    LOGE("Registration callback missing host data");
+    return false;
+  }
+
+  if (!host->registered_state) {
+    host->registered_state = malloc(sizeof(ChiakiRegisteredHost));
+    if (!host->registered_state) {
+      LOGE("Out of memory while storing registration state");
+      return false;
+    }
+  }
+
+  copy_host_registered_state(host->registered_state, event_host);
+  memcpy(&host->server_mac, &event_host->server_mac, sizeof(host->server_mac));
+  return true;
+}
+
 static void regist_cb(ChiakiRegistEvent *event, void *user) {
   LOGD("regist event %d", event->type);
   if (event->type == CHIAKI_REGIST_EVENT_TYPE_FINISHED_SUCCESS) {
+    if (!context.active_host) {
+      LOGE("Registration callback missing active host");
+      chiaki_regist_stop(&regist);
+      chiaki_regist_fini(&regist);
+      return;
+    }
     context.active_host->type |= REGISTERED;
 
-    if (context.active_host->registered_state != NULL) {
-      free(context.active_host->registered_state);
-      context.active_host->registered_state = event->registered_host;
-      memcpy(&context.active_host->server_mac, &(event->registered_host->server_mac), 6);
-      printf("FOUND HOST TO UPDATE\n");
-      for (int rhost_idx = 0; rhost_idx < context.config.num_registered_hosts; rhost_idx++) {
-        VitaChiakiHost* rhost =
-            context.config.registered_hosts[rhost_idx];
-        if (rhost == NULL) {
-          continue;
-        }
+    if (!host_update_registered_state_from_event(context.active_host, event->registered_host)) {
+      chiaki_regist_stop(&regist);
+      chiaki_regist_fini(&regist);
+      return;
+    }
 
-        printf("NAME1 %s\n", rhost->registered_state->server_nickname);
-        printf("NAME2 %s\n", context.active_host->registered_state->server_nickname);
-        if ((rhost->server_mac) && (context.active_host->server_mac) && mac_addrs_match(&(rhost->server_mac), &(context.active_host->server_mac))) {
-          printf("FOUND MATCH\n");
-          context.config.registered_hosts[rhost_idx] = context.active_host;
-          break;
-        }
+    bool updated_existing_host = false;
+    for (int rhost_idx = 0; rhost_idx < context.config.num_registered_hosts; rhost_idx++) {
+      VitaChiakiHost *rhost = context.config.registered_hosts[rhost_idx];
+      if (!rhost)
+        continue;
+      if (mac_addrs_match(&(rhost->server_mac), &(context.active_host->server_mac))) {
+        context.config.registered_hosts[rhost_idx] = context.active_host;
+        updated_existing_host = true;
+        break;
       }
-    } else {
-      context.active_host->registered_state = event->registered_host;
-      memcpy(&context.active_host->server_mac, &(event->registered_host->server_mac), 6);
-      context.config.registered_hosts[context.config.num_registered_hosts++] = context.active_host;
+    }
+
+    if (!updated_existing_host) {
+      if (context.config.num_registered_hosts >= MAX_REGISTERED_HOSTS) {
+        LOGE("Max registered hosts reached; could not persist new registration.");
+      } else {
+        context.config.registered_hosts[context.config.num_registered_hosts++] = context.active_host;
+      }
     }
 
     persist_config_or_warn();
@@ -58,10 +83,21 @@ int host_register(VitaChiakiHost* host, int pin) {
   if (!host->hostname || !host->discovery_state) {
     return 1;
   }
+  if (!context.config.psn_account_id[0]) {
+    LOGE("Missing PSN account id; cannot register host.");
+    return 1;
+  }
   ChiakiRegistInfo regist_info = {};
   regist_info.target = host->target;
   size_t account_id_size = sizeof(uint8_t[CHIAKI_PSN_ACCOUNT_ID_SIZE]);
-  chiaki_base64_decode(context.config.psn_account_id, /*sizeof(context.config.psn_account_id)*/12, regist_info.psn_account_id, &(account_id_size));
+  ChiakiErrorCode decode_err = chiaki_base64_decode(context.config.psn_account_id,
+                                                    strlen(context.config.psn_account_id),
+                                                    regist_info.psn_account_id,
+                                                    &(account_id_size));
+  if (decode_err != CHIAKI_ERR_SUCCESS || account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
+    LOGE("Failed to decode PSN account id for registration: %s", chiaki_error_string(decode_err));
+    return 1;
+  }
   regist_info.psn_online_id = NULL;
   regist_info.pin = pin;
   regist_info.host = host->hostname;

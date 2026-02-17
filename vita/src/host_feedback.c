@@ -54,32 +54,30 @@ void host_request_decoder_resync(const char *reason) {
   }
 }
 
-bool host_handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered) {
-  bool triggered = false;
+void host_handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovered) {
   if (frames_lost <= 0) {
     context.stream.unrecovered_frame_streak = 0;
-    return triggered;
+    return;
   }
 
   if (frame_recovered) {
     context.stream.unrecovered_frame_streak = 0;
-    return triggered;
+    return;
   }
 
   context.stream.unrecovered_frame_streak += (uint32_t)frames_lost;
   if (context.stream.unrecovered_frame_streak < UNRECOVERED_FRAME_THRESHOLD)
-    return triggered;
+    return;
 
   context.stream.unrecovered_frame_streak = 0;
   if (context.stream.fast_restart_active || context.stream.stop_requested)
-    return triggered;
+    return;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
   vitavideo_show_poor_net_indicator();
   context.stream.loss_alert_until_us = now_us + LOSS_ALERT_DURATION_US;
   context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
   host_request_decoder_resync("unrecovered frame");
-  return triggered;
 }
 
 void host_handle_takion_overflow(void) {

@@ -71,7 +71,7 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
     memcpy(h_dest, h_src, sizeof(*h_dest));
 }
 
-void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, ChiakiRegisteredHost *rstate_src) {
+void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, const ChiakiRegisteredHost *rstate_src) {
   if (rstate_dest && rstate_src)
     memcpy(rstate_dest, rstate_src, sizeof(*rstate_dest));
 }

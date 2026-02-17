@@ -50,4 +50,4 @@ void delete_manual_host(VitaChiakiHost* mhost);
 void update_context_hosts();
 int count_manual_hosts_of_console(VitaChiakiHost* host);
 void copy_host(VitaChiakiHost* h_dest, VitaChiakiHost* h_src, bool copy_hostname);
-void copy_host_registered_state(ChiakiRegisteredHost* rstate_dest, ChiakiRegisteredHost* rstate_src);
+void copy_host_registered_state(ChiakiRegisteredHost* rstate_dest, const ChiakiRegisteredHost* rstate_src);
