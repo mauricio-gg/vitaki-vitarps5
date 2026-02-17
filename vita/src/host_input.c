@@ -193,6 +193,15 @@ void *host_input_thread_func(void* user) {
   uint32_t rear_diag_map_none = 0;
   uint32_t rear_diag_frames_left_touch = 0;
   uint32_t rear_diag_frames_right_touch = 0;
+  uint32_t touch_peek_front_ok = 0;
+  uint32_t touch_peek_back_ok = 0;
+  uint32_t touch_peek_front_err = 0;
+  uint32_t touch_peek_back_err = 0;
+  uint32_t touch_peek_front_unexpected = 0;
+  uint32_t touch_peek_back_unexpected = 0;
+  uint32_t front_diag_frames_with_touch = 0;
+  uint32_t front_diag_reports_total = 0;
+  uint32_t front_diag_reports_max = 0;
 
   if (context.stream.cached_controller_valid) {
     stream->controller_state = context.stream.cached_controller_state;
@@ -249,9 +258,20 @@ void *host_input_thread_func(void* user) {
         continue;
       }
 
-      for(int port = 0; port < SCE_TOUCH_PORT_MAX_NUM; port++) {
-        sceTouchPeek(port, &touch[port], 1);
-      }
+      int front_peek_ret = sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch[SCE_TOUCH_PORT_FRONT], 1);
+      int back_peek_ret = sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch[SCE_TOUCH_PORT_BACK], 1);
+      if (front_peek_ret == 1)
+        touch_peek_front_ok++;
+      else if (front_peek_ret < 0)
+        touch_peek_front_err++;
+      else
+        touch_peek_front_unexpected++;
+      if (back_peek_ret == 1)
+        touch_peek_back_ok++;
+      else if (back_peek_ret < 0)
+        touch_peek_back_err++;
+      else
+        touch_peek_back_unexpected++;
 
       sceMotionGetState(&motion);
       stream->controller_state.accel_x = motion.acceleration.x;
@@ -283,6 +303,7 @@ void *host_input_thread_func(void* user) {
       bool reartouch_right = false;
       bool reartouch_left = false;
       bool mapped_touch_seen[CHIAKI_CONTROLLER_TOUCHES_MAX] = { false };
+      uint32_t front_report_num = (uint32_t)touch[SCE_TOUCH_PORT_FRONT].reportNum;
       uint32_t rear_report_num = (uint32_t)touch[SCE_TOUCH_PORT_BACK].reportNum;
       uint32_t rear_mapped_l3_frame = 0;
       uint32_t rear_mapped_r3_frame = 0;
@@ -331,6 +352,11 @@ void *host_input_thread_func(void* user) {
       if (!rear_diag_window_start_us)
         rear_diag_window_start_us = now_us_for_rear_diag;
       rear_diag_frames++;
+      front_diag_reports_total += front_report_num;
+      if (front_report_num > front_diag_reports_max)
+        front_diag_reports_max = front_report_num;
+      if (front_report_num > 0)
+        front_diag_frames_with_touch++;
       rear_diag_reports_total += rear_report_num;
       if (rear_report_num > rear_diag_reports_max)
         rear_diag_reports_max = rear_report_num;
@@ -347,8 +373,11 @@ void *host_input_thread_func(void* user) {
       rear_diag_map_other += rear_mapped_other_frame;
       rear_diag_map_none += rear_mapped_none_frame;
       if (now_us_for_rear_diag - rear_diag_window_start_us >= REAR_TOUCH_DIAG_INTERVAL_US) {
-        LOGD("INPUT REAR DIAG: frames=%u touch_frames=%u reports_total=%u reports_max=%u mapped{L3=%u R3=%u L2=%u R2=%u other=%u none=%u} half_frames{left=%u right=%u}",
+        LOGD("INPUT REAR DIAG: frames=%u front{touch_frames=%u reports_total=%u reports_max=%u} rear{touch_frames=%u reports_total=%u reports_max=%u} mapped{L3=%u R3=%u L2=%u R2=%u other=%u none=%u} half_frames{left=%u right=%u} peek{front_ok=%u back_ok=%u front_err=%u back_err=%u front_unexp=%u back_unexp=%u}",
              rear_diag_frames,
+             front_diag_frames_with_touch,
+             front_diag_reports_total,
+             front_diag_reports_max,
              rear_diag_frames_with_touch,
              rear_diag_reports_total,
              rear_diag_reports_max,
@@ -359,9 +388,18 @@ void *host_input_thread_func(void* user) {
              rear_diag_map_other,
              rear_diag_map_none,
              rear_diag_frames_left_touch,
-             rear_diag_frames_right_touch);
+             rear_diag_frames_right_touch,
+             touch_peek_front_ok,
+             touch_peek_back_ok,
+             touch_peek_front_err,
+             touch_peek_back_err,
+             touch_peek_front_unexpected,
+             touch_peek_back_unexpected);
         rear_diag_window_start_us = now_us_for_rear_diag;
         rear_diag_frames = 0;
+        front_diag_frames_with_touch = 0;
+        front_diag_reports_total = 0;
+        front_diag_reports_max = 0;
         rear_diag_frames_with_touch = 0;
         rear_diag_reports_total = 0;
         rear_diag_reports_max = 0;
@@ -373,6 +411,12 @@ void *host_input_thread_func(void* user) {
         rear_diag_map_none = 0;
         rear_diag_frames_left_touch = 0;
         rear_diag_frames_right_touch = 0;
+        touch_peek_front_ok = 0;
+        touch_peek_back_ok = 0;
+        touch_peek_front_err = 0;
+        touch_peek_back_err = 0;
+        touch_peek_front_unexpected = 0;
+        touch_peek_back_unexpected = 0;
       }
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
