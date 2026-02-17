@@ -31,7 +31,10 @@
 #define SESSION_PORT					9295
 
 #define SESSION_EXPECT_TIMEOUT_MS		5000
+#define SESSION_ID_GRACE_TIMEOUT_MS		10000
 #define STREAM_CONNECTION_SWITCH_EXPECT_TIMEOUT_MS 2000
+#define SESSION_TAKION_CONNECT_RETRY_MAX 4
+#define SESSION_TAKION_CONNECT_RETRY_DELAY_MS 750
 
 static void *session_thread_func(void *arg);
 static void regist_cb(ChiakiRegistEvent *event, void *user);
@@ -601,6 +604,17 @@ static void *session_thread_func(void *arg)
 		CHECK_STOP(quit_ctrl);
 	}
 
+	if(!session->ctrl_session_id_received && !session->ctrl_login_pin_requested && !session->ctrl_failed)
+	{
+		// Some PS5 firmware builds deliver session-id late after ctrl login.
+		// Give one bounded grace window before forcing fallback session-id.
+		CHIAKI_LOGW(session->log, "Ctrl session id not received yet; waiting grace window (%u ms)",
+				(unsigned int)SESSION_ID_GRACE_TIMEOUT_MS);
+		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_ID_GRACE_TIMEOUT_MS, session_check_state_pred_ctrl_start, session);
+		CHECK_STOP(quit_ctrl);
+	}
+
+	unsigned int takion_connect_retry_count = 0;
 	while(true)
 	{
 		chiaki_socket_t *data_sock = NULL;
@@ -631,6 +645,7 @@ static void *session_thread_func(void *arg)
 
 		if(!session->ctrl_session_id_received)
 		{
+			// Keep rear-compat behavior for servers that never send session-id.
 			CHIAKI_LOGE(session->log, "Ctrl did not receive session id");
 			chiaki_mutex_unlock(&session->state_mutex);
 			err = ctrl_message_set_fallback_session_id(&session->ctrl);
@@ -724,6 +739,30 @@ ctrl_failed:
 			chiaki_mutex_lock(&session->state_mutex);
 			CHIAKI_LOGI(session->log, "StreamConnection restart requested; attempting reconnect with bitrate %u kbps",
 					session->connect_info.video_profile.bitrate);
+			takion_connect_retry_count = 0;
+			continue;
+		}
+
+		if((err == CHIAKI_ERR_CONNECTION_REFUSED || err == CHIAKI_ERR_TIMEOUT)
+			&& takion_connect_retry_count < SESSION_TAKION_CONNECT_RETRY_MAX
+			&& !session->should_stop)
+		{
+			// Treat early connect refusal/timeout as transient startup readiness.
+			takion_connect_retry_count++;
+			CHIAKI_LOGW(session->log,
+					"StreamConnection startup not ready (%s); retry %u/%u in %u ms",
+					chiaki_error_string(err),
+					takion_connect_retry_count,
+					(unsigned int)SESSION_TAKION_CONNECT_RETRY_MAX,
+					(unsigned int)SESSION_TAKION_CONNECT_RETRY_DELAY_MS);
+			chiaki_mutex_unlock(&session->state_mutex);
+			chiaki_ecdh_fini(&session->ecdh);
+			chiaki_mutex_lock(&session->state_mutex);
+			err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex,
+					SESSION_TAKION_CONNECT_RETRY_DELAY_MS, session_check_state_pred, session);
+			CHECK_STOP(quit_ctrl);
+			if(session->ctrl_failed)
+				goto ctrl_failed;
 			continue;
 		}
 

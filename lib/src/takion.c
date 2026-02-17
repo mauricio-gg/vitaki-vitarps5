@@ -1245,7 +1245,25 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 	if(received_sz <= 0)
 	{
 		if(received_sz < 0)
-			CHIAKI_LOGE(takion->log, "Takion recv failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+		{
+#ifdef _WIN32
+			int sockerr = WSAGetLastError();
+			CHIAKI_LOGE(takion->log, "Takion recv failed: %d", sockerr);
+			if(sockerr == WSAECONNREFUSED)
+			{
+				CHIAKI_LOGW(takion->log, "Takion recv got connection refused during handshake");
+				return CHIAKI_ERR_CONNECTION_REFUSED;
+			}
+#else
+			int sockerr = errno;
+			CHIAKI_LOGE(takion->log, "Takion recv failed: %s", strerror(sockerr));
+			if(sockerr == ECONNREFUSED)
+			{
+				CHIAKI_LOGW(takion->log, "Takion recv got connection refused during handshake");
+				return CHIAKI_ERR_CONNECTION_REFUSED;
+			}
+#endif
+		}
 		else
 			CHIAKI_LOGE(takion->log, "Takion recv returned 0");
 		return CHIAKI_ERR_NETWORK;
