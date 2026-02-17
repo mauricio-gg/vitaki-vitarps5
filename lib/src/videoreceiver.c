@@ -117,6 +117,48 @@ static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64
 	video_receiver->gap_report_pending = false;
 }
 
+static void video_receiver_maybe_request_idr(ChiakiVideoReceiver *video_receiver, uint64_t now_ms, const char *reason)
+{
+	if(video_receiver->idr_request_pending)
+	{
+		uint64_t idr_age_ms = now_ms - video_receiver->idr_request_start_ms;
+		if(idr_age_ms > IDR_REQUEST_TIMEOUT_MS)
+		{
+			CHIAKI_LOGW(video_receiver->log,
+				"IDR request timed out after %llu ms (%s), clearing pending state",
+				(unsigned long long)idr_age_ms,
+				reason ? reason : "unknown");
+			video_receiver->idr_request_pending = false;
+			video_receiver->idr_request_start_ms = 0;
+		}
+	}
+
+	if(!video_receiver->idr_request_pending
+		&& (now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
+	{
+		ChiakiErrorCode idr_err =
+			chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
+		if(idr_err == CHIAKI_ERR_SUCCESS)
+		{
+			video_receiver->idr_request_pending = true;
+			video_receiver->idr_request_start_ms = now_ms;
+			video_receiver->last_idr_request_ms = now_ms;
+			CHIAKI_LOGI(video_receiver->log, "Requesting IDR (%s)",
+				reason ? reason : "unknown");
+		}
+	}
+}
+
+static void video_receiver_apply_cascade_reset(ChiakiVideoReceiver *video_receiver)
+{
+	memset(video_receiver->reference_frames, -1, sizeof(video_receiver->reference_frames));
+	video_receiver->consecutive_missing_ref = 0;
+	video_receiver->cascade_reset_attempts++;
+	CHIAKI_LOGW(video_receiver->log,
+		"Cascade recovery reset applied (attempt=%u)",
+		video_receiver->cascade_reset_attempts);
+}
+
 CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats)
 {
 	video_receiver->session = session;
@@ -154,6 +196,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->last_idr_request_ms = 0;
 	video_receiver->consecutive_missing_ref = 0;
 	video_receiver->cascade_skip_count = 0;
+	video_receiver->cascade_reset_attempts = 0;
 	video_receiver->prev_frame_first_packet_ms = 0;
 	video_receiver->cadence_min_ms = 0;
 	video_receiver->cadence_max_ms = 0;
@@ -333,20 +376,12 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->stage_window_drops++;
 		video_receiver->cascade_skip_count++;
 
-		// Keep IDR pressure alive
+		// Always apply a local reset on cascade entry so we periodically return
+		// to normal parse/decode and can catch incoming I-slices.
+		video_receiver_apply_cascade_reset(video_receiver);
+
 		uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
-		if(!video_receiver->idr_request_pending
-			&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
-		{
-			ChiakiErrorCode idr_err =
-				chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
-			if(idr_err == CHIAKI_ERR_SUCCESS)
-			{
-				video_receiver->idr_request_pending = true;
-				video_receiver->idr_request_start_ms = idr_now_ms;
-				video_receiver->last_idr_request_ms = idr_now_ms;
-			}
-		}
+		video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "cascade_skip");
 
 		// Advance bookkeeping
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
@@ -366,21 +401,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
 			uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
-			if(!video_receiver->idr_request_pending
-				&& (idr_now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
-			{
-				ChiakiErrorCode idr_err =
-					chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
-				if(idr_err == CHIAKI_ERR_SUCCESS)
-				{
-					video_receiver->idr_request_pending = true;
-					video_receiver->idr_request_start_ms = idr_now_ms;
-					video_receiver->last_idr_request_ms = idr_now_ms;
-					CHIAKI_LOGI(video_receiver->log, "Frame %d flush failed (%s), requesting IDR (non-blocking)",
-						(int)video_receiver->frame_index_cur,
-						flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED ? "fec" : "incomplete");
-				}
-			}
+			video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "fec_failed");
 		}
 
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
@@ -410,7 +431,10 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
 	{
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
+		{
 			video_receiver->consecutive_missing_ref = 0;
+			video_receiver->cascade_reset_attempts = 0;
+		}
 
 		if(video_receiver->idr_request_pending)
 		{
@@ -423,14 +447,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			}
 			else
 			{
-				uint64_t idr_age_ms = chiaki_time_now_monotonic_ms() - video_receiver->idr_request_start_ms;
-				if(idr_age_ms > IDR_REQUEST_TIMEOUT_MS)
-				{
-					CHIAKI_LOGW(video_receiver->log, "IDR request timed out after %llu ms, resetting",
-						(unsigned long long)idr_age_ms);
-					video_receiver->idr_request_pending = false;
-					video_receiver->idr_request_start_ms = 0;
-				}
+				video_receiver_maybe_request_idr(video_receiver, chiaki_time_now_monotonic_ms(), "pending_non_i");
 			}
 		}
 		// P-frames fall through to the existing reference-recovery logic below.
