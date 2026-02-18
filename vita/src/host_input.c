@@ -179,6 +179,7 @@ void *host_input_thread_func(void* user) {
   bool ps_intercept_enabled = false;
   int ps_intercept_original = 0;
   bool ps_prev_down = false;
+  bool ps_prev_down_raw = false;
   bool ps_waiting_second_tap = false;
   bool ps_passthrough_active = false;
   uint64_t ps_first_release_us = 0;
@@ -186,6 +187,8 @@ void *host_input_thread_func(void* user) {
 #if defined(SCE_CTRL_PSBUTTON)
   if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
     ps_intercept_original = 0;
+  LOGD("PS dual mode init: config=%d intercept_original=%d",
+       context.config.ps_button_dual_mode ? 1 : 0, ps_intercept_original);
 #endif
 
   if (context.stream.cached_controller_valid) {
@@ -287,9 +290,23 @@ void *host_input_thread_func(void* user) {
       stream->controller_state.r2_state = 0x00;
 
 #if defined(SCE_CTRL_PSBUTTON)
+      bool ps_down_raw = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
+      bool ps_pressed_raw = ps_down_raw && !ps_prev_down_raw;
+      bool ps_released_raw = !ps_down_raw && ps_prev_down_raw;
+      if ((ps_pressed_raw || ps_released_raw) && !context.config.ps_button_dual_mode) {
+        LOGD("PS raw edge seen while dual mode disabled (active=%d intercept_enabled=%d)",
+             ps_button_dual_mode_active ? 1 : 0, ps_intercept_enabled ? 1 : 0);
+      } else if ((ps_pressed_raw || ps_released_raw) &&
+                 context.config.ps_button_dual_mode &&
+                 !ps_button_dual_mode_active) {
+        LOGD("PS raw edge seen but dual mode inactive (intercept_enabled=%d original=%d)",
+             ps_intercept_enabled ? 1 : 0, ps_intercept_original);
+      }
+      ps_prev_down_raw = ps_down_raw;
+
       if (ps_button_dual_mode_active) {
         uint64_t now_us = sceKernelGetProcessTimeWide();
-        bool ps_down = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
+        bool ps_down = ps_down_raw;
         bool ps_pressed = ps_down && !ps_prev_down;
         bool ps_released = !ps_down && ps_prev_down;
 
