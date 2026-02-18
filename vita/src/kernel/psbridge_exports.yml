@@ -6,7 +6,7 @@ vitarps5_psbridge:
   main:
     start: module_start
     stop: module_stop
-  modules:
+  libraries:
     vitarps5_psbridge_user:
       syscall: true
       version: 0x1

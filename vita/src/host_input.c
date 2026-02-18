@@ -40,17 +40,30 @@ typedef struct mapped_touch_slot_t {
 typedef int (*PsBridgePeekFn)(void);
 typedef int (*PsBridgeMaskFn)(int enabled);
 
-static bool resolve_ps_bridge_exports(PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn) {
+static const char *VITARPS5_PSBRIDGE_MODULE_CANDIDATES[] = {
+  "vitarps5_psbridge",
+  "psbridge",
+};
+
+static bool resolve_ps_bridge_exports_for_name(const char *module_name,
+                                               PsBridgePeekFn *peek_fn,
+                                               PsBridgeMaskFn *mask_fn,
+                                               int *peek_ret_out,
+                                               int *mask_ret_out) {
   uintptr_t peek_addr = 0;
   uintptr_t mask_addr = 0;
-  int peek_ret = taiGetModuleExportFunc(VITARPS5_PSBRIDGE_MODULE_NAME,
+  int peek_ret = taiGetModuleExportFunc(module_name,
                                         VITARPS5_PSBRIDGE_LIB_NID,
                                         VITARPS5_PSBRIDGE_FUNC_PEEK_NID,
                                         &peek_addr);
-  int mask_ret = taiGetModuleExportFunc(VITARPS5_PSBRIDGE_MODULE_NAME,
+  int mask_ret = taiGetModuleExportFunc(module_name,
                                         VITARPS5_PSBRIDGE_LIB_NID,
                                         VITARPS5_PSBRIDGE_FUNC_MASK_NID,
                                         &mask_addr);
+  if (peek_ret_out)
+    *peek_ret_out = peek_ret;
+  if (mask_ret_out)
+    *mask_ret_out = mask_ret;
   if (peek_ret < 0 || mask_ret < 0)
     return false;
   *peek_fn = (PsBridgePeekFn)peek_addr;
@@ -58,11 +71,29 @@ static bool resolve_ps_bridge_exports(PsBridgePeekFn *peek_fn, PsBridgeMaskFn *m
   return true;
 }
 
+static bool resolve_ps_bridge_exports(PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn, bool log_failures) {
+  unsigned int i;
+  for (i = 0; i < sizeof(VITARPS5_PSBRIDGE_MODULE_CANDIDATES) / sizeof(VITARPS5_PSBRIDGE_MODULE_CANDIDATES[0]); i++) {
+    int peek_ret = 0;
+    int mask_ret = 0;
+    const char *candidate = VITARPS5_PSBRIDGE_MODULE_CANDIDATES[i];
+    if (resolve_ps_bridge_exports_for_name(candidate, peek_fn, mask_fn, &peek_ret, &mask_ret)) {
+      LOGD("PS bridge exports resolved via module '%s'", candidate);
+      return true;
+    }
+    if (log_failures) {
+      LOGE("PS bridge export lookup failed for '%s' (peek=0x%x mask=0x%x)",
+           candidate, peek_ret, mask_ret);
+    }
+  }
+  return false;
+}
+
 static bool ensure_ps_bridge_ready(SceUID *module_id, PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn) {
   if (*peek_fn && *mask_fn)
     return true;
 
-  if (resolve_ps_bridge_exports(peek_fn, mask_fn))
+  if (resolve_ps_bridge_exports(peek_fn, mask_fn, false))
     return true;
 
   SceUID modid = taiLoadStartKernelModule(VITARPS5_PSBRIDGE_MODULE_PATH, 0, NULL, 0);
@@ -71,8 +102,9 @@ static bool ensure_ps_bridge_ready(SceUID *module_id, PsBridgePeekFn *peek_fn, P
     return false;
   }
   *module_id = modid;
+  LOGD("PS bridge module load/start returned 0x%x", modid);
 
-  if (!resolve_ps_bridge_exports(peek_fn, mask_fn)) {
+  if (!resolve_ps_bridge_exports(peek_fn, mask_fn, true)) {
     LOGE("PS bridge module loaded but exports could not be resolved");
     return false;
   }
