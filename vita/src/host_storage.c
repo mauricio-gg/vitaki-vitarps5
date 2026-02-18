@@ -96,6 +96,7 @@ void save_manual_host(VitaChiakiHost* rhost, char* new_hostname) {
     return;
   }
   newhost->type = REGISTERED | MANUALLY_ADDED;
+  newhost->source = VITA_HOST_SOURCE_MANUAL_REMOTE;
 
   CHIAKI_LOGI(&(context.log), "--");
   CHIAKI_LOGI(&(context.log), "Adding manual host:");
@@ -253,8 +254,11 @@ int count_manual_hosts_of_console(VitaChiakiHost* host) {
 
 void copy_host(VitaChiakiHost* h_dest, VitaChiakiHost* h_src, bool copy_hostname) {
         h_dest->type = h_src->type;
+        h_dest->source = h_src->source;
         h_dest->target = h_src->target;
         memcpy(&h_dest->server_mac, &(h_src->server_mac), 6);
+        memcpy(&h_dest->psn_device_uid, &(h_src->psn_device_uid), sizeof(h_dest->psn_device_uid));
+        h_dest->remoteplay_enabled = h_src->remoteplay_enabled;
 
         h_dest->hostname = NULL;
         if ((h_src->hostname) && copy_hostname) {

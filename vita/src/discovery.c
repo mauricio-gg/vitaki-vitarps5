@@ -145,6 +145,9 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     h->status_hint_is_error = false;
   }
   h->type |= DISCOVERED;
+  h->source = VITA_HOST_SOURCE_LOCAL_DISCOVERY;
+  h->remoteplay_enabled = false;
+  memset(h->psn_device_uid, 0, sizeof(h->psn_device_uid));
 
   ChiakiTarget target = chiaki_discovery_host_system_version_target(host);
   CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");

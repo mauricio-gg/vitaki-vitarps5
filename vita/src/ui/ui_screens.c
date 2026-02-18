@@ -935,6 +935,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   const char* network_text = "Unavailable";
   if (has_discovery) {
     network_text = "Local Wi-Fi";
+  } else if (has_host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) {
+    network_text = "PSN Internet";
   } else if (has_host && (host->type & MANUALLY_ADDED)) {
     network_text = "Manual Host";
   }
