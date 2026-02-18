@@ -28,6 +28,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_registration.c
     src/host_recovery.c
     src/host_storage.c
+    src/psn_auth.c
     src/controller.c
     src/controller_metadata.c
     src/video.c

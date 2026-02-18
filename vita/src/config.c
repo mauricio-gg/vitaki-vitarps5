@@ -24,6 +24,11 @@ typedef struct bool_serialize_spec_t {
 
 static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_default) {
   cfg->psn_account_id = NULL;
+  cfg->psn_oauth_access_token = NULL;
+  cfg->psn_oauth_refresh_token = NULL;
+  cfg->psn_oauth_expires_at_unix = 0;
+  cfg->psn_client_duid = NULL;
+  cfg->psn_remoteplay_enabled = false;
   cfg->auto_discovery = true;
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   cfg->fps = CHIAKI_VIDEO_FPS_PRESET_30;
@@ -198,6 +203,22 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) 
   if (datum.ok)
     cfg->psn_account_id = datum.u.s;
 
+  datum = toml_string_in(settings, "psn_oauth_access_token");
+  if (datum.ok)
+    cfg->psn_oauth_access_token = datum.u.s;
+
+  datum = toml_string_in(settings, "psn_oauth_refresh_token");
+  if (datum.ok)
+    cfg->psn_oauth_refresh_token = datum.u.s;
+
+  datum = toml_int_in(settings, "psn_oauth_expires_at_unix");
+  if (datum.ok && datum.u.i > 0)
+    cfg->psn_oauth_expires_at_unix = (uint64_t)datum.u.i;
+
+  datum = toml_string_in(settings, "psn_client_duid");
+  if (datum.ok)
+    cfg->psn_client_duid = datum.u.s;
+
   datum = toml_int_in(settings, "controller_map_id");
   if (datum.ok)
     cfg->controller_map_id = datum.u.i;
@@ -229,6 +250,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg,
     {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", false, &cfg->show_nav_labels},
     {"show_only_paired", false, &cfg->show_only_paired},
+    {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
   };
 
   size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
@@ -341,6 +363,9 @@ void config_free(VitaChiakiConfig* cfg) {
     return;
   }
   free(cfg->psn_account_id);
+  free(cfg->psn_oauth_access_token);
+  free(cfg->psn_oauth_refresh_token);
+  free(cfg->psn_client_duid);
   for (int i = 0; i < MAX_MANUAL_HOSTS; i++) {
     if (cfg->manual_hosts[i] != NULL) {
       host_free(cfg->manual_hosts[i]);
@@ -378,6 +403,19 @@ bool config_serialize(VitaChiakiConfig* cfg) {
   if (cfg->psn_account_id) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
+  if (cfg->psn_oauth_access_token) {
+    fprintf(fp, "psn_oauth_access_token = \"%s\"\n", cfg->psn_oauth_access_token);
+  }
+  if (cfg->psn_oauth_refresh_token) {
+    fprintf(fp, "psn_oauth_refresh_token = \"%s\"\n", cfg->psn_oauth_refresh_token);
+  }
+  if (cfg->psn_oauth_expires_at_unix > 0) {
+    fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
+            (unsigned long long)cfg->psn_oauth_expires_at_unix);
+  }
+  if (cfg->psn_client_duid) {
+    fprintf(fp, "psn_client_duid = \"%s\"\n", cfg->psn_client_duid);
+  }
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
   BoolSerializeSpec bool_settings[] = {
     {"circle_btn_confirm", cfg->circle_btn_confirm},
@@ -390,6 +428,7 @@ bool config_serialize(VitaChiakiConfig* cfg) {
     {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", cfg->show_nav_labels},
     {"show_only_paired", cfg->show_only_paired},
+    {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
