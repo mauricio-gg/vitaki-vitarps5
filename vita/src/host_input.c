@@ -180,6 +180,7 @@ void *host_input_thread_func(void* user) {
   int ps_intercept_original = 0;
   bool ps_prev_down = false;
   bool ps_waiting_second_tap = false;
+  bool ps_passthrough_active = false;
   uint64_t ps_first_release_us = 0;
 
 #if defined(SCE_CTRL_PSBUTTON)
@@ -230,6 +231,7 @@ void *host_input_thread_func(void* user) {
         ps_intercept_enabled = (ps_intercept_original != 0);
         ps_button_dual_mode_active = false;
         ps_waiting_second_tap = false;
+        ps_passthrough_active = false;
         ps_first_release_us = 0;
         ps_prev_down = false;
       }
@@ -288,45 +290,52 @@ void *host_input_thread_func(void* user) {
       if (ps_button_dual_mode_active) {
         uint64_t now_us = sceKernelGetProcessTimeWide();
         bool ps_down = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
+        bool ps_pressed = ps_down && !ps_prev_down;
         bool ps_released = !ps_down && ps_prev_down;
-        bool ps_armed_this_frame = false;
 
         if (!ps_waiting_second_tap && ps_released) {
+          // First tap completed: start second-tap window with intercept still enabled.
+          ps_waiting_second_tap = true;
+          ps_first_release_us = now_us;
+          LOGD("PS dual mode: first tap armed");
+        } else if (ps_waiting_second_tap && !ps_passthrough_active && ps_pressed &&
+                   (now_us - ps_first_release_us) <= PS_DOUBLE_PRESS_WINDOW_US) {
+          // Second press within window: open local passthrough while button is held.
           if (ps_intercept_enabled && set_ps_button_intercept_state(false)) {
             ps_intercept_enabled = false;
-            ps_waiting_second_tap = true;
-            ps_first_release_us = now_us;
-            ps_armed_this_frame = true;
-            LOGD("PS dual mode: first tap armed");
+            ps_passthrough_active = true;
+            LOGD("PS dual mode: second press detected, passthrough active");
           } else {
-            // Fallback path: if passthrough cannot be armed, preserve remote PS behavior.
+            // Could not open passthrough, fall back to remote PS for this interaction.
             stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
             ps_waiting_second_tap = false;
+            ps_passthrough_active = false;
             ps_first_release_us = 0;
-            LOGE("PS dual mode: failed to arm passthrough, sending remote PS");
+            LOGE("PS dual mode: failed to open second-press passthrough, sending remote PS");
           }
         }
 
-        if (ps_waiting_second_tap && !ps_armed_this_frame && ps_released &&
-            (now_us - ps_first_release_us) <= PS_DOUBLE_PRESS_WINDOW_US) {
-          // Double tap confirmed: keep it local to Vita, do not emit remote PS.
+        if (ps_waiting_second_tap && ps_passthrough_active && ps_released) {
+          // Double tap finished: close passthrough and restore intercept.
           ps_waiting_second_tap = false;
+          ps_passthrough_active = false;
           ps_first_release_us = 0;
-          LOGD("PS dual mode: double tap confirmed (Vita local)");
+          LOGD("PS dual mode: double tap confirmed (Vita local), restoring intercept");
           if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
             ps_intercept_enabled = set_ps_button_intercept_state(true);
           }
-        } else if (ps_waiting_second_tap && !ps_down &&
+        } else if (ps_waiting_second_tap && !ps_passthrough_active && !ps_down &&
                    (now_us - ps_first_release_us) > PS_DOUBLE_PRESS_WINDOW_US) {
           // Single tap timeout: emit remote PS once.
           stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
           ps_waiting_second_tap = false;
+          ps_passthrough_active = false;
           ps_first_release_us = 0;
           LOGD("PS dual mode: single tap timeout, sending remote PS");
           if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
             ps_intercept_enabled = set_ps_button_intercept_state(true);
           }
-        } else if (!ps_intercept_enabled && !ps_waiting_second_tap && !ps_down &&
+        } else if (!ps_intercept_enabled && !ps_passthrough_active && !ps_down &&
                    context.config.ps_button_dual_mode) {
           ps_intercept_enabled = set_ps_button_intercept_state(true);
         }
