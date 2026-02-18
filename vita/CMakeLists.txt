@@ -134,6 +134,7 @@ target_link_libraries(${VITA_APP_NAME}.elf
   SceAppMgr_stub
   SceAppUtil_stub
   SceRegistryMgr_stub
+  SceShellSvc_stub
 
   SceMotion_stub
   SceTouch_stub

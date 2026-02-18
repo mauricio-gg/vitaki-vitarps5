@@ -3,6 +3,7 @@
 
 #include <psp2/ctrl.h>
 #include <psp2/motion.h>
+#include <psp2/shellutil.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
@@ -25,17 +26,31 @@ typedef struct mapped_touch_slot_t {
 #define PS_DOUBLE_PRESS_WINDOW_US 300000ULL
 
 static bool set_ps_button_intercept_state(bool enabled) {
-#if defined(SCE_CTRL_PSBUTTON)
   int ret = sceCtrlSetButtonIntercept(enabled ? 1 : 0);
   if (ret < 0) {
     LOGE("Failed to set PS button intercept=%d (0x%x)", enabled ? 1 : 0, ret);
     return false;
   }
   return true;
-#else
-  (void)enabled;
+}
+
+static bool set_ps_shell_lock_state(bool enabled) {
+  // Adrenaline uses PS_BTN_2; prefer that path and keep PS_BTN as fallback.
+  SceShellUtilLockType primary = SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN_2;
+  int ret = enabled ? sceShellUtilLock(primary) : sceShellUtilUnlock(primary);
+  if (ret >= 0)
+    return true;
+
+  SceShellUtilLockType fallback = SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN;
+  int fallback_ret = enabled ? sceShellUtilLock(fallback) : sceShellUtilUnlock(fallback);
+  if (fallback_ret >= 0) {
+    LOGD("PS shell lock fallback to PS_BTN succeeded");
+    return true;
+  }
+
+  LOGE("Failed to %s PS shell lock (primary=0x%x fallback=0x%x)",
+       enabled ? "set" : "clear", ret, fallback_ret);
   return false;
-#endif
 }
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
@@ -177,6 +192,7 @@ void *host_input_thread_func(void* user) {
   const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
   bool ps_button_dual_mode_active = false;
   bool ps_intercept_enabled = false;
+  bool ps_shell_lock_enabled = false;
   int ps_intercept_original = 0;
   bool ps_prev_down = false;
   bool ps_prev_down_raw = false;
@@ -184,12 +200,10 @@ void *host_input_thread_func(void* user) {
   bool ps_passthrough_active = false;
   uint64_t ps_first_release_us = 0;
 
-#if defined(SCE_CTRL_PSBUTTON)
   if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
     ps_intercept_original = 0;
   LOGD("PS dual mode init: config=%d intercept_original=%d",
        context.config.ps_button_dual_mode ? 1 : 0, ps_intercept_original);
-#endif
 
   if (context.stream.cached_controller_valid) {
     stream->controller_state = context.stream.cached_controller_state;
@@ -224,14 +238,25 @@ void *host_input_thread_func(void* user) {
 
     if (controller_gate_open) {
       if (context.config.ps_button_dual_mode && !ps_button_dual_mode_active) {
+        if (!ps_shell_lock_enabled) {
+          ps_shell_lock_enabled = set_ps_shell_lock_state(true);
+          if (!ps_shell_lock_enabled) {
+            LOGE("PS button dual mode requested but shell lock could not be enabled");
+          }
+        }
         ps_button_dual_mode_active = set_ps_button_intercept_state(true);
         ps_intercept_enabled = ps_button_dual_mode_active;
         if (!ps_button_dual_mode_active) {
           LOGE("PS button dual mode requested but intercept could not be enabled");
         }
-      } else if (!context.config.ps_button_dual_mode && ps_button_dual_mode_active) {
+      } else if (!context.config.ps_button_dual_mode &&
+                 (ps_button_dual_mode_active || ps_shell_lock_enabled)) {
         set_ps_button_intercept_state(ps_intercept_original != 0);
         ps_intercept_enabled = (ps_intercept_original != 0);
+        if (ps_shell_lock_enabled) {
+          set_ps_shell_lock_state(false);
+          ps_shell_lock_enabled = false;
+        }
         ps_button_dual_mode_active = false;
         ps_waiting_second_tap = false;
         ps_passthrough_active = false;
@@ -289,7 +314,6 @@ void *host_input_thread_func(void* user) {
       stream->controller_state.l2_state = 0x00;
       stream->controller_state.r2_state = 0x00;
 
-#if defined(SCE_CTRL_PSBUTTON)
       bool ps_down_raw = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
       bool ps_pressed_raw = ps_down_raw && !ps_prev_down_raw;
       bool ps_released_raw = !ps_down_raw && ps_prev_down_raw;
@@ -359,7 +383,6 @@ void *host_input_thread_func(void* user) {
 
         ps_prev_down = ps_down;
       }
-#endif
 
       if (pending_touchpad_click_frames > 0) {
         stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
@@ -596,13 +619,14 @@ void *host_input_thread_func(void* user) {
     }
   }
 
-#if defined(SCE_CTRL_PSBUTTON)
   if (ps_intercept_enabled) {
     set_ps_button_intercept_state(ps_intercept_original != 0);
   } else if (ps_button_dual_mode_active && ps_intercept_original != 0) {
     set_ps_button_intercept_state(true);
   }
-#endif
+  if (ps_shell_lock_enabled) {
+    set_ps_shell_lock_state(false);
+  }
 
   return 0;
 }

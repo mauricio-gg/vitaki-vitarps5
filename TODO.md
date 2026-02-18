@@ -14,29 +14,35 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 🟡 In Progress
-1. **Robust reconnect + frame-dependency recovery track (architecture-first)**
+1. **PS button dual-mode reliability (shell-lock hardening spike)**
+   - *Owner:* Investigation + Implementation agents
+   - *Goal:* Make dual-mode deterministic (single press -> remote PS, double press -> Vita local) without requiring kernel plugins by first adding shell-level PS lock/unlock around active stream input handling.
+   - *Evidence:* `21570378498_vitarps5-testing.log:603`, `21570378498_vitarps5-testing.log:909` (dual mode active and first tap armed, but user still observes local Vita UI on single press).
+   - *Spec:* `docs/ai/PS_BUTTON_DUAL_MODE_FEASIBILITY.md`
+   - *Next Step:* Implement userland `sceShellUtilLock/Unlock` integration in `vita/src/host_input.c`, link `SceShellSvc_stub` in `vita/CMakeLists.txt`, and validate with `./tools/build.sh --env testing` + hardware log markers.
+2. **Robust reconnect + frame-dependency recovery track (architecture-first)**
    - *Owner:* Investigation + Implementation agents
    - *Goal:* Eliminate \"alive but degraded\" post-reconnect sessions (19-24 FPS with persistent missing reference bursts) by hardening transport/reorder + session transition + decode/present pipeline boundaries.
    - *Evidence:* `87116066464_vitarps5-testing.log:2920`, `87116066464_vitarps5-testing.log:3082`, `87116066464_vitarps5-testing.log:3918`, `87116066464_vitarps5-testing.log:5169`; `86888155925_vitarps5-testing.log:1658`, `86888155925_vitarps5-testing.log:75011334`.
    - *Spec:* `docs/ai/STREAM_PIPELINE_ROBUSTNESS_PLAN.md`
    - *Next Step:* Land instrumentation-first PR with stream generation tagging and post-reconnect low-FPS counters in `vita/src/host.c` + `vita/include/context.h`.
-2. **Clarify PS5 bitrate negotiation**
+3. **Clarify PS5 bitrate negotiation**
    - *Owner:* Investigation agent
    - *Goal:* Confirm whether the PS5 honors `RP-StartBitrate` and LaunchSpec fields by instrumenting the ctrl request (`lib/src/ctrl.c:1136-1245`) and comparing against the LaunchSpec payload (`lib/src/streamconnection.c:843-887`).
    - *Next Step:* Capture control-plane packets (logs) before/after instrumentation.
-3. **Stability recovery baseline from main (packet-loss first)**
+4. **Stability recovery baseline from main (packet-loss first)**
    - *Owner:* Investigation agent
    - *Goal:* Reproduce 360p/540p behavior on fresh `main` using `./tools/build.sh --env testing` and capture baseline metrics (pixelation onset, missing/corrupt frame bursts, reconnect count).
    - *Next Step:* Run a controlled 5-10 minute session matrix at 360p and 540p with Automatic fallback and store logs for A/B comparison.
-4. **Packet/reference-loss mitigation track**
+5. **Packet/reference-loss mitigation track**
    - *Owner:* Implementation agent
    - *Goal:* Instrument receive/reorder/fallback reason paths and tune loss gates/cooldowns so transient bursts request IDR first instead of entering reconnect oscillation.
    - *Next Step:* Add compact counters and reason tagging around `handle_loss_event()` and stream restart scheduling in `vita/src/host.c`.
-5. **Decode/render split prototype (separate branch after packet track)**
+6. **Decode/render split prototype (separate branch after packet track)**
    - *Owner:* Implementation agent
    - *Goal:* Decouple decode from present path so `sceAvcdecDecode` is not blocked by `vita2d_wait_rendering_done()`, then validate cadence gains without introducing corruption regressions.
    - *Next Step:* Create `feat/decode-render-split` from updated `main` after packet-track validation and implement a bounded decoded-frame handoff queue.
-6. **Startup transport hardening (separate PR/branch)**
+7. **Startup transport hardening (separate PR/branch)**
    - *Owner:* Implementation agent
    - *Goal:* Isolate initial-session transport failures (early Takion queue overflow and reconnect churn into `RP_IN_USE`) without mixing this work into active-session decode stability tuning.
    - *Evidence:* `84165791498_vitarps5-testing.log:775-823`, `84165791498_vitarps5-testing.log:917-923`, `84165791498_vitarps5-testing.log:1256-1261`
@@ -51,7 +57,7 @@ Only move a task to "Done" after the reviewer signs off.
      - startup bootstrap markers `PIPE/BOOTSTRAP action=flush_and_idr` and `PIPE/BOOTSTRAP action=ready ...`
      - restart-churn markers `PIPE/RESTART_FAIL ... handshake_init_ack`, `PIPE/RESTART ... action=blocked_cooloff`, `PIPE/RECOVER ... action=stage2_suppressed`
      - stability windows (`PIPE/FPS`, reconnect generations) against the 2026-02-11 and 2026-02-12 baselines.
-7. **Follow-up robustness pass (post-merge cleanups)**
+8. **Follow-up robustness pass (post-merge cleanups)**
    - *Owner:* Implementation agent
    - *Goal:* Close remaining non-blocking review debt without destabilizing the active packet-path baseline PR.
    - *Scope:*
@@ -59,13 +65,13 @@ Only move a task to "Done" after the reviewer signs off.
      - Split `vita/src/host.c` recovery and diagnostics logic into smaller modules/functions.
      - Add focused tests for recovery timing/state transitions (stale diagnostics windows, reconnect stage transitions, span edge cases).
    - *Next Step:* Open dedicated follow-up PR immediately after baseline merge and land test-first where possible.
-8. **Codebase cleanup wave 1 (Vitaki delta-guided)**
+9. **Codebase cleanup wave 1 (Vitaki delta-guided)**
    - *Owner:* Implementation agent
    - *Goal:* Reduce runtime complexity in inflated non-UI files while preserving all VitaRPS5 enhancements and behavior.
    - *Spec:* `docs/ai/CODEBASE_CLEANUP_PLAN.md`
    - *Progress (2026-02-16):* Added delta tooling (`tools/analysis/compare_vitaki_delta.sh`), created cleanup plan doc, refactored repetitive config migration bool parsing into a table-driven path in `vita/src/config.c`, extracted stream HUD/indicator rendering from `vita/src/video.c` to `vita/src/video_overlay.c`, extracted host/manual-host storage utilities from `vita/src/host.c` to `vita/src/host_storage.c`, extracted input-thread/controller-touch mapping logic from `vita/src/host.c` to `vita/src/host_input.c` with a narrow stop-request bridge API, extracted disconnect/quit-reason banner helpers from `vita/src/host.c` to `vita/src/host_disconnect.c`, extracted loss-profile calculation/saturation helpers from `vita/src/host.c` to `vita/src/host_loss_profile.c`, extracted hint/decoder-resync/loss-event handlers from `vita/src/host.c` to `vita/src/host_feedback.c`, extracted reconnect recovery coordinator logic from `vita/src/host.c` to `vita/src/host_recovery.c`, extracted stream metrics reset/latency diagnostics paths from `vita/src/host.c` to `vita/src/host_metrics.c`, extracted registration/wakeup flow (`host_register`/`host_wakeup` and callback handling) from `vita/src/host.c` to `vita/src/host_registration.c`, extracted stream lifecycle/finalization helpers from `vita/src/host.c` to `vita/src/host_lifecycle.c`, extracted `CHIAKI_EVENT_QUIT` handling/retry orchestration from `vita/src/host.c` to `vita/src/host_quit.c`, extracted session/video callback plumbing (`event_cb`/`video_cb`) from `vita/src/host.c` to `vita/src/host_callbacks.c`, extracted registered/manual host parse+serialize logic from `vita/src/config.c` to `vita/src/config_hosts.c` (including `test/CMakeLists.txt` linkage update for `vitarps5_tests`), added focused config migration tests (`legacy`/`root` bool + `latency_mode`) in `test/config_vita_tests.c`, helperized `config.c` defaults/custom-map parsing plus resolution/FPS/latency migration parsing/serialization loops, and further deflated `vita/src/video.c` by removing dead legacy paths (`vita_h264_process_header`, stale SPS/header experiments, obsolete frame-pacer init status stage, and large commented setup/decode scaffolding), bringing the file down to ~641 lines.
    - *Next Step:* Complete strict non-UI Vitaki-delta cleanup in this order: (1) finalize `vita/src/controller.c` simplification, (2) finalize `vita/src/discovery.c` simplification + warning cleanup, (3) finalize `vita/src/audio.c` simplification, then run full validation (`./tools/build.sh test`, `./tools/build.sh debug`, `./tools/build.sh --env testing`) and close Wave 1. Defer large UI monolith refactors (for example `vita/src/ui/ui_screens.c`) to a separate phase after Wave 1.
-9. **Freeze-recovery hard fallback (separate branch post-cleanup)**
+10. **Freeze-recovery hard fallback (separate branch post-cleanup)**
    - *Owner:* Implementation agent
    - *Goal:* Address rare “video freeze while session remains connected” cases by escalating to a hard fallback when unrecovered/corrupt-frame held streaks persist after non-blocking IDR resync attempts.
    - *Evidence:* `35786104837_vitarps5-testing.log:2329`, `35786104837_vitarps5-testing.log:2334`, `35786104837_vitarps5-testing.log:4907`
