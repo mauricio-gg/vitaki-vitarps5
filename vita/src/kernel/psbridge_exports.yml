@@ -1,0 +1,16 @@
+vitarps5_psbridge:
+  attributes: 0x7
+  version:
+    major: 0x1
+    minor: 0x0
+  main:
+    start: module_start
+    stop: module_stop
+  modules:
+    vitarps5_psbridge_user:
+      syscall: true
+      version: 0x1
+      nid: 0xF4C5B1A0
+      functions:
+        - kuCtrlPeekPsButton: 0xB81E9921
+        - kuCtrlSetPsButtonMask: 0xC92A48F5

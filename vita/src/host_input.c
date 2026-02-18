@@ -7,6 +7,7 @@
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+#include <taihen.h>
 
 #include <unistd.h>
 
@@ -24,6 +25,61 @@ typedef struct mapped_touch_slot_t {
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
 #define PS_DOUBLE_PRESS_WINDOW_US 300000ULL
+#define PS_BRIDGE_LOG_INTERVAL_US 2000000ULL
+
+#ifndef VITARPS5_TITLEID
+#define VITARPS5_TITLEID "VRPS50001"
+#endif
+
+#define VITARPS5_PSBRIDGE_MODULE_NAME "vitarps5_psbridge"
+#define VITARPS5_PSBRIDGE_MODULE_PATH "ux0:app/" VITARPS5_TITLEID "/sce_module/vitarps5_psbridge.skprx"
+#define VITARPS5_PSBRIDGE_LIB_NID 0xF4C5B1A0
+#define VITARPS5_PSBRIDGE_FUNC_PEEK_NID 0xB81E9921
+#define VITARPS5_PSBRIDGE_FUNC_MASK_NID 0xC92A48F5
+
+typedef int (*PsBridgePeekFn)(void);
+typedef int (*PsBridgeMaskFn)(int enabled);
+
+static bool resolve_ps_bridge_exports(PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn) {
+  uintptr_t peek_addr = 0;
+  uintptr_t mask_addr = 0;
+  int peek_ret = taiGetModuleExportFunc(VITARPS5_PSBRIDGE_MODULE_NAME,
+                                        VITARPS5_PSBRIDGE_LIB_NID,
+                                        VITARPS5_PSBRIDGE_FUNC_PEEK_NID,
+                                        &peek_addr);
+  int mask_ret = taiGetModuleExportFunc(VITARPS5_PSBRIDGE_MODULE_NAME,
+                                        VITARPS5_PSBRIDGE_LIB_NID,
+                                        VITARPS5_PSBRIDGE_FUNC_MASK_NID,
+                                        &mask_addr);
+  if (peek_ret < 0 || mask_ret < 0)
+    return false;
+  *peek_fn = (PsBridgePeekFn)peek_addr;
+  *mask_fn = (PsBridgeMaskFn)mask_addr;
+  return true;
+}
+
+static bool ensure_ps_bridge_ready(SceUID *module_id, PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn) {
+  if (*peek_fn && *mask_fn)
+    return true;
+
+  if (resolve_ps_bridge_exports(peek_fn, mask_fn))
+    return true;
+
+  SceUID modid = taiLoadStartKernelModule(VITARPS5_PSBRIDGE_MODULE_PATH, 0, NULL, 0);
+  if (modid < 0) {
+    LOGE("Failed to load PS bridge kernel module (0x%x)", modid);
+    return false;
+  }
+  *module_id = modid;
+
+  if (!resolve_ps_bridge_exports(peek_fn, mask_fn)) {
+    LOGE("PS bridge module loaded but exports could not be resolved");
+    return false;
+  }
+
+  LOGD("PS bridge kernel module loaded");
+  return true;
+}
 
 static bool set_ps_button_intercept_state(bool enabled) {
   int ret = sceCtrlSetButtonIntercept(enabled ? 1 : 0);
@@ -193,12 +249,17 @@ void *host_input_thread_func(void* user) {
   bool ps_button_dual_mode_active = false;
   bool ps_intercept_enabled = false;
   bool ps_shell_lock_enabled = false;
+  bool ps_bridge_mask_enabled = false;
   int ps_intercept_original = 0;
   bool ps_prev_down = false;
   bool ps_prev_down_raw = false;
   bool ps_waiting_second_tap = false;
   bool ps_passthrough_active = false;
   uint64_t ps_first_release_us = 0;
+  uint64_t ps_bridge_last_error_log_us = 0;
+  SceUID ps_bridge_module_id = -1;
+  PsBridgePeekFn ps_bridge_peek_fn = NULL;
+  PsBridgeMaskFn ps_bridge_mask_fn = NULL;
 
   if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
     ps_intercept_original = 0;
@@ -238,7 +299,18 @@ void *host_input_thread_func(void* user) {
 
     if (controller_gate_open) {
       if (context.config.ps_button_dual_mode && !ps_button_dual_mode_active) {
-        if (!ps_shell_lock_enabled) {
+        if (ensure_ps_bridge_ready(&ps_bridge_module_id, &ps_bridge_peek_fn, &ps_bridge_mask_fn) &&
+            ps_bridge_mask_fn && !ps_bridge_mask_enabled) {
+          int mask_ret = ps_bridge_mask_fn(1);
+          if (mask_ret >= 0) {
+            ps_bridge_mask_enabled = true;
+            LOGD("PS bridge mask enabled");
+          } else {
+            LOGE("PS bridge mask enable failed (0x%x)", mask_ret);
+          }
+        }
+
+        if (!ps_bridge_mask_enabled && !ps_shell_lock_enabled) {
           ps_shell_lock_enabled = set_ps_shell_lock_state(true);
           if (!ps_shell_lock_enabled) {
             LOGE("PS button dual mode requested but shell lock could not be enabled");
@@ -253,6 +325,12 @@ void *host_input_thread_func(void* user) {
                  (ps_button_dual_mode_active || ps_shell_lock_enabled)) {
         set_ps_button_intercept_state(ps_intercept_original != 0);
         ps_intercept_enabled = (ps_intercept_original != 0);
+        if (ps_bridge_mask_enabled && ps_bridge_mask_fn) {
+          int mask_ret = ps_bridge_mask_fn(0);
+          if (mask_ret < 0)
+            LOGE("PS bridge mask disable failed (0x%x)", mask_ret);
+          ps_bridge_mask_enabled = false;
+        }
         if (ps_shell_lock_enabled) {
           set_ps_shell_lock_state(false);
           ps_shell_lock_enabled = false;
@@ -267,6 +345,21 @@ void *host_input_thread_func(void* user) {
       uint64_t start_time_us = sceKernelGetProcessTimeWide();
 
       sceCtrlPeekBufferPositiveExt(0, &ctrl, 1);
+      if (ps_bridge_peek_fn) {
+        int peek_ret = ps_bridge_peek_fn();
+        if (peek_ret >= 0) {
+          ctrl.buttons &= ~SCE_CTRL_PSBUTTON;
+          if (peek_ret)
+            ctrl.buttons |= SCE_CTRL_PSBUTTON;
+        } else {
+          uint64_t now_us = sceKernelGetProcessTimeWide();
+          if (!ps_bridge_last_error_log_us ||
+              now_us - ps_bridge_last_error_log_us >= PS_BRIDGE_LOG_INTERVAL_US) {
+            LOGE("PS bridge peek failed (0x%x)", peek_ret);
+            ps_bridge_last_error_log_us = now_us;
+          }
+        }
+      }
 
       bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
                         (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
@@ -624,8 +717,18 @@ void *host_input_thread_func(void* user) {
   } else if (ps_button_dual_mode_active && ps_intercept_original != 0) {
     set_ps_button_intercept_state(true);
   }
+  if (ps_bridge_mask_enabled && ps_bridge_mask_fn) {
+    int mask_ret = ps_bridge_mask_fn(0);
+    if (mask_ret < 0)
+      LOGE("PS bridge mask disable failed during shutdown (0x%x)", mask_ret);
+  }
   if (ps_shell_lock_enabled) {
     set_ps_shell_lock_state(false);
+  }
+  if (ps_bridge_module_id >= 0) {
+    int unload_ret = taiStopUnloadKernelModule(ps_bridge_module_id, 0, NULL, 0, NULL, NULL);
+    if (unload_ret < 0)
+      LOGE("Failed to unload PS bridge kernel module (0x%x)", unload_ret);
   }
 
   return 0;

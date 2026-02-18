@@ -59,6 +59,7 @@ add_executable(${VITA_APP_NAME}.elf
 
 target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC
     CHIAKI_VERSION="${CHIAKI_VERSION}"
+    VITARPS5_TITLEID="${VITA_TITLEID}"
 )
 if(DEFINED VITARPS5_DEFAULT_LOG_PROFILE)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEFAULT_LOG_PROFILE=${VITARPS5_DEFAULT_LOG_PROFILE})
@@ -106,6 +107,7 @@ target_include_directories(${VITA_APP_NAME}.elf PRIVATE
 target_link_libraries(${VITA_APP_NAME}.elf
   # TODO: Do we really need all of those?
   chiaki-lib
+  taihen_stub
   vita2d
   ssl
   crypto
@@ -154,6 +156,24 @@ target_link_libraries(${VITA_APP_NAME}.elf
 if(CHIAKI_IS_VITA)
     vita_create_self(${VITA_APP_NAME}.self ${VITA_APP_NAME}.elf UNSAFE)
 
+    set(VITARPS5_PSBRIDGE_MODULE vitarps5_psbridge)
+    add_executable(${VITARPS5_PSBRIDGE_MODULE}
+        src/kernel/psbridge.c
+    )
+    target_link_libraries(${VITARPS5_PSBRIDGE_MODULE}
+      SceCtrlForDriver_stub
+      SceSysmemForKernel_stub
+      SceSysmemForKernel_363_stub
+      SceSysclibForDriver_stub
+    )
+    set_target_properties(${VITARPS5_PSBRIDGE_MODULE}
+      PROPERTIES LINK_FLAGS "-nostdlib"
+    )
+    vita_create_self(${VITARPS5_PSBRIDGE_MODULE}.skprx ${VITARPS5_PSBRIDGE_MODULE}
+      CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/src/kernel/psbridge_exports.yml
+      UNSAFE
+    )
+
     vita_create_vpk(${VITA_APP_NAME}.vpk ${VITA_TITLEID} ${VITA_APP_NAME}.self
         VERSION ${VITA_VERSION}
         NAME ${VITA_APP_NAME}
@@ -162,6 +182,7 @@ if(CHIAKI_IS_VITA)
         FILE res/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
         FILE res/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
         FILE res/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/${VITARPS5_PSBRIDGE_MODULE}.skprx sce_module/${VITARPS5_PSBRIDGE_MODULE}.skprx
         # Textures, other assets
         FILE res/assets/ps4_off.png assets/ps4_off.png
         FILE res/assets/ps4.png assets/ps4.png
