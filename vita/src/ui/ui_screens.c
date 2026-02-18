@@ -2746,12 +2746,22 @@ UIScreenType ui_screen_draw_waking(void) {
 
   static const char *stage_titles[] = {
     "Waking console",
+    "Authenticating with PSN",
+    "Fetching internet consoles",
+    "Creating PSN session",
     "Preparing Remote Play",
+    "Punching control channel",
+    "Punching data channel",
     "Starting stream"
   };
   static const char *stage_details[] = {
     "Sending wake signal",
+    "Validating account tokens",
+    "Loading remote-play capable devices",
+    "Creating cloud-assisted session",
     "Negotiating session",
+    "Establishing control tunnel",
+    "Finalizing media tunnel",
     "Launching video pipeline"
   };
   const int stage_count = sizeof(stage_titles) / sizeof(stage_titles[0]);
@@ -2781,7 +2791,13 @@ UIScreenType ui_screen_draw_waking(void) {
 
   // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
   const char* title = (ui_connection_stage() == UI_CONNECTION_STAGE_WAKING) ?
-      "Waking Console" : "Starting Remote Play";
+      "Waking Console" :
+      ((ui_connection_stage() == UI_CONNECTION_STAGE_PSN_AUTH ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_FETCH_DEVICES ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_CREATE_SESSION ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_CTRL ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_DATA) ?
+           "Starting Internet Remote Play" : "Starting Remote Play");
   int title_size = 28;
   int title_w = get_text_width_cached(title, title_size);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title

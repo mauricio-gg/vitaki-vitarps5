@@ -9,10 +9,13 @@
 #include "host_callbacks.h"
 #include "discovery.h"
 #include "audio.h"
+#include "psn_auth.h"
+#include "psn_remote.h"
 #include "video.h"
 #include "string.h"
 #include <psp2/kernel/processmgr.h>
 #include <chiaki/session.h>
+#include <time.h>
 
 static void request_stream_stop(const char *reason);
 
@@ -207,7 +210,40 @@ int host_stream(VitaChiakiHost* host) {
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
     context.stream.loss_retry_active = false;
   }
-  ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+  bool psn_remote = host->source == VITA_HOST_SOURCE_PSN_REMOTE;
+  if (psn_remote) {
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_AUTH);
+    if (!psn_auth_enabled()) {
+      LOGE("PSN internet remote play is disabled in settings");
+      host_set_hint(host, "Enable PSN internet mode in settings.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    if (!psn_auth_has_tokens()) {
+      LOGE("Missing PSN OAuth tokens for internet remote play");
+      host_set_hint(host, "PSN login required for internet remote play.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    if (!psn_auth_token_is_valid((uint64_t)time(NULL))) {
+      LOGE("PSN OAuth token expired for internet remote play");
+      host_set_hint(host, "PSN session expired. Please sign in again.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_CREATE_SESSION);
+    if (psn_remote_prepare_connect_host(host) != 0) {
+      host_set_hint(host,
+                    "PSN internet remote play stack is unavailable in this build.",
+                    true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_PUNCH_CTRL);
+  } else {
+    ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+  }
+
   ChiakiConnectInfo chiaki_connect_info = {};
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
