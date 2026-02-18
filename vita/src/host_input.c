@@ -22,7 +22,7 @@ typedef struct mapped_touch_slot_t {
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
-#define PS_DOUBLE_PRESS_WINDOW_US 350000ULL
+#define PS_DOUBLE_PRESS_WINDOW_US 300000ULL
 
 static bool set_ps_button_intercept_state(bool enabled) {
 #if defined(SCE_CTRL_PSBUTTON)
@@ -179,8 +179,8 @@ void *host_input_thread_func(void* user) {
   bool ps_intercept_enabled = false;
   int ps_intercept_original = 0;
   bool ps_prev_down = false;
-  bool ps_single_pending = false;
-  uint64_t ps_first_press_us = 0;
+  bool ps_waiting_second_tap = false;
+  uint64_t ps_first_release_us = 0;
 
 #if defined(SCE_CTRL_PSBUTTON)
   if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
@@ -226,13 +226,11 @@ void *host_input_thread_func(void* user) {
           LOGE("PS button dual mode requested but intercept could not be enabled");
         }
       } else if (!context.config.ps_button_dual_mode && ps_button_dual_mode_active) {
-        if (ps_intercept_enabled) {
-          set_ps_button_intercept_state(ps_intercept_original != 0);
-          ps_intercept_enabled = false;
-        }
+        set_ps_button_intercept_state(ps_intercept_original != 0);
+        ps_intercept_enabled = (ps_intercept_original != 0);
         ps_button_dual_mode_active = false;
-        ps_single_pending = false;
-        ps_first_press_us = 0;
+        ps_waiting_second_tap = false;
+        ps_first_release_us = 0;
         ps_prev_down = false;
       }
 
@@ -290,35 +288,46 @@ void *host_input_thread_func(void* user) {
       if (ps_button_dual_mode_active) {
         uint64_t now_us = sceKernelGetProcessTimeWide();
         bool ps_down = (ctrl.buttons & SCE_CTRL_PSBUTTON) != 0;
-        bool ps_pressed = ps_down && !ps_prev_down;
+        bool ps_released = !ps_down && ps_prev_down;
+        bool ps_armed_this_frame = false;
 
-        if (ps_single_pending && !ps_intercept_enabled && ps_pressed) {
-          // Treat a second press during passthrough window as "Vita PS action requested".
-          ps_single_pending = false;
-          ps_first_press_us = 0;
+        if (!ps_waiting_second_tap && ps_released) {
+          if (ps_intercept_enabled && set_ps_button_intercept_state(false)) {
+            ps_intercept_enabled = false;
+            ps_waiting_second_tap = true;
+            ps_first_release_us = now_us;
+            ps_armed_this_frame = true;
+            LOGD("PS dual mode: first tap armed");
+          } else {
+            // Fallback path: if passthrough cannot be armed, preserve remote PS behavior.
+            stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
+            ps_waiting_second_tap = false;
+            ps_first_release_us = 0;
+            LOGE("PS dual mode: failed to arm passthrough, sending remote PS");
+          }
         }
 
-        if (ps_single_pending && (now_us - ps_first_press_us > PS_DOUBLE_PRESS_WINDOW_US)) {
+        if (ps_waiting_second_tap && !ps_armed_this_frame && ps_released &&
+            (now_us - ps_first_release_us) <= PS_DOUBLE_PRESS_WINDOW_US) {
+          // Double tap confirmed: keep it local to Vita, do not emit remote PS.
+          ps_waiting_second_tap = false;
+          ps_first_release_us = 0;
+          LOGD("PS dual mode: double tap confirmed (Vita local)");
           if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
             ps_intercept_enabled = set_ps_button_intercept_state(true);
           }
+        } else if (ps_waiting_second_tap && !ps_down &&
+                   (now_us - ps_first_release_us) > PS_DOUBLE_PRESS_WINDOW_US) {
+          // Single tap timeout: emit remote PS once.
           stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
-          ps_single_pending = false;
-          ps_first_press_us = 0;
-        }
-
-        if (ps_pressed && !ps_single_pending) {
-          if (ps_intercept_enabled && set_ps_button_intercept_state(false)) {
-            ps_intercept_enabled = false;
-            ps_single_pending = true;
-            ps_first_press_us = now_us;
-          } else {
-            // Fallback if passthrough mode can't be armed: preserve remote PS behavior.
-            stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
+          ps_waiting_second_tap = false;
+          ps_first_release_us = 0;
+          LOGD("PS dual mode: single tap timeout, sending remote PS");
+          if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
+            ps_intercept_enabled = set_ps_button_intercept_state(true);
           }
-        }
-
-        if (!ps_intercept_enabled && !ps_single_pending && !ps_down && context.config.ps_button_dual_mode) {
+        } else if (!ps_intercept_enabled && !ps_waiting_second_tap && !ps_down &&
+                   context.config.ps_button_dual_mode) {
           ps_intercept_enabled = set_ps_button_intercept_state(true);
         }
 
