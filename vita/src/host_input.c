@@ -32,7 +32,8 @@ typedef struct mapped_touch_slot_t {
 #endif
 
 #define VITARPS5_PSBRIDGE_MODULE_NAME "vitarps5_psbridge"
-#define VITARPS5_PSBRIDGE_MODULE_PATH "ux0:app/" VITARPS5_TITLEID "/sce_module/vitarps5_psbridge.skprx"
+#define VITARPS5_PSBRIDGE_MODULE_PATH_APP0 "app0:sce_module/vitarps5_psbridge.skprx"
+#define VITARPS5_PSBRIDGE_MODULE_PATH_UX0 "ux0:app/" VITARPS5_TITLEID "/sce_module/vitarps5_psbridge.skprx"
 #define VITARPS5_PSBRIDGE_LIB_NID 0xF4C5B1A0
 #define VITARPS5_PSBRIDGE_FUNC_PEEK_NID 0xB81E9921
 #define VITARPS5_PSBRIDGE_FUNC_MASK_NID 0xC92A48F5
@@ -43,6 +44,10 @@ typedef int (*PsBridgeMaskFn)(int enabled);
 static const char *VITARPS5_PSBRIDGE_MODULE_CANDIDATES[] = {
   "vitarps5_psbridge",
   "psbridge",
+};
+static const char *VITARPS5_PSBRIDGE_PATH_CANDIDATES[] = {
+  VITARPS5_PSBRIDGE_MODULE_PATH_APP0,
+  VITARPS5_PSBRIDGE_MODULE_PATH_UX0,
 };
 
 static bool resolve_ps_bridge_exports_for_name(const char *module_name,
@@ -96,9 +101,18 @@ static bool ensure_ps_bridge_ready(SceUID *module_id, PsBridgePeekFn *peek_fn, P
   if (resolve_ps_bridge_exports(peek_fn, mask_fn, false))
     return true;
 
-  SceUID modid = taiLoadStartKernelModule(VITARPS5_PSBRIDGE_MODULE_PATH, 0, NULL, 0);
+  SceUID modid = -1;
+  unsigned int i;
+  for (i = 0; i < sizeof(VITARPS5_PSBRIDGE_PATH_CANDIDATES) / sizeof(VITARPS5_PSBRIDGE_PATH_CANDIDATES[0]); i++) {
+    const char *path = VITARPS5_PSBRIDGE_PATH_CANDIDATES[i];
+    modid = taiLoadStartKernelModule(path, 0, NULL, 0);
+    if (modid >= 0) {
+      LOGD("PS bridge module loaded from %s", path);
+      break;
+    }
+    LOGE("Failed to load PS bridge kernel module from %s (0x%x)", path, modid);
+  }
   if (modid < 0) {
-    LOGE("Failed to load PS bridge kernel module (0x%x)", modid);
     return false;
   }
   *module_id = modid;
