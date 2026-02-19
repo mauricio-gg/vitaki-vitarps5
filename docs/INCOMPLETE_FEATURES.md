@@ -2,43 +2,47 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-13 (Startup deterministic bootstrap)
+**Last Updated:** 2026-02-19 (Internet Remote Play backend viability check)
 **Status:** Generated from codebase analysis
 
 ---
 
 ## Critical TODOs
 
-### 1. Internet Remote Play (Infrastructure Exists - Disabled)
+### 1. Internet Remote Play (Backend Partially Wired, Not Ship-Ready)
 **File:** `lib/src/remote/holepunch.c` (5,047 lines), `lib/src/remote/rudp.c`, `lib/src/remote/stun.h`
-**Status:** Fully implemented but disabled for PS Vita with `#if !(defined(__PSVITA__))` guards
-**Priority:** Future Feature (7-12 weeks effort)
-**Description:** Complete internet remote play infrastructure exists from upstream vitaki/Chiaki but is deliberately disabled for PS Vita. Includes UDP hole-punching, STUN/UPnP NAT traversal, RUDP protocol, and full PSN API integration.
+**Status:** PSN host wiring + config/UI scaffolding implemented on Vita branch, holepunch code now compilable behind `CHIAKI_ENABLE_VITA_HOLEPUNCH`, but full VPK packaging still fails when enabled
+**Priority:** High
+**Description:** Internet remote play is no longer just a conceptual TODO. Core Vita-side plumbing now exists (PSN host source model, token persistence, settings toggle, host refresh, holepunch session wiring), but production viability is blocked by toolchain/runtime hardening gaps.
 
-**What Exists:**
+**What Exists (as of 2026-02-19):**
 - 5,000+ lines of production-ready hole-punching code
 - STUN client for external IP discovery (multiple servers)
 - RUDP (Reliable UDP) protocol for internet connections
-- UPnP automatic port mapping
+- UPnP automatic port mapping (non-Vita targets)
 - PSN OAuth2 authentication flow
 - Device discovery via PSN API
 - WebSocket session management
-- All dependencies present (libcurl, json-c, miniupnpc, OpenSSL)
+- Vita app-side backend wiring:
+  - PSN host source model + persistence fields
+  - PSN internet settings toggle in UI
+  - PSN device-list refresh path into host cards
+  - Holepunch session handoff into `ChiakiConnectInfo`
 
-**What's Missing:**
+**What's Missing / Blocking:**
 - PSN authentication UI (OAuth2 login screen)
-- Device selection UI (show user's remote consoles)
-- Connection status UI (NAT traversal progress)
-- Platform guard removal (`#if !(defined(__PSVITA__))`)
-- Vita-specific testing (NAT types, network conditions)
+- Robust token refresh/login lifecycle UX (expired token recovery)
+- NAT traversal robustness on Vita (currently STUN-first; Vita UPnP path disabled)
+- Vita hardware validation matrix (NAT types A/B/C, WAN loss/jitter)
+- Packaging blocker when holepunch is enabled:
+  - `vita-elf-create: Invalid relocation type 25` during VELF conversion in Release builds with `-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON` (observed 2026-02-19)
 
-**Implementation Roadmap:**
-1. **Phase 1:** Remove platform guards, verify dependencies (2-3 weeks)
-2. **Phase 2:** PSN authentication UI (OAuth2 device code flow) (2-3 weeks)
-3. **Phase 3:** UI integration (device list, connection status) (2-3 weeks)
-4. **Phase 4:** Core wiring (holepunch → RUDP → session) (1-2 weeks)
-5. **Phase 5:** Testing & hardening (multiple NAT types, error handling) (2-4 weeks)
-6. **Phase 6:** Documentation & release (1 week)
+**Implementation Roadmap (updated):**
+1. **Phase 1:** Resolve holepunch-enabled Vita packaging blocker (`Invalid relocation type 25`) and keep default builds green.
+2. **Phase 2:** Implement PSN OAuth device-login UX + refresh-token lifecycle.
+3. **Phase 3:** Harden Vita NAT path (UPnP strategy decision + fallback telemetry + failure UX).
+4. **Phase 4:** End-to-end hardware validation across WAN/NAT scenarios (`./tools/build.sh --env testing` builds).
+5. **Phase 5:** Documentation, user guidance, and staged release gating.
 
 **Technical Architecture:**
 - NAT Traversal: UPnP (preferred) → STUN → Manual fallback

@@ -72,6 +72,12 @@ Only move a task to "Done" after the reviewer signs off.
    - *Scope:* Add a guarded escalation path in `vita/src/host.c` loss/recovery flow (around decoder resync and unrecovered-frame counters), with cooldown and single-use safeguards to avoid reconnect oscillation.
    - *Branching:* Implement on a dedicated follow-up branch after current codebase-cleanup objective is complete.
    - *Next Step:* Draft branch-level acceptance criteria and log markers before coding.
+10. **Internet Remote Play ship-blocker closure (PSN + holepunch)**
+   - *Owner:* Investigation + Implementation agents
+   - *Goal:* Move internet remote play from backend-wired prototype to shippable feature.
+   - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, and holepunch connect handoff are implemented on `feat/psn-internet-remoteplay-mvp`.
+   - *Blocking Gap:* Full Vita packaging with `-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON` fails at VELF conversion (`vita-elf-create: Invalid relocation type 25`), so internet mode cannot be shipped yet.
+   - *Next Step:* Isolate relocation source and eliminate unsupported relocations while keeping default (`holepunch OFF`) release path stable.
 
 ---
 
