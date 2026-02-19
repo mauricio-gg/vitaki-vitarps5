@@ -28,6 +28,13 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - PSN internet settings toggle in UI
   - PSN device-list refresh path into host cards
   - Holepunch session handoff into `ChiakiConnectInfo`
+  - Device-login lifecycle UI/actions in Profile (start/poll/cancel/logout + auth status)
+  - Runtime OAuth provider settings in `[settings]`:
+    - `psn_oauth_device_code_url`
+    - `psn_oauth_token_url`
+    - `psn_oauth_client_id`
+    - `psn_oauth_client_secret` (optional)
+    - `psn_oauth_scope` (optional, defaults to `psn:clientapp`)
 
 **What's Missing / Blocking:**
 - Production OAuth provider configuration for Vita builds (device-code endpoint, token endpoint, client settings).
