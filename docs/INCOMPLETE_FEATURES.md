@@ -11,7 +11,7 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
 
 ### 1. Internet Remote Play (Backend Partially Wired, Not Ship-Ready)
 **File:** `lib/src/remote/holepunch.c` (5,047 lines), `lib/src/remote/rudp.c`, `lib/src/remote/stun.h`
-**Status:** PSN host wiring + config/UI scaffolding implemented on Vita branch, holepunch code now compilable behind `CHIAKI_ENABLE_VITA_HOLEPUNCH`, but full VPK packaging still fails when enabled
+**Status:** PSN host wiring + config/UI scaffolding implemented on Vita branch, and holepunch-enabled Vita packaging now builds end-to-end behind `CHIAKI_ENABLE_VITA_HOLEPUNCH`
 **Priority:** High
 **Description:** Internet remote play is no longer just a conceptual TODO. Core Vita-side plumbing now exists (PSN host source model, token persistence, settings toggle, host refresh, holepunch session wiring), but production viability is blocked by toolchain/runtime hardening gaps.
 
@@ -34,15 +34,13 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
 - Robust token refresh/login lifecycle UX (expired token recovery)
 - NAT traversal robustness on Vita (currently STUN-first; Vita UPnP path disabled)
 - Vita hardware validation matrix (NAT types A/B/C, WAN loss/jitter)
-- Packaging blocker when holepunch is enabled:
-  - `vita-elf-create: Invalid relocation type 25` during VELF conversion in Release builds with `-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON` (observed 2026-02-19)
+- Shipping gate: internet mode remains experimental and unproven on hardware WAN/NAT matrices.
 
 **Implementation Roadmap (updated):**
-1. **Phase 1:** Resolve holepunch-enabled Vita packaging blocker (`Invalid relocation type 25`) and keep default builds green.
-2. **Phase 2:** Implement PSN OAuth device-login UX + refresh-token lifecycle.
-3. **Phase 3:** Harden Vita NAT path (UPnP strategy decision + fallback telemetry + failure UX).
-4. **Phase 4:** End-to-end hardware validation across WAN/NAT scenarios (`./tools/build.sh --env testing` builds).
-5. **Phase 5:** Documentation, user guidance, and staged release gating.
+1. **Phase 1:** Implement PSN OAuth device-login UX + refresh-token lifecycle.
+2. **Phase 2:** Harden Vita NAT path (UPnP strategy decision + fallback telemetry + failure UX).
+3. **Phase 3:** End-to-end hardware validation across WAN/NAT scenarios (`./tools/build.sh --env testing` builds).
+4. **Phase 4:** Documentation, user guidance, and staged release gating.
 
 **Technical Architecture:**
 - NAT Traversal: UPnP (preferred) → STUN → Manual fallback

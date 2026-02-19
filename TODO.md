@@ -75,9 +75,9 @@ Only move a task to "Done" after the reviewer signs off.
 10. **Internet Remote Play ship-blocker closure (PSN + holepunch)**
    - *Owner:* Investigation + Implementation agents
    - *Goal:* Move internet remote play from backend-wired prototype to shippable feature.
-   - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, and holepunch connect handoff are implemented on `feat/psn-internet-remoteplay-mvp`.
-   - *Blocking Gap:* Full Vita packaging with `-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON` fails at VELF conversion (`vita-elf-create: Invalid relocation type 25`), so internet mode cannot be shipped yet.
-   - *Next Step:* Isolate relocation source and eliminate unsupported relocations while keeping default (`holepunch OFF`) release path stable.
+   - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, holepunch connect handoff, and holepunch-enabled Release packaging are implemented on `feat/psn-internet-remoteplay-mvp`.
+   - *Blocking Gap:* Feature is still not ship-ready due to missing PSN login UX, token refresh handling, and WAN/NAT hardware validation.
+   - *Next Step:* Implement OAuth device-login UI + refresh lifecycle, then run NAT matrix validation with `./tools/build.sh --env testing`.
 
 ---
 
