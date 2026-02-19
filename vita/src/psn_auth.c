@@ -328,6 +328,10 @@ PsnAuthState psn_auth_state(uint64_t now_unix) {
       g_psn_auth.state == PSN_AUTH_STATE_TOKEN_REFRESHING) {
     return g_psn_auth.state;
   }
+  if (g_psn_auth.state == PSN_AUTH_STATE_ERROR &&
+      has_text(g_psn_auth.last_error)) {
+    return PSN_AUTH_STATE_ERROR;
+  }
 
   if (psn_auth_token_is_valid(now_unix))
     return PSN_AUTH_STATE_TOKEN_VALID;
