@@ -53,6 +53,36 @@ static bool has_text(const char *s) {
   return s && s[0];
 }
 
+static const char *oauth_device_code_url(void) {
+  if (has_text(context.config.psn_oauth_device_code_url))
+    return context.config.psn_oauth_device_code_url;
+  return VITARPS5_PSN_OAUTH_DEVICE_CODE_URL;
+}
+
+static const char *oauth_token_url(void) {
+  if (has_text(context.config.psn_oauth_token_url))
+    return context.config.psn_oauth_token_url;
+  return VITARPS5_PSN_OAUTH_TOKEN_URL;
+}
+
+static const char *oauth_client_id(void) {
+  if (has_text(context.config.psn_oauth_client_id))
+    return context.config.psn_oauth_client_id;
+  return VITARPS5_PSN_OAUTH_CLIENT_ID;
+}
+
+static const char *oauth_client_secret(void) {
+  if (has_text(context.config.psn_oauth_client_secret))
+    return context.config.psn_oauth_client_secret;
+  return VITARPS5_PSN_OAUTH_CLIENT_SECRET;
+}
+
+static const char *oauth_scope(void) {
+  if (has_text(context.config.psn_oauth_scope))
+    return context.config.psn_oauth_scope;
+  return VITARPS5_PSN_OAUTH_SCOPE;
+}
+
 bool psn_auth_enabled(void) {
   return context.config.psn_remoteplay_enabled;
 }
@@ -309,14 +339,12 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
 }
 
 static bool oauth_configured_for_device_flow(void) {
-  return has_text(VITARPS5_PSN_OAUTH_DEVICE_CODE_URL) &&
-         has_text(VITARPS5_PSN_OAUTH_TOKEN_URL) &&
-         has_text(VITARPS5_PSN_OAUTH_CLIENT_ID);
+  return has_text(oauth_device_code_url()) && has_text(oauth_token_url()) &&
+         has_text(oauth_client_id());
 }
 
 static bool oauth_configured_for_refresh(void) {
-  return has_text(VITARPS5_PSN_OAUTH_TOKEN_URL) &&
-         has_text(VITARPS5_PSN_OAUTH_CLIENT_ID);
+  return has_text(oauth_token_url()) && has_text(oauth_client_id());
 }
 
 PsnAuthState psn_auth_state(uint64_t now_unix) {
@@ -406,10 +434,10 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
 
   char form[1024];
   size_t off = 0;
-  bool form_ok = append_form_kv(curl, form, sizeof(form), &off, "client_id",
-                                VITARPS5_PSN_OAUTH_CLIENT_ID) &&
-                 append_form_kv(curl, form, sizeof(form), &off, "scope",
-                                VITARPS5_PSN_OAUTH_SCOPE);
+  bool form_ok =
+      append_form_kv(curl, form, sizeof(form), &off, "client_id",
+                     oauth_client_id()) &&
+      append_form_kv(curl, form, sizeof(form), &off, "scope", oauth_scope());
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build device login request");
@@ -418,7 +446,7 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
 
   long http_code = 0;
   char *response = NULL;
-  if (!oauth_post_form(VITARPS5_PSN_OAUTH_DEVICE_CODE_URL, form, &http_code,
+  if (!oauth_post_form(oauth_device_code_url(), form, &http_code,
                        &response)) {
     psn_auth_set_error("Device login request failed");
     return false;
@@ -491,13 +519,13 @@ bool psn_auth_poll_device_login(uint64_t now_unix) {
   size_t off = 0;
   bool form_ok =
       append_form_kv(curl, form, sizeof(form), &off, "client_id",
-                     VITARPS5_PSN_OAUTH_CLIENT_ID) &&
+                     oauth_client_id()) &&
       append_form_kv(curl, form, sizeof(form), &off, "grant_type",
                      "urn:ietf:params:oauth:grant-type:device_code") &&
       append_form_kv(curl, form, sizeof(form), &off, "device_code",
                      g_psn_auth.device_code) &&
       append_form_kv(curl, form, sizeof(form), &off, "client_secret",
-                     VITARPS5_PSN_OAUTH_CLIENT_SECRET);
+                     oauth_client_secret());
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build device poll request");
@@ -506,7 +534,7 @@ bool psn_auth_poll_device_login(uint64_t now_unix) {
 
   long http_code = 0;
   char *response = NULL;
-  if (!oauth_post_form(VITARPS5_PSN_OAUTH_TOKEN_URL, form, &http_code,
+  if (!oauth_post_form(oauth_token_url(), form, &http_code,
                        &response)) {
     g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
     g_psn_auth.next_poll_unix = now_unix + g_psn_auth.poll_interval_sec;
@@ -573,13 +601,13 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
   size_t off = 0;
   bool form_ok =
       append_form_kv(curl, form, sizeof(form), &off, "client_id",
-                     VITARPS5_PSN_OAUTH_CLIENT_ID) &&
+                     oauth_client_id()) &&
       append_form_kv(curl, form, sizeof(form), &off, "grant_type",
                      "refresh_token") &&
       append_form_kv(curl, form, sizeof(form), &off, "refresh_token",
                      context.config.psn_oauth_refresh_token) &&
       append_form_kv(curl, form, sizeof(form), &off, "client_secret",
-                     VITARPS5_PSN_OAUTH_CLIENT_SECRET);
+                     oauth_client_secret());
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build refresh request");
@@ -588,7 +616,7 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
 
   long http_code = 0;
   char *response = NULL;
-  if (!oauth_post_form(VITARPS5_PSN_OAUTH_TOKEN_URL, form, &http_code,
+  if (!oauth_post_form(oauth_token_url(), form, &http_code,
                        &response)) {
     psn_auth_set_error("Token refresh request failed");
     return false;
