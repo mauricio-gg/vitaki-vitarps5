@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include <vita2d.h>
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
@@ -29,6 +30,7 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
+#include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui.h"
 #include "util.h"
@@ -1069,6 +1071,22 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         remote_play);
   content_y += line_h;
 
+  const char *auth_status = psn_auth_state_label();
+  uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
+  if (psn_auth_token_is_valid((uint64_t)time(NULL))) {
+    auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+  } else if (psn_auth_device_login_active()) {
+    auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+  } else if (!psn_auth_enabled()) {
+    auth_color = UI_COLOR_TEXT_TERTIARY;
+  } else {
+    auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
+  }
+  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "PSN Auth");
+  vita2d_font_draw_text(font, col2_x, content_y, auth_color, FONT_SIZE_SMALL, auth_status);
+  content_y += line_h;
+
   // Quality Setting
   const char* quality_text = "540p";
   if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
@@ -1078,6 +1096,24 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         "Quality Setting");
   vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
                         quality_text);
+
+  if (psn_auth_device_login_active()) {
+    char code_line[112];
+    snprintf(code_line, sizeof(code_line), "Code: %s",
+             psn_auth_device_user_code()[0] ? psn_auth_device_user_code() : "Pending");
+    vita2d_font_draw_text(font, content_x, y + height - 34, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, code_line);
+    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, psn_auth_device_verification_url());
+  } else if (selected) {
+    const char *hint = psn_auth_token_is_valid((uint64_t)time(NULL))
+                           ? "X: Refresh Hosts | Triangle: Logout"
+                           : "X: Start Device Login | Triangle: Logout";
+    if (!psn_auth_enabled())
+      hint = "Enable PSN internet mode in Settings";
+    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, hint);
+  }
 }
 
 /// Draw PSN Authentication section (bottom) - modern design with status indicators
@@ -1172,9 +1208,18 @@ UIScreenType ui_screen_draw_profile(void) {
   draw_connection_info_card(content_x + card_w + card_spacing, content_y, card_w, card_h,
                              profile_state.current_section == PROFILE_SECTION_CONNECTION);
 
+  uint64_t now_unix = (uint64_t)time(NULL);
+  if (psn_auth_device_login_active() && psn_auth_poll_device_login(now_unix)) {
+    persist_config_or_warn();
+    trigger_hints_popup("PSN login complete");
+    if (psn_remote_refresh_hosts() == 0) {
+      ui_cards_update_cache(true);
+    }
+  }
+
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("Left/Right: Switch Card | X: Refresh Account ID | Circle: Back");
+    trigger_hints_popup("Left/Right: Switch Card | X: Action | Triangle: Logout | Circle: Back");
   }
 
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
@@ -1198,12 +1243,52 @@ UIScreenType ui_screen_draw_profile(void) {
     }
   } else if (btn_pressed(SCE_CTRL_CROSS) &&
              profile_state.current_section == PROFILE_SECTION_CONNECTION) {
-    if (psn_remote_refresh_hosts() == 0) {
+    if (!psn_auth_enabled()) {
+      trigger_hints_popup("PSN internet mode is disabled in Settings");
+    } else if (psn_auth_device_login_active()) {
+      if (psn_auth_poll_device_login(now_unix)) {
+        persist_config_or_warn();
+        trigger_hints_popup("PSN login complete");
+        if (psn_remote_refresh_hosts() == 0) {
+          ui_cards_update_cache(true);
+        }
+      } else {
+        trigger_hints_popup("Waiting for PSN approval");
+      }
+    } else if (!psn_auth_token_is_valid(now_unix) &&
+               !psn_auth_refresh_token_if_needed(now_unix, false)) {
+      if (psn_auth_begin_device_login(now_unix)) {
+        char login_hint[192];
+        snprintf(login_hint, sizeof(login_hint), "Open %s and enter %s",
+                 psn_auth_device_verification_url(),
+                 psn_auth_device_user_code());
+        trigger_hints_popup(login_hint);
+      } else if (psn_auth_last_error()[0]) {
+        trigger_hints_popup(psn_auth_last_error());
+      } else {
+        trigger_hints_popup("PSN login could not start");
+      }
+    } else if (psn_remote_refresh_hosts() == 0) {
       trigger_hints_popup("PSN internet host list refreshed");
       ui_cards_update_cache(true);
     } else {
       trigger_hints_popup("PSN internet host refresh failed");
     }
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_SQUARE) && psn_auth_device_login_active()) {
+    psn_auth_cancel_device_login();
+    trigger_hints_popup("PSN login canceled");
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_TRIANGLE) && psn_auth_enabled()) {
+    psn_auth_clear_tokens();
+    psn_remote_clear_cached_hosts();
+    persist_config_or_warn();
+    ui_cards_update_cache(true);
+    trigger_hints_popup("PSN login removed");
   }
 
   // Circle: Back to main menu

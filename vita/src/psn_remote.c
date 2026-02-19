@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "context.h"
 #include "config.h"
@@ -121,6 +122,12 @@ int psn_remote_prepare_connect_host(
     return 1;
   }
 
+  uint64_t now_unix = (uint64_t)time(NULL);
+  if (!psn_auth_token_is_valid(now_unix) &&
+      !psn_auth_refresh_token_if_needed(now_unix, false)) {
+    LOGE("PSN remote prepare failed: OAuth token invalid and refresh failed");
+    return 1;
+  }
   const char *token = psn_auth_access_token();
   if (!token || !token[0]) {
     LOGE("PSN remote prepare failed: missing OAuth access token");
@@ -178,6 +185,12 @@ int psn_remote_refresh_hosts(void) {
     LOGD("PSN host refresh skipped: PSN internet mode disabled");
     return 1;
   }
+  uint64_t now_unix = (uint64_t)time(NULL);
+  if (!psn_auth_token_is_valid(now_unix) &&
+      !psn_auth_refresh_token_if_needed(now_unix, false)) {
+    LOGD("PSN host refresh skipped: OAuth token invalid and refresh failed");
+    return 1;
+  }
   const char *token = psn_auth_access_token();
   if (!token || !token[0]) {
     LOGD("PSN host refresh skipped: missing OAuth access token");
@@ -208,5 +221,12 @@ int psn_remote_refresh_hosts(void) {
 #else
   LOGE("PSN host refresh unavailable: holepunch stack disabled for this build");
   return 1;
+#endif
+}
+
+void psn_remote_clear_cached_hosts(void) {
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  remove_existing_psn_hosts();
+  update_context_hosts();
 #endif
 }

@@ -229,9 +229,11 @@ int host_stream(VitaChiakiHost* host) {
                     HINT_DURATION_CREDENTIAL_US);
       goto cleanup;
     }
-    if (!psn_auth_token_is_valid((uint64_t)time(NULL))) {
-      LOGE("PSN OAuth token expired for internet remote play");
-      host_set_hint(host, "PSN session expired. Please sign in again.", true,
+    uint64_t now_unix = (uint64_t)time(NULL);
+    if (!psn_auth_token_is_valid(now_unix) &&
+        !psn_auth_refresh_token_if_needed(now_unix, false)) {
+      LOGE("PSN OAuth token expired and refresh failed for internet remote play");
+      host_set_hint(host, "PSN session expired. Re-authenticate in Profile.", true,
                     HINT_DURATION_CREDENTIAL_US);
       goto cleanup;
     }
