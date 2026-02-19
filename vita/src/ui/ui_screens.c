@@ -97,6 +97,7 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
 static bool open_url_in_vita_browser(const char *url);
 static void open_psn_auth_code_ime(void);
 static void poll_psn_auth_code_ime(uint64_t now_unix);
+static void draw_psn_login_steps_panel(int x, int y, int width);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -154,6 +155,19 @@ static bool open_url_in_vita_browser(const char *url) {
     return false;
   }
   return true;
+}
+
+static void draw_psn_login_steps_panel(int x, int y, int width) {
+  int panel_h = 62;
+  ui_draw_rounded_rect(x, y, width, panel_h, 6, RGBA8(0x24, 0x2E, 0x3B, 220));
+  vita2d_font_draw_text(font, x + 8, y + 14, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "Login steps:");
+  vita2d_font_draw_text(font, x + 8, y + 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                        "1) Press Start to open browser URL");
+  vita2d_font_draw_text(font, x + 8, y + 46, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                        "2) Sign in, then press X and paste redirect URL/code");
+  vita2d_font_draw_text(font, x + 8, y + 60, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                        "3) Vita exchanges code and refreshes hosts");
 }
 
 static bool profile_auth_ime_running = false;
@@ -1220,6 +1234,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     const char *code_line = psn_auth_device_user_code()[0]
                                 ? psn_auth_device_user_code()
                                 : "Paste redirect URL/code";
+    int steps_panel_y = y + height - 86;
+    draw_psn_login_steps_panel(content_x, steps_panel_y, width - 30);
     vita2d_font_draw_text(font, content_x, y + height - 52, UI_COLOR_TEXT_TERTIARY,
                           FONT_SIZE_SMALL, "X: Enter code | Start: Open URL");
     vita2d_font_draw_text(font, content_x, y + height - 34, UI_COLOR_TEXT_TERTIARY,
