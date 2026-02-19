@@ -22,6 +22,7 @@
 #include <math.h>
 #include <time.h>
 #include <vita2d.h>
+#include <psp2/appmgr.h>
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
@@ -91,6 +92,7 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason, bool continue_on_failure);
+static bool open_url_in_vita_browser(const char *url);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -134,6 +136,19 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
     return false;
   }
 
+  return true;
+}
+
+static bool open_url_in_vita_browser(const char *url) {
+  if (!url || !url[0]) {
+    LOGE("Browser launch skipped: empty URL");
+    return false;
+  }
+  int ret = sceAppMgrLaunchAppByUri(0x20000, url);
+  if (ret < 0) {
+    LOGE("Failed to launch browser URL (%s): 0x%x", url, (unsigned int)ret);
+    return false;
+  }
   return true;
 }
 
@@ -1101,6 +1116,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     char code_line[112];
     snprintf(code_line, sizeof(code_line), "Code: %s",
              psn_auth_device_user_code()[0] ? psn_auth_device_user_code() : "Pending");
+    vita2d_font_draw_text(font, content_x, y + height - 52, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, "Start: Open URL in Vita browser");
     vita2d_font_draw_text(font, content_x, y + height - 34, UI_COLOR_TEXT_TERTIARY,
                           FONT_SIZE_SMALL, code_line);
     vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
@@ -1219,7 +1236,7 @@ UIScreenType ui_screen_draw_profile(void) {
 
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("Left/Right: Switch Card | X: Action | Triangle: Logout | Circle: Back");
+    trigger_hints_popup("Left/Right: Switch Card | X: Action | Start: Open URL | Triangle: Logout | Circle: Back");
   }
 
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
@@ -1289,6 +1306,16 @@ UIScreenType ui_screen_draw_profile(void) {
     persist_config_or_warn();
     ui_cards_update_cache(true);
     trigger_hints_popup("PSN login removed");
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_START) && psn_auth_device_login_active()) {
+    const char *verify_url = psn_auth_device_verification_url();
+    if (open_url_in_vita_browser(verify_url)) {
+      trigger_hints_popup("Opened browser. Sign in and return here.");
+    } else {
+      trigger_hints_popup("Could not open browser. Use phone/PC URL shown.");
+    }
   }
 
   // Circle: Back to main menu
