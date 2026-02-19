@@ -30,14 +30,13 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - Holepunch session handoff into `ChiakiConnectInfo`
 
 **What's Missing / Blocking:**
-- PSN authentication UI (OAuth2 login screen)
-- Robust token refresh/login lifecycle UX (expired token recovery)
+- Production OAuth provider configuration for Vita builds (device-code endpoint, token endpoint, client settings).
 - NAT traversal robustness on Vita (currently STUN-first; Vita UPnP path disabled)
 - Vita hardware validation matrix (NAT types A/B/C, WAN loss/jitter)
 - Shipping gate: internet mode remains experimental and unproven on hardware WAN/NAT matrices.
 
 **Implementation Roadmap (updated):**
-1. **Phase 1:** Implement PSN OAuth device-login UX + refresh-token lifecycle.
+1. **Phase 1:** Configure production OAuth app settings for Vita builds and verify device-login/token refresh end-to-end.
 2. **Phase 2:** Harden Vita NAT path (UPnP strategy decision + fallback telemetry + failure UX).
 3. **Phase 3:** End-to-end hardware validation across WAN/NAT scenarios (`./tools/build.sh --env testing` builds).
 4. **Phase 4:** Documentation, user guidance, and staged release gating.
