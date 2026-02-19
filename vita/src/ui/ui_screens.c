@@ -29,6 +29,7 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
+#include "psn_remote.h"
 #include "ui.h"
 #include "util.h"
 #include "video.h"
@@ -1194,6 +1195,14 @@ UIScreenType ui_screen_draw_profile(void) {
       trigger_hints_popup("Account ID refreshed from system profile");
     } else {
       trigger_hints_popup("Could not refresh Account ID");
+    }
+  } else if (btn_pressed(SCE_CTRL_CROSS) &&
+             profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    if (psn_remote_refresh_hosts() == 0) {
+      trigger_hints_popup("PSN internet host list refreshed");
+      ui_cards_update_cache(true);
+    } else {
+      trigger_hints_popup("PSN internet host refresh failed");
     }
   }
 

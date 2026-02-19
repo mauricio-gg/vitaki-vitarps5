@@ -14,3 +14,5 @@ int psn_remote_prepare_connect_host(
     ChiakiHolepunchSession *out_session
 #endif
 );
+
+int psn_remote_refresh_hosts(void);
