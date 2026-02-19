@@ -23,7 +23,9 @@
 #include <time.h>
 #include <vita2d.h>
 #include <psp2/appmgr.h>
+#include <psp2/common_dialog.h>
 #include <psp2/ctrl.h>
+#include <psp2/ime_dialog.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <chiaki/base64.h>
@@ -93,6 +95,8 @@ static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason, bool continue_on_failure);
 static bool open_url_in_vita_browser(const char *url);
+static void open_psn_auth_code_ime(void);
+static void poll_psn_auth_code_ime(uint64_t now_unix);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -150,6 +154,106 @@ static bool open_url_in_vita_browser(const char *url) {
     return false;
   }
   return true;
+}
+
+static bool profile_auth_ime_running = false;
+static SceWChar16 profile_auth_ime_input_buf[1024];
+static SceWChar16 profile_auth_ime_title_w[96];
+
+static void utf16_to_utf8_local(const SceWChar16 *src, size_t src_max, char *dst,
+                                size_t dst_size) {
+  size_t i = 0;
+  size_t o = 0;
+  if (!dst || dst_size == 0)
+    return;
+  while (src && i < src_max && src[i] && o + 1 < dst_size) {
+    if (src[i] < 0x80) {
+      dst[o++] = (char)src[i];
+    } else if (src[i] < 0x800 && o + 2 < dst_size) {
+      dst[o++] = (char)(0xC0 | (src[i] >> 6));
+      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+    } else if (o + 3 < dst_size) {
+      dst[o++] = (char)(0xE0 | (src[i] >> 12));
+      dst[o++] = (char)(0x80 | ((src[i] >> 6) & 0x3F));
+      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+    }
+    i++;
+  }
+  dst[o] = '\0';
+}
+
+static void open_psn_auth_code_ime(void) {
+  if (profile_auth_ime_running)
+    return;
+
+  memset(profile_auth_ime_input_buf, 0, sizeof(profile_auth_ime_input_buf));
+  memset(profile_auth_ime_title_w, 0, sizeof(profile_auth_ime_title_w));
+  const char *title = "Paste redirect URL or code";
+  for (size_t i = 0; i < sizeof(profile_auth_ime_title_w) / sizeof(profile_auth_ime_title_w[0]) - 1 &&
+                     title[i];
+       i++) {
+    profile_auth_ime_title_w[i] = (SceWChar16)title[i];
+    profile_auth_ime_title_w[i + 1] = 0;
+  }
+
+  SceImeDialogParam param;
+  sceImeDialogParamInit(&param);
+  param.supportedLanguages = 0;
+  param.languagesForced = SCE_FALSE;
+  param.type = SCE_IME_TYPE_URL;
+  param.option = 0;
+  param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+  param.maxTextLength = (sizeof(profile_auth_ime_input_buf) /
+                         sizeof(profile_auth_ime_input_buf[0])) -
+                        1;
+  param.title = profile_auth_ime_title_w;
+  param.initialText = NULL;
+  param.inputTextBuffer = profile_auth_ime_input_buf;
+
+  if (sceImeDialogInit(&param) >= 0) {
+    profile_auth_ime_running = true;
+  } else {
+    trigger_hints_popup("Could not open text input");
+  }
+}
+
+static void poll_psn_auth_code_ime(uint64_t now_unix) {
+  if (!profile_auth_ime_running)
+    return;
+
+  if (sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
+    return;
+
+  SceImeDialogResult result;
+  memset(&result, 0, sizeof(result));
+  sceImeDialogGetResult(&result);
+  sceImeDialogTerm();
+  profile_auth_ime_running = false;
+
+  if (result.button != SCE_IME_DIALOG_BUTTON_ENTER)
+    return;
+
+  char auth_input[1200];
+  utf16_to_utf8_local(profile_auth_ime_input_buf,
+                      sizeof(profile_auth_ime_input_buf) /
+                          sizeof(profile_auth_ime_input_buf[0]),
+                      auth_input, sizeof(auth_input));
+
+  if (!auth_input[0]) {
+    trigger_hints_popup("No URL/code entered");
+    return;
+  }
+
+  if (psn_auth_submit_authorization_response(auth_input, now_unix)) {
+    persist_config_or_warn();
+    trigger_hints_popup("PSN login complete");
+    if (psn_remote_refresh_hosts() == 0)
+      ui_cards_update_cache(true);
+  } else if (psn_auth_last_error()[0]) {
+    trigger_hints_popup(psn_auth_last_error());
+  } else {
+    trigger_hints_popup("PSN login failed");
+  }
 }
 
 
@@ -1113,11 +1217,11 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         quality_text);
 
   if (psn_auth_device_login_active()) {
-    char code_line[112];
-    snprintf(code_line, sizeof(code_line), "Code: %s",
-             psn_auth_device_user_code()[0] ? psn_auth_device_user_code() : "Pending");
+    const char *code_line = psn_auth_device_user_code()[0]
+                                ? psn_auth_device_user_code()
+                                : "Paste redirect URL/code";
     vita2d_font_draw_text(font, content_x, y + height - 52, UI_COLOR_TEXT_TERTIARY,
-                          FONT_SIZE_SMALL, "Start: Open URL in Vita browser");
+                          FONT_SIZE_SMALL, "X: Enter code | Start: Open URL");
     vita2d_font_draw_text(font, content_x, y + height - 34, UI_COLOR_TEXT_TERTIARY,
                           FONT_SIZE_SMALL, code_line);
     vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
@@ -1125,7 +1229,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (selected) {
     const char *hint = psn_auth_token_is_valid((uint64_t)time(NULL))
                            ? "X: Refresh Hosts | Triangle: Logout"
-                           : "X: Start Device Login | Triangle: Logout";
+                           : "X: Start Browser Login | Triangle: Logout";
     if (!psn_auth_enabled())
       hint = "Enable PSN internet mode in Settings";
     vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
@@ -1226,13 +1330,7 @@ UIScreenType ui_screen_draw_profile(void) {
                              profile_state.current_section == PROFILE_SECTION_CONNECTION);
 
   uint64_t now_unix = (uint64_t)time(NULL);
-  if (psn_auth_device_login_active() && psn_auth_poll_device_login(now_unix)) {
-    persist_config_or_warn();
-    trigger_hints_popup("PSN login complete");
-    if (psn_remote_refresh_hosts() == 0) {
-      ui_cards_update_cache(true);
-    }
-  }
+  poll_psn_auth_code_ime(now_unix);
 
   // Select button shows hints popup
   if (btn_pressed(SCE_CTRL_SELECT)) {
@@ -1263,22 +1361,12 @@ UIScreenType ui_screen_draw_profile(void) {
     if (!psn_auth_enabled()) {
       trigger_hints_popup("PSN internet mode is disabled in Settings");
     } else if (psn_auth_device_login_active()) {
-      if (psn_auth_poll_device_login(now_unix)) {
-        persist_config_or_warn();
-        trigger_hints_popup("PSN login complete");
-        if (psn_remote_refresh_hosts() == 0) {
-          ui_cards_update_cache(true);
-        }
-      } else {
-        trigger_hints_popup("Waiting for PSN approval");
-      }
+      open_psn_auth_code_ime();
     } else if (!psn_auth_token_is_valid(now_unix) &&
                !psn_auth_refresh_token_if_needed(now_unix, false)) {
       if (psn_auth_begin_device_login(now_unix)) {
         char login_hint[192];
-        snprintf(login_hint, sizeof(login_hint), "Open %s and enter %s",
-                 psn_auth_device_verification_url(),
-                 psn_auth_device_user_code());
+        snprintf(login_hint, sizeof(login_hint), "Open browser URL, then press X to paste code");
         trigger_hints_popup(login_hint);
       } else if (psn_auth_last_error()[0]) {
         trigger_hints_popup(psn_auth_last_error());

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <chiaki/base64.h>
 
 #include "config.h"
 #include "context.h"
@@ -12,17 +13,25 @@
 #ifndef VITARPS5_PSN_OAUTH_DEVICE_CODE_URL
 #define VITARPS5_PSN_OAUTH_DEVICE_CODE_URL ""
 #endif
+#ifndef VITARPS5_PSN_OAUTH_AUTHORIZE_URL
+#define VITARPS5_PSN_OAUTH_AUTHORIZE_URL                                          \
+  "https://ca.account.sony.com/api/authz/v3/oauth/authorize"
+#endif
 #ifndef VITARPS5_PSN_OAUTH_TOKEN_URL
-#define VITARPS5_PSN_OAUTH_TOKEN_URL ""
+#define VITARPS5_PSN_OAUTH_TOKEN_URL                                              \
+  "https://ca.account.sony.com/api/authz/v3/oauth/token"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_ID
-#define VITARPS5_PSN_OAUTH_CLIENT_ID ""
+#define VITARPS5_PSN_OAUTH_CLIENT_ID "09515159-7237-4370-9b40-3806e67c0891"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_SECRET
 #define VITARPS5_PSN_OAUTH_CLIENT_SECRET ""
 #endif
 #ifndef VITARPS5_PSN_OAUTH_SCOPE
-#define VITARPS5_PSN_OAUTH_SCOPE "psn:clientapp"
+#define VITARPS5_PSN_OAUTH_SCOPE "psn:mobile.v2.core psn:clientapp"
+#endif
+#ifndef VITARPS5_PSN_OAUTH_REDIRECT_URI
+#define VITARPS5_PSN_OAUTH_REDIRECT_URI "com.scee.psxandroid.scecompcall://redirect"
 #endif
 
 #define TOKEN_EXPIRY_SKEW_SEC 90ULL
@@ -59,6 +68,14 @@ static const char *oauth_device_code_url(void) {
   return VITARPS5_PSN_OAUTH_DEVICE_CODE_URL;
 }
 
+static const char *oauth_authorize_url(void) {
+  if (has_text(context.config.psn_oauth_authorize_url))
+    return context.config.psn_oauth_authorize_url;
+  if (has_text(context.config.psn_oauth_device_code_url))
+    return context.config.psn_oauth_device_code_url;
+  return VITARPS5_PSN_OAUTH_AUTHORIZE_URL;
+}
+
 static const char *oauth_token_url(void) {
   if (has_text(context.config.psn_oauth_token_url))
     return context.config.psn_oauth_token_url;
@@ -81,6 +98,12 @@ static const char *oauth_scope(void) {
   if (has_text(context.config.psn_oauth_scope))
     return context.config.psn_oauth_scope;
   return VITARPS5_PSN_OAUTH_SCOPE;
+}
+
+static const char *oauth_redirect_uri(void) {
+  if (has_text(context.config.psn_oauth_redirect_uri))
+    return context.config.psn_oauth_redirect_uri;
+  return VITARPS5_PSN_OAUTH_REDIRECT_URI;
 }
 
 bool psn_auth_enabled(void) {
@@ -173,6 +196,7 @@ static bool append_form_kv(CURL *curl, char *dst, size_t dst_size, size_t *off,
 }
 
 static bool oauth_post_form(const char *url, const char *form_data,
+                            const char *basic_user, const char *basic_pass,
                             long *http_code_out, char **response_out) {
   if (!has_text(url) || !has_text(form_data))
     return false;
@@ -196,6 +220,11 @@ static bool oauth_post_form(const char *url, const char *form_data,
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+  if (has_text(basic_user) && has_text(basic_pass)) {
+    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+    curl_easy_setopt(curl, CURLOPT_USERNAME, basic_user);
+    curl_easy_setopt(curl, CURLOPT_PASSWORD, basic_pass);
+  }
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, auth_write_cb);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
@@ -339,7 +368,8 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
 }
 
 static bool oauth_configured_for_device_flow(void) {
-  return has_text(oauth_device_code_url()) && has_text(oauth_token_url()) &&
+  return has_text(oauth_authorize_url()) && has_text(oauth_token_url()) &&
+         has_text(oauth_redirect_uri()) &&
          has_text(oauth_client_id());
 }
 
@@ -386,7 +416,7 @@ const char *psn_auth_state_label(void) {
     return "Refreshing token";
   if (state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING ||
       state == PSN_AUTH_STATE_DEVICE_LOGIN_POLLING)
-    return "Awaiting device login";
+    return "Awaiting browser sign-in";
   if (state == PSN_AUTH_STATE_ERROR && has_text(g_psn_auth.last_error))
     return g_psn_auth.last_error;
   if (psn_auth_has_tokens() && !psn_auth_token_is_valid(now_unix))
@@ -422,7 +452,7 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     return false;
   }
   if (!oauth_configured_for_device_flow()) {
-    psn_auth_set_error("OAuth device flow not configured in this build");
+    psn_auth_set_error("OAuth authorize/token endpoints are not configured");
     return false;
   }
 
@@ -432,150 +462,143 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     return false;
   }
 
-  char form[1024];
+  char auth_url[1536];
   size_t off = 0;
-  bool form_ok =
-      append_form_kv(curl, form, sizeof(form), &off, "client_id",
-                     oauth_client_id()) &&
-      append_form_kv(curl, form, sizeof(form), &off, "scope", oauth_scope());
+  const char *base = oauth_authorize_url();
+  int base_wrote = snprintf(auth_url, sizeof(auth_url), "%s%s", base,
+                            strchr(base, '?') ? "&" : "?");
+  if (base_wrote <= 0 || (size_t)base_wrote >= sizeof(auth_url)) {
+    curl_easy_cleanup(curl);
+    psn_auth_set_error("Failed to build authorization URL");
+    return false;
+  }
+  off = (size_t)base_wrote;
+  bool form_ok = append_form_kv(curl, auth_url, sizeof(auth_url), &off,
+                                "response_type", "code") &&
+                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
+                                "client_id", oauth_client_id()) &&
+                 append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope",
+                                oauth_scope()) &&
+                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
+                                "redirect_uri", oauth_redirect_uri()) &&
+                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
+                                "access_type", "offline");
   curl_easy_cleanup(curl);
   if (!form_ok) {
-    psn_auth_set_error("Failed to build device login request");
+    psn_auth_set_error("Failed to build authorization URL");
+    return false;
+  }
+
+  clear_device_flow_fields();
+  snprintf(g_psn_auth.verification_url, sizeof(g_psn_auth.verification_url), "%s",
+           auth_url);
+  snprintf(g_psn_auth.user_code, sizeof(g_psn_auth.user_code), "%s",
+           "Paste redirect URL/code");
+  g_psn_auth.device_code_expires_at_unix = now_unix + (10 * 60);
+  g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
+  psn_auth_clear_error();
+  return true;
+}
+
+bool psn_auth_poll_device_login(uint64_t now_unix) {
+  (void)now_unix;
+  return false;
+}
+
+static bool parse_auth_code_input(const char *input, char *out_code,
+                                  size_t out_code_size) {
+  if (!has_text(input) || !out_code || out_code_size == 0)
+    return false;
+  out_code[0] = '\0';
+
+  const char *src = input;
+  const char *marker = strstr(input, "code=");
+  if (marker) {
+    src = marker + 5;
+  }
+
+  size_t o = 0;
+  while (*src && *src != '&' && *src != '#' && !isspace((unsigned char)*src) &&
+         o + 1 < out_code_size) {
+    if (*src == '%' && isxdigit((unsigned char)src[1]) &&
+        isxdigit((unsigned char)src[2])) {
+      char hex[3] = {src[1], src[2], '\0'};
+      out_code[o++] = (char)strtol(hex, NULL, 16);
+      src += 3;
+      continue;
+    }
+    if (*src == '+') {
+      out_code[o++] = ' ';
+      src++;
+      continue;
+    }
+    out_code[o++] = *src++;
+  }
+  out_code[o] = '\0';
+  return o > 0;
+}
+
+bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix) {
+  if (!psn_auth_device_login_active()) {
+    psn_auth_set_error("Login is not active");
+    return false;
+  }
+
+  char auth_code[1024];
+  if (!parse_auth_code_input(input, auth_code, sizeof(auth_code))) {
+    psn_auth_set_error("Could not parse authorization code");
+    return false;
+  }
+
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    psn_auth_set_error("Failed to initialize token exchange client");
+    return false;
+  }
+
+  g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_POLLING;
+  char form[1800];
+  size_t off = 0;
+  bool form_ok = append_form_kv(curl, form, sizeof(form), &off, "grant_type",
+                                "authorization_code") &&
+                 append_form_kv(curl, form, sizeof(form), &off, "code",
+                                auth_code) &&
+                 append_form_kv(curl, form, sizeof(form), &off, "redirect_uri",
+                                oauth_redirect_uri()) &&
+                 append_form_kv(curl, form, sizeof(form), &off, "client_id",
+                                oauth_client_id());
+  curl_easy_cleanup(curl);
+  if (!form_ok) {
+    psn_auth_set_error("Failed to build token exchange request");
     return false;
   }
 
   long http_code = 0;
   char *response = NULL;
-  if (!oauth_post_form(oauth_device_code_url(), form, &http_code,
-                       &response)) {
-    psn_auth_set_error("Device login request failed");
+  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(),
+                       oauth_client_secret(), &http_code, &response)) {
+    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
+    psn_auth_set_error("Authorization code exchange failed");
     return false;
   }
 
   bool ok = false;
-  if (http_code == 200) {
-    uint64_t expires_in = 600;
-    uint64_t poll_interval = 5;
-    if (json_get_string(response, "device_code", g_psn_auth.device_code,
-                        sizeof(g_psn_auth.device_code)) &&
-        json_get_string(response, "user_code", g_psn_auth.user_code,
-                        sizeof(g_psn_auth.user_code))) {
-      if (!json_get_string(response, "verification_uri",
-                           g_psn_auth.verification_url,
-                           sizeof(g_psn_auth.verification_url))) {
-        json_get_string(response, "verification_uri_complete",
-                        g_psn_auth.verification_url,
-                        sizeof(g_psn_auth.verification_url));
-      }
-      json_get_uint64(response, "expires_in", &expires_in);
-      json_get_uint64(response, "interval", &poll_interval);
-      g_psn_auth.device_code_expires_at_unix = now_unix + expires_in;
-      g_psn_auth.poll_interval_sec = (uint32_t)((poll_interval > 0) ? poll_interval : 5);
-      g_psn_auth.next_poll_unix = now_unix + g_psn_auth.poll_interval_sec;
-      g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
-      psn_auth_clear_error();
-      ok = true;
-    }
-  }
-
-  if (!ok) {
+  if (http_code == 200 && apply_token_response(response, now_unix)) {
+    ok = true;
+  } else {
     char error_desc[160];
     if (response &&
         json_get_string(response, "error_description", error_desc,
                         sizeof(error_desc))) {
       psn_auth_set_error(error_desc);
     } else {
-      psn_auth_set_error("Device login request rejected");
+      psn_auth_set_error("Authorization code was rejected");
     }
+    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
   }
 
   free(response);
   return ok;
-}
-
-bool psn_auth_poll_device_login(uint64_t now_unix) {
-  if (!psn_auth_device_login_active())
-    return false;
-  if (!has_text(g_psn_auth.device_code)) {
-    psn_auth_set_error("Missing device code; restart login");
-    return false;
-  }
-  if (now_unix < g_psn_auth.next_poll_unix)
-    return false;
-  if (now_unix >= g_psn_auth.device_code_expires_at_unix) {
-    psn_auth_set_error("Device login code expired");
-    return false;
-  }
-
-  CURL *curl = curl_easy_init();
-  if (!curl) {
-    psn_auth_set_error("Failed to initialize OAuth poll client");
-    return false;
-  }
-
-  g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_POLLING;
-
-  char form[1400];
-  size_t off = 0;
-  bool form_ok =
-      append_form_kv(curl, form, sizeof(form), &off, "client_id",
-                     oauth_client_id()) &&
-      append_form_kv(curl, form, sizeof(form), &off, "grant_type",
-                     "urn:ietf:params:oauth:grant-type:device_code") &&
-      append_form_kv(curl, form, sizeof(form), &off, "device_code",
-                     g_psn_auth.device_code) &&
-      append_form_kv(curl, form, sizeof(form), &off, "client_secret",
-                     oauth_client_secret());
-  curl_easy_cleanup(curl);
-  if (!form_ok) {
-    psn_auth_set_error("Failed to build device poll request");
-    return false;
-  }
-
-  long http_code = 0;
-  char *response = NULL;
-  if (!oauth_post_form(oauth_token_url(), form, &http_code,
-                       &response)) {
-    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
-    g_psn_auth.next_poll_unix = now_unix + g_psn_auth.poll_interval_sec;
-    return false;
-  }
-
-  bool token_updated = false;
-  if (http_code == 200) {
-    token_updated = apply_token_response(response, now_unix);
-    if (!token_updated)
-      psn_auth_set_error("Token response missing required fields");
-  } else {
-    char oauth_error[96];
-    oauth_error[0] = '\0';
-    if (!json_get_string(response, "error", oauth_error, sizeof(oauth_error)))
-      snprintf(oauth_error, sizeof(oauth_error), "http_%ld", http_code);
-
-    if (strcmp(oauth_error, "authorization_pending") == 0) {
-      g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
-      g_psn_auth.next_poll_unix = now_unix + g_psn_auth.poll_interval_sec;
-    } else if (strcmp(oauth_error, "slow_down") == 0) {
-      g_psn_auth.poll_interval_sec += 5;
-      g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
-      g_psn_auth.next_poll_unix = now_unix + g_psn_auth.poll_interval_sec;
-    } else if (strcmp(oauth_error, "access_denied") == 0) {
-      psn_auth_set_error("PSN login denied by user");
-    } else if (strcmp(oauth_error, "expired_token") == 0) {
-      psn_auth_set_error("PSN device login expired");
-    } else {
-      char error_desc[160];
-      if (json_get_string(response, "error_description", error_desc,
-                          sizeof(error_desc))) {
-        psn_auth_set_error(error_desc);
-      } else {
-        psn_auth_set_error("PSN device login failed");
-      }
-    }
-  }
-
-  free(response);
-  return token_updated;
 }
 
 bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
@@ -616,7 +639,8 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
 
   long http_code = 0;
   char *response = NULL;
-  if (!oauth_post_form(oauth_token_url(), form, &http_code,
+  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(),
+                       oauth_client_secret(), &http_code,
                        &response)) {
     psn_auth_set_error("Token refresh request failed");
     return false;

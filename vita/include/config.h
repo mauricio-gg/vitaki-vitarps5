@@ -34,10 +34,12 @@ typedef struct vita_chiaki_config_t {
   char* psn_oauth_refresh_token;
   uint64_t psn_oauth_expires_at_unix;
   char* psn_oauth_device_code_url;
+  char* psn_oauth_authorize_url;
   char* psn_oauth_token_url;
   char* psn_oauth_client_id;
   char* psn_oauth_client_secret;
   char* psn_oauth_scope;
+  char* psn_oauth_redirect_uri;
   char* psn_client_duid;
   bool psn_remoteplay_enabled;
   /// Whether discovery is enabled by default

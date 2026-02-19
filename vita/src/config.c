@@ -28,10 +28,12 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->psn_oauth_refresh_token = NULL;
   cfg->psn_oauth_expires_at_unix = 0;
   cfg->psn_oauth_device_code_url = NULL;
+  cfg->psn_oauth_authorize_url = NULL;
   cfg->psn_oauth_token_url = NULL;
   cfg->psn_oauth_client_id = NULL;
   cfg->psn_oauth_client_secret = NULL;
   cfg->psn_oauth_scope = NULL;
+  cfg->psn_oauth_redirect_uri = NULL;
   cfg->psn_client_duid = NULL;
   cfg->psn_remoteplay_enabled = false;
   cfg->auto_discovery = true;
@@ -224,6 +226,10 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) 
   if (datum.ok)
     cfg->psn_oauth_device_code_url = datum.u.s;
 
+  datum = toml_string_in(settings, "psn_oauth_authorize_url");
+  if (datum.ok)
+    cfg->psn_oauth_authorize_url = datum.u.s;
+
   datum = toml_string_in(settings, "psn_oauth_token_url");
   if (datum.ok)
     cfg->psn_oauth_token_url = datum.u.s;
@@ -239,6 +245,10 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) 
   datum = toml_string_in(settings, "psn_oauth_scope");
   if (datum.ok)
     cfg->psn_oauth_scope = datum.u.s;
+
+  datum = toml_string_in(settings, "psn_oauth_redirect_uri");
+  if (datum.ok)
+    cfg->psn_oauth_redirect_uri = datum.u.s;
 
   datum = toml_string_in(settings, "psn_client_duid");
   if (datum.ok)
@@ -391,10 +401,12 @@ void config_free(VitaChiakiConfig* cfg) {
   free(cfg->psn_oauth_access_token);
   free(cfg->psn_oauth_refresh_token);
   free(cfg->psn_oauth_device_code_url);
+  free(cfg->psn_oauth_authorize_url);
   free(cfg->psn_oauth_token_url);
   free(cfg->psn_oauth_client_id);
   free(cfg->psn_oauth_client_secret);
   free(cfg->psn_oauth_scope);
+  free(cfg->psn_oauth_redirect_uri);
   free(cfg->psn_client_duid);
   for (int i = 0; i < MAX_MANUAL_HOSTS; i++) {
     if (cfg->manual_hosts[i] != NULL) {
@@ -447,6 +459,10 @@ bool config_serialize(VitaChiakiConfig* cfg) {
     fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n",
             cfg->psn_oauth_device_code_url);
   }
+  if (cfg->psn_oauth_authorize_url) {
+    fprintf(fp, "psn_oauth_authorize_url = \"%s\"\n",
+            cfg->psn_oauth_authorize_url);
+  }
   if (cfg->psn_oauth_token_url) {
     fprintf(fp, "psn_oauth_token_url = \"%s\"\n", cfg->psn_oauth_token_url);
   }
@@ -459,6 +475,9 @@ bool config_serialize(VitaChiakiConfig* cfg) {
   }
   if (cfg->psn_oauth_scope) {
     fprintf(fp, "psn_oauth_scope = \"%s\"\n", cfg->psn_oauth_scope);
+  }
+  if (cfg->psn_oauth_redirect_uri) {
+    fprintf(fp, "psn_oauth_redirect_uri = \"%s\"\n", cfg->psn_oauth_redirect_uri);
   }
   if (cfg->psn_client_duid) {
     fprintf(fp, "psn_client_duid = \"%s\"\n", cfg->psn_client_duid);

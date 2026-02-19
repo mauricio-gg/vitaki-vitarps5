@@ -26,6 +26,7 @@ const char *psn_auth_last_error(void);
 bool psn_auth_begin_device_login(uint64_t now_unix);
 void psn_auth_cancel_device_login(void);
 bool psn_auth_poll_device_login(uint64_t now_unix);
+bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix);
 bool psn_auth_device_login_active(void);
 const char *psn_auth_device_user_code(void);
 const char *psn_auth_device_verification_url(void);
