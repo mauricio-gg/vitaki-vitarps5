@@ -16,6 +16,8 @@
  
 // TODO: Make portable for Switch and Vita
 
+#include <chiaki/common.h>
+
 #if CHIAKI_CAN_USE_HOLEPUNCH
 #include <string.h>
 #include <stdlib.h>
@@ -33,21 +35,23 @@
 #else
 #include <unistd.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
 #include <sys/socket.h>
-#include <sys/ioctl.h>
 #include <netdb.h>
+#if !defined(__PSVITA__)
 #include <ifaddrs.h>
 #include <net/if.h>
+#endif
 #endif
 
 #include <curl/curl.h>
 #include <json-c/json_object.h>
 #include <json-c/json_tokener.h>
 #include <json-c/json_pointer.h>
+#if CHIAKI_CAN_USE_MINIUPNPC
 #include <miniupnpc/miniupnpc.h>
 #include <miniupnpc/upnpcommands.h>
 #include <miniupnpc/upnperrors.h>
+#endif
 
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/stoppipe.h>
@@ -218,8 +222,13 @@ typedef enum session_state_t
 typedef struct upnp_gateway_info_t
 {
     char lan_ip[INET6_ADDRSTRLEN];
+#if CHIAKI_CAN_USE_MINIUPNPC
     struct UPNPUrls *urls;
     struct IGDdatas *data;
+#else
+    void *urls;
+    void *data;
+#endif
 } UPNPGatewayInfo;
 typedef struct session_t
 {
@@ -357,10 +366,12 @@ static ChiakiErrorCode http_start_session(Session *session);
 static ChiakiErrorCode http_send_session_message(Session *session, SessionMessage *msg, bool short_msg);
 static ChiakiErrorCode http_ps4_session_wakeup(Session *session);
 static ChiakiErrorCode get_client_addr_local(Session *session, Candidate *local_console_candidate, char *out, size_t out_len);
+#if CHIAKI_CAN_USE_MINIUPNPC
 static ChiakiErrorCode upnp_get_gateway_info(ChiakiLog *log, UPNPGatewayInfo *info);
 static bool get_client_addr_remote_upnp(ChiakiLog *log, UPNPGatewayInfo *gw_info, char *out);
 static bool upnp_add_udp_port_mapping(ChiakiLog *log, UPNPGatewayInfo *gw_info, uint16_t port_internal, uint16_t port_external);
 static bool upnp_delete_udp_port_mapping(ChiakiLog *log, UPNPGatewayInfo *gw_info, uint16_t port_external);
+#endif
 static bool get_client_addr_remote_stun(Session *session, char *address, uint16_t *port, chiaki_socket_t *sock, bool ipv4);
 static ChiakiErrorCode get_stun_servers(Session *session);
 // static bool get_mac_addr(ChiakiLog *log, uint8_t *mac_addr);
@@ -1531,6 +1542,7 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
     }
     if(session->gw.data)
     {
+#if CHIAKI_CAN_USE_MINIUPNPC
         if(session->local_port_ctrl != 0)
         {
             if(upnp_delete_udp_port_mapping(session->log, &session->gw, session->local_port_ctrl))
@@ -1545,6 +1557,7 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
             else
                 CHIAKI_LOGE(session->log, "Couldn't delete UPNP local port data mapping"); 
         }
+#endif
         free(session->gw.data);
         free(session->gw.urls);
     }
@@ -2177,6 +2190,7 @@ static ChiakiErrorCode send_offer(Session *session, int req_id, Candidate *local
     bool have_addr = false;
     Candidate *candidate_remote = &msg.conn_request->candidates[1];
     candidate_remote->type = CANDIDATE_TYPE_STATIC;
+#if CHIAKI_CAN_USE_MINIUPNPC
     UPNPGatewayInfo upnp_gw;
     upnp_gw.data = calloc(1, sizeof(struct IGDdatas));
     if(!upnp_gw.data)
@@ -2206,6 +2220,10 @@ static ChiakiErrorCode send_offer(Session *session, int req_id, Candidate *local
     else {
         get_client_addr_local(session, candidate_local, candidate_local->addr, sizeof(candidate_local->addr));
     }
+#else
+    CHIAKI_LOGI(session->log, "UPnP is disabled on this platform; relying on local/STUN candidates");
+    get_client_addr_local(session, candidate_local, candidate_local->addr, sizeof(candidate_local->addr));
+#endif
     memcpy(session->client_local_ip, candidate_local->addr, sizeof(candidate_local->addr));
     if (!have_addr)
     {
@@ -2927,6 +2945,14 @@ static ChiakiErrorCode get_client_addr_local(Session *session, Candidate *local_
     return err;
 #undef MALLOC
 #undef FREE
+#elif defined(__PSVITA__)
+    (void)err;
+    (void)status;
+    (void)out;
+    (void)out_len;
+    memcpy(local_console_candidate->addr, "0.0.0.0", 8);
+    CHIAKI_LOGW(session->log, "Local interface enumeration is unavailable on Vita; using STUN candidates only");
+    return CHIAKI_ERR_NETWORK;
 #else
     struct ifaddrs *local_addrs, *current_addr;
     void *in_addr;
@@ -2977,6 +3003,7 @@ static ChiakiErrorCode get_client_addr_local(Session *session, Candidate *local_
 #endif
 }
 
+#if CHIAKI_CAN_USE_MINIUPNPC
 /**
  * Retrieves the gateway information using UPnP.
  *
@@ -3069,6 +3096,7 @@ static bool upnp_delete_udp_port_mapping(ChiakiLog *log, UPNPGatewayInfo *gw_inf
         CHIAKI_LOGE(log, "UPNP error deleting port mapping: %s", strupnperror(res));
     return success;
 }
+#endif
 
 /**
  * Retrieves the external IP address (i.e. internet-visible) of the client using STUN.

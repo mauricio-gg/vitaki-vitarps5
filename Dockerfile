@@ -47,6 +47,34 @@ RUN cd /tmp && \
     make install && \
     rm -rf /tmp/nanopb-0.4.8*
 
+# Install json-c for Vita (required by Chiaki holepunch path)
+RUN cd /tmp && \
+    wget https://github.com/json-c/json-c/archive/refs/tags/json-c-0.17-20230812.tar.gz && \
+    tar -xzf json-c-0.17-20230812.tar.gz && \
+    cd json-c-json-c-0.17-20230812 && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_INSTALL_PREFIX=/usr/local/vitasdk/arm-vita-eabi \
+        -DCMAKE_TOOLCHAIN_FILE=/usr/local/vitasdk/share/vita.toolchain.cmake \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=OFF \
+        -DCMAKE_C_FLAGS=-fno-pic \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_TESTING=OFF \
+        -DBUILD_APPS=OFF \
+        -DHAVE_SNPRINTF=ON \
+        -DHAVE_VSNPRINTF=ON \
+        -DHAVE_VASPRINTF=ON \
+        -DHAVE___THREAD=OFF \
+        -DHAVE_DECL_ISINF=ON \
+        -DHAVE_DECL_ISNAN=ON \
+        -DHAVE_DECL_INFINITY=ON \
+        -DHAVE_DECL_NAN=ON \
+        -DDISABLE_WERROR=ON \
+        -DCMAKE_BUILD_TYPE=Release && \
+    make && \
+    make install && \
+    rm -rf /tmp/json-c-json-c-0.17-20230812*
+
 # Set working directory
 WORKDIR /build/git
 

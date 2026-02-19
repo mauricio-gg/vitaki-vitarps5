@@ -21,6 +21,12 @@
 #define CHIAKI_CAN_USE_HOLEPUNCH 1
 #endif
 
+#if defined(__SWITCH__) || defined(__PSVITA__)
+#define CHIAKI_CAN_USE_MINIUPNPC 0
+#else
+#define CHIAKI_CAN_USE_MINIUPNPC 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
