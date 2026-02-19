@@ -16,7 +16,7 @@
  
 // TODO: Make portable for Switch and Vita
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>

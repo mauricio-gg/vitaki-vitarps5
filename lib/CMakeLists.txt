@@ -132,7 +132,7 @@ endif()
 
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-if(NOT CHIAKI_IS_VITA)
+if(NOT CHIAKI_IS_VITA OR CHIAKI_ENABLE_VITA_HOLEPUNCH)
 	find_package(Threads REQUIRED)
 	target_link_libraries(chiaki-lib Threads::Threads)
 
@@ -142,8 +142,8 @@ target_include_directories(chiaki-lib PRIVATE ${json-c_INCLUDE_DIRS})
 target_link_libraries(chiaki-lib PkgConfig::json-c)
 
 #find_package(PkgConfig REQUIRED)
-pkg_search_module(MINIUPNPC REQUIRED miniupnpc IMPORTED_TARGET)
-target_link_libraries(chiaki-lib PkgConfig::MINIUPNPC)
+	pkg_search_module(MINIUPNPC REQUIRED miniupnpc IMPORTED_TARGET)
+	target_link_libraries(chiaki-lib PkgConfig::MINIUPNPC)
 endif()
 
 if(CHIAKI_LIB_ENABLE_MBEDTLS)

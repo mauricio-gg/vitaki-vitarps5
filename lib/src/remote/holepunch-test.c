@@ -1,4 +1,4 @@
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 #include <string.h>
 #include <time.h>
 #include <netdb.h>
