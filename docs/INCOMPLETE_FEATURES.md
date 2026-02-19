@@ -29,12 +29,19 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
   - PSN device-list refresh path into host cards
   - Holepunch session handoff into `ChiakiConnectInfo`
   - Device-login lifecycle UI/actions in Profile (start/poll/cancel/logout + auth status)
+  - Browser-based authorization-code login flow in Profile:
+    - Vita generates/open auth URL
+    - User signs in via browser
+    - User pastes redirect URL or auth code back into Vita IME
+    - Vita exchanges code for tokens and refreshes hosts
   - Runtime OAuth provider settings in `[settings]`:
-    - `psn_oauth_device_code_url`
+    - `psn_oauth_authorize_url` (preferred)
+    - `psn_oauth_device_code_url` (legacy fallback alias for authorize URL)
     - `psn_oauth_token_url`
     - `psn_oauth_client_id`
     - `psn_oauth_client_secret` (optional)
-    - `psn_oauth_scope` (optional, defaults to `psn:clientapp`)
+    - `psn_oauth_scope` (optional)
+    - `psn_oauth_redirect_uri` (optional)
 
 **What's Missing / Blocking:**
 - Production OAuth provider configuration for Vita builds (device-code endpoint, token endpoint, client settings).
