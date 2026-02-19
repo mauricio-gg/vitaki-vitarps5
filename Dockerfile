@@ -58,6 +58,7 @@ RUN cd /tmp && \
         -DCMAKE_TOOLCHAIN_FILE=/usr/local/vitasdk/share/vita.toolchain.cmake \
         -DCMAKE_POSITION_INDEPENDENT_CODE=OFF \
         -DCMAKE_C_FLAGS=-fno-pic \
+        -DDISABLE_STATIC_FPIC=ON \
         -DBUILD_SHARED_LIBS=OFF \
         -DBUILD_TESTING=OFF \
         -DBUILD_APPS=OFF \
