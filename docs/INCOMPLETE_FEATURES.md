@@ -34,7 +34,7 @@ This document tracks all incomplete features, TODOs, stubs, and planned improvem
     - User signs in via browser
     - User pastes redirect URL or auth code back into Vita IME
     - Vita exchanges code for tokens and refreshes hosts
-  - Runtime OAuth provider settings in `[settings]`:
+  - Runtime OAuth provider settings in `[settings]` (advanced overrides; default build ships sane values):
     - `psn_oauth_authorize_url` (preferred)
     - `psn_oauth_device_code_url` (legacy fallback alias for authorize URL)
     - `psn_oauth_token_url`

@@ -452,7 +452,7 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     return false;
   }
   if (!oauth_configured_for_device_flow()) {
-    psn_auth_set_error("OAuth authorize/token endpoints are not configured");
+    psn_auth_set_error("PSN login setup unavailable in this build");
     return false;
   }
 
