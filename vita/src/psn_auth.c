@@ -36,13 +36,14 @@
 
 #define TOKEN_EXPIRY_SKEW_SEC 90ULL
 #define RESPONSE_CAP_BYTES (16 * 1024)
+#define AUTH_VERIFICATION_URL_MAX 1536
 
 typedef struct {
   PsnAuthState state;
   char last_error[192];
   char device_code[256];
   char user_code[64];
-  char verification_url[256];
+  char verification_url[AUTH_VERIFICATION_URL_MAX];
   uint64_t device_code_expires_at_unix;
   uint64_t next_poll_unix;
   uint32_t poll_interval_sec;
@@ -490,8 +491,15 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
   }
 
   clear_device_flow_fields();
-  snprintf(g_psn_auth.verification_url, sizeof(g_psn_auth.verification_url), "%s",
-           auth_url);
+  int verify_wrote = snprintf(g_psn_auth.verification_url,
+                              sizeof(g_psn_auth.verification_url), "%s",
+                              auth_url);
+  if (verify_wrote < 0 ||
+      (size_t)verify_wrote >= sizeof(g_psn_auth.verification_url)) {
+    clear_device_flow_fields();
+    psn_auth_set_error("Authorization URL too long for this build");
+    return false;
+  }
   snprintf(g_psn_auth.user_code, sizeof(g_psn_auth.user_code), "%s",
            "Paste redirect URL/code");
   g_psn_auth.device_code_expires_at_unix = now_unix + (10 * 60);
