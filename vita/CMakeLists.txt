@@ -48,12 +48,14 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
     src/ui/ui_focus.c
+    src/ui/ui_qr.c
     src/ui/ui_controller_diagram.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
 	third_party/h264-bitstream/h264_sei.c
 	third_party/h264-bitstream/h264_stream.c
+    third_party/qrcodegen/qrcodegen.c
 )
 
 # Logging configuration is controlled via environment files (.env.prod, .env.testing)
