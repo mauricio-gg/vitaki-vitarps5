@@ -25,7 +25,7 @@
 
 VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, consider supporting continued development.
 
-☕ [Buy Me a Coffee](https://buymeacoffee.com/solidem)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/solidem)
 
 ## Features
 
