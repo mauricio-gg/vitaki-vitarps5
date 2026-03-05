@@ -30,9 +30,10 @@ typedef enum ui_settings_streaming_item_t {
   UI_SETTINGS_ITEM_SHOW_NAV_LABELS = 10,
   UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 11,
   UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED = 12,
+  UI_SETTINGS_ITEM_ENABLE_LOGGING = 13,
 } UISettingsStreamingItem;
 
-#define UI_SETTINGS_STREAMING_ITEM_COUNT 13
+#define UI_SETTINGS_STREAMING_ITEM_COUNT 14
 
 // ============================================================================
 // Screen Initialization
