@@ -13,13 +13,15 @@ void log_cb_debugnet(ChiakiLogLevel lvl, const char *msg, void *user) {
   (void)user;
   char line[800];
   sceClibSnprintf(line, sizeof(line), "[CHIAKI] %s\n", msg);
-  sceClibPrintf("%s", line);
-  vita_log_submit_line(lvl, line);
+  if (vita_log_should_write_level(lvl)) {
+    sceClibPrintf("%s", line);
+    vita_log_submit_line(lvl, line);
+  }
   if (!context.stream.is_streaming) {
-      if (context.mlog) {
-        write_message_log(context.mlog, line);
-      }
+    if (context.mlog) {
+      write_message_log(context.mlog, line);
     }
+  }
 }
 
 bool vita_chiaki_init_context() {

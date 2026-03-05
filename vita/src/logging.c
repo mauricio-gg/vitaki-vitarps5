@@ -423,3 +423,14 @@ const VitaLoggingConfig *vita_log_get_active_config(void) {
     return NULL;
   return &active_cfg;
 }
+
+// Called from UI thread only. active_cfg.enabled is read by log callback
+// threads but bool writes are atomic on ARM Cortex-A9 (natural alignment),
+// so the race is benign: readers see either old or new value safely.
+void vita_log_update_enabled(bool enabled) {
+  if (!cfg_initialized)
+    return;
+  active_cfg.enabled = enabled;
+  if (enabled && active_cfg.profile < VITA_LOG_PROFILE_VERBOSE)
+    active_cfg.profile = VITA_LOG_PROFILE_VERBOSE;
+}

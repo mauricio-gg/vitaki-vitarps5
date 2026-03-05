@@ -229,6 +229,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg,
     {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", false, &cfg->show_nav_labels},
     {"show_only_paired", false, &cfg->show_only_paired},
+    {"enable_logging", false, &cfg->logging.enabled},
   };
 
   size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
@@ -390,6 +391,7 @@ bool config_serialize(VitaChiakiConfig* cfg) {
     {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
     {"show_nav_labels", cfg->show_nav_labels},
     {"show_only_paired", cfg->show_only_paired},
+    {"enable_logging", cfg->logging.enabled},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
