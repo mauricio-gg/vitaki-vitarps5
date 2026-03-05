@@ -64,6 +64,9 @@ profile.json
 # Documentation artifacts
 docs/*.md
 !docs/ai/*.md
+!docs/BUILDING.md
+!docs/CONFIGURATION.md
+!docs/CRASH_ANALYSIS.md
 
 # Old project directories
 vitarps5/
