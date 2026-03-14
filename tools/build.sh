@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="552"
+VERSION_ITERATION="572"
 
 # Colors for output
 RED='\033[0;31m'
@@ -114,6 +114,28 @@ configure_logging_cmake_args() {
 
     if [ -n "$VITARPS5_LOG_PATH" ]; then
         cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_PATH=${VITARPS5_LOG_PATH}")
+    fi
+
+    if [ -n "$VITARPS5_PSN_OAUTH_DEVICE_CODE_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_DEVICE_CODE_URL=${VITARPS5_PSN_OAUTH_DEVICE_CODE_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_AUTHORIZE_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_AUTHORIZE_URL=${VITARPS5_PSN_OAUTH_AUTHORIZE_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_TOKEN_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_TOKEN_URL=${VITARPS5_PSN_OAUTH_TOKEN_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_CLIENT_ID" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_CLIENT_ID=${VITARPS5_PSN_OAUTH_CLIENT_ID}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_CLIENT_SECRET" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_CLIENT_SECRET=${VITARPS5_PSN_OAUTH_CLIENT_SECRET}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_SCOPE" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_SCOPE=${VITARPS5_PSN_OAUTH_SCOPE}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_REDIRECT_URI" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_REDIRECT_URI=${VITARPS5_PSN_OAUTH_REDIRECT_URI}")
     fi
 
     # Security: Control whether runtime TOML can override compiled logging settings

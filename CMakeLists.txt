@@ -78,6 +78,13 @@ if(CHIAKI_IS_VITA)
 		add_definitions(-DCHIAKI_ENABLE_VITA_HOLEPUNCH)
 	endif()
 
+	# VitaSDK's libcurl currently fails during HTTPS connect setup for PSN
+	# token exchange, so Vita builds should use the vendored curl we can ship
+	# and patch in-tree.
+	set(CHIAKI_USE_SYSTEM_CURL OFF CACHE STRING
+		"Use system-provided curl instead of submodule. Has to be built with experimental WebSocket support!"
+		FORCE)
+
 	set(CHIAKI_ENABLE_STEAM_SHORTCUT OFF)
 	set(CHIAKI_ENABLE_STEAMDECK_NATIVE OFF)
 endif()

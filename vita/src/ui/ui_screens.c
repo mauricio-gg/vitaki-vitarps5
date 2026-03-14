@@ -307,7 +307,7 @@ static void open_psn_auth_code_ime(void) {
 
   memset(profile_auth_ime_input_buf, 0, sizeof(profile_auth_ime_input_buf));
   memset(profile_auth_ime_title_w, 0, sizeof(profile_auth_ime_title_w));
-  const char *title = "Paste redirect URL or code";
+  const char *title = "Paste full redirect URL";
   for (size_t i = 0; i < sizeof(profile_auth_ime_title_w) / sizeof(profile_auth_ime_title_w[0]) - 1 &&
                      title[i];
        i++) {
@@ -1518,7 +1518,7 @@ UIScreenType ui_screen_draw_profile(void) {
       if (psn_auth_begin_device_login(now_unix)) {
         profile_login_qr_visible = true;
         profile_refresh_login_qr(psn_auth_device_verification_url());
-        trigger_hints_popup("Scan QR on phone, then press X to paste redirect URL/code");
+        trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
       } else if (psn_auth_last_error()[0]) {
         trigger_hints_popup(psn_auth_last_error());
       } else {

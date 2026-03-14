@@ -91,6 +91,27 @@ endif()
 if(DEFINED VITARPS5_BUILD_TIMESTAMP)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_BUILD_TIMESTAMP="${VITARPS5_BUILD_TIMESTAMP}")
 endif()
+if(DEFINED VITARPS5_PSN_OAUTH_DEVICE_CODE_URL)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_DEVICE_CODE_URL="${VITARPS5_PSN_OAUTH_DEVICE_CODE_URL}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_AUTHORIZE_URL)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_AUTHORIZE_URL="${VITARPS5_PSN_OAUTH_AUTHORIZE_URL}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_TOKEN_URL)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_TOKEN_URL="${VITARPS5_PSN_OAUTH_TOKEN_URL}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_CLIENT_ID)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_CLIENT_ID="${VITARPS5_PSN_OAUTH_CLIENT_ID}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_CLIENT_SECRET)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_CLIENT_SECRET="${VITARPS5_PSN_OAUTH_CLIENT_SECRET}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_SCOPE)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_SCOPE="${VITARPS5_PSN_OAUTH_SCOPE}")
+endif()
+if(DEFINED VITARPS5_PSN_OAUTH_REDIRECT_URI)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PSN_OAUTH_REDIRECT_URI="${VITARPS5_PSN_OAUTH_REDIRECT_URI}")
+endif()
 
 if(DEFINED VITARPS5_DEBUG_MENU)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_MENU=${VITARPS5_DEBUG_MENU})
@@ -107,6 +128,12 @@ target_include_directories(${VITA_APP_NAME}.elf PRIVATE
     third_party/h264-bitstream/
 )
 
+if(CHIAKI_USE_SYSTEM_CURL)
+    set(VITA_CURL_TARGET curl)
+else()
+    set(VITA_CURL_TARGET CURL::libcurl_static)
+endif()
+
 target_link_libraries(${VITA_APP_NAME}.elf
   # TODO: Do we really need all of those?
   chiaki-lib
@@ -114,7 +141,7 @@ target_link_libraries(${VITA_APP_NAME}.elf
   ssl
   crypto
   opus
-  curl
+  ${VITA_CURL_TARGET}
 
   freetype
   bz2
@@ -198,6 +225,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/Vita_Front.png assets/Vita_Front.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
+        FILE ../assets/psn-ca-bundle.pem assets/psn-ca-bundle.pem
         # Controller layout screen now uses procedural rendering - PNG outlines removed
     )
 endif()
