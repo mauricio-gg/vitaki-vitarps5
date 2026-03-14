@@ -193,3 +193,34 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create stable-named VPK for latest release
+        run: cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitakiFork-latest.vpk
+
+      - name: Update 'latest' release tag
+        run: |
+          git tag -f latest
+          git push origin latest --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update 'latest' GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: VitakiFork Latest (${{ steps.new_version.outputs.NEW_TAG }})
+          files: VitakiFork-latest.vpk
+          body: |
+            # VitakiFork Latest (currently ${{ steps.new_version.outputs.NEW_TAG }})
+
+            **This release always points to the most recent stable build.**
+
+            Stable download URL (never changes):
+            `https://github.com/${{ github.repository }}/releases/download/latest/VitakiFork-latest.vpk`
+
+            For version-specific release notes, see [${{ steps.new_version.outputs.NEW_TAG }}](https://github.com/${{ github.repository }}/releases/tag/${{ steps.new_version.outputs.NEW_TAG }}).
+          draft: false
+          prerelease: false
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

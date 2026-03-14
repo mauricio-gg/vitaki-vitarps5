@@ -705,7 +705,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 10 toggles
+#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 12 toggles
 
 // Shared toggle geometry for settings rows
 #define SETTINGS_TOGGLE_X_OFFSET    70
@@ -724,6 +724,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
 #define SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED  11
 #define SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY    12
+#define SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING 13
 
 static void settings_update_scroll_for_selection(void) {
     int total_items = SETTINGS_STREAMING_ITEMS;
@@ -859,6 +860,12 @@ static void settings_activate_selected_item(void) {
     case UI_SETTINGS_ITEM_PSN_REMOTEPLAY:
       settings_toggle_bool(&context.config.psn_remoteplay_enabled, SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY);
       break;
+    case UI_SETTINGS_ITEM_ENABLE_LOGGING:
+      settings_toggle_bool(&context.config.logging.enabled, SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING);
+      vita_log_update_enabled(context.config.logging.enabled);
+      context.log.level_mask = vita_logging_profile_mask(
+        context.config.logging.enabled ? VITA_LOG_PROFILE_VERBOSE : VITA_LOG_PROFILE_ERRORS);
+      break;
     default:
       break;
   }
@@ -967,6 +974,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
         draw_settings_toggle_item(content_x, y, content_w, item_h,
                                   "Enable PSN Internet Mode", SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY,
                                   context.config.psn_remoteplay_enabled, selected);
+        break;
+      case UI_SETTINGS_ITEM_ENABLE_LOGGING:
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Enable Logging", SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING,
+                                  context.config.logging.enabled, selected);
         break;
       default:
         if (last_invalid_settings_item != i) {

@@ -31,9 +31,10 @@ typedef enum ui_settings_streaming_item_t {
   UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 11,
   UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED = 12,
   UI_SETTINGS_ITEM_PSN_REMOTEPLAY = 13,
+  UI_SETTINGS_ITEM_ENABLE_LOGGING = 14,
 } UISettingsStreamingItem;
 
-#define UI_SETTINGS_STREAMING_ITEM_COUNT 14
+#define UI_SETTINGS_STREAMING_ITEM_COUNT 15
 
 // ============================================================================
 // Screen Initialization
