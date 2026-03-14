@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="572"
+VERSION_ITERATION="583"
 
 # Colors for output
 RED='\033[0;31m'
@@ -150,6 +150,26 @@ configure_logging_cmake_args() {
     CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
 }
 
+configure_feature_cmake_args() {
+    local holepunch_val
+    local cmake_args=()
+
+    holepunch_val=$(normalize_bool "$VITARPS5_ENABLE_VITA_HOLEPUNCH")
+    if [ -n "$holepunch_val" ]; then
+        cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=$( [ "$holepunch_val" = "1" ] && echo ON || echo OFF )")
+    elif [ "$ENV_PROFILE_PATH" = ".env.testing" ]; then
+        cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON")
+    fi
+
+    if [ ${#cmake_args[@]} -gt 0 ]; then
+        if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
+            CMAKE_EXTRA_FLAGS+=" ${cmake_args[*]}"
+        else
+            CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
+        fi
+    fi
+}
+
 append_build_metadata_cmake_args() {
     local git_commit="unknown"
     local git_branch="unknown"
@@ -204,6 +224,15 @@ ensure_docker_image() {
         build_docker_image
     else
         log_info "Using existing custom Docker image: $DOCKER_IMAGE"
+        if [[ " $CMAKE_EXTRA_FLAGS " == *" -DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON "* ]]; then
+            if ! docker run --rm \
+                --platform linux/amd64 \
+                "$DOCKER_IMAGE" \
+                bash -lc "test -f /usr/local/vitasdk/arm-vita-eabi/lib/libjson-c.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/json-c/json.h" > /dev/null 2>&1; then
+                log_warning "Custom Docker image is missing Vita json-c; rebuilding image for holepunch-enabled build support"
+                build_docker_image
+            fi
+        fi
     fi
 }
 
@@ -563,6 +592,7 @@ main() {
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
+    configure_feature_cmake_args
     append_build_metadata_cmake_args
 
     local debug_menu_val

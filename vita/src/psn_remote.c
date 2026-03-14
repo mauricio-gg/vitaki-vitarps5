@@ -9,6 +9,14 @@
 #include "psn_remote.h"
 
 #if CHIAKI_CAN_USE_HOLEPUNCH
+typedef enum psn_host_add_result_t {
+  PSN_HOST_ADD_RESULT_ADDED = 1,
+  PSN_HOST_ADD_RESULT_SKIPPED_REMOTEPLAY_DISABLED = 0,
+  PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE = -1,
+  PSN_HOST_ADD_RESULT_SKIPPED_NO_FREE_SLOT = -2,
+  PSN_HOST_ADD_RESULT_SKIPPED_OOM = -3,
+} PsnHostAddResult;
+
 static bool psn_uid_is_zero(const uint8_t uid[32]) {
   if (!uid)
     return true;
@@ -24,8 +32,11 @@ static bool host_target_is_ps5_registered(const VitaChiakiHost *host) {
          chiaki_target_is_ps5(host->target);
 }
 
-static VitaChiakiHost *find_registered_source_for_device(const char *device_name) {
+static VitaChiakiHost *find_registered_source_for_device(const char *device_name,
+                                                         bool *out_exact_match) {
   VitaChiakiHost *fallback = NULL;
+  if (out_exact_match)
+    *out_exact_match = false;
   for (int i = 0; i < context.config.num_registered_hosts; i++) {
     VitaChiakiHost *candidate = context.config.registered_hosts[i];
     if (!host_target_is_ps5_registered(candidate))
@@ -34,6 +45,8 @@ static VitaChiakiHost *find_registered_source_for_device(const char *device_name
       fallback = candidate;
     if (device_name && candidate->registered_state->server_nickname &&
         strcmp(candidate->registered_state->server_nickname, device_name) == 0) {
+      if (out_exact_match)
+        *out_exact_match = true;
       return candidate;
     }
   }
@@ -52,16 +65,53 @@ static void remove_existing_psn_hosts(void) {
   }
 }
 
-static int add_psn_host_from_device(const ChiakiHolepunchDeviceInfo *device) {
-  if (!device || !device->remoteplay_enabled)
-    return 0;
-
-  VitaChiakiHost *src = find_registered_source_for_device(device->device_name);
-  if (!src) {
-    LOGD("Skipping PSN device without matching registered PS5 host: %s",
-         device->device_name);
-    return 0;
+static size_t count_psn_context_hosts(void) {
+  size_t count = 0;
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+    VitaChiakiHost *host = context.hosts[i];
+    if (host && host->source == VITA_HOST_SOURCE_PSN_REMOTE)
+      count++;
   }
+  return count;
+}
+
+static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo *device,
+                                                 size_t device_index) {
+  if (!device) {
+    LOGE("PSN host refresh device[%u]: null device entry",
+         (unsigned int)device_index);
+    return PSN_HOST_ADD_RESULT_SKIPPED_OOM;
+  }
+
+  LOGD("PSN host refresh device[%u]: name=%s remoteplay_enabled=%d type=%d",
+       (unsigned int)device_index,
+       device->device_name[0] ? device->device_name : "<unnamed>",
+       device->remoteplay_enabled,
+       device->type);
+
+  if (!device->remoteplay_enabled) {
+    LOGD("PSN host refresh device[%u]: skipped because remote play is disabled",
+         (unsigned int)device_index);
+    return PSN_HOST_ADD_RESULT_SKIPPED_REMOTEPLAY_DISABLED;
+  }
+
+  bool exact_match = false;
+  VitaChiakiHost *src =
+      find_registered_source_for_device(device->device_name, &exact_match);
+  if (!src) {
+    LOGD("PSN host refresh device[%u]: skipped because no registered PS5 seed host matched name=%s",
+         (unsigned int)device_index,
+         device->device_name[0] ? device->device_name : "<unnamed>");
+    return PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE;
+  }
+
+  LOGD("PSN host refresh device[%u]: using %s registered seed host=%s",
+       (unsigned int)device_index,
+       exact_match ? "exact-match" : "fallback",
+       (src->registered_state && src->registered_state->server_nickname &&
+        src->registered_state->server_nickname[0])
+           ? src->registered_state->server_nickname
+           : (src->hostname ? src->hostname : "<unnamed>"));
 
   int slot = -1;
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
@@ -71,14 +121,16 @@ static int add_psn_host_from_device(const ChiakiHolepunchDeviceInfo *device) {
     }
   }
   if (slot < 0) {
-    LOGE("No free host slot while adding PSN remote host");
-    return 0;
+    LOGE("PSN host refresh device[%u]: no free host slot while adding PSN host",
+         (unsigned int)device_index);
+    return PSN_HOST_ADD_RESULT_SKIPPED_NO_FREE_SLOT;
   }
 
   VitaChiakiHost *host = calloc(1, sizeof(VitaChiakiHost));
   if (!host) {
-    LOGE("Out of memory while creating PSN remote host");
-    return 0;
+    LOGE("PSN host refresh device[%u]: out of memory while creating PSN host",
+         (unsigned int)device_index);
+    return PSN_HOST_ADD_RESULT_SKIPPED_OOM;
   }
 
   copy_host(host, src, false);
@@ -94,7 +146,15 @@ static int add_psn_host_from_device(const ChiakiHolepunchDeviceInfo *device) {
   }
 
   context.hosts[slot] = host;
-  return 1;
+  LOGD("PSN host refresh device[%u]: added PSN host slot=%d hostname=%s source_seed=%s",
+       (unsigned int)device_index,
+       slot,
+       host->hostname ? host->hostname : "<unnamed>",
+       (src->registered_state && src->registered_state->server_nickname &&
+        src->registered_state->server_nickname[0])
+           ? src->registered_state->server_nickname
+           : (src->hostname ? src->hostname : "<unnamed>"));
+  return PSN_HOST_ADD_RESULT_ADDED;
 }
 #endif
 
@@ -181,11 +241,18 @@ int psn_remote_prepare_connect_host(
 
 int psn_remote_refresh_hosts(void) {
 #if CHIAKI_CAN_USE_HOLEPUNCH
+  uint64_t now_unix = (uint64_t)time(NULL);
+  LOGD("PSN host refresh begin: enabled=%d has_tokens=%d token_valid=%d now=%llu expires_at=%llu current_psn_hosts=%u",
+       psn_auth_enabled(),
+       psn_auth_has_tokens(),
+       psn_auth_token_is_valid(now_unix),
+       (unsigned long long)now_unix,
+       (unsigned long long)context.config.psn_oauth_expires_at_unix,
+       (unsigned int)count_psn_context_hosts());
   if (!psn_auth_enabled()) {
     LOGD("PSN host refresh skipped: PSN internet mode disabled");
     return 1;
   }
-  uint64_t now_unix = (uint64_t)time(NULL);
   if (!psn_auth_token_is_valid(now_unix) &&
       !psn_auth_refresh_token_if_needed(now_unix, false)) {
     LOGD("PSN host refresh skipped: OAuth token invalid and refresh failed");
@@ -207,13 +274,43 @@ int psn_remote_refresh_hosts(void) {
     return 1;
   }
 
+  LOGD("PSN host refresh fetched %u PSN devices", (unsigned int)device_count);
   remove_existing_psn_hosts();
   int added = 0;
-  for (size_t i = 0; i < device_count; i++)
-    added += add_psn_host_from_device(&devices[i]);
+  int skipped_remoteplay_disabled = 0;
+  int skipped_no_registered_source = 0;
+  int skipped_no_free_slot = 0;
+  int skipped_oom = 0;
+  for (size_t i = 0; i < device_count; i++) {
+    PsnHostAddResult result = add_psn_host_from_device(&devices[i], i);
+    switch (result) {
+    case PSN_HOST_ADD_RESULT_ADDED:
+      added++;
+      break;
+    case PSN_HOST_ADD_RESULT_SKIPPED_REMOTEPLAY_DISABLED:
+      skipped_remoteplay_disabled++;
+      break;
+    case PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE:
+      skipped_no_registered_source++;
+      break;
+    case PSN_HOST_ADD_RESULT_SKIPPED_NO_FREE_SLOT:
+      skipped_no_free_slot++;
+      break;
+    case PSN_HOST_ADD_RESULT_SKIPPED_OOM:
+      skipped_oom++;
+      break;
+    }
+  }
   chiaki_holepunch_free_device_list(&devices);
   update_context_hosts();
-  LOGD("PSN host refresh completed: %d hosts added", added);
+  LOGD("PSN host refresh completed: added=%d skipped_remoteplay_disabled=%d skipped_no_registered_source=%d skipped_no_free_slot=%d skipped_oom=%d visible_psn_hosts=%u total_hosts=%u",
+       added,
+       skipped_remoteplay_disabled,
+       skipped_no_registered_source,
+       skipped_no_free_slot,
+       skipped_oom,
+       (unsigned int)count_psn_context_hosts(),
+       (unsigned int)context.num_hosts);
   if (!config_serialize(&context.config)) {
     LOGE("Failed to persist config after PSN host refresh");
   }

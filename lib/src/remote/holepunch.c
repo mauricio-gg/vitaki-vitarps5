@@ -82,6 +82,10 @@
 #define MSG_TYPE_RESP 0x07000000
 #define EXTRA_CANDIDATE_ADDRESSES 3
 
+#if defined(__PSVITA__)
+#define VITA_PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
+#endif
+
 static const char oauth_header_fmt[] = "Authorization: Bearer %s";
 
 // Endpoints we're using
@@ -93,6 +97,17 @@ static const char wakeup_url_fmt[] = "%s/v1/users/%s/remoteConsole/wakeUp?platfo
 static const char session_command_url[] = "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/commands";
 static const char session_message_url_fmt[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions/%s/sessionMessage";
 static const char delete_messsage_url_fmt[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions/%s/members/me";
+
+static void curl_apply_platform_tls_defaults(CURL *curl)
+{
+#if defined(__PSVITA__)
+    curl_easy_setopt(curl, CURLOPT_CAINFO, VITA_PSN_CA_BUNDLE_PATH);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+#else
+    (void)curl;
+#endif
+}
 
 // JSON payloads for requests.
 // Implemented as string templates due to the broken JSON used by the official app, which we're
@@ -428,6 +443,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
         CHIAKI_LOGE(log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
     char url[133];
 
     char *platform;
@@ -1074,6 +1090,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
@@ -1195,6 +1212,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
         json_tokener_free(tok);
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     char host_url_string[134];
     snprintf(host_url_string, sizeof(host_url_string), "Host: %s", host_url);
@@ -1645,6 +1663,7 @@ static ChiakiErrorCode get_websocket_fqdn(Session *session, char **fqdn)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
 
@@ -1801,6 +1820,7 @@ static void* websocket_thread_func(void *user) {
         CHIAKI_LOGE(session->log, "Curl could not init");
         return NULL;
     }
+    curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
     headers = curl_slist_append(headers, "Sec-WebSocket-Protocol: np-pushpacket");
@@ -2553,6 +2573,7 @@ static ChiakiErrorCode http_create_session(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
     headers = curl_slist_append(headers, "Content-Type: application/json; charset=utf-8");
@@ -2681,6 +2702,7 @@ static ChiakiErrorCode http_start_session(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
@@ -2771,6 +2793,7 @@ static ChiakiErrorCode http_send_session_message(Session *session, SessionMessag
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
@@ -2831,6 +2854,7 @@ static ChiakiErrorCode deleteSession(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
@@ -4757,6 +4781,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     HttpResponseData response_data = {
         .data = malloc(0),
@@ -4835,6 +4860,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
         CHIAKI_LOGE(session->log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
+    curl_apply_platform_tls_defaults(curl);
 
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
