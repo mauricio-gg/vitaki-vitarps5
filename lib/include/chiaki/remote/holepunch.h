@@ -39,14 +39,14 @@
 extern "C" {
 #endif
 
-#define DUID_PREFIX "0000000700410080"
+#define DUID_PREFIX "00000007000a00c00001028700140000"
 #ifdef _WIN32
 #define CHIAKI_SSIZET_TYPE int
 #else
 #define CHIAKI_SSIZET_TYPE ssize_t
 #endif
 
-#define CHIAKI_DUID_STR_SIZE 49
+#define CHIAKI_DUID_STR_SIZE 65
 
 /** Handle to holepunching session state */
 typedef struct session_t* ChiakiHolepunchSession;
@@ -183,6 +183,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_generate_client_device_uid(
 */
 CHIAKI_EXPORT ChiakiHolepunchSession chiaki_holepunch_session_init(
     const char* psn_oauth2_token, ChiakiLog *log);
+
+CHIAKI_EXPORT void chiaki_holepunch_session_discard(
+    ChiakiHolepunchSession session);
+
+CHIAKI_EXPORT void chiaki_holepunch_session_get_ws_reject_info(
+    ChiakiHolepunchSession session, long *http_code, long *retry_interval_min,
+    long *retry_interval_max);
 
 /**
  * Create a remote play session on the PSN server.

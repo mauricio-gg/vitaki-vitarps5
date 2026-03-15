@@ -563,6 +563,11 @@ static UIScreenType main_menu_activate_selected_card(void) {
   if (!card || !card->host)
     return UI_SCREEN_TYPE_MAIN;
 
+  LOGD("main_menu_activate_selected_card: card_host_ptr=%p source=%d type=0x%x hostname=%s",
+       (void *)card->host,
+       card->host->source,
+       card->host->type,
+       card->host->hostname ? card->host->hostname : "<null>");
   context.active_host = card->host;
   if (takion_cooldown_gate_active()) {
     LOGD("Ignoring connect request — network recovery cooldown active");

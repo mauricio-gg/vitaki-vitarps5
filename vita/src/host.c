@@ -35,6 +35,16 @@ static bool host_mac_is_zero(const uint8_t mac[6]) {
   return true;
 }
 
+static bool host_psn_uid_is_zero(const uint8_t uid[32]) {
+  if (!uid)
+    return true;
+  for (int i = 0; i < 32; i++) {
+    if (uid[i] != 0)
+      return false;
+  }
+  return true;
+}
+
 static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) {
   if (!host)
     return false;
@@ -130,6 +140,13 @@ void host_request_stream_stop_from_input(const char *reason) {
 int host_stream(VitaChiakiHost* host) {
   LOGD("Preparing to start host_stream");
   bool psn_remote = host && host->source == VITA_HOST_SOURCE_PSN_REMOTE;
+  LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
+       (void *)host,
+       host ? host->source : -1,
+       host ? host->type : 0,
+       (host && host->hostname) ? host->hostname : "<null>",
+       psn_remote,
+       (host && psn_remote) ? host_psn_uid_is_zero(host->psn_device_uid) : 0);
   if (!host || (!psn_remote && (!host->hostname || !host->hostname[0]))) {
     return 1;
   }
@@ -240,10 +257,7 @@ int host_stream(VitaChiakiHost* host) {
     ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_CREATE_SESSION);
 #if CHIAKI_CAN_USE_HOLEPUNCH
     if (psn_remote_prepare_connect_host(host, &holepunch_session) != 0) {
-      host_set_hint(host,
-                    "PSN internet remote play stack is unavailable in this build.",
-                    true,
-                    HINT_DURATION_CREDENTIAL_US);
+      host_set_hint(host, psn_remote_last_error(), true, HINT_DURATION_CREDENTIAL_US);
       goto cleanup;
     }
 #else

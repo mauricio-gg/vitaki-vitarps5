@@ -69,6 +69,7 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
     }
     memset(host, 0, sizeof(VitaChiakiHost));
     memset(rstate, 0, sizeof(ChiakiRegisteredHost));
+    host->type = REGISTERED;
     host->source = VITA_HOST_SOURCE_LOCAL_DISCOVERY;
     host->remoteplay_enabled = false;
     host->registered_state = rstate;
@@ -122,6 +123,11 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
     }
 
     cfg->registered_hosts[cfg->num_registered_hosts] = host;
+    LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x",
+         cfg->num_registered_hosts,
+         rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>",
+         host->target,
+         host->type);
     cfg->num_registered_hosts++;
   }
 }

@@ -88,6 +88,41 @@
 
 static const char oauth_header_fmt[] = "Authorization: Bearer %s";
 
+typedef struct psn_remote_client_profile_t
+{
+    const char *name;
+    const char *ws_protocol;
+    const char *ws_user_agent;
+    const char *app_type;
+    const char *app_version;
+    const char *keep_alive_status_type;
+    const char *os_version;
+    const char *protocol_version;
+    const char *reconnection;
+    const char *command_user_agent;
+    const char *start_client_type;
+    const char *wakeup_client_type;
+    const char *wakeup_protocol_version;
+    const char *local_peer_platform;
+} PsnRemoteClientProfile;
+
+static const PsnRemoteClientProfile psn_remote_client_profile = {
+    .name = "chiaki-ng-parity",
+    .ws_protocol = "np-pushpacket",
+    .ws_user_agent = "WebSocket++/0.8.2",
+    .app_type = "REMOTE_PLAY",
+    .app_version = "RemotePlay/1.0",
+    .keep_alive_status_type = "3",
+    .os_version = "Windows/10.0",
+    .protocol_version = "2.1",
+    .reconnection = "false",
+    .command_user_agent = "RpNetHttpUtilImpl",
+    .start_client_type = "Windows",
+    .wakeup_client_type = "Windows",
+    .wakeup_protocol_version = "10.0",
+    .local_peer_platform = "REMOTE_PLAY",
+};
+
 // Endpoints we're using
 static const char device_list_url_fmt[] = "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/clients?platform=%s&includeFields=device&limit=10&offset=0";
 static const char ws_fqdn_api_url[] = "https://mobile-pushcl.np.communication.playstation.net/np/serveraddr?version=2.1&fields=keepAliveStatus&keepAliveStatusType=3";
@@ -129,12 +164,12 @@ static const char session_start_envelope_fmt[] =
          "\"platform\":\"%s\"}}";                      // 2: PS4/PS5
 static const char session_wakeup_envelope_fmt[] =
     "{\"data\":"
-        "{\"clientType\":\"Windows\","
+        "{\"clientType\":\"%s\","
          "\"data1\":\"%s\","                            // 0: 16 byte data1, base64 encoded
          "\"data2\":\"%s\","                            // 1: 16 byte data2, base64 encoded
          "\"roomId\": 0,"
-         "\"protocolVer\":\"10.0\","
-         "\"sessionId\":\"%s\"},"                        // 2: session identifier (lowercase UUIDv4)
+         "\"protocolVer\":\"%s\","
+         "\"sessionId\":\"%s\"},"                        // 3: session identifier (lowercase UUIDv4)
          "\"dataTypeSuffix\":\"remotePlay\"}";
 static const char session_message_envelope_fmt[] =
     "{\"channel\":\"remote_play:1\","
@@ -149,9 +184,9 @@ static const char session_start_payload_fmt[] =
     "{\\\"accountId\\\":%" PRId64","             // 0: PSN account ID, integer
      "\\\"roomId\\\":0,"
      "\\\"sessionId\\\":\\\"%s\\\","      // 1: session identifier (lowercase UUIDv4)
-     "\\\"clientType\\\":\\\"Windows\\\","
-     "\\\"data1\\\":\\\"%s\\\","          // 2: 16 byte data1, base64 encoded
-     "\\\"data2\\\":\\\"%s\\\"}";         // 3: 16 byte data2, base64 encoded
+     "\\\"clientType\\\":\\\"%s\\\","
+     "\\\"data1\\\":\\\"%s\\\","          // 3: 16 byte data1, base64 encoded
+     "\\\"data2\\\":\\\"%s\\\"}";         // 4: 16 byte data2, base64 encoded
 static const char session_message_fmt[] =
     "{\\\"action\\\":\\\"%s\\\"," // 0: OFFER/RESULT/ACCEPT
      "\\\"reqId\\\":%d,"          // 1: request ID, integer
@@ -177,6 +212,30 @@ static const char session_connrequest_candidate_fmt[] =
 static const char session_localpeeraddr_fmt[] =
     "{\\\"accountId\\\":\\\"%" PRId64"\\\","   // 0: PSN account ID
      "\\\"platform\\\":\\\"%s\\\"}";    // 1: "PROSPERO" for PS5, "ORBIS" for PS4, "REMOTE_PLAY" for client
+
+static void log_psn_remote_client_profile(ChiakiLog *log)
+{
+    CHIAKI_LOGV(log,
+                "PSN remote client profile: name=%s ws_protocol=%s ws_user_agent=%s "
+                "app_type=%s app_version=%s keep_alive=%s os_version=%s "
+                "protocol_version=%s reconnection=%s command_user_agent=%s "
+                "start_client_type=%s wakeup_client_type=%s wakeup_protocol=%s "
+                "local_peer_platform=%s",
+                psn_remote_client_profile.name,
+                psn_remote_client_profile.ws_protocol,
+                psn_remote_client_profile.ws_user_agent,
+                psn_remote_client_profile.app_type,
+                psn_remote_client_profile.app_version,
+                psn_remote_client_profile.keep_alive_status_type,
+                psn_remote_client_profile.os_version,
+                psn_remote_client_profile.protocol_version,
+                psn_remote_client_profile.reconnection,
+                psn_remote_client_profile.command_user_agent,
+                psn_remote_client_profile.start_client_type,
+                psn_remote_client_profile.wakeup_client_type,
+                psn_remote_client_profile.wakeup_protocol_version,
+                psn_remote_client_profile.local_peer_platform);
+}
 
 typedef enum notification_type_t
 {
@@ -215,23 +274,24 @@ typedef enum session_state_t
 {
     SESSION_STATE_INIT = 0,
     SESSION_STATE_WS_OPEN = 1 << 0,
-    SESSION_STATE_CREATED = 1 << 1,
-    SESSION_STATE_STARTED = 1 << 2,
-    SESSION_STATE_CLIENT_JOINED = 1 << 3,
-    SESSION_STATE_DATA_SENT = 1 << 4,
-    SESSION_STATE_CONSOLE_JOINED = 1 << 5,
-    SESSION_STATE_CUSTOMDATA1_RECEIVED = 1 << 6,
-    SESSION_STATE_CTRL_OFFER_RECEIVED = 1 << 7,
-    SESSION_STATE_CTRL_OFFER_SENT = 1 << 8,
-    SESSION_STATE_CTRL_CONSOLE_ACCEPTED = 1 << 9,
-    SESSION_STATE_CTRL_CLIENT_ACCEPTED = 1 << 10,
-    SESSION_STATE_CTRL_ESTABLISHED = 1 << 11,
-    SESSION_STATE_DATA_OFFER_RECEIVED = 1 << 12,
-    SESSION_STATE_DATA_OFFER_SENT = 1 << 13,
-    SESSION_STATE_DATA_CONSOLE_ACCEPTED = 1 << 14,
-    SESSION_STATE_DATA_CLIENT_ACCEPTED = 1 << 15,
-    SESSION_STATE_DATA_ESTABLISHED = 1 << 16,
-    SESSION_STATE_DELETED = 1 << 17
+    SESSION_STATE_WS_FAILED = 1 << 1,
+    SESSION_STATE_CREATED = 1 << 2,
+    SESSION_STATE_STARTED = 1 << 3,
+    SESSION_STATE_CLIENT_JOINED = 1 << 4,
+    SESSION_STATE_DATA_SENT = 1 << 5,
+    SESSION_STATE_CONSOLE_JOINED = 1 << 6,
+    SESSION_STATE_CUSTOMDATA1_RECEIVED = 1 << 7,
+    SESSION_STATE_CTRL_OFFER_RECEIVED = 1 << 8,
+    SESSION_STATE_CTRL_OFFER_SENT = 1 << 9,
+    SESSION_STATE_CTRL_CONSOLE_ACCEPTED = 1 << 10,
+    SESSION_STATE_CTRL_CLIENT_ACCEPTED = 1 << 11,
+    SESSION_STATE_CTRL_ESTABLISHED = 1 << 12,
+    SESSION_STATE_DATA_OFFER_RECEIVED = 1 << 13,
+    SESSION_STATE_DATA_OFFER_SENT = 1 << 14,
+    SESSION_STATE_DATA_CONSOLE_ACCEPTED = 1 << 15,
+    SESSION_STATE_DATA_CLIENT_ACCEPTED = 1 << 16,
+    SESSION_STATE_DATA_ESTABLISHED = 1 << 17,
+    SESSION_STATE_DELETED = 1 << 18
 } SessionState;
 
 typedef struct upnp_gateway_info_t
@@ -289,6 +349,10 @@ typedef struct session_t
     NotificationQueue* ws_notification_queue;
     bool ws_thread_should_stop;
     bool ws_open;
+    ChiakiErrorCode ws_connect_err;
+    long ws_connect_http_code;
+    long ws_retry_interval_min;
+    long ws_retry_interval_max;
 
     bool main_should_stop;
 
@@ -409,6 +473,8 @@ static void dequeueNq(NotificationQueue *nq);
 static void enqueueNq(NotificationQueue *nq, Notification *notif);
 static Notification* newNotification(NotificationType type, json_object *json, char* json_buf, size_t json_buf_size);
 static void remove_substring(char *str, char *substring);
+static int ws_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
+                            size_t size, void *userptr);
 
 static ChiakiErrorCode wait_for_session_message(
     Session *session, SessionMessage** out,
@@ -531,7 +597,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     const char *json_str = json_object_to_json_string_ext(clients, JSON_C_TO_STRING_PRETTY);
         CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: retrieved devices \n%s", json_str);
     size_t num_clients = json_object_array_length(clients);
-    *devices = malloc(sizeof(ChiakiHolepunchDeviceInfo) * num_clients);
+    *devices = calloc(num_clients, sizeof(ChiakiHolepunchDeviceInfo));
     if(!(*devices))
     {
         CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Memory could not be allocated for %d devices", num_clients);
@@ -540,7 +606,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     *device_count = num_clients;
     for (size_t i = 0; i < num_clients; i++)
     {
-        ChiakiHolepunchDeviceInfo *device = *devices + i * sizeof(ChiakiHolepunchDeviceInfo);
+        ChiakiHolepunchDeviceInfo *device = *devices + i;
         device->type = console_type;
 
         json_object *client = json_object_array_get_idx(clients, i);
@@ -556,7 +622,37 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup_devices;
         }
-        hex_to_bytes(json_object_get_string(duid), device->device_uid, sizeof(device->device_uid));
+        const char *duid_str = json_object_get_string(duid);
+        size_t duid_len = duid_str ? strlen(duid_str) : 0;
+        CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: client[%u] raw duid=%s len=%u",
+                    (unsigned int)i,
+                    duid_str ? duid_str : "<null>",
+                    (unsigned int)duid_len);
+        if (duid_len != 64)
+        {
+            CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: client[%u] \"duid\" has unexpected length %u, expected 64",
+                        (unsigned int)i, (unsigned int)duid_len);
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup_devices;
+        }
+        memset(device->device_uid, 0, sizeof(device->device_uid));
+        hex_to_bytes(duid_str, device->device_uid, sizeof(device->device_uid));
+        bool uid_zero = true;
+        for (size_t uid_i = 0; uid_i < sizeof(device->device_uid); uid_i++)
+        {
+            if (device->device_uid[uid_i] != 0)
+            {
+                uid_zero = false;
+                break;
+            }
+        }
+        if (uid_zero)
+        {
+            CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: client[%u] parsed duid is all zeroes",
+                        (unsigned int)i);
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup_devices;
+        }
 
         json_object *device_json;
         if (!json_object_object_get_ex(client, "device", &device_json))
@@ -650,6 +746,20 @@ CHIAKI_EXPORT uint16_t chiaki_get_ps_ctrl_port(Session *session)
     return session->ctrl_port;
 }
 
+CHIAKI_EXPORT void chiaki_holepunch_session_get_ws_reject_info(
+    ChiakiHolepunchSession session, long *http_code, long *retry_interval_min,
+    long *retry_interval_max)
+{
+    if (!session)
+        return;
+    if (http_code)
+        *http_code = session->ws_connect_http_code;
+    if (retry_interval_min)
+        *retry_interval_min = session->ws_retry_interval_min;
+    if (retry_interval_max)
+        *retry_interval_max = session->ws_retry_interval_max;
+}
+
 CHIAKI_EXPORT chiaki_socket_t *chiaki_get_holepunch_sock(ChiakiHolepunchSession session, ChiakiHolepunchPortType type)
 {
     switch(type)
@@ -692,15 +802,30 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
     Session *session = malloc(sizeof(Session));
     if(!session)
         return NULL;
-    make_oauth2_header(&session->oauth_header, psn_oauth2_token);
+    memset(session, 0, sizeof(Session));
+
+    ChiakiErrorCode err = make_oauth2_header(&session->oauth_header, psn_oauth2_token);
+    if(err != CHIAKI_ERR_SUCCESS)
+    {
+        free(session);
+        return NULL;
+    }
     session->log = log;
 
     session->ws_fqdn = NULL;
     session->ws_notification_queue = createNq();
     if(!session->ws_notification_queue)
+    {
+        free(session->oauth_header);
+        free(session);
         return NULL;
+    }
     session->ws_thread_should_stop = false;
     session->ws_open = false;
+    session->ws_connect_err = CHIAKI_ERR_SUCCESS;
+    session->ws_connect_http_code = 0;
+    session->ws_retry_interval_min = 0;
+    session->ws_retry_interval_max = 0;
     session->online_id = NULL;
     session->main_should_stop = false;
     memset(&session->session_id, 0, sizeof(session->session_id));
@@ -719,9 +844,6 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
     session->stun_allocation_increment = -1;
     session->num_stun_servers = 0;
     session->num_stun_servers_ipv6 = 0;
-    session->gw.data = NULL;
-
-    ChiakiErrorCode err;
     err = chiaki_mutex_init(&session->notif_mutex, false);
     assert(err == CHIAKI_ERR_SUCCESS);
     err = chiaki_cond_init(&session->notif_cond, &session->notif_mutex);
@@ -737,6 +859,7 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
 
     session->curl_share = curl_share_init();
     assert(session->curl_share != NULL);
+    log_psn_remote_client_profile(session->log);
 
     chiaki_mutex_lock(&session->state_mutex);
     session->state = SESSION_STATE_INIT;
@@ -772,13 +895,36 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
     CHIAKI_LOGV(session->log, "chiaki_holepunch_session_create: Created websocket thread");
 
     chiaki_mutex_lock(&session->state_mutex);
-    while (!(session->state & SESSION_STATE_WS_OPEN))
+    while (!(session->state & SESSION_STATE_WS_OPEN) &&
+           !(session->state & SESSION_STATE_WS_FAILED))
     {
         CHIAKI_LOGV(session->log, "chiaki_holepunch_session_create: Waiting for websocket to open...");
         err = chiaki_cond_wait(&session->state_cond, &session->state_mutex);
         assert(err == CHIAKI_ERR_SUCCESS);
     }
+    if (session->state & SESSION_STATE_WS_FAILED)
+    {
+        err = session->ws_connect_err != CHIAKI_ERR_SUCCESS ? session->ws_connect_err
+                                                            : CHIAKI_ERR_NETWORK;
+        if (session->ws_connect_http_code > 0) {
+            CHIAKI_LOGE(session->log,
+                        "chiaki_holepunch_session_create: WebSocket open failed with HTTP code %ld",
+                        session->ws_connect_http_code);
+            if (session->ws_retry_interval_min > 0 || session->ws_retry_interval_max > 0) {
+                CHIAKI_LOGE(session->log,
+                            "chiaki_holepunch_session_create: Sony requested retry interval min=%ld max=%ld seconds",
+                            session->ws_retry_interval_min,
+                            session->ws_retry_interval_max);
+            }
+        } else {
+            CHIAKI_LOGE(session->log,
+                        "chiaki_holepunch_session_create: WebSocket open failed: %s",
+                        chiaki_error_string(err));
+        }
+    }
     chiaki_mutex_unlock(&session->state_mutex);
+    if (err != CHIAKI_ERR_SUCCESS)
+        goto cleanup_thread;
 
     if(session->main_should_stop)
     {
@@ -886,24 +1032,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
 cleanup_thread:
     session->ws_thread_should_stop = true;
     chiaki_thread_join(&session->ws_thread, NULL);
+    session->ws_open = false;
 cleanup_curlsh:
-    curl_share_cleanup(session->curl_share);
-    if (session->oauth_header)
-        free(session->oauth_header);
-    if (session->ws_fqdn)
-        free(session->ws_fqdn);
-    if (session->ws_notification_queue)
-    {
-        chiaki_mutex_lock(&session->notif_mutex);
-        notification_queue_free(session->ws_notification_queue);
-        chiaki_mutex_unlock(&session->notif_mutex);
-    }
-    chiaki_stop_pipe_fini(&session->notif_pipe);
-    chiaki_mutex_fini(&session->notif_mutex);
-    chiaki_stop_pipe_fini(&session->select_pipe);
-    chiaki_cond_fini(&session->notif_cond);
-    chiaki_mutex_fini(&session->state_mutex);
-    chiaki_cond_fini(&session->state_cond);
     return err;
 }
 
@@ -1079,6 +1209,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
 */
 static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
 {
+    char command_user_agent[96];
     HttpResponseData response_data = {
         .data = malloc(0),
         .size = 0,
@@ -1097,7 +1228,9 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     headers = curl_slist_append(headers, "Host: asm.np.community.playstation.net");
     headers = curl_slist_append(headers, "Connection: Keep-Alive");
     headers = curl_slist_append(headers, "Content-Type: application/json; charset=utf-8");
-    headers = curl_slist_append(headers, "User-Agent: RpNetHttpUtilImpl");
+    snprintf(command_user_agent, sizeof(command_user_agent), "User-Agent: %s",
+             psn_remote_client_profile.command_user_agent);
+    headers = curl_slist_append(headers, command_user_agent);
 
     curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
@@ -1200,8 +1333,10 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     chiaki_base64_encode(session->data1, sizeof(session->data1), data1_base64, sizeof(data1_base64));
     chiaki_base64_encode(session->data2, sizeof(session->data2), data2_base64, sizeof(data2_base64));
     snprintf(envelope_buf, sizeof(envelope_buf), session_wakeup_envelope_fmt,
+        psn_remote_client_profile.wakeup_client_type,
         data1_base64,
         data2_base64,
+        psn_remote_client_profile.wakeup_protocol_version,
         session->session_id);
 
     curl = curl_easy_init();
@@ -1220,7 +1355,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     headers = curl_slist_append(headers, host_url_string);
     headers = curl_slist_append(headers, "Connection: Keep-Alive");
     headers = curl_slist_append(headers, "Content-Type: application/json; charset=utf-8");
-    headers = curl_slist_append(headers, "User-Agent: RpNetHttpUtilImpl");
+    headers = curl_slist_append(headers, command_user_agent);
 
     curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
@@ -1609,6 +1744,42 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
     chiaki_cond_fini(&session->state_cond);
 }
 
+CHIAKI_EXPORT void chiaki_holepunch_session_discard(Session* session)
+{
+    if(!session)
+        return;
+
+    if(session->gw.data)
+        free(session->gw.data);
+    if(session->gw.urls)
+        free(session->gw.urls);
+    if(session->oauth_header)
+        free(session->oauth_header);
+    if(session->online_id)
+        free(session->online_id);
+    if(session->curl_share)
+        curl_share_cleanup(session->curl_share);
+    if(session->ws_fqdn)
+        free(session->ws_fqdn);
+    if(session->ws_notification_queue)
+    {
+        chiaki_mutex_lock(&session->notif_mutex);
+        notification_queue_free(session->ws_notification_queue);
+        chiaki_mutex_unlock(&session->notif_mutex);
+    }
+    for(int i = 0; i < session->num_stun_servers; i++)
+        free(session->stun_server_list[i].host);
+    for(int i = 0; i < session->num_stun_servers_ipv6; i++)
+        free(session->stun_server_list_ipv6[i].host);
+    chiaki_stop_pipe_fini(&session->select_pipe);
+    chiaki_stop_pipe_fini(&session->notif_pipe);
+    chiaki_mutex_fini(&session->notif_mutex);
+    chiaki_cond_fini(&session->notif_cond);
+    chiaki_mutex_fini(&session->state_mutex);
+    chiaki_cond_fini(&session->state_cond);
+    free(session);
+}
+
 CHIAKI_EXPORT void chiaki_holepunch_main_thread_cancel(Session *session, bool stop_thread)
 {
     if(stop_thread)
@@ -1761,13 +1932,33 @@ static inline size_t curl_write_cb(
     return realsize;
 }
 
+static int hex_nibble(char c)
+{
+    if(c >= '0' && c <= '9')
+        return c - '0';
+    if(c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    if(c >= 'A' && c <= 'F')
+        return 10 + (c - 'A');
+    return -1;
+}
+
 static void hex_to_bytes(const char* hex_str, uint8_t* bytes, size_t max_len) {
     size_t len = strlen(hex_str);
     if (len > max_len * 2) {
         len = max_len * 2;
     }
+    if ((len & 1) != 0) {
+        len -= 1;
+    }
     for (size_t i = 0; i < len; i += 2) {
-        sscanf(hex_str + i, "%2hhx", &bytes[i / 2]);
+        int hi = hex_nibble(hex_str[i]);
+        int lo = hex_nibble(hex_str[i + 1]);
+        if (hi < 0 || lo < 0) {
+            bytes[i / 2] = 0;
+            continue;
+        }
+        bytes[i / 2] = (uint8_t)((hi << 4) | lo);
     }
 }
 
@@ -1803,6 +1994,66 @@ static void random_uuidv4(char* out)
     out[36] = '\0';
 }
 
+static int ws_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
+                            size_t size, void *userptr)
+{
+    Session *session = (Session *)userptr;
+    const char *url = NULL;
+    const char retry_min_header[] = "X-PSN-RETRY-INTERVAL-MIN:";
+    const char retry_max_header[] = "X-PSN-RETRY-INTERVAL-MAX:";
+    (void)handle;
+    if(session && session->ws_fqdn)
+        url = session->ws_fqdn;
+    else
+        url = "<unknown>";
+
+    switch(type)
+    {
+        case CURLINFO_TEXT:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl info host=%s text=%.*s",
+                        url, (int)size, data);
+            break;
+        case CURLINFO_HEADER_OUT:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl header_out host=%s data=%.*s",
+                        url, (int)size, data);
+            break;
+        case CURLINFO_HEADER_IN:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl header_in host=%s data=%.*s",
+                        url, (int)size, data);
+            if (size > strlen(retry_min_header) &&
+                !strncasecmp(data, retry_min_header, strlen(retry_min_header))) {
+                session->ws_retry_interval_min = strtol(data + strlen(retry_min_header), NULL, 10);
+            } else if (size > strlen(retry_max_header) &&
+                       !strncasecmp(data, retry_max_header, strlen(retry_max_header))) {
+                session->ws_retry_interval_max = strtol(data + strlen(retry_max_header), NULL, 10);
+            }
+            break;
+        case CURLINFO_DATA_OUT:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl data_out host=%s size=%u",
+                        url, (unsigned)size);
+            break;
+        case CURLINFO_DATA_IN:
+            if(size > 0 && size <= 1024)
+                CHIAKI_LOGV(session->log, "websocket_thread_func: curl data_in host=%s data=%.*s",
+                            url, (int)size, data);
+            else
+                CHIAKI_LOGV(session->log, "websocket_thread_func: curl data_in host=%s size=%u",
+                            url, (unsigned)size);
+            break;
+        case CURLINFO_SSL_DATA_OUT:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl ssl_data_out host=%s size=%u",
+                        url, (unsigned)size);
+            break;
+        case CURLINFO_SSL_DATA_IN:
+            CHIAKI_LOGV(session->log, "websocket_thread_func: curl ssl_data_in host=%s size=%u",
+                        url, (unsigned)size);
+            break;
+        default:
+            break;
+    }
+    return 0;
+}
+
 /**
  * Thread function to run that pings the console every 5 seconds and receives notifications over the websocket
  *
@@ -1810,6 +2061,8 @@ static void random_uuidv4(char* out)
 */
 static void* websocket_thread_func(void *user) {
     Session* session = (Session*) user;
+    ChiakiErrorCode err;
+    char header_buf[128];
 
     char ws_url[128] = {0};
     snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
@@ -1823,38 +2076,75 @@ static void* websocket_thread_func(void *user) {
     curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
-    headers = curl_slist_append(headers, "Sec-WebSocket-Protocol: np-pushpacket");
-    headers = curl_slist_append(headers, "User-Agent: WebSocket++/0.8.2");
-    headers = curl_slist_append(headers, "X-PSN-APP-TYPE: REMOTE_PLAY");
-    headers = curl_slist_append(headers, "X-PSN-APP-VER: RemotePlay/1.0");
-    headers = curl_slist_append(headers, "X-PSN-KEEP-ALIVE-STATUS-TYPE: 3");
-    headers = curl_slist_append(headers, "X-PSN-OS-VER: Windows/10.0");
-    headers = curl_slist_append(headers, "X-PSN-PROTOCOL-VERSION: 2.1");
-    headers = curl_slist_append(headers, "X-PSN-RECONNECTION: false");
+    snprintf(header_buf, sizeof(header_buf), "Sec-WebSocket-Protocol: %s",
+             psn_remote_client_profile.ws_protocol);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "User-Agent: %s",
+             psn_remote_client_profile.ws_user_agent);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-APP-TYPE: %s",
+             psn_remote_client_profile.app_type);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-APP-VER: %s",
+             psn_remote_client_profile.app_version);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-KEEP-ALIVE-STATUS-TYPE: %s",
+             psn_remote_client_profile.keep_alive_status_type);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-OS-VER: %s",
+             psn_remote_client_profile.os_version);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-PROTOCOL-VERSION: %s",
+             psn_remote_client_profile.protocol_version);
+    headers = curl_slist_append(headers, header_buf);
+    snprintf(header_buf, sizeof(header_buf), "X-PSN-RECONNECTION: %s",
+             psn_remote_client_profile.reconnection);
+    headers = curl_slist_append(headers, header_buf);
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(curl, CURLOPT_URL, ws_url);
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, ws_curl_debug_cb);
+    curl_easy_setopt(curl, CURLOPT_DEBUGDATA, session);
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
+        ChiakiErrorCode ws_err = CHIAKI_ERR_NETWORK;
         if (res == CURLE_HTTP_RETURNED_ERROR)
         {
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            session->ws_connect_http_code = http_code;
             CHIAKI_LOGE(session->log, "websocket_thread_func: Connecting to push notification WebSocket %s failed with HTTP code %ld", ws_url, http_code);
+            if (session->ws_retry_interval_min > 0 || session->ws_retry_interval_max > 0) {
+                CHIAKI_LOGE(session->log,
+                            "websocket_thread_func: Sony retry interval min=%ld max=%ld seconds",
+                            session->ws_retry_interval_min,
+                            session->ws_retry_interval_max);
+            }
+            ws_err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "websocket_thread_func: Connecting to push notification WebSocket %s failed with CURL error %d", ws_url, res);
         }
+        err = chiaki_mutex_lock(&session->state_mutex);
+        assert(err == CHIAKI_ERR_SUCCESS);
+        session->ws_connect_err = ws_err;
+        session->state |= SESSION_STATE_WS_FAILED;
+        log_session_state(session);
+        err = chiaki_cond_signal(&session->state_cond);
+        assert(err == CHIAKI_ERR_SUCCESS);
+        err = chiaki_mutex_unlock(&session->state_mutex);
+        assert(err == CHIAKI_ERR_SUCCESS);
         goto cleanup;
     }
     session->ws_open = true;
     CHIAKI_LOGV(session->log, "websocket_thread_func: Connected to push notification WebSocket %s", ws_url);
-    ChiakiErrorCode err = chiaki_mutex_lock(&session->state_mutex);
+    err = chiaki_mutex_lock(&session->state_mutex);
     assert(err == CHIAKI_ERR_SUCCESS);
     session->state |= SESSION_STATE_WS_OPEN;
     log_session_state(session);
@@ -2669,6 +2959,7 @@ cleanup:
 */
 static ChiakiErrorCode http_start_session(Session *session)
 {
+    char command_user_agent[96];
     char payload_buf[sizeof(session_start_payload_fmt) * 3] = {0};
     char envelope_buf[sizeof(session_start_envelope_fmt) * 2 + sizeof(payload_buf)] = {0};
 
@@ -2679,6 +2970,7 @@ static ChiakiErrorCode http_start_session(Session *session)
     snprintf(payload_buf, sizeof(payload_buf), session_start_payload_fmt,
         session->account_id,
         session->session_id,
+        psn_remote_client_profile.start_client_type,
         data1_base64,
         data2_base64);
 
@@ -2707,7 +2999,9 @@ static ChiakiErrorCode http_start_session(Session *session)
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
     headers = curl_slist_append(headers, "Content-Type: application/json; charset=utf-8");
-    headers = curl_slist_append(headers, "User-Agent: RpNetHttpUtilImpl");
+    snprintf(command_user_agent, sizeof(command_user_agent), "User-Agent: %s",
+             psn_remote_client_profile.command_user_agent);
+    headers = curl_slist_append(headers, command_user_agent);
 
     curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
@@ -4563,7 +4857,7 @@ static ChiakiErrorCode session_message_serialize(
     char localpeeraddr_json[128] = {0};
     size_t localpeeraddr_len = snprintf(
         localpeeraddr_json, sizeof(localpeeraddr_json), session_localpeeraddr_fmt,
-        session->account_id, "REMOTE_PLAY");
+        session->account_id, psn_remote_client_profile.local_peer_platform);
 
     size_t candidate_str_len = sizeof(session_connrequest_candidate_fmt) * 2;
     char *candidates_json = calloc(1, candidate_str_len * message->conn_request->num_candidates + 3);

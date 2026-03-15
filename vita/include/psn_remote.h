@@ -17,3 +17,4 @@ int psn_remote_prepare_connect_host(
 
 int psn_remote_refresh_hosts(void);
 void psn_remote_clear_cached_hosts(void);
+const char *psn_remote_last_error(void);
