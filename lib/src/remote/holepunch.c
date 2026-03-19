@@ -34,6 +34,9 @@
 #include <iphlpapi.h>
 #else
 #include <unistd.h>
+#if defined(__PSVITA__)
+#include <psp2/net/netctl.h>
+#endif
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -76,17 +79,21 @@
 #define SELECT_CANDIDATE_TIMEOUT_SEC 0.5F
 #define SELECT_CANDIDATE_TRIES 20
 #define SELECT_CANDIDATE_CONNECTION_SEC 5
-#define RANDOM_ALLOCATION_SOCKS_NUMBER 25
+#define RANDOM_ALLOCATION_GUESSES_NUMBER 75
+#define RANDOM_ALLOCATION_SOCKS_NUMBER 250
+#define CHECK_CANDIDATES_REQUEST_NUMBER 1
 #define WAIT_RESPONSE_TIMEOUT_SEC 1
 #define MSG_TYPE_REQ 0x06000000
 #define MSG_TYPE_RESP 0x07000000
 #define EXTRA_CANDIDATE_ADDRESSES 3
+#define ENABLE_IPV6 false
 
 #if defined(__PSVITA__)
 #define VITA_PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
 #endif
 
 static const char oauth_header_fmt[] = "Authorization: Bearer %s";
+static const char session_id_header_fmt[] = "X-PSN-SESSION-MANAGER-SESSION-IDS: %s";
 
 typedef struct psn_remote_client_profile_t
 {
@@ -127,6 +134,7 @@ static const PsnRemoteClientProfile psn_remote_client_profile = {
 static const char device_list_url_fmt[] = "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/clients?platform=%s&includeFields=device&limit=10&offset=0";
 static const char ws_fqdn_api_url[] = "https://mobile-pushcl.np.communication.playstation.net/np/serveraddr?version=2.1&fields=keepAliveStatus&keepAliveStatusType=3";
 static const char session_create_url[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions";
+static const char session_view_url[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions?view=v1.0";
 static const char user_profile_url[] = "https://asm.np.community.playstation.net/asm/v1/apps/me/baseUrls/userProfile";
 static const char wakeup_url_fmt[] = "%s/v1/users/%s/remoteConsole/wakeUp?platform=PS4";
 static const char session_command_url[] = "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/commands";
@@ -305,14 +313,28 @@ typedef struct upnp_gateway_info_t
     void *data;
 #endif
 } UPNPGatewayInfo;
+
+typedef enum upnp_gateway_status_t
+{
+    GATEWAY_STATUS_UNKNOWN = 0,
+    GATEWAY_STATUS_FOUND = 1,
+    GATEWAY_STATUS_NOT_FOUND = 2,
+} UPNPGatewayStatus;
+
+struct candidate_t;
+struct session_message_t;
+
 typedef struct session_t
 {
     // TODO: Clean this up, how much of this stuff do we really need?
     char* oauth_header;
+    char* session_id_header;
     uint8_t console_uid[32];
     ChiakiHolepunchConsoleType console_type;
 
     chiaki_socket_t sock;
+    struct candidate_t *local_candidates;
+    struct session_message_t *our_offer_msg;
 
     uint64_t account_id;
     char *online_id;
@@ -334,6 +356,7 @@ typedef struct session_t
     size_t num_stun_servers;
     size_t num_stun_servers_ipv6;
     UPNPGatewayInfo gw;
+    UPNPGatewayStatus gw_status;
 
     uint8_t data1[16];
     uint8_t data2[16];
@@ -429,6 +452,7 @@ typedef struct session_message_t
 } SessionMessage;
 
 static ChiakiErrorCode make_oauth2_header(char** out, const char* token);
+static ChiakiErrorCode make_session_id_header(char **out, const char* session_id);
 static ChiakiErrorCode get_websocket_fqdn(
     Session *session, char **fqdn);
 static inline size_t curl_write_cb(
@@ -438,9 +462,11 @@ static void bytes_to_hex(const uint8_t* bytes, size_t len, char* hex_str, size_t
 static void random_uuidv4(char* out);
 static void *websocket_thread_func(void *user);
 static NotificationType parse_notification_type(ChiakiLog *log, json_object* json);
+static ChiakiErrorCode send_prepared_offer(Session *session);
 static ChiakiErrorCode send_offer(Session *session, int req_id, Candidate *local_console_candidate, Candidate *local_candidates, Candidate *candidates_received, size_t num_candidates);
 static ChiakiErrorCode send_accept(Session *session, int req_id, Candidate *selected_candidate);
 static ChiakiErrorCode http_create_session(Session *session);
+static ChiakiErrorCode http_check_session(Session *session, bool viewurl);
 static ChiakiErrorCode http_start_session(Session *session);
 static ChiakiErrorCode http_send_session_message(Session *session, SessionMessage *msg, bool short_msg);
 static ChiakiErrorCode http_ps4_session_wakeup(Session *session);
@@ -820,12 +846,15 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
         free(session);
         return NULL;
     }
+    session->local_candidates = NULL;
+    session->our_offer_msg = NULL;
     session->ws_thread_should_stop = false;
     session->ws_open = false;
     session->ws_connect_err = CHIAKI_ERR_SUCCESS;
     session->ws_connect_http_code = 0;
     session->ws_retry_interval_min = 0;
     session->ws_retry_interval_max = 0;
+    session->session_id_header = NULL;
     session->online_id = NULL;
     session->main_should_stop = false;
     memset(&session->session_id, 0, sizeof(session->session_id));
@@ -844,6 +873,9 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
     session->stun_allocation_increment = -1;
     session->num_stun_servers = 0;
     session->num_stun_servers_ipv6 = 0;
+    session->gw.data = NULL;
+    session->gw.urls = NULL;
+    session->gw_status = GATEWAY_STATUS_UNKNOWN;
     err = chiaki_mutex_init(&session->notif_mutex, false);
     assert(err == CHIAKI_ERR_SUCCESS);
     err = chiaki_cond_init(&session->notif_cond, &session->notif_mutex);
@@ -873,6 +905,36 @@ CHIAKI_EXPORT Session* chiaki_holepunch_session_init(
     chiaki_random_bytes_crypt(session->data2, sizeof(session->data2));
 
     return session;
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_upnp_discover(Session *session)
+{
+#if CHIAKI_CAN_USE_MINIUPNPC
+    session->gw.data = calloc(1, sizeof(struct IGDdatas));
+    if(!session->gw.data)
+        return CHIAKI_ERR_MEMORY;
+    session->gw.urls = calloc(1, sizeof(struct UPNPUrls));
+    if(!session->gw.urls)
+    {
+        free(session->gw.data);
+        session->gw.data = NULL;
+        return CHIAKI_ERR_MEMORY;
+    }
+
+    if(upnp_get_gateway_info(session->log, &session->gw) == CHIAKI_ERR_SUCCESS)
+        session->gw_status = GATEWAY_STATUS_FOUND;
+    else
+    {
+        session->gw_status = GATEWAY_STATUS_NOT_FOUND;
+        free(session->gw.data);
+        session->gw.data = NULL;
+        free(session->gw.urls);
+        session->gw.urls = NULL;
+    }
+#else
+    (void)session;
+#endif
+    return CHIAKI_ERR_SUCCESS;
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
@@ -1021,6 +1083,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
             err = CHIAKI_ERR_CANCELED;
             goto cleanup_thread;
         }
+        http_check_session(session, true);
         log_session_state(session);
         finished = (session->state & SESSION_STATE_CREATED) &&
                         (session->state & SESSION_STATE_CLIENT_JOINED);
@@ -1188,6 +1251,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
             err = CHIAKI_ERR_CANCELED;
             return err;
         }
+        http_check_session(session, false);
         finished = (session->state & SESSION_STATE_CONSOLE_JOINED) &&
                    (session->state & SESSION_STATE_CUSTOMDATA1_RECEIVED);
         log_session_state(session);
@@ -1422,6 +1486,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_punch_hole(Session* sessi
 
     ChiakiErrorCode err;
     Candidate *local_candidates = NULL;
+    bool using_prepared_offer = false;
 
     // NOTE: Needs to be kept around until the end, we're using the candidates in the message later on
     SessionMessage *console_offer_msg = NULL;
@@ -1486,15 +1551,40 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_punch_hole(Session* sessi
     }
 
     // Send our own OFFER
-    const int our_offer_req_id = session->local_req_id;
-    session->local_req_id++;
-    local_candidates = calloc(2, sizeof(Candidate));
-    if(!local_candidates)
+    int our_offer_req_id = 0;
+    if(port_type == CHIAKI_HOLEPUNCH_PORT_TYPE_CTRL
+        && session->our_offer_msg
+        && session->local_candidates)
     {
-        err = CHIAKI_ERR_MEMORY;
-        goto cleanup;
+        using_prepared_offer = true;
+        our_offer_req_id = (int)session->local_req_id;
+        session->local_req_id++;
+        session->our_offer_msg->req_id = (uint16_t)our_offer_req_id;
+        if(session->our_offer_msg->conn_request)
+        {
+            session->our_offer_msg->conn_request->sid = session->sid_local;
+            session->our_offer_msg->conn_request->peer_sid = session->sid_console;
+        }
+        local_candidates = session->local_candidates;
+        err = send_prepared_offer(session);
+        if(err != CHIAKI_ERR_SUCCESS)
+        {
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_punch_holes: Failed to send prepared OFFER message.");
+            goto cleanup;
+        }
     }
-    send_offer(session, our_offer_req_id, console_candidate_local, local_candidates, console_req->candidates, console_req->num_candidates);
+    else
+    {
+        our_offer_req_id = session->local_req_id;
+        session->local_req_id++;
+        local_candidates = calloc(2, sizeof(Candidate));
+        if(!local_candidates)
+        {
+            err = CHIAKI_ERR_MEMORY;
+            goto cleanup;
+        }
+        send_offer(session, our_offer_req_id, console_candidate_local, local_candidates, console_req->candidates, console_req->num_candidates);
+    }
 
     // Wait for ACK of OFFER, ignore other OFFERs, simply ACK them
     err = wait_for_session_message_ack(
@@ -1514,6 +1604,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_punch_hole(Session* sessi
         CHIAKI_LOGE(session->log, "chiaki_holepunch_session_punch_holes: Failed to wait for ACK of our connection offer.");
         goto cleanup;
     }
+    http_check_session(session, true);
 
     // Find candidate that we can use to connect to the console
     chiaki_socket_t sock = CHIAKI_INVALID_SOCKET;
@@ -1642,7 +1733,17 @@ cleanup:
     chiaki_mutex_lock(&session->notif_mutex);
     session_message_free(console_offer_msg);
     chiaki_mutex_unlock(&session->notif_mutex);
-    if(local_candidates)
+    if(session->our_offer_msg)
+    {
+        session_message_free(session->our_offer_msg);
+        session->our_offer_msg = NULL;
+    }
+    if(session->local_candidates)
+    {
+        free(session->local_candidates);
+        session->local_candidates = NULL;
+    }
+    if(local_candidates && !using_prepared_offer)
         free(local_candidates);
 
     return err;
@@ -1716,6 +1817,8 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
     }
     if (session->oauth_header)
         free(session->oauth_header);
+    if(session->session_id_header)
+        free(session->session_id_header);
     if (session->online_id)
         free(session->online_id);
     if (session->curl_share)
@@ -1728,6 +1831,10 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
         notification_queue_free(session->ws_notification_queue);
         chiaki_mutex_unlock(&session->notif_mutex);
     }
+    if(session->our_offer_msg)
+        session_message_free(session->our_offer_msg);
+    if(session->local_candidates)
+        free(session->local_candidates);
     for(int i=0; i < session->num_stun_servers; i++)
     {
         free(session->stun_server_list[i].host);
@@ -1755,6 +1862,8 @@ CHIAKI_EXPORT void chiaki_holepunch_session_discard(Session* session)
         free(session->gw.urls);
     if(session->oauth_header)
         free(session->oauth_header);
+    if(session->session_id_header)
+        free(session->session_id_header);
     if(session->online_id)
         free(session->online_id);
     if(session->curl_share)
@@ -1767,6 +1876,10 @@ CHIAKI_EXPORT void chiaki_holepunch_session_discard(Session* session)
         notification_queue_free(session->ws_notification_queue);
         chiaki_mutex_unlock(&session->notif_mutex);
     }
+    if(session->our_offer_msg)
+        session_message_free(session->our_offer_msg);
+    if(session->local_candidates)
+        free(session->local_candidates);
     for(int i = 0; i < session->num_stun_servers; i++)
         free(session->stun_server_list[i].host);
     for(int i = 0; i < session->num_stun_servers_ipv6; i++)
@@ -1809,6 +1922,16 @@ static ChiakiErrorCode make_oauth2_header(char** out, const char* token)
     if(!(*out))
         return CHIAKI_ERR_MEMORY;
     snprintf(*out, oauth_header_len, oauth_header_fmt, token);
+    return CHIAKI_ERR_SUCCESS;
+}
+
+static ChiakiErrorCode make_session_id_header(char **out, const char* session_id)
+{
+    size_t session_id_header_len = sizeof(session_id_header_fmt) + strlen(session_id) + 1;
+    *out = malloc(session_id_header_len);
+    if(!(*out))
+        return CHIAKI_ERR_MEMORY;
+    snprintf(*out, session_id_header_len, session_id_header_fmt, session_id);
     return CHIAKI_ERR_SUCCESS;
 }
 
@@ -2282,6 +2405,7 @@ static void* websocket_thread_func(void *user) {
 
             // Automatically ACK OFFER session messages if we're not currently explicitly
             // waiting on offers
+            chiaki_mutex_lock(&session->state_mutex);
             bool should_ack_offers =
                 // We're not expecting any offers after receiving one for the control port and before it's established, afterwards we expect
                 // one for the data port, so we don't auto-ACK in between
@@ -2289,6 +2413,7 @@ static void* websocket_thread_func(void *user) {
                  && !(session->state & SESSION_STATE_CTRL_ESTABLISHED))
                  // At this point all offers were received and we don't care for new ones anymore
                 || session->state & SESSION_STATE_DATA_OFFER_RECEIVED;
+            chiaki_mutex_unlock(&session->state_mutex);
             if (should_ack_offers && notif->type == NOTIFICATION_TYPE_SESSION_MESSAGE_CREATED)
             {
                 SessionMessage *msg = NULL;
@@ -2375,6 +2500,457 @@ static NotificationType parse_notification_type(
         CHIAKI_LOGV(log, "parse_notification_type: JSON was:\n%s", json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
         return NOTIFICATION_TYPE_UNKNOWN;
     }
+}
+
+CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
+{
+    if(session->our_offer_msg)
+    {
+        CHIAKI_LOGW(session->log, "Overwriting previously unsent offer message. Make sure you're punching the control hole before the data hole!");
+        session_message_free(session->our_offer_msg);
+        session->our_offer_msg = NULL;
+    }
+    if(session->local_candidates)
+    {
+        CHIAKI_LOGW(session->log, "Overwriting previously unused message. Make sure you're punching the control hole before the data hole!");
+        free(session->local_candidates);
+        session->local_candidates = NULL;
+    }
+    // Create socket with available local port for connection
+    session->ipv4_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Creating ipv4 socket failed");
+        return CHIAKI_ERR_UNKNOWN;
+    }
+    struct sockaddr_in client_addr;
+    memset(&client_addr, 0, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_addr.s_addr = INADDR_ANY;
+    client_addr.sin_port = 0;
+    socklen_t client_addr_len = sizeof(client_addr);
+    const int enable = 1;
+    ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+#if defined(SO_REUSEPORT)
+        if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_REUSEPORT, (const void *)&enable, sizeof(int)) < 0)
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            return CHIAKI_ERR_UNKNOWN;
+        }
+#else
+        if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_REUSEADDR, (const void *)&enable, sizeof(int)) < 0)
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv4 socket failed with error" CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup_socket;
+        }
+#endif
+    if (bind(session->ipv4_sock, (struct sockaddr*)&client_addr, client_addr_len) < 0)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Binding ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
+            session->ipv4_sock = CHIAKI_INVALID_SOCKET;
+        }
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+    if(getsockname(session->ipv4_sock, (struct sockaddr*)&client_addr, &client_addr_len) < 0)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Getting ipv4 socket name failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
+            session->ipv4_sock = CHIAKI_INVALID_SOCKET;
+        }
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+
+    uint16_t local_port = ntohs(client_addr.sin_port);
+#if !defined(__SWITCH__) && !defined(__PSVITA__)
+    session->ipv6_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+    if (CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Creating ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+    struct sockaddr_in6 client_addr_ipv6;
+    memset(&client_addr_ipv6, 0, sizeof(client_addr_ipv6));
+    client_addr_ipv6.sin6_family = AF_INET6;
+    client_addr_ipv6.sin6_addr = in6addr_any;
+    client_addr_ipv6.sin6_port = htons(local_port);
+    socklen_t client_addr_ipv6_len = sizeof(client_addr_ipv6);
+#if defined(SO_REUSEPORT)
+    if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_REUSEPORT, (const void *)&enable, sizeof(int)) < 0)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+#else
+    if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_REUSEADDR, (const void *)&enable, sizeof(int)) < 0)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+#endif
+    if (bind(session->ipv6_sock, (struct sockaddr*)&client_addr_ipv6, client_addr_ipv6_len) < 0)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Binding ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+            session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+        }
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_socket;
+    }
+#endif
+
+    size_t our_offer_msg_req_id = session->local_req_id;
+    session->local_req_id++;
+    SessionMessage msg = {
+        .action = SESSION_MESSAGE_ACTION_OFFER,
+        .req_id = our_offer_msg_req_id,
+        .error = 0,
+        .conn_request = malloc(sizeof(ConnectionRequest)),
+        .notification = NULL,
+    };
+    if(!msg.conn_request)
+    {
+        err = CHIAKI_ERR_MEMORY;
+        goto cleanup_socket;
+    }
+    if(session->local_port_ctrl == 0)
+        session->local_port_ctrl = local_port;
+    else
+        session->local_port_data = local_port;
+
+    msg.conn_request->sid = session->sid_local;
+    msg.conn_request->peer_sid = session->sid_console;
+    msg.conn_request->nat_type = 2;
+    memset(msg.conn_request->skey, 0, sizeof(msg.conn_request->skey));
+    memset(msg.conn_request->default_route_mac_addr, 0, sizeof(msg.conn_request->default_route_mac_addr));
+    memcpy(msg.conn_request->local_hashed_id, session->hashed_id_local, sizeof(session->hashed_id_local));
+    msg.conn_request->num_candidates = 2;
+    // allocate extra space for stun candidates
+    msg.conn_request->candidates = calloc(4, sizeof(Candidate));
+    if(!msg.conn_request->candidates)
+    {
+        free(msg.conn_request);
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
+            session->ipv4_sock = CHIAKI_INVALID_SOCKET;
+        }
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+            session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+        }
+        return CHIAKI_ERR_MEMORY;
+    }
+
+    Candidate *candidate_local = &msg.conn_request->candidates[2];
+    candidate_local->type = CANDIDATE_TYPE_LOCAL;
+    memcpy(candidate_local->addr_mapped, "0.0.0.0", 8);
+    candidate_local->port = local_port;
+    candidate_local->port_mapped = 0;
+
+    bool have_addr = false;
+    Candidate *candidate_remote = &msg.conn_request->candidates[1];
+    candidate_remote->type = CANDIDATE_TYPE_STATIC;
+    switch(session->gw_status)
+    {
+        case GATEWAY_STATUS_FOUND:
+            memcpy(candidate_local->addr, session->gw.lan_ip, sizeof(session->gw.lan_ip));
+#if CHIAKI_CAN_USE_MINIUPNPC
+            if(upnp_add_udp_port_mapping(session->log, &session->gw, local_port, local_port))
+            {
+                CHIAKI_LOGI(session->log, "holepunch_session_create_offer: Added local UPNP port mapping to port %u", local_port);
+                have_addr = get_client_addr_remote_upnp(session->log, &session->gw, candidate_remote->addr);
+            }
+            else
+            {
+                CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Adding upnp port mapping failed");
+            }
+#endif
+            break;
+        case GATEWAY_STATUS_UNKNOWN:
+        case GATEWAY_STATUS_NOT_FOUND:
+        default:
+            get_client_addr_local(session, candidate_local, candidate_local->addr, sizeof(candidate_local->addr));
+            break;
+    }
+    memcpy(session->client_local_ip, candidate_local->addr, sizeof(candidate_local->addr));
+
+    if(!have_addr)
+    {
+        // Move current candidates behind STUN candidates so when the console reaches out to our STUN candidate it will be using the correct port if behind symmetric NAT
+        Candidate *candidate_stun = &msg.conn_request->candidates[0];
+        candidate_stun->type = CANDIDATE_TYPE_STUN;
+        memcpy(candidate_stun->addr_mapped, "0.0.0.0", 8);
+        candidate_stun->port_mapped = 0;
+        have_addr = get_client_addr_remote_stun(session, candidate_stun->addr, &candidate_stun->port, &session->ipv4_sock, true);
+        if(have_addr)
+        {
+            memcpy(candidate_remote->addr, candidate_stun->addr, sizeof(candidate_stun->addr));
+            // Local port is used externally so don't make duplicate STUN candidate since STATIC candidate will have same ip and port number
+            uint16_t stun_port = candidate_stun->port;
+            if(session->stun_allocation_increment != 0)
+            {
+                Candidate original_candidates[3];
+                memcpy(original_candidates, msg.conn_request->candidates, sizeof(Candidate) * 3);
+                candidate_stun = &original_candidates[0];
+                if(!session->stun_random_allocation)
+                {
+                    Candidate *tmp = NULL;
+                    tmp = realloc(msg.conn_request->candidates, sizeof(Candidate) * 11);
+                    if(tmp)
+                        msg.conn_request->candidates = tmp;
+                    else
+                    {
+                        err = CHIAKI_ERR_MEMORY;
+                        goto cleanup;
+                    }
+                    int32_t port_check = candidate_stun->port;
+                    // Setup extra stun candidate in case there was an allocation in between the stun request and our allocation
+                    for(int i=0; i<8; i++)
+                    {
+                        Candidate *candidate_stun2 = &msg.conn_request->candidates[i];
+                        candidate_stun2->type = CANDIDATE_TYPE_STUN;
+                        memcpy(candidate_stun2->addr_mapped, "0.0.0.0", 8);
+                        candidate_stun2->port_mapped = 0;
+                        memcpy(candidate_stun2->addr, candidate_stun->addr, sizeof(candidate_stun->addr));
+                        int32_t tmp = port_check;
+                        // skip well known ports 0-1024 unless current allocation is within that range since most routers don't
+                        port_check += session->stun_allocation_increment;
+                        if(port_check < 1024 && tmp > 1024)
+                            port_check = UINT16_MAX - (1024 - port_check);
+                        else if(port_check < 1)
+                            port_check += UINT16_MAX;
+                        else if(port_check > UINT16_MAX)
+                            port_check = port_check - UINT16_MAX + 1024;
+                        candidate_stun2->port = port_check;
+                    }
+                    memcpy(&msg.conn_request->candidates[8], &original_candidates[1], sizeof(Candidate));
+                    memcpy(&msg.conn_request->candidates[9], &original_candidates[2], sizeof(Candidate));
+                    candidate_remote = &msg.conn_request->candidates[8];
+                    candidate_local = &msg.conn_request->candidates[9];
+                    msg.conn_request->num_candidates = 10;
+                }
+                else
+                {
+                    Candidate *tmp = NULL;
+                    tmp = realloc(msg.conn_request->candidates, sizeof(Candidate) * (RANDOM_ALLOCATION_GUESSES_NUMBER + 3));
+                    if(tmp)
+                        msg.conn_request->candidates = tmp;
+                    else
+                    {
+                        err = CHIAKI_ERR_MEMORY;
+                        goto cleanup;
+                    }
+                    int32_t port_check = candidate_stun->port;
+                    // Setup RANDOM_ALLOCATION_GUESSES_NUMBER STUN candidates because we have a random allocation and usually 64 port blocks are minimum
+                    for(int i=0; i<RANDOM_ALLOCATION_GUESSES_NUMBER; i++)
+                    {
+                        Candidate *candidate_stun2 = &msg.conn_request->candidates[i];
+                        candidate_stun2->type = CANDIDATE_TYPE_STUN;
+                        memcpy(candidate_stun2->addr_mapped, "0.0.0.0", 8);
+                        candidate_stun2->port_mapped = 0;
+                        candidate_stun2->port = port_check;
+                        memcpy(candidate_stun2->addr, candidate_stun->addr, sizeof(candidate_stun->addr));
+                        port_check += 1;
+                        if(port_check > UINT16_MAX)
+                            port_check = 49152;
+                    }
+                    memcpy(&msg.conn_request->candidates[RANDOM_ALLOCATION_GUESSES_NUMBER], &original_candidates[1], sizeof(Candidate));
+                    memcpy(&msg.conn_request->candidates[RANDOM_ALLOCATION_GUESSES_NUMBER + 1], &original_candidates[2], sizeof(Candidate));
+                    candidate_remote = &msg.conn_request->candidates[RANDOM_ALLOCATION_GUESSES_NUMBER];
+                    candidate_local = &msg.conn_request->candidates[RANDOM_ALLOCATION_GUESSES_NUMBER + 1];
+                    msg.conn_request->num_candidates = RANDOM_ALLOCATION_GUESSES_NUMBER + 2;
+                }
+            }
+            else if(local_port == stun_port)
+            {
+                memcpy(&msg.conn_request->candidates[0], &msg.conn_request->candidates[1], sizeof(Candidate));
+                memcpy(&msg.conn_request->candidates[1], &msg.conn_request->candidates[2], sizeof(Candidate));
+                candidate_remote = &msg.conn_request->candidates[0];
+                candidate_local = &msg.conn_request->candidates[1];
+            }
+            else
+            {
+                msg.conn_request->num_candidates = 3;
+                candidate_remote = &msg.conn_request->candidates[1];
+                candidate_local = &msg.conn_request->candidates[2];
+            }
+        }
+        else
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Could not get remote address from STUN");
+        }
+        if(CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: STUN caused socket to close due to error");
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup;
+        }
+#ifdef _WIN32
+        int timeout = 0;
+#else
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 0;
+#endif
+        if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_RCVTIMEO, (const CHIAKI_SOCKET_BUF_TYPE)&timeout, sizeof(timeout)) < 0)
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup;
+        }
+        // Only PS5 supports ipv6
+        if(session->console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5 && ENABLE_IPV6)
+        {
+            Candidate *candidate_stun_ipv6 = &msg.conn_request->candidates[msg.conn_request->num_candidates];
+            candidate_stun_ipv6->type = CANDIDATE_TYPE_STUN;
+            memcpy(candidate_stun_ipv6->addr_mapped, "0.0.0.0", 8);
+            candidate_stun_ipv6->port_mapped = 0;
+            if(get_client_addr_remote_stun(session, candidate_stun_ipv6->addr, &candidate_stun_ipv6->port, &session->ipv6_sock, false))
+            {
+                if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_RCVTIMEO, (const CHIAKI_SOCKET_BUF_TYPE)&timeout, sizeof(timeout)) < 0)
+                {
+                    CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+                    if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+                    {
+                        CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+                        session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+                    }
+                }
+                else
+                    msg.conn_request->num_candidates++;
+            }
+            else
+            {
+                CHIAKI_LOGW(session->log, "holepunch_session_create_offer: IPV6 NOT supported by device. Couldn't get IPV6 STUN address.");
+                if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+                {
+                    CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+                    session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+                }
+            }
+        }
+        else
+        {
+            CHIAKI_LOGI(session->log, "holepunch_session_create_offer: IPV6 NOT supported by your PlayStation console. Skipping IPV6 connection");
+            if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+            {
+                CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+                session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+            }
+        }
+    }
+    else
+    {
+        // If no STUN address the static and local candidates are our first candidates
+        memcpy(&msg.conn_request->candidates[0], &msg.conn_request->candidates[1], sizeof(Candidate));
+        memcpy(&msg.conn_request->candidates[1], &msg.conn_request->candidates[2], sizeof(Candidate));
+        candidate_remote = &msg.conn_request->candidates[0];
+        candidate_local = &msg.conn_request->candidates[1];
+    }
+    if(!have_addr)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Could not get remote address");
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup;
+    }
+
+    err = chiaki_socket_set_nonblock(session->ipv4_sock, true);
+    if(err != CHIAKI_ERR_SUCCESS)
+    {
+        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to set ipv4 socket to non-blocking: %s", chiaki_error_string(err));
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup;
+    }
+    if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+    {
+        err = chiaki_socket_set_nonblock(session->ipv6_sock, true);
+        if(err != CHIAKI_ERR_SUCCESS)
+        {
+            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to set ipv6 socket to non-blocking: %s", chiaki_error_string(err));
+            err = CHIAKI_ERR_UNKNOWN;
+            goto cleanup;
+        }
+    }
+
+    memcpy(candidate_remote->addr_mapped, "0.0.0.0", 8);
+    candidate_remote->port = local_port;
+    candidate_remote->port_mapped = 0;
+
+    session->our_offer_msg = malloc(sizeof(SessionMessage));
+    session->local_candidates = calloc(2, sizeof(Candidate));
+    if(!session->local_candidates)
+    {
+        err = CHIAKI_ERR_MEMORY;
+        goto cleanup;
+    }
+    memcpy(&session->local_candidates[0], candidate_local, sizeof(Candidate));
+    // either STUN candidate if it exists, else STATIC candidate
+    memcpy(&session->local_candidates[1], &msg.conn_request->candidates[0], sizeof(Candidate));
+
+cleanup:
+    if(err == CHIAKI_ERR_SUCCESS)
+    {
+        if(!session->our_offer_msg)
+            err = CHIAKI_ERR_MEMORY;
+        else
+            memcpy(session->our_offer_msg, &msg, sizeof(SessionMessage));
+    }
+    else if(msg.conn_request)
+    {
+        free(msg.conn_request->candidates);
+        free(msg.conn_request);
+    }
+cleanup_socket:
+    if(err != CHIAKI_ERR_SUCCESS)
+    {
+        if(session->our_offer_msg)
+        {
+            free(session->our_offer_msg);
+            session->our_offer_msg = NULL;
+        }
+        if(session->local_candidates)
+        {
+            free(session->local_candidates);
+            session->local_candidates = NULL;
+        }
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
+            session->ipv4_sock = CHIAKI_INVALID_SOCKET;
+        }
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+        {
+            CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
+            session->ipv6_sock = CHIAKI_INVALID_SOCKET;
+        }
+    }
+    else
+    {
+        print_session_request(session->log, msg.conn_request);
+    }
+    return err;
+}
+
+static ChiakiErrorCode send_prepared_offer(Session *session)
+{
+    if(!session->our_offer_msg)
+        return CHIAKI_ERR_INVALID_DATA;
+    print_session_request(session->log, session->our_offer_msg->conn_request);
+    return http_send_session_message(session, session->our_offer_msg, false);
 }
 
 
@@ -2936,6 +3512,7 @@ static ChiakiErrorCode http_create_session(Session *session)
         goto cleanup_json;
     }
     memcpy(session->session_id, json_object_get_string(session_id_json), 36);
+    make_session_id_header(&session->session_id_header, session->session_id);
 
     session->account_id = json_object_get_int64(account_id_json);
 
@@ -2948,6 +3525,76 @@ cleanup:
     free(response_data.data);
     curl_easy_cleanup(curl);
 
+    return err;
+}
+
+static ChiakiErrorCode http_check_session(Session *session, bool viewurl)
+{
+    HttpResponseData response_data = {
+        .data = malloc(0),
+        .size = 0,
+    };
+
+    CURL* curl = curl_easy_init();
+    if(!curl)
+    {
+        free(response_data.data);
+        CHIAKI_LOGE(session->log, "Curl could not init");
+        return CHIAKI_ERR_MEMORY;
+    }
+    curl_apply_platform_tls_defaults(curl);
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, session->oauth_header);
+    headers = curl_slist_append(headers, session->session_id_header);
+
+    curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    curl_easy_setopt(curl, CURLOPT_URL, viewurl ? session_view_url : session_create_url);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
+
+    ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    if (res != CURLE_OK)
+    {
+        if (res == CURLE_HTTP_RETURNED_ERROR)
+        {
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            CHIAKI_LOGE(session->log, "http_check_session: Creating holepunch session failed with HTTP code %ld", http_code);
+            err = CHIAKI_ERR_HTTP_NONOK;
+        } else {
+            CHIAKI_LOGE(session->log, "http_check_session: Creating holepunch session failed with CURL error %s", curl_easy_strerror(res));
+            err = CHIAKI_ERR_NETWORK;
+        }
+        goto cleanup;
+    }
+
+    json_tokener *tok = json_tokener_new();
+    if(!tok)
+    {
+        CHIAKI_LOGE(session->log, "http_check_session: Couldn't create new json tokener");
+        goto cleanup;
+    }
+    json_object *json = json_tokener_parse_ex(tok, response_data.data, response_data.size);
+    if (json == NULL)
+    {
+        CHIAKI_LOGE(session->log, "http_check_session: Parsing JSON failed");
+        err = CHIAKI_ERR_UNKNOWN;
+        goto cleanup_json_tokener;
+    }
+    CHIAKI_LOGV(session->log, "http_check_session: retrieved session data \n%s",
+                json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+
+    json_object_put(json);
+cleanup_json_tokener:
+    json_tokener_free(tok);
+cleanup:
+    free(response_data.data);
+    curl_easy_cleanup(curl);
     return err;
 }
 
@@ -3264,13 +3911,29 @@ static ChiakiErrorCode get_client_addr_local(Session *session, Candidate *local_
 #undef MALLOC
 #undef FREE
 #elif defined(__PSVITA__)
-    (void)err;
-    (void)status;
     (void)out;
     (void)out_len;
-    memcpy(local_console_candidate->addr, "0.0.0.0", 8);
-    CHIAKI_LOGW(session->log, "Local interface enumeration is unavailable on Vita; using STUN candidates only");
-    return CHIAKI_ERR_NETWORK;
+
+    SceNetCtlInfo info;
+    memset(&info, 0, sizeof(info));
+    int ret = sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_IP_ADDRESS, &info);
+    if(ret < 0)
+    {
+        memcpy(local_console_candidate->addr, "0.0.0.0", 8);
+        CHIAKI_LOGE(session->log, "get_client_addr_local: sceNetCtlInetGetInfo(GET_IP_ADDRESS) failed: 0x%x", ret);
+        return CHIAKI_ERR_NETWORK;
+    }
+
+    if(info.ip_address[0] == '\0' || strcmp(info.ip_address, "0.0.0.0") == 0)
+    {
+        memcpy(local_console_candidate->addr, "0.0.0.0", 8);
+        CHIAKI_LOGE(session->log, "get_client_addr_local: Vita returned invalid local IP \"%s\"", info.ip_address);
+        return CHIAKI_ERR_NETWORK;
+    }
+
+    snprintf(local_console_candidate->addr, sizeof(local_console_candidate->addr), "%s", info.ip_address);
+    CHIAKI_LOGI(session->log, "get_client_addr_local: Vita local IPv4 %s", local_console_candidate->addr);
+    return err;
 #else
     struct ifaddrs *local_addrs, *current_addr;
     void *in_addr;
@@ -3524,11 +4187,11 @@ static ChiakiErrorCode check_candidates(
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
 
     // Set up request buffer
-    uint8_t request_buf[3][88] = {0};
-    uint8_t request_id[3][5] = {0};
+    uint8_t request_buf[CHECK_CANDIDATES_REQUEST_NUMBER][88] = {0};
+    uint8_t request_id[CHECK_CANDIDATES_REQUEST_NUMBER][5] = {0};
 
-    // send 3 requests for connection pairing with ps
-    for(int i = 0; i < 3; i++)
+    // send CHECK_CANDIDATES_REQUEST_NUMBER requests for connection pairing with ps
+    for(int i = 0; i < CHECK_CANDIDATES_REQUEST_NUMBER; i++)
     {
         chiaki_random_bytes_crypt(request_id[i], sizeof(request_id[i]));
         *(uint32_t*)&request_buf[i][0x00] = htonl(MSG_TYPE_REQ);
@@ -3544,15 +4207,12 @@ static ChiakiErrorCode check_candidates(
 
     size_t extra_addresses_used = 0;
     // Set up addresses for each candidate + extras (use sockaddr_in6 and cast bc needs to be at least that big if we get ipv6)
-    struct sockaddr_in6 addrs[num_candidates + EXTRA_CANDIDATE_ADDRESSES];
+    struct sockaddr_storage addrs[num_candidates + EXTRA_CANDIDATE_ADDRESSES];
     socklen_t lens[num_candidates + EXTRA_CANDIDATE_ADDRESSES];
     Candidate candidates[num_candidates + EXTRA_CANDIDATE_ADDRESSES];
     memcpy(candidates, candidates_received, num_candidates * sizeof(Candidate));
     int responses_received[num_candidates + EXTRA_CANDIDATE_ADDRESSES];
     fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(session->ipv4_sock, &fds);
-    FD_SET(session->ipv6_sock, &fds);
     bool failed = true;
     char service_remote[6];
     struct addrinfo hints;
@@ -3561,6 +4221,8 @@ static ChiakiErrorCode check_candidates(
     hints.ai_family = AF_UNSPEC;
     struct addrinfo *addr_remote;
     chiaki_socket_t socks[RANDOM_ALLOCATION_SOCKS_NUMBER];
+    for(int i = 0; i < RANDOM_ALLOCATION_SOCKS_NUMBER; i++)
+        socks[i] = CHIAKI_INVALID_SOCKET;
 
     if(session->stun_random_allocation)
     {
@@ -3638,17 +4300,21 @@ static ChiakiErrorCode check_candidates(
         memcpy((struct sockaddr *)&addrs[i], addr_remote->ai_addr, addr_remote->ai_addrlen);
         lens[i] = addr_remote->ai_addrlen;
 
+        bool sent = false;
         switch(((struct sockaddr *)&addrs[i])->sa_family)
         {
             case AF_INET:
-                if (sendto(session->ipv4_sock, (CHIAKI_SOCKET_BUF_TYPE) request_buf[0], sizeof(request_buf[0]), 0, (struct sockaddr *)&addrs[i], lens[i]) < 0)
+                if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
                 {
-                    CHIAKI_LOGW(session->log, "check_candidate: Sending request failed for %s:%d with error: " CHIAKI_SOCKET_ERROR_FMT, candidate->addr, candidate->port, CHIAKI_SOCKET_ERROR_VALUE);
-                    err = CHIAKI_ERR_NETWORK;
-                    freeaddrinfo(addr_remote);
-                    continue;
+                    if (sendto(session->ipv4_sock, (CHIAKI_SOCKET_BUF_TYPE) request_buf[0], sizeof(request_buf[0]), 0, (struct sockaddr *)&addrs[i], lens[i]) < 0)
+                    {
+                        CHIAKI_LOGW(session->log, "check_candidate: Sending request failed for %s:%d with error: " CHIAKI_SOCKET_ERROR_FMT, candidate->addr, candidate->port, CHIAKI_SOCKET_ERROR_VALUE);
+                        err = CHIAKI_ERR_NETWORK;
+                        freeaddrinfo(addr_remote);
+                        continue;
+                    }
                 }
-                if(session->stun_random_allocation && (candidate->type == CANDIDATE_TYPE_STATIC || candidate->type == CANDIDATE_TYPE_STUN))
+                if(session->stun_random_allocation && ((candidate->type == CANDIDATE_TYPE_STATIC && !sent) || candidate->type == CANDIDATE_TYPE_STUN))
                 {
                     for (int j=0; j<RANDOM_ALLOCATION_SOCKS_NUMBER; j++)
                     {
@@ -3661,17 +4327,20 @@ static ChiakiErrorCode check_candidates(
                             socks[j] = CHIAKI_INVALID_SOCKET;
                             continue;
                         }
-
+                        sent = true;
                     }
                 }
                 break;
             case AF_INET6:
-                if (sendto(session->ipv6_sock, (CHIAKI_SOCKET_BUF_TYPE) request_buf[0], sizeof(request_buf[0]), 0, (struct sockaddr *)&addrs[i], lens[i]) < 0)
+                if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
                 {
-                    CHIAKI_LOGW(session->log, "check_candidate: Sending request failed for %s:%d with error: " CHIAKI_SOCKET_ERROR_FMT, candidate->addr, candidate->port, CHIAKI_SOCKET_ERROR_VALUE);
-                    err = CHIAKI_ERR_NETWORK;
-                    freeaddrinfo(addr_remote);
-                    continue;
+                    if (sendto(session->ipv6_sock, (CHIAKI_SOCKET_BUF_TYPE) request_buf[0], sizeof(request_buf[0]), 0, (struct sockaddr *)&addrs[i], lens[i]) < 0)
+                    {
+                        CHIAKI_LOGW(session->log, "check_candidate: Sending request failed for %s:%d with error: " CHIAKI_SOCKET_ERROR_FMT, candidate->addr, candidate->port, CHIAKI_SOCKET_ERROR_VALUE);
+                        err = CHIAKI_ERR_NETWORK;
+                        freeaddrinfo(addr_remote);
+                        continue;
+                    }
                 }
                 break;
             default:
@@ -3689,34 +4358,59 @@ static ChiakiErrorCode check_candidates(
     // Wait for responses
     uint8_t response_buf[88];
 
-    chiaki_socket_t maxfd = -1;
-    maxfd = session->ipv4_sock;
-    if(session->ipv6_sock > maxfd)
-        maxfd = session->ipv6_sock;
-    if(session->stun_random_allocation)
-    {
-        for(int i=0; i<RANDOM_ALLOCATION_SOCKS_NUMBER; i++)
-        {
-            if(socks[i] > maxfd)
-                maxfd = socks[i];
-            FD_SET(socks[i], &fds);
-        }
-    }
-    maxfd = maxfd + 1;
-
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = SELECT_CANDIDATE_TIMEOUT_SEC * SECOND_US;
-
     chiaki_socket_t selected_sock = CHIAKI_INVALID_SOCKET;
     Candidate *selected_candidate = NULL;
     bool received_response = false;
     bool responded = false;
     bool connecting = false;
     int retry_counter = 0;
+    chiaki_socket_t maxfd = -1;
+    struct timeval tv;
 
     while (!selected_candidate)
     {
+        FD_ZERO(&fds);
+        maxfd = -1;
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
+        {
+            FD_SET(session->ipv4_sock, &fds);
+            maxfd = session->ipv4_sock;
+        }
+        if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
+        {
+            FD_SET(session->ipv6_sock, &fds);
+            if(session->ipv6_sock > maxfd)
+                maxfd = session->ipv6_sock;
+        }
+        if(session->stun_random_allocation)
+        {
+            for(int i=0; i<RANDOM_ALLOCATION_SOCKS_NUMBER; i++)
+            {
+                if(CHIAKI_SOCKET_IS_INVALID(socks[i]))
+                    continue;
+                FD_SET(socks[i], &fds);
+                if(socks[i] > maxfd)
+                    maxfd = socks[i];
+            }
+        }
+        if(maxfd < 0)
+        {
+            CHIAKI_LOGE(session->log, "check_candidate: No valid sockets available");
+            err = CHIAKI_ERR_NETWORK;
+            goto cleanup_sockets;
+        }
+        maxfd = maxfd + 1;
+        if(connecting)
+        {
+            tv.tv_sec = SELECT_CANDIDATE_CONNECTION_SEC;
+            tv.tv_usec = 0;
+        }
+        else
+        {
+            tv.tv_sec = 0;
+            tv.tv_usec = SELECT_CANDIDATE_TIMEOUT_SEC * SECOND_US;
+        }
+
         int ret = select(maxfd, &fds, NULL, NULL, &tv);
 #ifdef _WIN32
 	    if (ret < 0 && WSAGetLastError() != WSAEINTR)
@@ -3734,11 +4428,6 @@ static ChiakiErrorCode check_candidates(
                 if(retry_counter < SELECT_CANDIDATE_TRIES && !received_response)
                 {
                     retry_counter++;
-                    tv.tv_sec = 0;
-                    tv.tv_usec = SELECT_CANDIDATE_TIMEOUT_SEC * SECOND_US;
-                    FD_ZERO(&fds);
-                    FD_SET(session->ipv4_sock, &fds);
-                    FD_SET(session->ipv6_sock, &fds);
                     Candidate *candidate = NULL;
                     chiaki_socket_t sock = CHIAKI_INVALID_SOCKET;
                     CHIAKI_LOGI(session->log, "check_candidate: Resending requests to all candidates TRY %d... waiting for 1st response", retry_counter);
@@ -3753,16 +4442,13 @@ static ChiakiErrorCode check_candidates(
                             CHIAKI_LOGE(session->log, "check_candidate: Got an address with an unsupported address family %d, skipping ...", ((struct sockaddr *)&addrs[i])->sa_family);
                             continue;
                         }
+                        if(CHIAKI_SOCKET_IS_INVALID(sock))
+                            continue;
                         candidate = &candidates[i];
                         if (sendto(sock, (CHIAKI_SOCKET_BUF_TYPE) request_buf[0], sizeof(request_buf[0]), 0, (struct sockaddr *)&addrs[i], lens[i]) < 0)
                         {
                             CHIAKI_LOGE(session->log, "check_candidate: Sending request failed for %s:%d with error: " CHIAKI_SOCKET_ERROR_FMT, candidate->addr, candidate->port, CHIAKI_SOCKET_ERROR_VALUE);
                             continue;
-                        }
-                        if(session->stun_random_allocation && (candidate->type == CANDIDATE_TYPE_STATIC || candidate->type == CANDIDATE_TYPE_STUN))
-                        {
-                            for(int j=0; j<RANDOM_ALLOCATION_SOCKS_NUMBER; j++)
-                                FD_SET(socks[j], &fds);
                         }
                     }
                     continue;                    
@@ -3770,8 +4456,6 @@ static ChiakiErrorCode check_candidates(
                 else if(received_response && !connecting)
                 {
                     connecting = true;
-                    tv.tv_sec = SELECT_CANDIDATE_CONNECTION_SEC;
-                    tv.tv_usec = 0;
                     continue;
                 }
                 // No responsive candidate within timeout, terminate with error
@@ -3820,9 +4504,12 @@ static ChiakiErrorCode check_candidates(
                     break;
                 }
             }
-            CHIAKI_LOGE(session->log, "check_candidate: Select returned an invalid socket!");
-            err = CHIAKI_ERR_UNKNOWN;
-            goto cleanup_sockets;
+            if(CHIAKI_SOCKET_IS_INVALID(candidate_sock))
+            {
+                CHIAKI_LOGE(session->log, "check_candidate: Select returned an invalid socket!");
+                err = CHIAKI_ERR_UNKNOWN;
+                goto cleanup_sockets;
+            }
         }
 
         struct sockaddr* recv_address;
@@ -3964,7 +4651,7 @@ static ChiakiErrorCode check_candidates(
         received_response = true;
         responses_received[i]++;
         responses = responses_received[i];
-        if(responses > 2)
+        if(responses > (CHECK_CANDIDATES_REQUEST_NUMBER - 1))
         {
             selected_sock = candidate_sock;
             selected_candidate = candidate;

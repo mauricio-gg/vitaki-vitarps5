@@ -755,6 +755,8 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
                  append_form_kv(curl, auth_url, sizeof(auth_url), &off,
                                 "response_type", "code") &&
                  append_form_kv(curl, auth_url, sizeof(auth_url), &off,
+                                "duid", context.config.psn_client_duid) &&
+                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
                                 "client_id", oauth_client_id()) &&
                  append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope",
                                 oauth_scope()) &&
@@ -780,9 +782,10 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     return false;
   }
 
-  LOGD("PSN auth authorize tuple authorize_url=%s redirect_uri=%s client_id=%s scope=%s locale=%s ui=%s service_logo=%s layout_type=%s smcid=%s prompt=%s privacy=%s",
+  LOGD("PSN auth authorize tuple authorize_url=%s redirect_uri=%s duid=%s client_id=%s scope=%s locale=%s ui=%s service_logo=%s layout_type=%s smcid=%s prompt=%s privacy=%s",
        oauth_authorize_url(),
        oauth_redirect_uri(),
+       context.config.psn_client_duid,
        oauth_client_id(),
        oauth_scope(),
        "en_US",

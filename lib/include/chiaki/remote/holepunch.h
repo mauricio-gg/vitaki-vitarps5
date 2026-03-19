@@ -203,6 +203,30 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(
     ChiakiHolepunchSession session);
 
 /**
+ * Discover UPnP gateway information before creating the session offer.
+ *
+ * This mirrors the upstream chiaki-ng PSN internet flow and is best-effort:
+ * a missing gateway is not a fatal error, but the session caches the result.
+ *
+ * @param[in] session Handle to the holepunching session
+ * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_upnp_discover(
+    ChiakiHolepunchSession session);
+
+/**
+ * Pre-create the local control offer and candidate list before session start.
+ *
+ * This must be called after `chiaki_holepunch_session_create` and before
+ * `chiaki_holepunch_session_start` to match the upstream PSN internet path.
+ *
+ * @param[in] session Handle to the holepunching session
+ * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
+ */
+CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(
+    ChiakiHolepunchSession session);
+
+/**
  * Start a remote play session for a specific device.
  *
  * This function must be called after `chiaki_holepunch_session_create`.

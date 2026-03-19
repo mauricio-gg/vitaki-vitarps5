@@ -249,7 +249,14 @@ int psn_remote_prepare_connect_host(
     return 1;
   }
 
-  ChiakiErrorCode err = chiaki_holepunch_session_create(session);
+  ChiakiErrorCode err = chiaki_holepunch_upnp_discover(session);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("PSN remote prepare failed: upnp_discover: %s", chiaki_error_string(err));
+    chiaki_holepunch_session_discard(session);
+    return 1;
+  }
+
+  err = chiaki_holepunch_session_create(session);
   if (err != CHIAKI_ERR_SUCCESS) {
     long ws_http_code = 0;
     long retry_interval_min = 0;
@@ -276,6 +283,14 @@ int psn_remote_prepare_connect_host(
       psn_remote_set_error("Failed to create PSN remote session.");
     }
     chiaki_holepunch_session_discard(session);
+    return 1;
+  }
+
+  err = holepunch_session_create_offer(session);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("PSN remote prepare failed: create_offer: %s", chiaki_error_string(err));
+    psn_remote_set_error("Failed to prepare PSN remote connection.");
+    chiaki_holepunch_session_fini(session);
     return 1;
   }
 
