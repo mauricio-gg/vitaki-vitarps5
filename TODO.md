@@ -76,8 +76,8 @@ Only move a task to "Done" after the reviewer signs off.
    - *Owner:* Investigation + Implementation agents
    - *Goal:* Move internet remote play from backend-wired prototype to shippable feature.
    - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, holepunch connect handoff, holepunch-enabled Release packaging, plus profile-side PSN auth lifecycle controls (device-login start/poll/cancel, token refresh attempt, logout, status UI) are implemented on `feat/psn-internet-remoteplay-mvp`.
-   - *Blocking Gap:* Feature is still not ship-ready due to missing production OAuth provider configuration on Vita builds (device/token endpoint + client settings), plus WAN/NAT hardware validation.
-   - *Next Step:* Wire production OAuth app credentials/config into build pipeline, then run NAT matrix validation with `./tools/build.sh --env testing`.
+   - *Blocking Gap:* Feature is still not ship-ready due to missing production OAuth provider configuration on Vita builds (device/token endpoint + client settings), plaintext token-at-rest storage in `ux0:data/vita-chiaki/chiaki.toml`, plus WAN/NAT hardware validation.
+   - *Next Step:* Wire production OAuth app credentials/config into build pipeline, add encrypted storage for persisted PSN OAuth tokens, then run NAT matrix validation with `./tools/build.sh --env testing`.
 
 ---
 
