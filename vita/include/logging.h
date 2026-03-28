@@ -34,3 +34,4 @@ void vita_log_module_shutdown(void);
 void vita_log_submit_line(ChiakiLogLevel level, const char *line);
 bool vita_log_should_write_level(ChiakiLogLevel level);
 const VitaLoggingConfig *vita_log_get_active_config(void);
+void vita_log_update_enabled(bool enabled);

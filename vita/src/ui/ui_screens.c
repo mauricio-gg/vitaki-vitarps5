@@ -482,7 +482,8 @@ static SettingsState settings_state = {0};
 #define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS       10
 #define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
 #define SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED  11
-#define SETTINGS_TOGGLE_ANIM_PS_BUTTON_DUAL_MODE  12
+#define SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING 12
+#define SETTINGS_TOGGLE_ANIM_PS_BUTTON_DUAL_MODE  13
 
 static void settings_update_scroll_for_selection(void) {
     int total_items = SETTINGS_STREAMING_ITEMS;
@@ -615,6 +616,12 @@ static void settings_activate_selected_item(void) {
       settings_toggle_bool(&context.config.show_only_paired, SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED);
       ui_cards_update_cache(true);
       break;
+    case UI_SETTINGS_ITEM_ENABLE_LOGGING:
+      settings_toggle_bool(&context.config.logging.enabled, SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING);
+      vita_log_update_enabled(context.config.logging.enabled);
+      context.log.level_mask = vita_logging_profile_mask(
+        context.config.logging.enabled ? VITA_LOG_PROFILE_VERBOSE : VITA_LOG_PROFILE_ERRORS);
+      break;
     case UI_SETTINGS_ITEM_PS_BUTTON_DUAL_MODE:
       settings_toggle_bool(&context.config.ps_button_dual_mode, SETTINGS_TOGGLE_ANIM_PS_BUTTON_DUAL_MODE);
       break;
@@ -721,6 +728,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
         draw_settings_toggle_item(content_x, y, content_w, item_h,
                                   "Show Only Paired", SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
                                   context.config.show_only_paired, selected);
+        break;
+      case UI_SETTINGS_ITEM_ENABLE_LOGGING:
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Enable Logging", SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING,
+                                  context.config.logging.enabled, selected);
         break;
       case UI_SETTINGS_ITEM_PS_BUTTON_DUAL_MODE:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
