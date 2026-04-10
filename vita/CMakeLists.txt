@@ -112,7 +112,6 @@ target_link_libraries(${VITA_APP_NAME}.elf
   ssl
   crypto
   opus
-  curl
 
   freetype
   bz2
@@ -154,7 +153,11 @@ target_link_libraries(${VITA_APP_NAME}.elf
 
 
 if(CHIAKI_IS_VITA)
-    vita_create_self(${VITA_APP_NAME}.self ${VITA_APP_NAME}.elf UNSAFE)
+    vita_create_self(${VITA_APP_NAME}.self ${VITA_APP_NAME}.elf
+        ATTRIBUTE 0x2800000000000001
+        NOASLR
+        UNSAFE
+    )
 
     set(VITARPS5_PSBRIDGE_MODULE vitarps5_psbridge)
     add_executable(${VITARPS5_PSBRIDGE_MODULE}

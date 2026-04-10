@@ -2,14 +2,17 @@
 
 ## Summary
 
-Dual-mode is partially active in VitaRPS5, but current app-level interception is not reliable enough to prevent the Vita shell PS action in all runs.
+The current direction is no longer the original bridge-first experiment.
+This branch now targets a DSVita-style privileged userland path:
 
-Latest evidence from testing logs:
-- `21570378498_vitarps5-testing.log:603` -> `PS dual mode init: config=1 intercept_original=0`
-- `21570378498_vitarps5-testing.log:909` -> `PS dual mode: first tap armed`
-- No subsequent `single tap timeout` or `double tap confirmed` markers in this run.
+- build the main Vita app SELF with elevated app attributes
+- use shell lock while streaming is active
+- read `SCE_CTRL_PSBUTTON` from normal pad polling
+- single tap waits out a short double-tap window and then sends remote `PS`
+- double tap yields PS handling to the Vita shell so the user can leave the app normally
 
-This means the state machine starts, but the user-observed system behavior is still wrong (single press can still trigger Vita UI).
+This is a better fit for VitaRPS5 than immediate recapture after the second tap,
+because immediate recapture hijacks the user's attempt to exit the app.
 
 ## What Adrenaline Actually Does
 
@@ -26,58 +29,57 @@ Adrenaline does not rely on userland-only pad polling:
   - `/tmp/Adrenaline/user/main.c:373`
   - `/tmp/Adrenaline/user/main.c:395`
 
-## Key Gap vs VitaRPS5
+## What DSVita Actually Proves
 
-VitaRPS5 currently only uses:
-- `sceCtrlSetButtonIntercept()` / `sceCtrlGetButtonIntercept()` in `vita/src/host_input.c`
+DSVita shows that successful PS-button capture does not require a bespoke PS kernel bridge in the main path.
 
-It does not currently use shell lock APIs:
-- `sceShellUtilLock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN / _PS_BTN_2)` from VitaSDK (`psp2/shellutil.h`)
+The relevant pieces are:
+- elevated app SELF packaging (`-a 0x2800000000000001 -na`)
+- `sceShellUtilLock(...)` / `sceShellUtilUnlock(...)`
+- direct polling of `SCE_CTRL_PSBUTTON` from normal controller reads
 
-This is a critical gap because shell lock is the closest userland mechanism to explicitly suppress system PS action.
+That makes the kernel-bridge path a fallback, not the preferred first solution.
 
 ## Feasibility Matrix
 
-1. **Current app-only intercept (existing)**
-- Pros: no new dependency, no install friction
-- Cons: observed unreliable; fails user expectation in real runs
-- Verdict: insufficient alone
+1. **Intercept-only**
+- Pros: low complexity
+- Cons: already shown unreliable in real runs
+- Verdict: not enough
 
-2. **Userland + shell lock (recommended first implementation)**
-- Pros: no kernel plugin required; uses official Vita userland API
-- Cons: behavior may vary by firmware/shell state; must be carefully unlocked on exit
-- Verdict: best next step with lowest complexity/risk
+2. **Privileged userland + shell lock (current target)**
+- Pros: closest to DSVita, no separate plugin install, keeps distribution simple
+- Cons: requires elevated app SELF packaging and hardware validation
+- Verdict: preferred implementation path
 
-3. **Optional kernel plugin backend (taiHEN-style)**
-- Pros: highest control, closest to Adrenaline model
-- Cons: major support/install burden, firmware/homebrew constraints, larger maintenance/test surface
-- Verdict: fallback path only if shell-lock approach still cannot guarantee behavior
+3. **Kernel bridge fallback**
+- Pros: stronger control if privileged polling still leaks
+- Cons: more complexity and support burden
+- Verdict: keep only as fallback material
 
 ## Recommended Implementation Blueprint (Next PR)
 
 ### Scope
-Implement **shell lock hardening** first, keep existing dual-mode state machine, and add explicit diagnostics.
+Implement the privileged userland route first and make double tap yield to the Vita shell instead of re-capturing immediately.
 
 ### File Changes
 1. `vita/src/host_input.c`
-- Include `<psp2/shellutil.h>`.
-- Add helper wrappers:
-  - lock PS shell action
-  - unlock PS shell action
-- When dual mode is active, lock PS shell action while stream input thread is active.
-- On thread shutdown and on dual-mode disable path, always unlock (guarded cleanup).
-- Keep `sceCtrlSetButtonIntercept()` logic and existing state-machine behavior intact.
-- Add diagnostics for lock/unlock success/failure and active state transitions.
+- Use shell lock as the primary PS capture mechanism while streaming.
+- Detect single-vs-double tap from raw PS edges seen through normal pad polling.
+- On single tap timeout, emit one remote `PS` button event.
+- On double tap, unlock shell handling and keep it released long enough for the Vita shell to take over cleanly.
+- Do not immediately re-lock on second-tap release; defer relock until after a grace period.
+- On thread shutdown and dual-mode disable, always unlock and clear state.
 
 2. `vita/CMakeLists.txt`
-- Link `SceShellSvc_stub` (required for `sceShellUtilLock/Unlock`).
+- Build the app SELF with DSVita-style elevated app attributes and `NOASLR`.
 
 ### Runtime Rules
 - Default behavior remains unchanged when `ps_button_dual_mode=false`.
 - When `ps_button_dual_mode=true`:
-  - enable intercept path (existing)
   - engage shell PS lock during active streaming/input handling
-  - preserve existing single/double press semantics
+  - single press waits for the double-tap window, then sends remote `PS`
+  - double press yields to the Vita shell so the user can exit the app
   - release lock on stream stop/teardown
 
 ### Validation Plan
@@ -99,10 +101,10 @@ On-device tests:
 
 3. Dual mode ON, double press:
 - Expected logs:
-  - second press detected, passthrough active
-  - double tap confirmed (Vita local), restoring intercept
+  - second press detected, yielding to Vita shell
 - Expected behavior:
-  - local Vita PS action works on double press
+  - Vita shell/app-switch UI appears
+  - user can leave the app without dual mode immediately stealing PS back
 
 4. Stream stop / disconnect:
 - Confirm shell lock is always released (no sticky lock after app exit/stop).
@@ -110,7 +112,7 @@ On-device tests:
 ## Escalation Criteria for Plugin Path
 
 Move to optional plugin backend only if all are true:
-1. Shell lock + intercept still leaks single-press Vita UI in reproducible runs.
+1. Privileged shell-lock path still leaks single-press Vita UI in reproducible runs.
 2. Failures are observed across multiple sessions with clear logs.
 3. User agrees to optional plugin install/support model.
 

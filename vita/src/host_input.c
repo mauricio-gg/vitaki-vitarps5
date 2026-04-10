@@ -7,7 +7,6 @@
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
-#include <taihen.h>
 
 #include <unistd.h>
 
@@ -25,133 +24,30 @@ typedef struct mapped_touch_slot_t {
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
 #define PS_DOUBLE_PRESS_WINDOW_US 300000ULL
-#define PS_BRIDGE_LOG_INTERVAL_US 2000000ULL
-
-#ifndef VITARPS5_TITLEID
-#define VITARPS5_TITLEID "VRPS50001"
-#endif
-
-#define VITARPS5_PSBRIDGE_MODULE_NAME "vitarps5_psbridge"
-#define VITARPS5_PSBRIDGE_MODULE_PATH_APP0 "app0:sce_module/vitarps5_psbridge.skprx"
-#define VITARPS5_PSBRIDGE_MODULE_PATH_UX0 "ux0:app/" VITARPS5_TITLEID "/sce_module/vitarps5_psbridge.skprx"
-#define VITARPS5_PSBRIDGE_LIB_NID 0xF4C5B1A0
-#define VITARPS5_PSBRIDGE_FUNC_PEEK_NID 0xB81E9921
-#define VITARPS5_PSBRIDGE_FUNC_MASK_NID 0xC92A48F5
-
-typedef int (*PsBridgePeekFn)(void);
-typedef int (*PsBridgeMaskFn)(int enabled);
-
-static const char *VITARPS5_PSBRIDGE_MODULE_CANDIDATES[] = {
-  "vitarps5_psbridge",
-  "psbridge",
-};
-static const char *VITARPS5_PSBRIDGE_PATH_CANDIDATES[] = {
-  VITARPS5_PSBRIDGE_MODULE_PATH_APP0,
-  VITARPS5_PSBRIDGE_MODULE_PATH_UX0,
-};
-
-static bool resolve_ps_bridge_exports_for_name(const char *module_name,
-                                               PsBridgePeekFn *peek_fn,
-                                               PsBridgeMaskFn *mask_fn,
-                                               int *peek_ret_out,
-                                               int *mask_ret_out) {
-  uintptr_t peek_addr = 0;
-  uintptr_t mask_addr = 0;
-  int peek_ret = taiGetModuleExportFunc(module_name,
-                                        VITARPS5_PSBRIDGE_LIB_NID,
-                                        VITARPS5_PSBRIDGE_FUNC_PEEK_NID,
-                                        &peek_addr);
-  int mask_ret = taiGetModuleExportFunc(module_name,
-                                        VITARPS5_PSBRIDGE_LIB_NID,
-                                        VITARPS5_PSBRIDGE_FUNC_MASK_NID,
-                                        &mask_addr);
-  if (peek_ret_out)
-    *peek_ret_out = peek_ret;
-  if (mask_ret_out)
-    *mask_ret_out = mask_ret;
-  if (peek_ret < 0 || mask_ret < 0)
-    return false;
-  *peek_fn = (PsBridgePeekFn)peek_addr;
-  *mask_fn = (PsBridgeMaskFn)mask_addr;
-  return true;
-}
-
-static bool resolve_ps_bridge_exports(PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn, bool log_failures) {
-  unsigned int i;
-  for (i = 0; i < sizeof(VITARPS5_PSBRIDGE_MODULE_CANDIDATES) / sizeof(VITARPS5_PSBRIDGE_MODULE_CANDIDATES[0]); i++) {
-    int peek_ret = 0;
-    int mask_ret = 0;
-    const char *candidate = VITARPS5_PSBRIDGE_MODULE_CANDIDATES[i];
-    if (resolve_ps_bridge_exports_for_name(candidate, peek_fn, mask_fn, &peek_ret, &mask_ret)) {
-      LOGD("PS bridge exports resolved via module '%s'", candidate);
-      return true;
-    }
-    if (log_failures) {
-      LOGE("PS bridge export lookup failed for '%s' (peek=0x%x mask=0x%x)",
-           candidate, peek_ret, mask_ret);
-    }
-  }
-  return false;
-}
-
-static bool ensure_ps_bridge_ready(SceUID *module_id, PsBridgePeekFn *peek_fn, PsBridgeMaskFn *mask_fn) {
-  if (*peek_fn && *mask_fn)
-    return true;
-
-  if (resolve_ps_bridge_exports(peek_fn, mask_fn, false))
-    return true;
-
-  SceUID modid = -1;
-  unsigned int i;
-  for (i = 0; i < sizeof(VITARPS5_PSBRIDGE_PATH_CANDIDATES) / sizeof(VITARPS5_PSBRIDGE_PATH_CANDIDATES[0]); i++) {
-    const char *path = VITARPS5_PSBRIDGE_PATH_CANDIDATES[i];
-    modid = taiLoadStartKernelModule(path, 0, NULL, 0);
-    if (modid >= 0) {
-      LOGD("PS bridge module loaded from %s", path);
-      break;
-    }
-    LOGE("Failed to load PS bridge kernel module from %s (0x%x)", path, modid);
-  }
-  if (modid < 0) {
-    return false;
-  }
-  *module_id = modid;
-  LOGD("PS bridge module load/start returned 0x%x", modid);
-
-  if (!resolve_ps_bridge_exports(peek_fn, mask_fn, true)) {
-    LOGE("PS bridge module loaded but exports could not be resolved");
-    return false;
-  }
-
-  LOGD("PS bridge kernel module loaded");
-  return true;
-}
-
-static bool set_ps_button_intercept_state(bool enabled) {
-  int ret = sceCtrlSetButtonIntercept(enabled ? 1 : 0);
-  if (ret < 0) {
-    LOGE("Failed to set PS button intercept=%d (0x%x)", enabled ? 1 : 0, ret);
-    return false;
-  }
-  return true;
-}
+#define PS_SHELL_RELOCK_GRACE_US 1500000ULL
 
 static bool set_ps_shell_lock_state(bool enabled) {
-  // Adrenaline uses PS_BTN_2; prefer that path and keep PS_BTN as fallback.
-  SceShellUtilLockType primary = SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN_2;
-  int ret = enabled ? sceShellUtilLock(primary) : sceShellUtilUnlock(primary);
+  SceShellUtilLockType combined =
+      (SceShellUtilLockType)(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN |
+                             SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN_2);
+  int ret = enabled ? sceShellUtilLock(combined) : sceShellUtilUnlock(combined);
   if (ret >= 0)
     return true;
 
+  // Fall back to individual lock types on firmware/runtime combinations that
+  // reject the combined bitmask.
+  SceShellUtilLockType primary = SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN_2;
+  int primary_ret = enabled ? sceShellUtilLock(primary) : sceShellUtilUnlock(primary);
   SceShellUtilLockType fallback = SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN;
   int fallback_ret = enabled ? sceShellUtilLock(fallback) : sceShellUtilUnlock(fallback);
-  if (fallback_ret >= 0) {
-    LOGD("PS shell lock fallback to PS_BTN succeeded");
+  if (primary_ret >= 0 || fallback_ret >= 0) {
+    LOGD("PS shell lock fallback succeeded (ps_btn_2=0x%x ps_btn=0x%x)",
+         primary_ret, fallback_ret);
     return true;
   }
 
-  LOGE("Failed to %s PS shell lock (primary=0x%x fallback=0x%x)",
-       enabled ? "set" : "clear", ret, fallback_ret);
+  LOGE("Failed to %s PS shell lock (combined=0x%x ps_btn_2=0x%x ps_btn=0x%x)",
+       enabled ? "set" : "clear", ret, primary_ret, fallback_ret);
   return false;
 }
 
@@ -293,24 +189,15 @@ void *host_input_thread_func(void* user) {
   const uint64_t INPUT_STALL_THRESHOLD_US = 300000;
   const uint64_t INPUT_STALL_LOG_INTERVAL_US = 1000000;
   bool ps_button_dual_mode_active = false;
-  bool ps_intercept_enabled = false;
   bool ps_shell_lock_enabled = false;
-  bool ps_bridge_mask_enabled = false;
-  int ps_intercept_original = 0;
   bool ps_prev_down = false;
   bool ps_prev_down_raw = false;
   bool ps_waiting_second_tap = false;
   bool ps_passthrough_active = false;
   uint64_t ps_first_release_us = 0;
-  uint64_t ps_bridge_last_error_log_us = 0;
-  SceUID ps_bridge_module_id = -1;
-  PsBridgePeekFn ps_bridge_peek_fn = NULL;
-  PsBridgeMaskFn ps_bridge_mask_fn = NULL;
+  uint64_t ps_shell_relock_after_us = 0;
 
-  if (sceCtrlGetButtonIntercept(&ps_intercept_original) < 0)
-    ps_intercept_original = 0;
-  LOGD("PS dual mode init: config=%d intercept_original=%d",
-       context.config.ps_button_dual_mode ? 1 : 0, ps_intercept_original);
+  LOGD("PS dual mode init: config=%d", context.config.ps_button_dual_mode ? 1 : 0);
 
   if (context.stream.cached_controller_valid) {
     stream->controller_state = context.stream.cached_controller_state;
@@ -345,38 +232,20 @@ void *host_input_thread_func(void* user) {
 
     if (controller_gate_open) {
       if (context.config.ps_button_dual_mode && !ps_button_dual_mode_active) {
-        if (ensure_ps_bridge_ready(&ps_bridge_module_id, &ps_bridge_peek_fn, &ps_bridge_mask_fn) &&
-            ps_bridge_mask_fn && !ps_bridge_mask_enabled) {
-          int mask_ret = ps_bridge_mask_fn(1);
-          if (mask_ret >= 0) {
-            ps_bridge_mask_enabled = true;
-            LOGD("PS bridge mask enabled");
-          } else {
-            LOGE("PS bridge mask enable failed (0x%x)", mask_ret);
-          }
-        }
-
-        if (!ps_bridge_mask_enabled && !ps_shell_lock_enabled) {
+        if (!ps_shell_lock_enabled) {
           ps_shell_lock_enabled = set_ps_shell_lock_state(true);
           if (!ps_shell_lock_enabled) {
             LOGE("PS button dual mode requested but shell lock could not be enabled");
           }
         }
-        ps_button_dual_mode_active = set_ps_button_intercept_state(true);
-        ps_intercept_enabled = ps_button_dual_mode_active;
+        ps_button_dual_mode_active = ps_shell_lock_enabled;
         if (!ps_button_dual_mode_active) {
-          LOGE("PS button dual mode requested but intercept could not be enabled");
+          LOGE("PS button dual mode requested but privileged shell-lock path is unavailable");
+        } else {
+          LOGD("PS dual mode active via privileged shell-lock path");
         }
       } else if (!context.config.ps_button_dual_mode &&
                  (ps_button_dual_mode_active || ps_shell_lock_enabled)) {
-        set_ps_button_intercept_state(ps_intercept_original != 0);
-        ps_intercept_enabled = (ps_intercept_original != 0);
-        if (ps_bridge_mask_enabled && ps_bridge_mask_fn) {
-          int mask_ret = ps_bridge_mask_fn(0);
-          if (mask_ret < 0)
-            LOGE("PS bridge mask disable failed (0x%x)", mask_ret);
-          ps_bridge_mask_enabled = false;
-        }
         if (ps_shell_lock_enabled) {
           set_ps_shell_lock_state(false);
           ps_shell_lock_enabled = false;
@@ -385,27 +254,13 @@ void *host_input_thread_func(void* user) {
         ps_waiting_second_tap = false;
         ps_passthrough_active = false;
         ps_first_release_us = 0;
+        ps_shell_relock_after_us = 0;
         ps_prev_down = false;
       }
 
       uint64_t start_time_us = sceKernelGetProcessTimeWide();
 
       sceCtrlPeekBufferPositiveExt(0, &ctrl, 1);
-      if (ps_bridge_peek_fn) {
-        int peek_ret = ps_bridge_peek_fn();
-        if (peek_ret >= 0) {
-          ctrl.buttons &= ~SCE_CTRL_PSBUTTON;
-          if (peek_ret)
-            ctrl.buttons |= SCE_CTRL_PSBUTTON;
-        } else {
-          uint64_t now_us = sceKernelGetProcessTimeWide();
-          if (!ps_bridge_last_error_log_us ||
-              now_us - ps_bridge_last_error_log_us >= PS_BRIDGE_LOG_INTERVAL_US) {
-            LOGE("PS bridge peek failed (0x%x)", peek_ret);
-            ps_bridge_last_error_log_us = now_us;
-          }
-        }
-      }
 
       bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
                         (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
@@ -457,13 +312,13 @@ void *host_input_thread_func(void* user) {
       bool ps_pressed_raw = ps_down_raw && !ps_prev_down_raw;
       bool ps_released_raw = !ps_down_raw && ps_prev_down_raw;
       if ((ps_pressed_raw || ps_released_raw) && !context.config.ps_button_dual_mode) {
-        LOGD("PS raw edge seen while dual mode disabled (active=%d intercept_enabled=%d)",
-             ps_button_dual_mode_active ? 1 : 0, ps_intercept_enabled ? 1 : 0);
+        LOGD("PS raw edge seen while dual mode disabled (active=%d shell_lock=%d)",
+             ps_button_dual_mode_active ? 1 : 0, ps_shell_lock_enabled ? 1 : 0);
       } else if ((ps_pressed_raw || ps_released_raw) &&
                  context.config.ps_button_dual_mode &&
                  !ps_button_dual_mode_active) {
-        LOGD("PS raw edge seen but dual mode inactive (intercept_enabled=%d original=%d)",
-             ps_intercept_enabled ? 1 : 0, ps_intercept_original);
+        LOGD("PS raw edge seen but dual mode inactive (shell_lock=%d)",
+             ps_shell_lock_enabled ? 1 : 0);
       }
       ps_prev_down_raw = ps_down_raw;
 
@@ -474,50 +329,51 @@ void *host_input_thread_func(void* user) {
         bool ps_released = !ps_down && ps_prev_down;
 
         if (!ps_waiting_second_tap && ps_released) {
-          // First tap completed: start second-tap window with intercept still enabled.
+          // First tap completed: wait briefly to distinguish remote PS from
+          // intentional local exit via Vita shell.
           ps_waiting_second_tap = true;
           ps_first_release_us = now_us;
           LOGD("PS dual mode: first tap armed");
         } else if (ps_waiting_second_tap && !ps_passthrough_active && ps_pressed &&
                    (now_us - ps_first_release_us) <= PS_DOUBLE_PRESS_WINDOW_US) {
-          // Second press within window: open local passthrough while button is held.
-          if (ps_intercept_enabled && set_ps_button_intercept_state(false)) {
-            ps_intercept_enabled = false;
+          // Second press within window: yield PS handling to the Vita shell and
+          // keep it there long enough for the user to exit the app normally.
+          if (ps_shell_lock_enabled && set_ps_shell_lock_state(false)) {
+            ps_shell_lock_enabled = false;
             ps_passthrough_active = true;
-            LOGD("PS dual mode: second press detected, passthrough active");
+            ps_waiting_second_tap = false;
+            ps_first_release_us = 0;
+            ps_shell_relock_after_us = now_us + PS_SHELL_RELOCK_GRACE_US;
+            LOGD("PS dual mode: second press detected, yielding to Vita shell");
           } else {
-            // Could not open passthrough, fall back to remote PS for this interaction.
-            stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
+            // If we cannot release PS handling, do not synthesize a remote PS
+            // on the user's exit gesture. Clear the state and let them retry.
             ps_waiting_second_tap = false;
             ps_passthrough_active = false;
             ps_first_release_us = 0;
-            LOGE("PS dual mode: failed to open second-press passthrough, sending remote PS");
+            ps_shell_relock_after_us = 0;
+            LOGE("PS dual mode: failed to yield PS handling to Vita shell");
           }
         }
 
-        if (ps_waiting_second_tap && ps_passthrough_active && ps_released) {
-          // Double tap finished: close passthrough and restore intercept.
-          ps_waiting_second_tap = false;
-          ps_passthrough_active = false;
-          ps_first_release_us = 0;
-          LOGD("PS dual mode: double tap confirmed (Vita local), restoring intercept");
-          if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
-            ps_intercept_enabled = set_ps_button_intercept_state(true);
+        if (ps_passthrough_active) {
+          if (!ps_down && ps_shell_relock_after_us &&
+              now_us >= ps_shell_relock_after_us &&
+              context.config.ps_button_dual_mode) {
+            if (set_ps_shell_lock_state(true)) {
+              ps_shell_lock_enabled = true;
+              ps_passthrough_active = false;
+              ps_shell_relock_after_us = 0;
+              LOGD("PS dual mode: shell lock restored after local handoff");
+            }
           }
         } else if (ps_waiting_second_tap && !ps_passthrough_active && !ps_down &&
                    (now_us - ps_first_release_us) > PS_DOUBLE_PRESS_WINDOW_US) {
           // Single tap timeout: emit remote PS once.
           stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PS;
           ps_waiting_second_tap = false;
-          ps_passthrough_active = false;
           ps_first_release_us = 0;
           LOGD("PS dual mode: single tap timeout, sending remote PS");
-          if (!ps_intercept_enabled && context.config.ps_button_dual_mode) {
-            ps_intercept_enabled = set_ps_button_intercept_state(true);
-          }
-        } else if (!ps_intercept_enabled && !ps_passthrough_active && !ps_down &&
-                   context.config.ps_button_dual_mode) {
-          ps_intercept_enabled = set_ps_button_intercept_state(true);
         }
 
         ps_prev_down = ps_down;
@@ -758,23 +614,8 @@ void *host_input_thread_func(void* user) {
     }
   }
 
-  if (ps_intercept_enabled) {
-    set_ps_button_intercept_state(ps_intercept_original != 0);
-  } else if (ps_button_dual_mode_active && ps_intercept_original != 0) {
-    set_ps_button_intercept_state(true);
-  }
-  if (ps_bridge_mask_enabled && ps_bridge_mask_fn) {
-    int mask_ret = ps_bridge_mask_fn(0);
-    if (mask_ret < 0)
-      LOGE("PS bridge mask disable failed during shutdown (0x%x)", mask_ret);
-  }
   if (ps_shell_lock_enabled) {
     set_ps_shell_lock_state(false);
-  }
-  if (ps_bridge_module_id >= 0) {
-    int unload_ret = taiStopUnloadKernelModule(ps_bridge_module_id, 0, NULL, 0, NULL, NULL);
-    if (unload_ret < 0)
-      LOGE("Failed to unload PS bridge kernel module (0x%x)", unload_ret);
   }
 
   return 0;
