@@ -2239,6 +2239,19 @@ static void* websocket_thread_func(void *user) {
     ChiakiErrorCode err;
     char header_buf[128];
 
+/* Append a formatted WebSocket header to the curl slist, detecting truncation.
+ * On truncation: logs an error, sets err = CHIAKI_ERR_UNKNOWN, and jumps to
+ * cleanup_headers which frees the slist and the curl handle before returning. */
+#define APPEND_WS_HEADER(fmt, ...) do { \
+    int _n = snprintf(header_buf, sizeof(header_buf), fmt, __VA_ARGS__); \
+    if (_n < 0 || (size_t)_n >= sizeof(header_buf)) { \
+        CHIAKI_LOGE(session->log, "WebSocket header truncated: " fmt, __VA_ARGS__); \
+        err = CHIAKI_ERR_UNKNOWN; \
+        goto cleanup_headers; \
+    } \
+    headers = curl_slist_append(headers, header_buf); \
+} while (0)
+
     char ws_url[128] = {0};
     snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
 
@@ -2251,30 +2264,22 @@ static void* websocket_thread_func(void *user) {
     curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, session->oauth_header);
-    snprintf(header_buf, sizeof(header_buf), "Sec-WebSocket-Protocol: %s",
-             psn_remote_client_profile.ws_protocol);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "User-Agent: %s",
-             psn_remote_client_profile.ws_user_agent);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-APP-TYPE: %s",
-             psn_remote_client_profile.app_type);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-APP-VER: %s",
-             psn_remote_client_profile.app_version);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-KEEP-ALIVE-STATUS-TYPE: %s",
-             psn_remote_client_profile.keep_alive_status_type);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-OS-VER: %s",
-             psn_remote_client_profile.os_version);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-PROTOCOL-VERSION: %s",
-             psn_remote_client_profile.protocol_version);
-    headers = curl_slist_append(headers, header_buf);
-    snprintf(header_buf, sizeof(header_buf), "X-PSN-RECONNECTION: %s",
-             psn_remote_client_profile.reconnection);
-    headers = curl_slist_append(headers, header_buf);
+    APPEND_WS_HEADER("Sec-WebSocket-Protocol: %s",
+                     psn_remote_client_profile.ws_protocol);
+    APPEND_WS_HEADER("User-Agent: %s",
+                     psn_remote_client_profile.ws_user_agent);
+    APPEND_WS_HEADER("X-PSN-APP-TYPE: %s",
+                     psn_remote_client_profile.app_type);
+    APPEND_WS_HEADER("X-PSN-APP-VER: %s",
+                     psn_remote_client_profile.app_version);
+    APPEND_WS_HEADER("X-PSN-KEEP-ALIVE-STATUS-TYPE: %s",
+                     psn_remote_client_profile.keep_alive_status_type);
+    APPEND_WS_HEADER("X-PSN-OS-VER: %s",
+                     psn_remote_client_profile.os_version);
+    APPEND_WS_HEADER("X-PSN-PROTOCOL-VERSION: %s",
+                     psn_remote_client_profile.protocol_version);
+    APPEND_WS_HEADER("X-PSN-RECONNECTION: %s",
+                     psn_remote_client_profile.reconnection);
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_SHARE, session->curl_share);
@@ -2284,6 +2289,15 @@ static void* websocket_thread_func(void *user) {
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, ws_curl_debug_cb);
     curl_easy_setopt(curl, CURLOPT_DEBUGDATA, session);
+
+    /* cleanup_headers is only reached via APPEND_WS_HEADER on truncation, before
+     * curl_easy_perform runs.  Free the partially-built header list and then fall
+     * through to cleanup: to tear down the curl handle. */
+    if (0) {
+cleanup_headers:
+        curl_slist_free_all(headers);
+        goto cleanup;
+    }
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(headers);
@@ -2509,6 +2523,8 @@ cleanup_json:
 cleanup:
     curl_easy_cleanup(curl);
     session->ws_open = false;
+
+#undef APPEND_WS_HEADER
 
     return NULL;
 }
