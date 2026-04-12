@@ -298,12 +298,13 @@ static void open_psn_auth_code_ime(void) {
   memset(profile_auth_ime_input_buf, 0, sizeof(profile_auth_ime_input_buf));
   memset(profile_auth_ime_title_w, 0, sizeof(profile_auth_ime_title_w));
   const char *title = "Paste full redirect URL";
-  for (size_t i = 0;
-       i < sizeof(profile_auth_ime_title_w) / sizeof(profile_auth_ime_title_w[0]) - 1 && title[i];
-       i++) {
+  const size_t cap = sizeof(profile_auth_ime_title_w) / sizeof(profile_auth_ime_title_w[0]) - 1;
+  const size_t title_len = strlen(title);
+  const size_t copy_len = title_len < cap ? title_len : cap;
+  for (size_t i = 0; i < copy_len; i++) {
     profile_auth_ime_title_w[i] = (SceWChar16)title[i];
-    profile_auth_ime_title_w[i + 1] = 0;
   }
+  profile_auth_ime_title_w[copy_len] = 0;
 
   SceImeDialogParam param;
   sceImeDialogParamInit(&param);
