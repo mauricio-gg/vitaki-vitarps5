@@ -248,6 +248,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		goto err_video_receiver;
 	}
 
+#ifdef VITARPS5_ENHANCED_RECOVERY
+	/* Wire the typed back-pointer so takion_data_drop() can safely call
+	 * chiaki_stream_connection_report_drop() without casting the generic
+	 * cb_user slot. Only StreamConnection sets this; Senkusha's Takion
+	 * instance leaves stream_connection NULL (initialised in takion_connect). */
+	stream_connection->takion.stream_connection = stream_connection;
+#endif /* VITARPS5_ENHANCED_RECOVERY */
+
 	err = chiaki_congestion_control_start(&stream_connection->congestion_control, &stream_connection->takion, &stream_connection->packet_stats, stream_connection->log);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{

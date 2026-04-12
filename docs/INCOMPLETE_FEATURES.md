@@ -2,43 +2,58 @@
 
 This document tracks all incomplete features, TODOs, stubs, and planned improvements found in the VitaRPS5 codebase.
 
-**Last Updated:** 2026-02-13 (Startup deterministic bootstrap)
+**Last Updated:** 2026-02-19 (Internet Remote Play backend viability check)
 **Status:** Generated from codebase analysis
 
 ---
 
 ## Critical TODOs
 
-### 1. Internet Remote Play (Infrastructure Exists - Disabled)
+### 1. Internet Remote Play (Backend Partially Wired, Not Ship-Ready)
 **File:** `lib/src/remote/holepunch.c` (5,047 lines), `lib/src/remote/rudp.c`, `lib/src/remote/stun.h`
-**Status:** Fully implemented but disabled for PS Vita with `#if !(defined(__PSVITA__))` guards
-**Priority:** Future Feature (7-12 weeks effort)
-**Description:** Complete internet remote play infrastructure exists from upstream vitaki/Chiaki but is deliberately disabled for PS Vita. Includes UDP hole-punching, STUN/UPnP NAT traversal, RUDP protocol, and full PSN API integration.
+**Status:** PSN host wiring + config/UI scaffolding implemented on Vita branch, and holepunch-enabled Vita packaging now builds end-to-end behind `CHIAKI_ENABLE_VITA_HOLEPUNCH`
+**Priority:** High
+**Description:** Internet remote play is no longer just a conceptual TODO. Core Vita-side plumbing now exists (PSN host source model, token persistence, settings toggle, host refresh, holepunch session wiring), but production viability is blocked by toolchain/runtime hardening gaps.
 
-**What Exists:**
+**What Exists (as of 2026-02-19):**
 - 5,000+ lines of production-ready hole-punching code
 - STUN client for external IP discovery (multiple servers)
 - RUDP (Reliable UDP) protocol for internet connections
-- UPnP automatic port mapping
+- UPnP automatic port mapping (non-Vita targets)
 - PSN OAuth2 authentication flow
 - Device discovery via PSN API
 - WebSocket session management
-- All dependencies present (libcurl, json-c, miniupnpc, OpenSSL)
+- Vita app-side backend wiring:
+  - PSN host source model + persistence fields
+  - PSN internet settings toggle in UI
+  - PSN device-list refresh path into host cards
+  - Holepunch session handoff into `ChiakiConnectInfo`
+  - Device-login lifecycle UI/actions in Profile (start/poll/cancel/logout + auth status)
+  - Browser-based authorization-code login flow in Profile:
+    - Vita generates/open auth URL
+    - User signs in via browser
+    - User pastes redirect URL or auth code back into Vita IME
+    - Vita exchanges code for tokens and refreshes hosts
+  - Runtime OAuth provider settings in `[settings]` (advanced overrides; default build ships sane values):
+    - `psn_oauth_authorize_url` (preferred)
+    - `psn_oauth_device_code_url` (legacy fallback alias for authorize URL)
+    - `psn_oauth_token_url`
+    - `psn_oauth_client_id`
+    - `psn_oauth_client_secret` (optional)
+    - `psn_oauth_scope` (optional)
+    - `psn_oauth_redirect_uri` (optional)
 
-**What's Missing:**
-- PSN authentication UI (OAuth2 login screen)
-- Device selection UI (show user's remote consoles)
-- Connection status UI (NAT traversal progress)
-- Platform guard removal (`#if !(defined(__PSVITA__))`)
-- Vita-specific testing (NAT types, network conditions)
+**What's Missing / Blocking:**
+- Production OAuth provider configuration for Vita builds (device-code endpoint, token endpoint, client settings).
+- NAT traversal robustness on Vita (currently STUN-first; Vita UPnP path disabled)
+- Vita hardware validation matrix (NAT types A/B/C, WAN loss/jitter)
+- Shipping gate: internet mode remains experimental and unproven on hardware WAN/NAT matrices.
 
-**Implementation Roadmap:**
-1. **Phase 1:** Remove platform guards, verify dependencies (2-3 weeks)
-2. **Phase 2:** PSN authentication UI (OAuth2 device code flow) (2-3 weeks)
-3. **Phase 3:** UI integration (device list, connection status) (2-3 weeks)
-4. **Phase 4:** Core wiring (holepunch → RUDP → session) (1-2 weeks)
-5. **Phase 5:** Testing & hardening (multiple NAT types, error handling) (2-4 weeks)
-6. **Phase 6:** Documentation & release (1 week)
+**Implementation Roadmap (updated):**
+1. **Phase 1:** Configure production OAuth app settings for Vita builds and verify device-login/token refresh end-to-end.
+2. **Phase 2:** Harden Vita NAT path (UPnP strategy decision + fallback telemetry + failure UX).
+3. **Phase 3:** End-to-end hardware validation across WAN/NAT scenarios (`./tools/build.sh --env testing` builds).
+4. **Phase 4:** Documentation, user guidance, and staged release gating.
 
 **Technical Architecture:**
 - NAT Traversal: UPnP (preferred) → STUN → Manual fallback

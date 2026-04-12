@@ -169,8 +169,9 @@ CHIAKI_EXPORT bool stun_port_allocation_test(ChiakiLog *log, char *address, uint
     if(port4 == 0)
     {
         size_t num_servers = sizeof(STUN_SERVERS) / sizeof(StunServer);
-        for (int i = num_servers; i > 0; i--) {
-            int j = chiaki_random_32() % i;
+        /* Fisher-Yates shuffle: i must stay within [0, num_servers-1]. */
+        for (int i = num_servers - 1; i > 0; i--) {
+            int j = chiaki_random_32() % (i + 1);
             StunServer temp = STUN_SERVERS[i];
             STUN_SERVERS[i] = STUN_SERVERS[j];
             STUN_SERVERS[j] = temp;
@@ -504,6 +505,11 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
     CHIAKI_SSIZET_TYPE received = recvfrom(*sock, (CHIAKI_SOCKET_BUF_TYPE)binding_resp, sizeof(binding_resp), 0, NULL, NULL);
     if (received < 0) {
         CHIAKI_LOGE(log, "remote/stun.h: Failed to receive STUN response, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        /* Timeout or transient receive error: leave the socket open. The socket is owned
+         * by the caller (holepunch_session_create_offer) and is reused for the actual NAT
+         * hole-punch after STUN completes. Closing it here kills the entire session.
+         * The outer retry loop in stun_get_external_address / stun_port_allocation_test
+         * will simply try the next server using the same socket. */
         return false;
     }
 

@@ -178,6 +178,7 @@ void ui_cards_map_host(VitaChiakiHost* host, ConsoleCardInfo* card) {
 
     bool discovered = (host->type & DISCOVERED) && (host->discovery_state);
     bool registered = host->type & REGISTERED;
+    bool psn_remote = host->source == VITA_HOST_SOURCE_PSN_REMOTE;
     bool at_rest = discovered && host->discovery_state &&
                    host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
@@ -194,7 +195,10 @@ void ui_cards_map_host(VitaChiakiHost* host, ConsoleCardInfo* card) {
     }
 
     // Map host state to console state
-    if (discovered && !at_rest) {
+    if (psn_remote) {
+        card->status = 0;  // Available
+        card->state = 1;   // Ready
+    } else if (discovered && !at_rest) {
         card->status = 0;  // Available
         card->state = 1;   // Ready
     } else if (at_rest) {

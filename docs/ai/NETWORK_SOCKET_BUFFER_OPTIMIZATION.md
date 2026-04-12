@@ -360,7 +360,7 @@ while (running) {
 - **Implementation:** `lib/src/takion.c` (socket buffer + drain loop)
 - **Testing:** `./tools/build.sh --env testing` (with logging)
 - **Latency Guide:** `docs/LATENCY_QUICK_WINS.md` (Phase 3 network tuning)
-- **Memory Notes:** `/Users/mauriciogaldos/.claude/projects/.../memory/MEMORY.md` (thread safety patterns)
+- **Memory Notes:** `MEMORY.md` in project agent memory (thread safety patterns)
 
 ---
 

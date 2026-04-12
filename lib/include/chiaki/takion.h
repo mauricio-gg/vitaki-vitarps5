@@ -24,6 +24,11 @@
 extern "C" {
 #endif
 
+/* Forward declaration to allow ChiakiTakion to hold a typed pointer to its
+ * owning StreamConnection without a circular include. streamconnection.h
+ * includes takion.h, so we cannot include it here. */
+struct chiaki_stream_connection_t;
+
 typedef enum chiaki_takion_message_data_type_t {
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_PROTOBUF = 0,
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_RUMBLE = 7,
@@ -176,6 +181,18 @@ typedef struct chiaki_takion_t
 		uint64_t last_log_ms;
 		uint64_t last_seq_num;
 	} recv_drop_stats;
+
+#ifdef VITARPS5_ENHANCED_RECOVERY
+	/**
+	 * Typed back-pointer to the owning StreamConnection.
+	 * Set by chiaki_stream_connection_run() after a successful takion connect.
+	 * NULL when this Takion instance belongs to a non-StreamConnection context
+	 * (e.g. Senkusha MTU probe). takion_data_drop() checks this before calling
+	 * chiaki_stream_connection_report_drop() to avoid dereferencing the wrong
+	 * struct layout when a packet is dropped during MTU probing.
+	 */
+	struct chiaki_stream_connection_t *stream_connection;
+#endif /* VITARPS5_ENHANCED_RECOVERY */
 
 	struct
 	{

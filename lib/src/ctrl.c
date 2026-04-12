@@ -1220,7 +1220,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	else
 		path = "/sie/ps4/rp/sess/ctrl";
 	const char *rp_version = chiaki_rp_version_string(session->target);
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	int port = session->holepunch_session ? chiaki_get_ps_ctrl_port(session->holepunch_session) : SESSION_CTRL_PORT;
 #else
 	int port = SESSION_CTRL_PORT;

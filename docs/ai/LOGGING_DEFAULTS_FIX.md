@@ -65,7 +65,7 @@ Both build modes verified:
 - Testing build (`./tools/build.sh --env testing`): ✓ Properly overrides defaults with verbose logging
 
 ## Files Modified
-- `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/logging.c` (lines 12-24)
+- `vita/src/logging.c` (lines 12-24)
 
 ## Related Documentation
 - Build system: `docs/ai/BUILD_SYSTEM_SETUP.md`

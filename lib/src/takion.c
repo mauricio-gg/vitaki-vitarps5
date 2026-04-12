@@ -241,6 +241,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->gkcrypt_remote = NULL;
 	takion->cb = info->cb;
 	takion->cb_user = info->cb_user;
+#ifdef VITARPS5_ENHANCED_RECOVERY
+	/* Initialise to NULL; set by the StreamConnection attach path only.
+	 * Senkusha and any other non-StreamConnection caller leave this NULL so
+	 * takion_data_drop() skips the report_drop call for those contexts. */
+	takion->stream_connection = NULL;
+#endif /* VITARPS5_ENHANCED_RECOVERY */
 	takion->a_rwnd = TAKION_A_RWND;
 
 	takion->tag_local = chiaki_random_32(); // 0x4823
@@ -1008,8 +1014,15 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 	takion->recv_drop_stats.drops_since_log++;
 	takion->recv_drop_stats.last_seq_num = seq_num;
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
-	if(takion->cb_user)
-		chiaki_stream_connection_report_drop((ChiakiStreamConnection *)takion->cb_user, 1);
+#ifdef VITARPS5_ENHANCED_RECOVERY
+	/* Use the typed stream_connection pointer rather than casting the generic
+	 * cb_user slot. cb_user holds a ChiakiSenkusha * during MTU probe, so
+	 * casting it to ChiakiStreamConnection * would dereference the wrong
+	 * struct layout and crash. stream_connection is NULL for non-StreamConnection
+	 * Takion instances (Senkusha etc.), so the check is the full guard. */
+	if(takion->stream_connection)
+		chiaki_stream_connection_report_drop(takion->stream_connection, 1);
+#endif /* VITARPS5_ENHANCED_RECOVERY */
 	if(!entry)
 	{
 		CHIAKI_LOGE(takion->log, "Takion data drop callback received null entry for seq=%#llx",

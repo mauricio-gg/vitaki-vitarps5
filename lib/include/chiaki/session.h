@@ -14,7 +14,7 @@
 #include "audio.h"
 #include "controller.h"
 #include "stoppipe.h"
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 #include "remote/holepunch.h"
 #endif
 #include "remote/rudp.h"
@@ -85,7 +85,7 @@ typedef struct chiaki_connect_info_t
 	bool send_actual_start_bitrate; // When true, send requested bitrate via RP-StartBitrate
 	bool enable_keyboard;
 	bool enable_dualsense;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	ChiakiHolepunchSession holepunch_session;
 #endif
 	chiaki_socket_t *rudp_sock;
@@ -254,7 +254,7 @@ typedef struct chiaki_session_t
 	size_t login_pin_size;
 
 	ChiakiCtrl ctrl;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	ChiakiHolepunchSession holepunch_session;
 #endif
 	ChiakiRudp rudp;

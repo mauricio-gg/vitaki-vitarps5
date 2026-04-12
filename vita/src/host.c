@@ -9,10 +9,14 @@
 #include "host_callbacks.h"
 #include "discovery.h"
 #include "audio.h"
+#include "psn_auth.h"
+#include "psn_remote.h"
 #include "video.h"
 #include "string.h"
 #include <psp2/kernel/processmgr.h>
+#include <chiaki/base64.h>
 #include <chiaki/session.h>
+#include <time.h>
 
 static void request_stream_stop(const char *reason);
 
@@ -26,6 +30,16 @@ static bool host_mac_is_zero(const uint8_t mac[6]) {
     return true;
   for (int i = 0; i < 6; i++) {
     if (mac[i] != 0)
+      return false;
+  }
+  return true;
+}
+
+static bool host_psn_uid_is_zero(const uint8_t uid[32]) {
+  if (!uid)
+    return true;
+  for (int i = 0; i < 32; i++) {
+    if (uid[i] != 0)
       return false;
   }
   return true;
@@ -125,7 +139,15 @@ void host_request_stream_stop_from_input(const char *reason) {
 
 int host_stream(VitaChiakiHost* host) {
   LOGD("Preparing to start host_stream");
-  if (!host || !host->hostname || !host->hostname[0]) {
+  bool psn_remote = host && host->source == VITA_HOST_SOURCE_PSN_REMOTE;
+  LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
+       (void *)host,
+       host ? host->source : -1,
+       host ? host->type : 0,
+       (host && host->hostname) ? host->hostname : "<null>",
+       psn_remote,
+       (host && psn_remote) ? host_psn_uid_is_zero(host->psn_device_uid) : 0);
+  if (!host || (!psn_remote && (!host->hostname || !host->hostname[0]))) {
     return 1;
   }
   if (!host_try_hydrate_registered_state_from_config(host)) {
@@ -207,13 +229,82 @@ int host_stream(VitaChiakiHost* host) {
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
     context.stream.loss_retry_active = false;
   }
-  ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  ChiakiHolepunchSession holepunch_session = NULL;
+#endif
+  if (psn_remote) {
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_AUTH);
+    if (!psn_auth_enabled()) {
+      LOGE("PSN internet remote play is disabled in settings");
+      host_set_hint(host, "Enable PSN internet mode in settings.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    if (!psn_auth_has_tokens()) {
+      LOGE("Missing PSN OAuth tokens for internet remote play");
+      host_set_hint(host, "PSN login required for internet remote play.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    uint64_t now_unix = (uint64_t)time(NULL);
+    if (!psn_auth_token_is_valid(now_unix) &&
+        !psn_auth_refresh_token_if_needed(now_unix, false)) {
+      LOGE("PSN OAuth token expired and refresh failed for internet remote play");
+      host_set_hint(host, "PSN session expired. Re-authenticate in Profile.", true,
+                    HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_CREATE_SESSION);
+#if CHIAKI_CAN_USE_HOLEPUNCH
+    if (psn_remote_prepare_connect_host(host, &holepunch_session) != 0) {
+      host_set_hint(host, psn_remote_last_error(), true, HINT_DURATION_CREDENTIAL_US);
+      goto cleanup;
+    }
+#else
+    host_set_hint(host,
+                  "PSN internet remote play stack is unavailable in this build.",
+                  true,
+                  HINT_DURATION_CREDENTIAL_US);
+    goto cleanup;
+#endif
+    ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_PUNCH_CTRL);
+  } else {
+    ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+  }
+
   ChiakiConnectInfo chiaki_connect_info = {};
 	chiaki_connect_info.host = host->hostname;
 	chiaki_connect_info.video_profile = profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
 	chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
 	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  if (psn_remote) {
+    if (!context.config.psn_account_id || !context.config.psn_account_id[0]) {
+      LOGE("Missing PSN account id for internet remote play");
+      if (holepunch_session)
+        chiaki_holepunch_session_fini(holepunch_session);
+      goto cleanup;
+    }
+
+    size_t account_id_size = CHIAKI_PSN_ACCOUNT_ID_SIZE;
+    ChiakiErrorCode decode_err = chiaki_base64_decode(
+        context.config.psn_account_id,
+        strlen(context.config.psn_account_id),
+        chiaki_connect_info.psn_account_id,
+        &account_id_size);
+    if (decode_err != CHIAKI_ERR_SUCCESS ||
+        account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
+      LOGE("Failed to decode PSN account id for internet remote play: %s",
+           chiaki_error_string(decode_err));
+      if (holepunch_session)
+        chiaki_holepunch_session_fini(holepunch_session);
+      goto cleanup;
+    }
+
+    chiaki_connect_info.holepunch_session = holepunch_session;
+  }
+#endif
 	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
 	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));
   if (context.stream.cached_controller_valid) {

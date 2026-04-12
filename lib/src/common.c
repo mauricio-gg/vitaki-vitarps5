@@ -57,6 +57,10 @@ CHIAKI_EXPORT const char *chiaki_error_string(ChiakiErrorCode code)
 			return "Uninitialized";
 		case CHIAKI_ERR_FEC_FAILED:
 			return "FEC failed";
+		case CHIAKI_ERR_VERSION_MISMATCH:
+			return "Version mismatch";
+		case CHIAKI_ERR_HTTP_NONOK:
+			return "HTTP request was rejected";
 		default:
 			return "Unknown";
 	}

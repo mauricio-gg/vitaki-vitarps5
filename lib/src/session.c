@@ -180,7 +180,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->log = log;
 	session->quit_reason = CHIAKI_QUIT_REASON_NONE;
 	session->target = connect_info->ps5 ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_10;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	session->holepunch_session = connect_info->holepunch_session;
 #endif
 	session->rudp = NULL;
@@ -221,7 +221,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		goto error_ctrl;
 	}
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(session->holepunch_session)
 	{
 		memcpy(session->connect_info.psn_account_id, connect_info->psn_account_id, sizeof(connect_info->psn_account_id));
@@ -287,7 +287,7 @@ error_state_mutex:
 error_state_cond:
 	chiaki_cond_fini(&session->state_cond);
 error:
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(session->holepunch_session)
 		chiaki_holepunch_session_fini(session->holepunch_session);
 #endif
@@ -304,7 +304,7 @@ CHIAKI_EXPORT void chiaki_session_fini(ChiakiSession *session)
 	chiaki_ctrl_fini(&session->ctrl);
 	if(session->rudp)
 		chiaki_rudp_fini(session->rudp);
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(session->holepunch_session)
 		chiaki_holepunch_session_fini(session->holepunch_session);
 #endif
@@ -485,7 +485,7 @@ static void *session_thread_func(void *arg)
 
 	CHECK_STOP(quit);
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(session->holepunch_session)
 	{
 		chiaki_socket_t *rudp_sock = chiaki_get_holepunch_sock(session->holepunch_session, CHIAKI_HOLEPUNCH_PORT_TYPE_CTRL);
@@ -502,7 +502,7 @@ static void *session_thread_func(void *arg)
 	{
 		ChiakiRegist regist;
 		ChiakiRegistInfo info;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 		ChiakiHolepunchRegistInfo hinfo = chiaki_get_regist_info(session->holepunch_session);
 		info.holepunch_info = &hinfo;
 #endif
@@ -604,7 +604,7 @@ static void *session_thread_func(void *arg)
 	while(true)
 	{
 		chiaki_socket_t *data_sock = NULL;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 		if(session->rudp)
 		{
 			CHIAKI_LOGI(session->log, "Punching hole for data connection");
@@ -1036,7 +1036,7 @@ static ChiakiErrorCode session_thread_request_session(ChiakiSession *session, Ch
 
 	char send_buf[512];
 	int port = SESSION_PORT;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(session->holepunch_session)
 	{
 		chiaki_get_ps_selected_addr(session->holepunch_session, session->connect_info.hostname);

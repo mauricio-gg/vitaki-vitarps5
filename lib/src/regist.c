@@ -39,7 +39,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_regist_start(ChiakiRegist *regist, ChiakiLo
 {
 	regist->log = log;
 	regist->info = *info;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(!regist->info.holepunch_info)
 #endif
 	{
@@ -166,7 +166,7 @@ static int request_header_format(char *buf, size_t buf_size, size_t payload_size
 	return cur;
 }
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 CHIAKI_EXPORT ChiakiErrorCode chiaki_regist_request_payload_format(ChiakiTarget target, const uint8_t *ambassador, uint8_t *buf, size_t *buf_size, ChiakiRPCrypt *crypt, const char *psn_online_id, const uint8_t *psn_account_id, uint32_t pin, ChiakiHolepunchRegistInfo *holepunch_info)
 #else
 CHIAKI_EXPORT ChiakiErrorCode chiaki_regist_request_payload_format(ChiakiTarget target, const uint8_t *ambassador, uint8_t *buf, size_t *buf_size, ChiakiRPCrypt *crypt, const char *psn_online_id, const uint8_t *psn_account_id, uint32_t pin)
@@ -189,7 +189,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_regist_request_payload_format(ChiakiTarget 
 		size_t key_1_off = buf[0] >> 3;
 		uint8_t aeropause[0x10];
 		ChiakiErrorCode err;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 		if(holepunch_info)
 		{
 			err = chiaki_rpcrypt_init_regist_psn(crypt, target, ambassador, key_0_off, holepunch_info->custom_data1, holepunch_info->data1, holepunch_info->data2);
@@ -243,7 +243,7 @@ static void *regist_thread_func(void *user)
 	bool success = false;
 	bool psn = false;
 	// if holepunch info is filled out, this is a psn regist
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(regist->info.holepunch_info)
 		psn = true;
 #endif
@@ -259,7 +259,7 @@ static void *regist_thread_func(void *user)
 
 	uint8_t payload[0x400];
 	size_t payload_size = sizeof(payload);
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	err = chiaki_regist_request_payload_format(regist->info.target, ambassador, payload, &payload_size, &crypt, regist->info.psn_online_id, regist->info.psn_account_id, regist->info.pin, regist->info.holepunch_info);
 #else
 	err = chiaki_regist_request_payload_format(regist->info.target, ambassador, payload, &payload_size, &crypt, regist->info.psn_online_id, regist->info.psn_account_id, regist->info.pin);
@@ -273,7 +273,7 @@ static void *regist_thread_func(void *user)
 	char request_header[0x100];
 	// random local addr if our local addr is not provided
 	char regist_local_addr[INET6_ADDRSTRLEN] = "10.0.2.15";
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(regist->info.holepunch_info)
 		memcpy(regist_local_addr, regist->info.holepunch_info->regist_local_ip, sizeof(regist_local_addr));
 #endif
@@ -653,7 +653,7 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 	size_t buf_filled_size;
 	size_t header_size;
 	ChiakiErrorCode err;
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(regist->info.holepunch_info)
 	{
 		err = chiaki_send_recv_http_header_psn(regist->info.rudp, regist->log, &remote_counter, send_buf, send_buf_size, (char *)buf, sizeof(buf), &header_size, &buf_filled_size);
@@ -670,7 +670,7 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 		return err;
 	}
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(regist->info.holepunch_info)
 	{
 		RudpMessage message;
@@ -736,7 +736,7 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 		return CHIAKI_ERR_BUF_TOO_SMALL;
 	}
 
-#if !(defined(__SWITCH__) || defined(__PSVITA__))
+#if CHIAKI_CAN_USE_HOLEPUNCH
 	if(regist->info.holepunch_info)
 	{
 		if(buf_filled_size < content_size + header_size)

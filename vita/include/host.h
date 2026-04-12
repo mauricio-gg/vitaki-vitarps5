@@ -20,10 +20,19 @@ typedef enum vita_chiaki_host_type_t {
   REGISTERED = 0x04,
 } VitaChiakiHostType;
 
+typedef enum vita_chiaki_host_source_t {
+  VITA_HOST_SOURCE_LOCAL_DISCOVERY = 0,
+  VITA_HOST_SOURCE_MANUAL_REMOTE = 1,
+  VITA_HOST_SOURCE_PSN_REMOTE = 2,
+} VitaChiakiHostSource;
+
 typedef struct vita_chiaki_host_t {
   VitaChiakiHostType type;
+  VitaChiakiHostSource source;
   ChiakiTarget target;
   uint8_t server_mac[6];
+  uint8_t psn_device_uid[32];
+  bool remoteplay_enabled;
   char* hostname;
   uint64_t last_discovery_seen_us;
 

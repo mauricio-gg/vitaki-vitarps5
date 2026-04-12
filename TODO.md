@@ -72,6 +72,22 @@ Only move a task to "Done" after the reviewer signs off.
    - *Scope:* Add a guarded escalation path in `vita/src/host.c` loss/recovery flow (around decoder resync and unrecovered-frame counters), with cooldown and single-use safeguards to avoid reconnect oscillation.
    - *Branching:* Implement on a dedicated follow-up branch after current codebase-cleanup objective is complete.
    - *Next Step:* Draft branch-level acceptance criteria and log markers before coding.
+10. **Internet Remote Play ship-blocker closure (PSN + holepunch)**
+   - *Owner:* Investigation + Implementation agents
+   - *Goal:* Move internet remote play from backend-wired prototype to shippable feature.
+   - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, holepunch connect handoff, holepunch-enabled Release packaging, plus profile-side PSN auth lifecycle controls (device-login start/poll/cancel, token refresh attempt, logout, status UI) are implemented on `feat/psn-internet-remoteplay-mvp`.
+   - *Blocking Gap:* Feature is still not ship-ready due to missing production OAuth provider configuration on Vita builds (device/token endpoint + client settings), plaintext token-at-rest storage in `ux0:data/vita-chiaki/chiaki.toml`, plus WAN/NAT hardware validation.
+   - *Next Step:* Wire production OAuth app credentials/config into build pipeline, add encrypted storage for persisted PSN OAuth tokens, then run NAT matrix validation with `./tools/build.sh --env testing`.
+11. **PSN OAuth token encryption** (security hardening)
+   - *Owner:* Implementation agent
+   - *Goal:* `chiaki.toml` currently stores PSN OAuth access + refresh tokens in plaintext. Design and implement at-rest encryption using a device-derived or user-provided key so tokens aren't recoverable from a plaintext copy of the config file. Blocks enabling PSN internet mode by default.
+   - *Tracked from:* PR #95 review, finding #6.
+   - *Next Step:* Evaluate Vita keystore / device-derived key options, draft encryption scheme, implement in `vita/src/config.c` token read/write paths.
+12. **Thread-safe STUN server shuffle**
+   - *Owner:* Implementation agent
+   - *Goal:* `lib/src/remote/stun.h`'s Fisher-Yates shuffle mutates the file-scope `STUN_SERVERS` array in place. Concurrent callers (e.g., parallel test harnesses, or future concurrent hole-punch attempts) would race. Switch to a local copy-and-shuffle idiom so the global array is never modified.
+   - *Tracked from:* PR #95 review, finding #7.
+   - *Next Step:* Replace the in-place shuffle in `stun_get_external_address` and `stun_port_allocation_test` with a stack-allocated copy before shuffling; verify no callers depend on the mutated global order.
 
 ---
 
@@ -156,4 +172,4 @@ Only move a task to "Done" after the reviewer signs off.
   - Phase 3: Extracted input and state management modules (ad89b6d)
   - Phase 4: Extracted reusable components module (d28046e)
   - Total code reduction: ~910 lines from ui.c
-  - See `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/docs/ai/UI_REFACTOR_SCOPE.md` for detailed completion summary
+  - See `docs/ai/UI_REFACTOR_SCOPE.md` for detailed completion summary

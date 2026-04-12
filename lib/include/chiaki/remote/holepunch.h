@@ -39,14 +39,14 @@
 extern "C" {
 #endif
 
-#define DUID_PREFIX "0000000700410080"
+#define DUID_PREFIX "00000007000a00c00001028700140000"
 #ifdef _WIN32
 #define CHIAKI_SSIZET_TYPE int
 #else
 #define CHIAKI_SSIZET_TYPE ssize_t
 #endif
 
-#define CHIAKI_DUID_STR_SIZE 49
+#define CHIAKI_DUID_STR_SIZE 65
 
 /** Handle to holepunching session state */
 typedef struct session_t* ChiakiHolepunchSession;
@@ -56,7 +56,10 @@ typedef struct holepunch_regist_info_t
 {
     uint8_t data1[16];
     uint8_t data2[16];
-    uint8_t custom_data1[16];
+    /* 32 bytes: matches Session.custom_data1 which is grown to accommodate the decoded size
+     * of a two-stage base64 customData1 value. Crypto consumers read only the first 16 bytes
+     * via CHIAKI_RPCRYPT_KEY_SIZE and are unaffected. */
+    uint8_t custom_data1[32];
     char regist_local_ip[INET6_ADDRSTRLEN];
 } ChiakiHolepunchRegistInfo;
 
@@ -184,6 +187,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_generate_client_device_uid(
 CHIAKI_EXPORT ChiakiHolepunchSession chiaki_holepunch_session_init(
     const char* psn_oauth2_token, ChiakiLog *log);
 
+CHIAKI_EXPORT void chiaki_holepunch_session_discard(
+    ChiakiHolepunchSession session);
+
+CHIAKI_EXPORT void chiaki_holepunch_session_get_ws_reject_info(
+    ChiakiHolepunchSession session, long *http_code, long *retry_interval_min,
+    long *retry_interval_max);
+
 /**
  * Create a remote play session on the PSN server.
  *
@@ -193,6 +203,30 @@ CHIAKI_EXPORT ChiakiHolepunchSession chiaki_holepunch_session_init(
  * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
 */
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(
+    ChiakiHolepunchSession session);
+
+/**
+ * Discover UPnP gateway information before creating the session offer.
+ *
+ * This mirrors the upstream chiaki-ng PSN internet flow and is best-effort:
+ * a missing gateway is not a fatal error, but the session caches the result.
+ *
+ * @param[in] session Handle to the holepunching session
+ * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_upnp_discover(
+    ChiakiHolepunchSession session);
+
+/**
+ * Pre-create the local control offer and candidate list before session start.
+ *
+ * This must be called after `chiaki_holepunch_session_create` and before
+ * `chiaki_holepunch_session_start` to match the upstream PSN internet path.
+ *
+ * @param[in] session Handle to the holepunching session
+ * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
+ */
+CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(
     ChiakiHolepunchSession session);
 
 /**

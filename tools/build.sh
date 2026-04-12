@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="549"
+VERSION_ITERATION="627"
 
 # Colors for output
 RED='\033[0;31m'
@@ -116,6 +116,28 @@ configure_logging_cmake_args() {
         cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_PATH=${VITARPS5_LOG_PATH}")
     fi
 
+    if [ -n "$VITARPS5_PSN_OAUTH_DEVICE_CODE_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_DEVICE_CODE_URL=${VITARPS5_PSN_OAUTH_DEVICE_CODE_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_AUTHORIZE_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_AUTHORIZE_URL=${VITARPS5_PSN_OAUTH_AUTHORIZE_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_TOKEN_URL" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_TOKEN_URL=${VITARPS5_PSN_OAUTH_TOKEN_URL}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_CLIENT_ID" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_CLIENT_ID=${VITARPS5_PSN_OAUTH_CLIENT_ID}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_CLIENT_SECRET" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_CLIENT_SECRET=${VITARPS5_PSN_OAUTH_CLIENT_SECRET}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_SCOPE" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_SCOPE=${VITARPS5_PSN_OAUTH_SCOPE}")
+    fi
+    if [ -n "$VITARPS5_PSN_OAUTH_REDIRECT_URI" ]; then
+        cmake_args+=("-DVITARPS5_PSN_OAUTH_REDIRECT_URI=${VITARPS5_PSN_OAUTH_REDIRECT_URI}")
+    fi
+
     # Security: Control whether runtime TOML can override compiled logging settings
     allow_runtime_val=$(normalize_bool "$VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG")
     if [ -n "$allow_runtime_val" ]; then
@@ -126,6 +148,26 @@ configure_logging_cmake_args() {
     fi
 
     CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
+}
+
+configure_feature_cmake_args() {
+    local holepunch_val
+    local cmake_args=()
+
+    holepunch_val=$(normalize_bool "$VITARPS5_ENABLE_VITA_HOLEPUNCH")
+    if [ -n "$holepunch_val" ]; then
+        cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=$( [ "$holepunch_val" = "1" ] && echo ON || echo OFF )")
+    elif [ "$ENV_PROFILE_PATH" = ".env.testing" ]; then
+        cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON")
+    fi
+
+    if [ ${#cmake_args[@]} -gt 0 ]; then
+        if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
+            CMAKE_EXTRA_FLAGS+=" ${cmake_args[*]}"
+        else
+            CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
+        fi
+    fi
 }
 
 append_build_metadata_cmake_args() {
@@ -182,6 +224,15 @@ ensure_docker_image() {
         build_docker_image
     else
         log_info "Using existing custom Docker image: $DOCKER_IMAGE"
+        if [[ " $CMAKE_EXTRA_FLAGS " == *" -DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON "* ]]; then
+            if ! docker run --rm \
+                --platform linux/amd64 \
+                "$DOCKER_IMAGE" \
+                bash -lc "test -f /usr/local/vitasdk/arm-vita-eabi/lib/libjson-c.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/json-c/json.h && test -f /usr/local/vitasdk/arm-vita-eabi/lib/libminiupnpc.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/miniupnpc/miniupnpc.h" > /dev/null 2>&1; then
+                log_warning "Custom Docker image is missing holepunch dependencies (json-c/miniupnpc); rebuilding image"
+                build_docker_image
+            fi
+        fi
     fi
 }
 
@@ -331,7 +382,7 @@ format_code() {
         -w /build/git \
         "$DOCKER_IMAGE" \
         bash -c "
-            find src/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
+            find vita/src/ vita/include/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
             xargs -r clang-format -i -style=Google
         "
     
@@ -349,11 +400,11 @@ lint_code() {
         "$DOCKER_IMAGE" \
         bash -c "
             if command -v cppcheck >/dev/null 2>&1; then
-                cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppressions-list=.cppcheck-suppressions src/ || true
+                cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/ || true
             else
                 echo 'cppcheck not available in this image'
                 # Use basic gcc checks instead
-                find src/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra || true
+                find vita/src/ vita/include/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra || true
             fi
         "
     
@@ -541,6 +592,7 @@ main() {
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
+    configure_feature_cmake_args
     append_build_metadata_cmake_args
 
     local debug_menu_val

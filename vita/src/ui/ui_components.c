@@ -592,6 +592,7 @@ static void debug_menu_apply_action(int action_index) {
                     memset(h, 0, sizeof(VitaChiakiHost));
 
                     h->type = DISCOVERED;
+                    h->source = VITA_HOST_SOURCE_LOCAL_DISCOVERY;
                     // PS4 for last 3, PS5 for first 9
                     h->target = (n < 9) ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_10;
 

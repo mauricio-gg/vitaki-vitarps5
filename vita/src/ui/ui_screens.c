@@ -20,8 +20,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include <vita2d.h>
+#include <psp2/appmgr.h>
+#include <psp2/common_dialog.h>
 #include <psp2/ctrl.h>
+#include <psp2/ime_dialog.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <chiaki/base64.h>
@@ -29,6 +33,8 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
+#include "psn_auth.h"
+#include "psn_remote.h"
 #include "ui.h"
 #include "util.h"
 #include "video.h"
@@ -38,6 +44,7 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
 #include "ui/ui_graphics.h"
+#include "ui/ui_qr.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -75,6 +82,12 @@ static float touch_start_y = 0.0f;
 static int   touch_start_card_index = -1;
 static bool  touch_start_was_add_btn = false;
 
+// Profile PSN login assist state
+static bool profile_login_qr_visible = false;
+static bool profile_login_was_active = false;
+static char profile_login_qr_url[1536] = {0};
+static UIQrCode profile_login_qr = {0};
+
 // ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
@@ -88,6 +101,11 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason, bool continue_on_failure);
+static bool open_url_in_vita_browser(const char *url);
+static void open_psn_auth_code_ime(void);
+static void poll_psn_auth_code_ime(uint64_t now_unix);
+static void draw_profile_login_assist_panel(int x, int y, int width, int height, bool selected);
+static void profile_refresh_login_qr(const char *url);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -132,6 +150,229 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
   }
 
   return true;
+}
+
+static bool open_url_in_vita_browser(const char *url) {
+  if (!url || !url[0]) {
+    LOGE("Browser launch skipped: empty URL");
+    return false;
+  }
+  int ret = sceAppMgrLaunchAppByUri(0x20000, url);
+  if (ret < 0) {
+    LOGE("Failed to launch browser URL (%s): 0x%x", url, (unsigned int)ret);
+    return false;
+  }
+  return true;
+}
+
+static void profile_refresh_login_qr(const char *url) {
+  if (!url || !url[0]) {
+    profile_login_qr.valid = false;
+    profile_login_qr_url[0] = '\0';
+    return;
+  }
+  if (strncmp(profile_login_qr_url, url, sizeof(profile_login_qr_url)) == 0 &&
+      profile_login_qr.valid) {
+    return;
+  }
+
+  snprintf(profile_login_qr_url, sizeof(profile_login_qr_url), "%s", url);
+  profile_login_qr.valid = false;
+  if (!ui_qr_encode_text(profile_login_qr_url, &profile_login_qr)) {
+    profile_login_qr_url[0] = '\0';
+  }
+}
+
+static void draw_profile_login_assist_panel(int x, int y, int width, int height, bool selected) {
+  uint32_t panel_color = RGBA8(0x24, 0x2E, 0x3B, 220);
+  ui_draw_card_with_shadow(x, y, width, height, 8, panel_color);
+  if (selected) {
+    ui_draw_rounded_rect(x - 1, y - 1, width + 2, height + 2, 9, UI_COLOR_PRIMARY_BLUE);
+    ui_draw_rounded_rect(x, y, width, height, 8, panel_color);
+  }
+
+  int pad = 12;
+  int content_x = x + pad;
+  int content_y = y + 18;
+  const char *verify_url = psn_auth_device_verification_url();
+  const char *code_line = psn_auth_device_user_code()[0]
+                              ? psn_auth_device_user_code()
+                              : "Paste redirect URL/code";
+
+  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+                        "Phone Login Assist");
+
+  if (!psn_auth_device_login_active()) {
+    vita2d_font_draw_text(font, content_x, content_y + 24, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                          "Press X on Connection card to start login");
+    return;
+  }
+
+  profile_refresh_login_qr(verify_url);
+
+  int qr_box = height - 32;
+  if (qr_box > 188)
+    qr_box = 188;
+  if (qr_box < 90)
+    qr_box = 90;
+
+  int qr_x = content_x;
+  int qr_y = y + (height - qr_box) / 2;
+
+  ui_draw_rounded_rect(qr_x, qr_y, qr_box, qr_box, 6, RGBA8(0x10, 0x10, 0x10, 220));
+
+  if (profile_login_qr_visible && profile_login_qr.valid) {
+    int quiet_zone = 2;
+    int module_px_x = qr_box / (profile_login_qr.size + quiet_zone * 2);
+    int module_px_y = qr_box / (profile_login_qr.size + quiet_zone * 2);
+    int module_px = module_px_x < module_px_y ? module_px_x : module_px_y;
+    if (module_px < 1)
+      module_px = 1;
+
+    int qr_span = (profile_login_qr.size + quiet_zone * 2) * module_px;
+    int draw_x = qr_x + (qr_box - qr_span) / 2;
+    int draw_y = qr_y + (qr_box - qr_span) / 2;
+    ui_qr_draw(&profile_login_qr, draw_x, draw_y, module_px, quiet_zone,
+               RGBA8(10, 10, 10, 255), RGBA8(250, 250, 250, 255));
+  } else {
+    const char *qr_hint = "QR hidden";
+    int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, qr_hint);
+    vita2d_font_draw_text(font, qr_x + (qr_box - hint_w) / 2, qr_y + qr_box / 2,
+                          UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, qr_hint);
+  }
+
+  int text_x = qr_x + qr_box + 14;
+  int line_y = content_y + 2;
+  int text_line_h = 18;
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "1) Press Start to show/hide QR");
+  line_y += text_line_h;
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "2) Scan QR with phone and sign in");
+  line_y += text_line_h;
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "3) Press X and paste redirect URL/code");
+  line_y += text_line_h;
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "4) Select opens Vita browser fallback");
+  line_y += text_line_h;
+
+  char code_buf[96];
+  snprintf(code_buf, sizeof(code_buf), "Code: %s", code_line);
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, code_buf);
+  line_y += text_line_h;
+
+  char url_preview[140];
+  if (verify_url && verify_url[0]) {
+    if (strlen(verify_url) > 116) {
+      snprintf(url_preview, sizeof(url_preview), "URL: %.112s...", verify_url);
+    } else {
+      snprintf(url_preview, sizeof(url_preview), "URL: %s", verify_url);
+    }
+  } else {
+    snprintf(url_preview, sizeof(url_preview), "URL: unavailable");
+  }
+  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, url_preview);
+}
+
+static bool profile_auth_ime_running = false;
+static SceWChar16 profile_auth_ime_input_buf[1024];
+static SceWChar16 profile_auth_ime_title_w[96];
+
+static void utf16_to_utf8_local(const SceWChar16 *src, size_t src_max, char *dst,
+                                size_t dst_size) {
+  size_t i = 0;
+  size_t o = 0;
+  if (!dst || dst_size == 0)
+    return;
+  while (src && i < src_max && src[i] && o + 1 < dst_size) {
+    if (src[i] < 0x80) {
+      dst[o++] = (char)src[i];
+    } else if (src[i] < 0x800 && o + 2 < dst_size) {
+      dst[o++] = (char)(0xC0 | (src[i] >> 6));
+      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+    } else if (o + 3 < dst_size) {
+      dst[o++] = (char)(0xE0 | (src[i] >> 12));
+      dst[o++] = (char)(0x80 | ((src[i] >> 6) & 0x3F));
+      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
+    }
+    i++;
+  }
+  dst[o] = '\0';
+}
+
+static void open_psn_auth_code_ime(void) {
+  if (profile_auth_ime_running)
+    return;
+
+  memset(profile_auth_ime_input_buf, 0, sizeof(profile_auth_ime_input_buf));
+  memset(profile_auth_ime_title_w, 0, sizeof(profile_auth_ime_title_w));
+  const char *title = "Paste full redirect URL";
+  for (size_t i = 0; i < sizeof(profile_auth_ime_title_w) / sizeof(profile_auth_ime_title_w[0]) - 1 &&
+                     title[i];
+       i++) {
+    profile_auth_ime_title_w[i] = (SceWChar16)title[i];
+    profile_auth_ime_title_w[i + 1] = 0;
+  }
+
+  SceImeDialogParam param;
+  sceImeDialogParamInit(&param);
+  param.supportedLanguages = 0;
+  param.languagesForced = SCE_FALSE;
+  param.type = SCE_IME_TYPE_URL;
+  param.option = 0;
+  param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+  param.maxTextLength = (sizeof(profile_auth_ime_input_buf) /
+                         sizeof(profile_auth_ime_input_buf[0])) -
+                        1;
+  param.title = profile_auth_ime_title_w;
+  param.initialText = NULL;
+  param.inputTextBuffer = profile_auth_ime_input_buf;
+
+  if (sceImeDialogInit(&param) >= 0) {
+    profile_auth_ime_running = true;
+  } else {
+    trigger_hints_popup("Could not open text input");
+  }
+}
+
+static void poll_psn_auth_code_ime(uint64_t now_unix) {
+  if (!profile_auth_ime_running)
+    return;
+
+  if (sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
+    return;
+
+  SceImeDialogResult result;
+  memset(&result, 0, sizeof(result));
+  sceImeDialogGetResult(&result);
+  sceImeDialogTerm();
+  profile_auth_ime_running = false;
+
+  if (result.button != SCE_IME_DIALOG_BUTTON_ENTER)
+    return;
+
+  char auth_input[1200];
+  utf16_to_utf8_local(profile_auth_ime_input_buf,
+                      sizeof(profile_auth_ime_input_buf) /
+                          sizeof(profile_auth_ime_input_buf[0]),
+                      auth_input, sizeof(auth_input));
+
+  if (!auth_input[0]) {
+    trigger_hints_popup("No URL/code entered");
+    return;
+  }
+
+  if (psn_auth_submit_authorization_response(auth_input, now_unix)) {
+    persist_config_or_warn();
+    trigger_hints_popup("PSN login complete");
+    if (psn_remote_refresh_hosts() == 0)
+      ui_cards_update_cache(true);
+  } else if (psn_auth_last_error()[0]) {
+    trigger_hints_popup(psn_auth_last_error());
+  } else {
+    trigger_hints_popup("PSN login failed");
+  }
 }
 
 
@@ -322,6 +563,11 @@ static UIScreenType main_menu_activate_selected_card(void) {
   if (!card || !card->host)
     return UI_SCREEN_TYPE_MAIN;
 
+  LOGD("main_menu_activate_selected_card: card_host_ptr=%p source=%d type=0x%x hostname=%s",
+       (void *)card->host,
+       card->host->source,
+       card->host->type,
+       card->host->hostname ? card->host->hostname : "<null>");
   context.active_host = card->host;
   if (takion_cooldown_gate_active()) {
     LOGD("Ignoring connect request — network recovery cooldown active");
@@ -464,7 +710,7 @@ static SettingsState settings_state = {0};
 #define SETTINGS_VISIBLE_ITEMS      7   // Max items fitting in content area (~420px / 60px per item)
 #define SETTINGS_ITEM_HEIGHT        50  // Consistent with other UI item heights
 #define SETTINGS_ITEM_SPACING       10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 10 toggles
+#define SETTINGS_STREAMING_ITEMS    UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 12 toggles
 
 // Shared toggle geometry for settings rows
 #define SETTINGS_TOGGLE_X_OFFSET    70
@@ -482,7 +728,8 @@ static SettingsState settings_state = {0};
 #define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS       10
 #define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
 #define SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED  11
-#define SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING 12
+#define SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY    12
+#define SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING 13
 
 static void settings_update_scroll_for_selection(void) {
     int total_items = SETTINGS_STREAMING_ITEMS;
@@ -615,6 +862,9 @@ static void settings_activate_selected_item(void) {
       settings_toggle_bool(&context.config.show_only_paired, SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED);
       ui_cards_update_cache(true);
       break;
+    case UI_SETTINGS_ITEM_PSN_REMOTEPLAY:
+      settings_toggle_bool(&context.config.psn_remoteplay_enabled, SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY);
+      break;
     case UI_SETTINGS_ITEM_ENABLE_LOGGING:
       settings_toggle_bool(&context.config.logging.enabled, SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING);
       vita_log_update_enabled(context.config.logging.enabled);
@@ -724,6 +974,11 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
         draw_settings_toggle_item(content_x, y, content_w, item_h,
                                   "Show Only Paired", SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
                                   context.config.show_only_paired, selected);
+        break;
+      case UI_SETTINGS_ITEM_PSN_REMOTEPLAY:
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Enable PSN Internet Mode", SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY,
+                                  context.config.psn_remoteplay_enabled, selected);
         break;
       case UI_SETTINGS_ITEM_ENABLE_LOGGING:
         draw_settings_toggle_item(content_x, y, content_w, item_h,
@@ -947,6 +1202,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   const char* network_text = "Unavailable";
   if (has_discovery) {
     network_text = "Local Wi-Fi";
+  } else if (has_host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) {
+    network_text = "PSN Internet";
   } else if (has_host && (host->type & MANUALLY_ADDED)) {
     network_text = "Manual Host";
   }
@@ -1069,6 +1326,22 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         remote_play);
   content_y += line_h;
 
+  const char *auth_status = psn_auth_state_label();
+  uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
+  if (psn_auth_token_is_valid((uint64_t)time(NULL))) {
+    auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+  } else if (psn_auth_device_login_active()) {
+    auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+  } else if (!psn_auth_enabled()) {
+    auth_color = UI_COLOR_TEXT_TERTIARY;
+  } else {
+    auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
+  }
+  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                        "PSN Auth");
+  vita2d_font_draw_text(font, col2_x, content_y, auth_color, FONT_SIZE_SMALL, auth_status);
+  content_y += line_h;
+
   // Quality Setting
   const char* quality_text = "540p";
   if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
@@ -1078,6 +1351,18 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
                         "Quality Setting");
   vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
                         quality_text);
+
+  if (selected) {
+    const char *hint = psn_auth_token_is_valid((uint64_t)time(NULL))
+                           ? "X: Refresh Hosts | Triangle: Logout"
+                           : "X: Start Browser Login | Triangle: Logout";
+    if (psn_auth_device_login_active())
+      hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
+    if (!psn_auth_enabled())
+      hint = "Enable PSN internet mode in Settings";
+    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, hint);
+  }
 }
 
 /// Draw PSN Authentication section (bottom) - modern design with status indicators
@@ -1159,10 +1444,10 @@ UIScreenType ui_screen_draw_profile(void) {
   if (title_x < min_title_x) title_x = min_title_x;
   vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
-  // Layout: Profile card (left), Connection info (right) - registration removed
+  // Layout: Profile card (left), Connection info (right), login assist panel (bottom)
   int card_spacing = 15;
   int card_w = (content_w - card_spacing) / 2;
-  int card_h = 250;  // Taller cards since no bottom section
+  int card_h = 250;
 
   // Profile card (left)
   draw_profile_card(content_x, content_y, card_w, card_h,
@@ -1172,9 +1457,40 @@ UIScreenType ui_screen_draw_profile(void) {
   draw_connection_info_card(content_x + card_w + card_spacing, content_y, card_w, card_h,
                              profile_state.current_section == PROFILE_SECTION_CONNECTION);
 
-  // Select button shows hints popup
+  uint64_t now_unix = (uint64_t)time(NULL);
+  bool login_active = psn_auth_device_login_active();
+  if (login_active && !profile_login_was_active) {
+    profile_login_qr_visible = true;
+    profile_refresh_login_qr(psn_auth_device_verification_url());
+  } else if (!login_active && profile_login_was_active) {
+    profile_login_qr_visible = false;
+    profile_login_qr.valid = false;
+    profile_login_qr_url[0] = '\0';
+  }
+  profile_login_was_active = login_active;
+
+  int assist_panel_y = content_y + card_h + 12;
+  int assist_panel_h = VITA_HEIGHT - assist_panel_y - 16;
+  if (assist_panel_h > 0 && (login_active || profile_state.current_section == PROFILE_SECTION_CONNECTION)) {
+    draw_profile_login_assist_panel(content_x, assist_panel_y, content_w, assist_panel_h,
+                                    profile_state.current_section == PROFILE_SECTION_CONNECTION);
+  }
+
+  poll_psn_auth_code_ime(now_unix);
+
+  // Select button shows hints popup (or browser fallback during active login)
   if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("Left/Right: Switch Card | X: Refresh Account ID | Circle: Back");
+    if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+        psn_auth_device_login_active()) {
+      const char *verify_url = psn_auth_device_verification_url();
+      if (open_url_in_vita_browser(verify_url)) {
+        trigger_hints_popup("Opened browser fallback. Phone QR is still recommended.");
+      } else {
+        trigger_hints_popup("Could not open browser. Use the phone QR.");
+      }
+    } else {
+      trigger_hints_popup("Left/Right: Switch Card | X: Action | Start: QR | Triangle: Logout | Circle: Back");
+    }
   }
 
   UIScreenType next_screen = UI_SCREEN_TYPE_PROFILE;
@@ -1196,6 +1512,55 @@ UIScreenType ui_screen_draw_profile(void) {
     } else {
       trigger_hints_popup("Could not refresh Account ID");
     }
+  } else if (btn_pressed(SCE_CTRL_CROSS) &&
+             profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    if (!psn_auth_enabled()) {
+      trigger_hints_popup("PSN internet mode is disabled in Settings");
+    } else if (psn_auth_device_login_active()) {
+      open_psn_auth_code_ime();
+    } else if (!psn_auth_token_is_valid(now_unix) &&
+               !psn_auth_refresh_token_if_needed(now_unix, false)) {
+      if (psn_auth_begin_device_login(now_unix)) {
+        profile_login_qr_visible = true;
+        profile_refresh_login_qr(psn_auth_device_verification_url());
+        trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
+      } else if (psn_auth_last_error()[0]) {
+        trigger_hints_popup(psn_auth_last_error());
+      } else {
+        trigger_hints_popup("PSN login could not start");
+      }
+    } else if (psn_remote_refresh_hosts() == 0) {
+      trigger_hints_popup("PSN internet host list refreshed");
+      ui_cards_update_cache(true);
+    } else {
+      trigger_hints_popup("PSN internet host refresh failed");
+    }
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_SQUARE) && psn_auth_device_login_active()) {
+    psn_auth_cancel_device_login();
+    profile_login_qr_visible = false;
+    profile_login_qr.valid = false;
+    profile_login_qr_url[0] = '\0';
+    trigger_hints_popup("PSN login canceled");
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_TRIANGLE) && psn_auth_enabled()) {
+    psn_auth_clear_tokens();
+    psn_remote_clear_cached_hosts();
+    persist_config_or_warn();
+    ui_cards_update_cache(true);
+    trigger_hints_popup("PSN login removed");
+  }
+
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_START) && psn_auth_device_login_active()) {
+    profile_login_qr_visible = !profile_login_qr_visible;
+    trigger_hints_popup(profile_login_qr_visible
+                            ? "QR shown. Scan with phone, then press X to paste code."
+                            : "QR hidden. Press Start again to show.");
   }
 
   // Circle: Back to main menu
@@ -2756,12 +3121,22 @@ UIScreenType ui_screen_draw_waking(void) {
 
   static const char *stage_titles[] = {
     "Waking console",
+    "Authenticating with PSN",
+    "Fetching internet consoles",
+    "Creating PSN session",
     "Preparing Remote Play",
+    "Punching control channel",
+    "Punching data channel",
     "Starting stream"
   };
   static const char *stage_details[] = {
     "Sending wake signal",
+    "Validating account tokens",
+    "Loading remote-play capable devices",
+    "Creating cloud-assisted session",
     "Negotiating session",
+    "Establishing control tunnel",
+    "Finalizing media tunnel",
     "Launching video pipeline"
   };
   const int stage_count = sizeof(stage_titles) / sizeof(stage_titles[0]);
@@ -2791,7 +3166,13 @@ UIScreenType ui_screen_draw_waking(void) {
 
   // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
   const char* title = (ui_connection_stage() == UI_CONNECTION_STAGE_WAKING) ?
-      "Waking Console" : "Starting Remote Play";
+      "Waking Console" :
+      ((ui_connection_stage() == UI_CONNECTION_STAGE_PSN_AUTH ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_FETCH_DEVICES ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_CREATE_SESSION ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_CTRL ||
+        ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_DATA) ?
+           "Starting Internet Remote Play" : "Starting Remote Play");
   int title_size = 28;
   int title_w = get_text_width_cached(title, title_size);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title
