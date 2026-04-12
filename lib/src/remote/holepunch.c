@@ -13,7 +13,7 @@
  *
  * The hole punching process itself i
  */
- 
+
 // TODO: Make portable for Switch and Vita
 
 #include <chiaki/common.h>
