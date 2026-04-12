@@ -2263,7 +2263,11 @@ static void* websocket_thread_func(void *user) {
 } while (0)
 
     char ws_url[128] = {0};
-    snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
+    int _n = snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
+    if (_n < 0 || (size_t)_n >= sizeof(ws_url)) {
+        CHIAKI_LOGE(session->log, "websocket_thread_func: ws_url truncated for fqdn=%s", session->ws_fqdn ? session->ws_fqdn : "(null)");
+        return NULL;
+    }
 
     CURL* curl = curl_easy_init();
     if(!curl)
