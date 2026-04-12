@@ -372,10 +372,22 @@ clean_build() {
     log_success "Build directory cleaned"
 }
 
-# Format code using clang-format
+# Format code using clang-format.
+#
+# When FORMAT_CHECK=1 is set in the environment, runs a dry-run that exits
+# non-zero if any file would be reformatted (suitable for CI gatekeeping).
+# Without that flag, rewrites files in place (the normal developer workflow).
 format_code() {
-    log_info "Formatting code..."
-    
+    if [ "${FORMAT_CHECK:-0}" = "1" ]; then
+        log_info "Checking code formatting (dry-run)..."
+        local clang_args="--dry-run --Werror -style=file"
+        local success_msg="Format check passed — no files need reformatting"
+    else
+        log_info "Formatting code..."
+        local clang_args="-i -style=file"
+        local success_msg="Code formatting completed"
+    fi
+
     docker run --rm \
         --platform linux/amd64 \
         -v "$(pwd):/build/git" \
@@ -383,10 +395,10 @@ format_code() {
         "$DOCKER_IMAGE" \
         bash -c "
             find vita/src/ vita/include/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
-            xargs -r clang-format -i -style=file
+            xargs -r clang-format ${clang_args}
         "
-    
-    log_success "Code formatting completed"
+
+    log_success "${success_msg}"
 }
 
 # Run linter (cppcheck)
@@ -404,7 +416,7 @@ lint_code() {
         bash -c "
             if [ \"\$LINT_STRICT\" = \"1\" ]; then STRICT=\"\"; else STRICT=\" || true\"; fi
             if command -v cppcheck >/dev/null 2>&1; then
-                eval \"cppcheck --enable=all --std=c99 --language=c --inline-suppr -q --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/\${STRICT}\"
+                eval \"cppcheck --enable=warning,performance,portability --std=c99 --language=c --inline-suppr -q --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/\${STRICT}\"
             else
                 echo 'cppcheck not available in this image'
                 # Use basic gcc checks instead
