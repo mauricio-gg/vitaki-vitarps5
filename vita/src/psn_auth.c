@@ -70,9 +70,11 @@ typedef struct {
   bool truncated;
 } HttpBuffer;
 
+#ifdef VITARPS5_DEBUG_OAUTH
 typedef struct {
   const char *url;
 } CurlDebugContext;
+#endif /* VITARPS5_DEBUG_OAUTH */
 
 static PsnAuthRuntime g_psn_auth = {
     .state = PSN_AUTH_STATE_LOGGED_OUT,
@@ -348,6 +350,14 @@ static void log_oauth_transport_probe(const char *url) {
   freeaddrinfo(res);
 }
 
+/*
+ * VITARPS5_DEBUG_OAUTH: DEVELOPMENT ONLY.
+ * Enables verbose libcurl tracing, which emits full outbound HTTP headers
+ * (including Authorization: Basic ...) and request/response bodies to the
+ * log file. NEVER enable in a build that will be shipped or used to
+ * generate a support bundle — credentials and tokens will leak.
+ */
+#ifdef VITARPS5_DEBUG_OAUTH
 static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
                                size_t size, void *userp) {
   (void)handle;
@@ -383,6 +393,7 @@ static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
   }
   return 0;
 }
+#endif /* VITARPS5_DEBUG_OAUTH */
 
 static bool oauth_post_form(const char *url, const char *form_data,
                             const char *basic_user, const char *basic_pass,
@@ -394,7 +405,9 @@ static bool oauth_post_form(const char *url, const char *form_data,
   CURL *curl = curl_easy_init();
   struct curl_slist *headers = NULL;
   HttpBuffer response = {.data = NULL, .len = 0};
+#ifdef VITARPS5_DEBUG_OAUTH
   CurlDebugContext debug_ctx = {.url = url};
+#endif /* VITARPS5_DEBUG_OAUTH */
   long http_code = 0;
   char error_buf[CURL_ERROR_SIZE] = {0};
   long verify_peer = 1;
