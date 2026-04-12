@@ -383,7 +383,7 @@ format_code() {
         "$DOCKER_IMAGE" \
         bash -c "
             find vita/src/ vita/include/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
-            xargs -r clang-format -i -style=Google
+            xargs -r clang-format -i -style=file
         "
     
     log_success "Code formatting completed"
@@ -393,18 +393,22 @@ format_code() {
 lint_code() {
     log_info "Running code linter..."
     
+    if [ "$LINT_STRICT" = "1" ]; then LINT_STRICT_FLAG=""; else LINT_STRICT_FLAG=" || true"; fi
+
     docker run --rm \
         --platform linux/amd64 \
+        -e LINT_STRICT \
         -v "$(pwd):/build/git" \
         -w /build/git \
         "$DOCKER_IMAGE" \
         bash -c "
+            if [ \"\$LINT_STRICT\" = \"1\" ]; then STRICT=\"\"; else STRICT=\" || true\"; fi
             if command -v cppcheck >/dev/null 2>&1; then
-                cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/ || true
+                eval \"cppcheck --enable=all --std=c99 --language=c --inline-suppr -q --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/\${STRICT}\"
             else
                 echo 'cppcheck not available in this image'
                 # Use basic gcc checks instead
-                find vita/src/ vita/include/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra || true
+                eval \"find vita/src/ vita/include/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra\${STRICT}\"
             fi
         "
     
