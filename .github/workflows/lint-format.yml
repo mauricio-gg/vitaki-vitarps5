@@ -103,5 +103,7 @@ jobs:
             --inline-suppr \
             --suppressions-list=.cppcheck-suppressions \
             --error-exitcode=1 \
+            -I vita/include \
+            -I lib/include \
             vita/src/ \
             vita/include/

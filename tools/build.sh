@@ -416,7 +416,7 @@ lint_code() {
         bash -c "
             if [ \"\$LINT_STRICT\" = \"1\" ]; then STRICT=\"\"; else STRICT=\" || true\"; fi
             if command -v cppcheck >/dev/null 2>&1; then
-                eval \"cppcheck --enable=warning,performance,portability --std=c99 --language=c --inline-suppr -q --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/\${STRICT}\"
+                eval \"cppcheck --enable=warning,performance,portability --std=c99 --language=c --inline-suppr -q --suppressions-list=.cppcheck-suppressions -I vita/include -I lib/include vita/src/ vita/include/\${STRICT}\"
             else
                 echo 'cppcheck not available in this image'
                 # Use basic gcc checks instead
