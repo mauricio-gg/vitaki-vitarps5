@@ -5964,8 +5964,13 @@ static ChiakiErrorCode get_stun_servers(Session *session)
     char *ptr = strtok(response_data.data, "\n");
     while(ptr != NULL && session->num_stun_servers <= 9)
     {
-        strcpy(server_strings[session->num_stun_servers], ptr);
-        session->num_stun_servers++;
+        int _n = snprintf(server_strings[session->num_stun_servers],
+                          sizeof(server_strings[0]), "%s", ptr);
+        if (_n < 0 || (size_t)_n >= sizeof(server_strings[0])) {
+            CHIAKI_LOGW(session->log, "STUN server entry truncated, skipping");
+        } else {
+            session->num_stun_servers++;
+        }
 		ptr = strtok(NULL, "\n");
     }
     ptr = NULL;
@@ -6043,8 +6048,13 @@ static ChiakiErrorCode get_stun_servers(Session *session)
     while(ptr != NULL && session->num_stun_servers_ipv6 <= 9)
     {
         // omit leading [
-        strcpy(server_strings_ipv6[session->num_stun_servers_ipv6], ptr + 1);
-        session->num_stun_servers_ipv6++;
+        int _n = snprintf(server_strings_ipv6[session->num_stun_servers_ipv6],
+                          sizeof(server_strings_ipv6[0]), "%s", ptr + 1);
+        if (_n < 0 || (size_t)_n >= sizeof(server_strings_ipv6[0])) {
+            CHIAKI_LOGW(session->log, "IPv6 STUN server entry truncated, skipping");
+        } else {
+            session->num_stun_servers_ipv6++;
+        }
 		ptr = strtok(NULL, "\n");
     }
     ptr = NULL;
