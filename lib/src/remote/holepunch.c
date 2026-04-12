@@ -5888,6 +5888,15 @@ static ChiakiErrorCode session_message_free(SessionMessage *message)
 */
 static ChiakiErrorCode get_stun_servers(Session *session)
 {
+#ifdef __PSVITA__
+    /* On Vita the bundled CA set is Sony-only; the GitHub fetch always fails with
+     * CURLE_SSL_CACERT. Skip both the IPv4 and IPv6 fetches (both live in this
+     * function) and rely on the hardcoded STUN_SERVERS fallback in stun.h.
+     * The caller in get_client_addr_remote_stun() already tolerates this error
+     * and logs the built-in pool size before proceeding. See VitaRPS5 issue #105. */
+    CHIAKI_LOGI(session->log, "Skipping dynamic STUN list fetch on Vita (using built-in list)");
+    return CHIAKI_ERR_NETWORK; /* non-fatal — caller falls back to hardcoded STUN_SERVERS */
+#endif
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
     const char STUN_HOSTS_URL[] = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt";
     CURL *curl = curl_easy_init();
