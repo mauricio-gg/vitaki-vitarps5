@@ -447,7 +447,6 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   LOGD("PSN auth HTTP POST url=%s cafile=%s basic_user=%s basic_pass_present=%s form_len=%u", url,
        PSN_CA_BUNDLE_PATH, has_text(basic_user) ? basic_user : "<none>",
        has_text(basic_pass) ? "true" : "false", (unsigned)strlen(form_data));
-  log_oauth_transport_probe(url);
   curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
   LOGD("PSN auth curl preflight url=%s ipresolve=v4 timeout=15 verify_peer_result=%ld", url,
        verify_peer);
@@ -459,6 +458,7 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   curl_easy_getinfo(curl, CURLINFO_LOCAL_IP, &local_ip);
   curl_easy_getinfo(curl, CURLINFO_LOCAL_PORT, &local_port);
   if (perform_res != CURLE_OK) {
+    log_oauth_transport_probe(url);
     curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
     curl_easy_getinfo(curl, CURLINFO_HTTPAUTH_AVAIL, &verify_host);
     LOGE(
