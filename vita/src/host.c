@@ -112,8 +112,7 @@ static void request_stream_stop(const char *reason) {
   if (!context.stream.session_init)
     return;
   bool user_stop = false;
-  if (reason && (strcmp(reason, "user cancel") == 0 ||
-                 strcmp(reason, "L+R+Start") == 0)) {
+  if (reason && (strcmp(reason, "user cancel") == 0 || strcmp(reason, "L+R+Start") == 0)) {
     user_stop = true;
   }
   if (!context.stream.stop_requested) {
@@ -137,15 +136,12 @@ void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
 }
 
-int host_stream(VitaChiakiHost* host) {
+int host_stream(VitaChiakiHost *host) {
   LOGD("Preparing to start host_stream");
   bool psn_remote = host && host->source == VITA_HOST_SOURCE_PSN_REMOTE;
   LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
-       (void *)host,
-       host ? host->source : -1,
-       host ? host->type : 0,
-       (host && host->hostname) ? host->hostname : "<null>",
-       psn_remote,
+       (void *)host, host ? host->source : -1, host ? host->type : 0,
+       (host && host->hostname) ? host->hostname : "<null>", psn_remote,
        (host && psn_remote) ? host_psn_uid_is_zero(host->psn_device_uid) : 0);
   if (!host || (!psn_remote && (!host->hostname || !host->hostname[0]))) {
     return 1;
@@ -153,9 +149,7 @@ int host_stream(VitaChiakiHost* host) {
   if (!host_try_hydrate_registered_state_from_config(host)) {
     LOGE("Missing credentials for host %s; cannot start stream",
          host->hostname ? host->hostname : "<null>");
-    host_set_hint(host,
-                  "Missing console credentials. Re-pair may be required.",
-                  true,
+    host_set_hint(host, "Missing console credentials. Re-pair may be required.", true,
                   HINT_DURATION_CREDENTIAL_US);
     return 1;
   }
@@ -186,21 +180,16 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.media_initialized = false;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (context.stream.retry_holdoff_active &&
-      now_us >= context.stream.retry_holdoff_until_us) {
+  if (context.stream.retry_holdoff_active && now_us >= context.stream.retry_holdoff_until_us) {
     LOGD("Retry holdoff expired (duration=%u ms)", context.stream.retry_holdoff_ms);
     context.stream.retry_holdoff_active = false;
     context.stream.retry_holdoff_ms = 0;
     context.stream.retry_holdoff_until_us = 0;
   }
-  if (context.stream.next_stream_allowed_us &&
-      now_us < context.stream.next_stream_allowed_us) {
-    uint64_t remaining_ms =
-        (context.stream.next_stream_allowed_us - now_us + 999) / 1000;
-    if (context.stream.retry_holdoff_active &&
-        now_us < context.stream.retry_holdoff_until_us) {
-      uint64_t holdoff_remaining_ms =
-          (context.stream.retry_holdoff_until_us - now_us + 999) / 1000;
+  if (context.stream.next_stream_allowed_us && now_us < context.stream.next_stream_allowed_us) {
+    uint64_t remaining_ms = (context.stream.next_stream_allowed_us - now_us + 999) / 1000;
+    if (context.stream.retry_holdoff_active && now_us < context.stream.retry_holdoff_until_us) {
+      uint64_t holdoff_remaining_ms = (context.stream.retry_holdoff_until_us - now_us + 999) / 1000;
       LOGD("Stream start blocked by adaptive holdoff for %llu ms (total cooldown %llu ms)",
            holdoff_remaining_ms, remaining_ms);
     } else {
@@ -220,10 +209,9 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   ChiakiConnectVideoProfile profile = {};
-	chiaki_connect_video_profile_preset(&profile,
-			requested_resolution, context.config.fps);
-  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)",
-       profile.bitrate, profile.width, profile.height);
+  chiaki_connect_video_profile_preset(&profile, requested_resolution, context.config.fps);
+  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)", profile.bitrate, profile.width,
+       profile.height);
   if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
     profile.bitrate = context.stream.loss_retry_bitrate_kbps;
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
@@ -247,8 +235,7 @@ int host_stream(VitaChiakiHost* host) {
       goto cleanup;
     }
     uint64_t now_unix = (uint64_t)time(NULL);
-    if (!psn_auth_token_is_valid(now_unix) &&
-        !psn_auth_refresh_token_if_needed(now_unix, false)) {
+    if (!psn_auth_token_is_valid(now_unix) && !psn_auth_refresh_token_if_needed(now_unix, false)) {
       LOGE("PSN OAuth token expired and refresh failed for internet remote play");
       host_set_hint(host, "PSN session expired. Re-authenticate in Profile.", true,
                     HINT_DURATION_CREDENTIAL_US);
@@ -261,9 +248,7 @@ int host_stream(VitaChiakiHost* host) {
       goto cleanup;
     }
 #else
-    host_set_hint(host,
-                  "PSN internet remote play stack is unavailable in this build.",
-                  true,
+    host_set_hint(host, "PSN internet remote play stack is unavailable in this build.", true,
                   HINT_DURATION_CREDENTIAL_US);
     goto cleanup;
 #endif
@@ -273,11 +258,11 @@ int host_stream(VitaChiakiHost* host) {
   }
 
   ChiakiConnectInfo chiaki_connect_info = {};
-	chiaki_connect_info.host = host->hostname;
-	chiaki_connect_info.video_profile = profile;
-	chiaki_connect_info.video_profile_auto_downgrade = true;
-	chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
-	chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
+  chiaki_connect_info.host = host->hostname;
+  chiaki_connect_info.video_profile = profile;
+  chiaki_connect_info.video_profile_auto_downgrade = true;
+  chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
+  chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 #if CHIAKI_CAN_USE_HOLEPUNCH
   if (psn_remote) {
     if (!context.config.psn_account_id || !context.config.psn_account_id[0]) {
@@ -288,13 +273,10 @@ int host_stream(VitaChiakiHost* host) {
     }
 
     size_t account_id_size = CHIAKI_PSN_ACCOUNT_ID_SIZE;
-    ChiakiErrorCode decode_err = chiaki_base64_decode(
-        context.config.psn_account_id,
-        strlen(context.config.psn_account_id),
-        chiaki_connect_info.psn_account_id,
-        &account_id_size);
-    if (decode_err != CHIAKI_ERR_SUCCESS ||
-        account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
+    ChiakiErrorCode decode_err =
+        chiaki_base64_decode(context.config.psn_account_id, strlen(context.config.psn_account_id),
+                             chiaki_connect_info.psn_account_id, &account_id_size);
+    if (decode_err != CHIAKI_ERR_SUCCESS || account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
       LOGE("Failed to decode PSN account id for internet remote play: %s",
            chiaki_error_string(decode_err));
       if (holepunch_session)
@@ -305,29 +287,30 @@ int host_stream(VitaChiakiHost* host) {
     chiaki_connect_info.holepunch_session = holepunch_session;
   }
 #endif
-	memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key, sizeof(chiaki_connect_info.regist_key));
-	memcpy(chiaki_connect_info.morning, host->registered_state->rp_key, sizeof(chiaki_connect_info.morning));
+  memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key,
+         sizeof(chiaki_connect_info.regist_key));
+  memcpy(chiaki_connect_info.morning, host->registered_state->rp_key,
+         sizeof(chiaki_connect_info.morning));
   if (context.stream.cached_controller_valid) {
     chiaki_connect_info.cached_controller_state = context.stream.cached_controller_state;
     chiaki_connect_info.cached_controller_state_valid = true;
   } else {
-	chiaki_controller_state_set_idle(&chiaki_connect_info.cached_controller_state);
-	chiaki_connect_info.cached_controller_state_valid = false;
-	}
+    chiaki_controller_state_set_idle(&chiaki_connect_info.cached_controller_state);
+    chiaki_connect_info.cached_controller_state_valid = false;
+  }
 
-	LOGD("Initializing Chiaki session (host=%s, bitrate=%u kbps, fps=%u)",
-	     host->hostname ? host->hostname : "<null>",
-	     profile.bitrate,
-	     profile.max_fps);
+  LOGD("Initializing Chiaki session (host=%s, bitrate=%u kbps, fps=%u)",
+       host->hostname ? host->hostname : "<null>", profile.bitrate, profile.max_fps);
   LOGD("Recovery profile: stable_default");
 
-	ChiakiErrorCode err = chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
-	if(err != CHIAKI_ERR_SUCCESS) {
+  ChiakiErrorCode err =
+      chiaki_session_init(&context.stream.session, &chiaki_connect_info, &context.log);
+  if (err != CHIAKI_ERR_SUCCESS) {
     if (err == CHIAKI_ERR_PARSE_ADDR) {
       LOGE("Error during stream setup: console address unresolved; keeping discovery active");
       host_set_hint(host, "Waiting for console network link...", false, HINT_DURATION_LINK_WAIT_US);
     } else {
-		  LOGE("Error during stream setup: %s", chiaki_error_string(err));
+      LOGE("Error during stream setup: %s", chiaki_error_string(err));
     }
     goto cleanup;
   }
@@ -347,22 +330,20 @@ int host_stream(VitaChiakiHost* host) {
         context.stream.session_generation > 0 ? context.stream.session_generation : 0;
   }
   context.stream.session_generation = new_generation;
-  LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s",
-       context.stream.session_generation,
-       context.stream.reconnect_generation,
-       host->hostname ? host->hostname : "<null>");
+  LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s", context.stream.session_generation,
+       context.stream.reconnect_generation, host->hostname ? host->hostname : "<null>");
 
   if (discovery_was_running) {
     LOGD("Suspending discovery during stream");
     stop_discovery(true);
     context.discovery_resume_after_stream = true;
   }
-	init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
-	// Mark session as initialized - MUST use mutex
-	chiaki_mutex_lock(&context.stream.finalization_mutex);
- 	context.stream.session_init = true;
-	chiaki_mutex_unlock(&context.stream.finalization_mutex);
-	host_metrics_reset_stream(false);
+  init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);
+  // Mark session as initialized - MUST use mutex
+  chiaki_mutex_lock(&context.stream.finalization_mutex);
+  context.stream.session_init = true;
+  chiaki_mutex_unlock(&context.stream.finalization_mutex);
+  host_metrics_reset_stream(false);
   uint32_t negotiated = profile.max_fps;
   if (negotiated == 0)
     negotiated = 60;
@@ -375,37 +356,36 @@ int host_stream(VitaChiakiHost* host) {
   context.stream.fps_window_start_us = 0;
   context.stream.fps_window_frame_count = 0;
   context.stream.pacing_accumulator = 0;
-	LOGD("Chiaki session initialized successfully, starting media pipeline");
-	ChiakiAudioSink audio_sink;
-	chiaki_opus_decoder_init(&context.stream.opus_decoder, &context.log);
-	chiaki_opus_decoder_set_cb(&context.stream.opus_decoder, vita_audio_init, vita_audio_cb, NULL);
-	chiaki_opus_decoder_get_sink(&context.stream.opus_decoder, &audio_sink);
-	chiaki_session_set_audio_sink(&context.stream.session, &audio_sink);
+  LOGD("Chiaki session initialized successfully, starting media pipeline");
+  ChiakiAudioSink audio_sink;
+  chiaki_opus_decoder_init(&context.stream.opus_decoder, &context.log);
+  chiaki_opus_decoder_set_cb(&context.stream.opus_decoder, vita_audio_init, vita_audio_cb, NULL);
+  chiaki_opus_decoder_get_sink(&context.stream.opus_decoder, &audio_sink);
+  chiaki_session_set_audio_sink(&context.stream.session, &audio_sink);
   context.stream.media_initialized = true;
-	chiaki_session_set_video_sample_cb(&context.stream.session, host_video_cb, NULL);
-	chiaki_session_set_event_cb(&context.stream.session, host_event_cb, NULL);
-	chiaki_controller_state_set_idle(&context.stream.controller_state);
+  chiaki_session_set_video_sample_cb(&context.stream.session, host_video_cb, NULL);
+  chiaki_session_set_event_cb(&context.stream.session, host_event_cb, NULL);
+  chiaki_controller_state_set_idle(&context.stream.controller_state);
 
   err = vita_h264_setup(profile.width, profile.height);
   if (err != 0) {
-		LOGE("Error during video start: %d (0x%08x), profile=%ux%u@%u",
-         err, (unsigned int)err, profile.width, profile.height, profile.max_fps);
+    LOGE("Error during video start: %d (0x%08x), profile=%ux%u@%u", err, (unsigned int)err,
+         profile.width, profile.height, profile.max_fps);
     goto cleanup;
   }
   vita_h264_start();
 
   err = chiaki_session_start(&context.stream.session);
-  if(err != CHIAKI_ERR_SUCCESS) {
-		LOGE("Error during stream start: %s", chiaki_error_string(err));
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Error during stream start: %s", chiaki_error_string(err));
     goto cleanup;
   }
 
-	context.stream.input_thread_should_exit = false;
-	err = chiaki_thread_create(&context.stream.input_thread, host_input_thread_func, &context.stream);
-	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		LOGE("Failed to create input thread");
-	}
+  context.stream.input_thread_should_exit = false;
+  err = chiaki_thread_create(&context.stream.input_thread, host_input_thread_func, &context.stream);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Failed to create input thread");
+  }
 
   result = 0;
 

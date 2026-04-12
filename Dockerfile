@@ -3,13 +3,15 @@
 
 FROM vitasdk/vitasdk:latest
 
-# Install additional development tools
+# Install additional development tools.
+# Note: clang-extra-tools is intentionally excluded; clang-format is installed
+# below via pip at a pinned version to guarantee identical output between this
+# image and CI (see the clang-format pip install step).
 RUN apk add --no-cache \
     pngquant \
     imagemagick \
     optipng \
     cppcheck \
-    clang-extra-tools \
     git \
     curl \
     wget \
@@ -28,9 +30,15 @@ RUN apk add --no-cache \
     protobuf-c \
     protobuf-c-dev
 
-# Python tooling for crash-dump analysis
+# Python tooling: crash-dump analysis + pinned clang-format.
+# clang-format==19.1.5 is the single version pin shared with CI
+# (.github/workflows/lint-format.yml).  Both install from the same PyPI wheel
+# so the binary is byte-identical regardless of the underlying libc
+# (musl/Alpine here, glibc/Ubuntu on GitHub Actions runners).
+# Rebuilding the Docker image is required when this version changes.
 RUN pip3 install --no-cache-dir --break-system-packages \
-    "pyelftools==0.29"
+    "pyelftools==0.29" \
+    "clang-format==19.1.5"
 
 # Install nanopb (Protocol Buffers for embedded C) - cross-compile for ARM
 RUN cd /tmp && \

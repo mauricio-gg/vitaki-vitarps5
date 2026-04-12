@@ -86,7 +86,8 @@ void ui_draw_rounded_rect(int x, int y, int width, int height, int radius, uint3
 void ui_draw_card_with_shadow(int x, int y, int width, int height, int radius, uint32_t color) {
   // Render shadow first (offset by UI_SHADOW_OFFSET_PX pixels)
   uint32_t shadow_color = UI_COLOR_SHADOW;
-  ui_draw_rounded_rect(x + UI_SHADOW_OFFSET_PX, y + UI_SHADOW_OFFSET_PX, width, height, radius, shadow_color);
+  ui_draw_rounded_rect(x + UI_SHADOW_OFFSET_PX, y + UI_SHADOW_OFFSET_PX, width, height, radius,
+                       shadow_color);
 
   // Render the actual card on top
   ui_draw_rounded_rect(x, y, width, height, radius, color);
@@ -101,8 +102,8 @@ void ui_draw_card_with_shadow(int x, int y, int width, int height, int radius, u
 void ui_draw_circle(int cx, int cy, int radius, uint32_t color) {
   // Bounds checking - prevent expensive off-screen rendering
   if (cx < -UI_OFFSCREEN_MARGIN || cx > VITA_WIDTH + UI_OFFSCREEN_MARGIN ||
-      cy < -UI_OFFSCREEN_MARGIN || cy > VITA_HEIGHT + UI_OFFSCREEN_MARGIN ||
-      radius <= 0 || radius > 1000) {
+      cy < -UI_OFFSCREEN_MARGIN || cy > VITA_HEIGHT + UI_OFFSCREEN_MARGIN || radius <= 0 ||
+      radius > 1000) {
     return;
   }
 
@@ -168,9 +169,8 @@ void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t col
   vita2d_draw_rectangle(x + width - 1, y, 1, height, color);
 }
 
-void ui_draw_vertical_gradient_rect(int x, int y, int width, int height,
-                                    uint32_t top_color, uint32_t bottom_color,
-                                    int radius) {
+void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_t top_color,
+                                    uint32_t bottom_color, int radius) {
   if (height <= 0 || width <= 0)
     return;
 
@@ -206,10 +206,11 @@ void ui_draw_vertical_gradient_rect(int x, int y, int width, int height,
  * Renders a 3/4 circle (270 degrees) with thickness for loading indicators.
  * Increment rotation_deg each frame for animation effect.
  */
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color) {
+void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg,
+                     uint32_t color) {
   // Draw a circular arc that rotates continuously
   // We'll draw 3/4 of a circle (270 degrees) that rotates around
-  float arc_length = 270.0f;  // 3/4 circle in degrees
+  float arc_length = 270.0f;                       // 3/4 circle in degrees
   int arc_segments = UI_SPINNER_SEGMENTS * 3 / 4;  // 3/4 of total segments
 
   for (int i = 0; i < arc_segments; i++) {
@@ -254,8 +255,7 @@ void ui_draw_content_focus_overlay(void) {
   if (nav_collapse.state != NAV_STATE_EXPANDED) {
     return;
   }
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT,
-                        RGBA8(0, 0, 0, 80));
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 80));
 }
 
 /**
@@ -277,13 +277,12 @@ void ui_draw_loss_indicator(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
 
   // Check if alert is active
-  if (!context.stream.loss_alert_until_us ||
-      now_us >= context.stream.loss_alert_until_us)
+  if (!context.stream.loss_alert_until_us || now_us >= context.stream.loss_alert_until_us)
     return;
 
   // Calculate fade-out alpha based on remaining time
-  uint64_t duration = context.stream.loss_alert_duration_us ?
-      context.stream.loss_alert_duration_us : VIDEO_LOSS_ALERT_DEFAULT_US;
+  uint64_t duration = context.stream.loss_alert_duration_us ? context.stream.loss_alert_duration_us
+                                                            : VIDEO_LOSS_ALERT_DEFAULT_US;
   if (!duration)
     duration = VIDEO_LOSS_ALERT_DEFAULT_US;
   uint64_t remaining = context.stream.loss_alert_until_us - now_us;
@@ -305,20 +304,16 @@ void ui_draw_loss_indicator(void) {
   uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
   if (bg_alpha < 40)
     bg_alpha = 40;
-  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2,
-                         RGBA8(0, 0, 0, bg_alpha));
+  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2, RGBA8(0, 0, 0, bg_alpha));
 
   // Draw red status dot
   int dot_x = box_x + UI_LOSS_INDICATOR_PADDING_X;
   int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius,
-                          RGBA8(0xF4, 0x43, 0x36, alpha));
+  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
 
   // Draw text label
   int text_x = dot_x + dot_radius + 10;
   int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y,
-                        RGBA8(0xFF, 0xFF, 0xFF, alpha),
-                        FONT_SIZE_SMALL,
+  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
                         headline);
 }

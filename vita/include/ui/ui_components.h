@@ -43,8 +43,8 @@ void ui_draw_toggle_switch(int x, int y, int width, int height, float anim_value
  * @param expanded true if dropdown menu is currently expanded
  * @param selected true if this dropdown is currently selected/focused
  */
-void ui_draw_dropdown(int x, int y, int width, int height, const char* label,
-                      const char* value, bool expanded, bool selected);
+void ui_draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
+                      bool expanded, bool selected);
 
 /**
  * Draw a tabbed navigation bar with color-coded sections
@@ -57,16 +57,16 @@ void ui_draw_dropdown(int x, int y, int width, int height, const char* label,
  * @param num_tabs Number of tabs in the array
  * @param selected Index of currently selected tab
  */
-void ui_draw_tab_bar(int x, int y, int width, int height,
-                     const char* tabs[], uint32_t colors[], int num_tabs, int selected);
+void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
+                     int num_tabs, int selected);
 
 /**
  * Status types for status indicator dots
  */
 typedef enum {
-    UI_STATUS_ACTIVE = 0,    // Green - system active/available
-    UI_STATUS_STANDBY = 1,   // Yellow/Orange - system in standby
-    UI_STATUS_ERROR = 2      // Red - error or unavailable
+  UI_STATUS_ACTIVE = 0,   // Green - system active/available
+  UI_STATUS_STANDBY = 1,  // Yellow/Orange - system in standby
+  UI_STATUS_ERROR = 2     // Red - error or unavailable
 } UIStatusType;
 
 /**
@@ -85,7 +85,7 @@ void ui_draw_status_dot(int x, int y, int radius, UIStatusType status);
  * @param width Width of header
  * @param title Header title text
  */
-void ui_draw_section_header(int x, int y, int width, const char* title);
+void ui_draw_section_header(int x, int y, int width, const char *title);
 
 /**
  * Draw a single PIN entry digit box
@@ -124,7 +124,7 @@ float ui_toggle_get_animation_value(int toggle_index, bool current_state);
  * Show error popup with specified message
  * @param message Error message to display (copied internally)
  */
-void ui_error_show(const char* message);
+void ui_error_show(const char *message);
 
 /**
  * Hide the error popup
@@ -155,7 +155,7 @@ bool ui_error_is_active(void);
  * Trigger hints popup with specified hint text
  * @param hint_text Text to display in the hints popup
  */
-void ui_hints_trigger(const char* hint_text);
+void ui_hints_trigger(const char *hint_text);
 
 /**
  * Render the hints popup (call during draw loop)

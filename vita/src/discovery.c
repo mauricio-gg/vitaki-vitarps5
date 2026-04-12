@@ -69,14 +69,17 @@ static int find_target_slot_for_discovered_host(MacAddr *host_mac) {
 static void log_discovered_host_details(const ChiakiDiscoveryHost *host) {
   CHIAKI_LOGI(&(context.log), "--");
   CHIAKI_LOGI(&(context.log), "Discovered Host:");
-  CHIAKI_LOGI(&(context.log), "State:                             %s", chiaki_discovery_host_state_string(host->state));
+  CHIAKI_LOGI(&(context.log), "State:                             %s",
+              chiaki_discovery_host_state_string(host->state));
 
   if (host->system_version)
     CHIAKI_LOGI(&(context.log), "System Version:                    %s", host->system_version);
   if (host->device_discovery_protocol_version)
-    CHIAKI_LOGI(&(context.log), "Device Discovery Protocol Version: %s", host->device_discovery_protocol_version);
+    CHIAKI_LOGI(&(context.log), "Device Discovery Protocol Version: %s",
+                host->device_discovery_protocol_version);
   if (host->host_request_port)
-    CHIAKI_LOGI(&(context.log), "Request Port:                      %hu", (unsigned short)host->host_request_port);
+    CHIAKI_LOGI(&(context.log), "Request Port:                      %hu",
+                (unsigned short)host->host_request_port);
   if (host->host_name)
     CHIAKI_LOGI(&(context.log), "Host Name:                         %s", host->host_name);
   if (host->host_type)
@@ -86,8 +89,7 @@ static void log_discovered_host_details(const ChiakiDiscoveryHost *host) {
   if (host->running_app_titleid)
     CHIAKI_LOGI(&(context.log), "Running App Title ID:              %s", host->running_app_titleid);
   if (host->running_app_name)
-    CHIAKI_LOGI(&(context.log), "Running App Name:                  %s%s",
-                host->running_app_name,
+    CHIAKI_LOGI(&(context.log), "Running App Name:                  %s%s", host->running_app_name,
                 (strcmp(host->running_app_name, "Persona 5") == 0 ? " (best game ever)" : ""));
 }
 
@@ -105,7 +107,7 @@ static bool clear_discovery_host_for_stop(VitaChiakiHost *host_entry) {
 
 /// Save a newly discovered host into the context
 // Returns the index in context.hosts where it is saved (-1 if not saved)
-int save_discovered_host(ChiakiDiscoveryHost* host) {
+int save_discovered_host(ChiakiDiscoveryHost *host) {
   CHIAKI_LOGI(&(context.log), "Saving discovered host...");
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint8_t host_mac[6];
@@ -115,9 +117,10 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   if (existing_idx >= 0) {
     VitaChiakiHost *existing = context.hosts[existing_idx];
     if (existing && (existing->type & REGISTERED) && !existing->registered_state) {
-      LOGE("Discovery integrity warning: existing registered host missing registered_state (idx=%d host=%s)",
-           existing_idx,
-           existing->hostname ? existing->hostname : "<null>");
+      LOGE(
+          "Discovery integrity warning: existing registered host missing registered_state (idx=%d "
+          "host=%s)",
+          existing_idx, existing->hostname ? existing->hostname : "<null>");
     }
     set_host_discovery_snapshot(context.hosts[existing_idx], host, now_us);
     return existing_idx;
@@ -135,7 +138,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   VitaChiakiHost *h = context.hosts[target_idx];
   bool reuse_existing = h != NULL;
   if (!h) {
-    h = (VitaChiakiHost*)calloc(1, sizeof(VitaChiakiHost));
+    h = (VitaChiakiHost *)calloc(1, sizeof(VitaChiakiHost));
     if (!h) {
       CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
       return -1;
@@ -150,7 +153,8 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   memset(h->psn_device_uid, 0, sizeof(h->psn_device_uid));
 
   ChiakiTarget target = chiaki_discovery_host_system_version_target(host);
-  CHIAKI_LOGI(&(context.log),   "Is PS5:                            %s", chiaki_target_is_ps5(target) ? "true" : "false");
+  CHIAKI_LOGI(&(context.log), "Is PS5:                            %s",
+              chiaki_target_is_ps5(target) ? "true" : "false");
   h->target = target;
   memcpy(&(h->server_mac), &host_mac, 6);
   if (!set_host_discovery_snapshot(h, host, now_us)) {
@@ -163,7 +167,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 
   // Check if the newly discovered host is a known registered one
   for (int rhost_idx = 0; rhost_idx < context.config.num_registered_hosts; rhost_idx++) {
-    VitaChiakiHost* rhost = context.config.registered_hosts[rhost_idx];
+    VitaChiakiHost *rhost = context.config.registered_hosts[rhost_idx];
     if (rhost == NULL) {
       continue;
     }
@@ -173,8 +177,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
                   (rhost->registered_state && rhost->registered_state->server_nickname)
                       ? rhost->registered_state->server_nickname
                       : "<unknown>",
-                  h->discovery_state->host_name
-                  );
+                  h->discovery_state->host_name);
       if (rhost->registered_state) {
         ChiakiRegisteredHost *new_state = calloc(1, sizeof(ChiakiRegisteredHost));
         if (new_state) {
@@ -199,8 +202,10 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
   }
 
   if ((h->type & REGISTERED) && !h->registered_state) {
-    LOGE("Discovery integrity warning: discovered registered host missing credential state (host=%s)",
-         h->hostname ? h->hostname : "<null>");
+    LOGE(
+        "Discovery integrity warning: discovered registered host missing credential state "
+        "(host=%s)",
+        h->hostname ? h->hostname : "<null>");
   }
 
   // Add to context
@@ -208,7 +213,7 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
     context.num_hosts++;
   context.hosts[target_idx] = h;
 
-  update_context_hosts(); // to remove any extra manual host copies
+  update_context_hosts();  // to remove any extra manual host copies
 
   return target_idx;
 }
@@ -217,28 +222,23 @@ int save_discovered_host(ChiakiDiscoveryHost* host) {
 static void remove_lost_discovered_hosts(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
   for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
-    VitaChiakiHost* h = context.hosts[host_idx];
+    VitaChiakiHost *h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
       bool active_streaming = (context.active_host == h) &&
-                              (context.stream.session_init ||
-                               context.stream.is_streaming);
-      bool connection_overlay_guard = ui_connection_overlay_active() &&
-                                      context.active_host == h;
+                              (context.stream.session_init || context.stream.is_streaming);
+      bool connection_overlay_guard = ui_connection_overlay_active() && context.active_host == h;
       if (active_streaming)
         continue;
       if (connection_overlay_guard)
         continue;
 
       uint64_t last_seen = h->last_discovery_seen_us;
-      if (last_seen == 0 ||
-          now_us - last_seen < DISCOVERY_LOST_GRACE_US)
+      if (last_seen == 0 || now_us - last_seen < DISCOVERY_LOST_GRACE_US)
         continue;
 
       uint64_t stale_ms = (now_us - last_seen) / 1000;
-      CHIAKI_LOGI(&(context.log),
-                  "Removing lost host from context (idx %d, stale %llums)",
-                  host_idx,
-                  (unsigned long long)stale_ms);
+      CHIAKI_LOGI(&(context.log), "Removing lost host from context (idx %d, stale %llums)",
+                  host_idx, (unsigned long long)stale_ms);
       // free and remove from context
       host_free(h);
       context.hosts[host_idx] = NULL;
@@ -255,7 +255,7 @@ static void invoke_discovery_callback(void *user) {
 }
 
 /// Called whenever new hosts are discovered
-void discovery_cb(ChiakiDiscoveryHost* hosts, size_t hosts_count, void* user) {
+void discovery_cb(ChiakiDiscoveryHost *hosts, size_t hosts_count, void *user) {
   for (int dhost_idx = 0; dhost_idx < hosts_count; dhost_idx++) {
     save_discovered_host(&hosts[dhost_idx]);
   }
@@ -265,13 +265,12 @@ void discovery_cb(ChiakiDiscoveryHost* hosts, size_t hosts_count, void* user) {
 }
 
 /// Initiate the Chiaki discovery thread
-ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
+ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void *cb_user) {
   if (context.discovery_enabled) {
     return CHIAKI_ERR_SUCCESS;
   }
   if (cb != NULL) {
-    context.discovery_cb_state =
-        malloc(sizeof(VitaChiakiDiscoveryCallbackState));
+    context.discovery_cb_state = malloc(sizeof(VitaChiakiDiscoveryCallbackState));
     if (!context.discovery_cb_state) {
       CHIAKI_LOGE(&(context.log), "Failed to allocate discovery callback state");
       return CHIAKI_ERR_MEMORY;
@@ -294,8 +293,7 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void* cb_user) {
   opts.send_addr_size = sizeof(addr);
   opts.send_host = NULL;
 
-  ChiakiErrorCode err = chiaki_discovery_service_init(&(context.discovery),
-                                                      &opts, &(context.log));
+  ChiakiErrorCode err = chiaki_discovery_service_init(&(context.discovery), &opts, &(context.log));
   if (err != CHIAKI_ERR_SUCCESS) {
     if (context.discovery_cb_state != NULL) {
       free(context.discovery_cb_state);
@@ -319,7 +317,7 @@ void stop_discovery(bool keep_hosts) {
   context.discovery_enabled = false;
   if (!keep_hosts) {
     for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-      VitaChiakiHost* h = context.hosts[i];
+      VitaChiakiHost *h = context.hosts[i];
       if (h == NULL) {
         continue;
       }

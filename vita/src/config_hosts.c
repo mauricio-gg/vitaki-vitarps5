@@ -117,16 +117,15 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
     if (!bytes_nonzero(host->server_mac, sizeof(host->server_mac)) ||
         !bytes_nonzero(rstate->rp_key, sizeof(rstate->rp_key)) ||
         rstate->rp_regist_key[0] == '\0') {
-      CHIAKI_LOGW(&(context.log), "Skipping invalid registered host entry %d (missing required fields)", i);
+      CHIAKI_LOGW(&(context.log),
+                  "Skipping invalid registered host entry %d (missing required fields)", i);
       host_free(host);
       continue;
     }
 
     cfg->registered_hosts[cfg->num_registered_hosts] = host;
-    LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x",
-         cfg->num_registered_hosts,
-         rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>",
-         host->target,
+    LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x", cfg->num_registered_hosts,
+         rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>", host->target,
          host->type);
     cfg->num_registered_hosts++;
   }
@@ -280,7 +279,7 @@ void config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
     fprintf(fp, "server_nickname = \"%s\"\n", rhost->server_nickname);
     serialize_target(fp, "target", rhost->target);
     serialize_b64(fp, "rp_key", rhost->rp_key, 0x10);
-    fprintf(fp, "rp_key_type = %d\n", rhost->rp_key_type);
+    fprintf(fp, "rp_key_type = %u\n", rhost->rp_key_type);
     fprintf(fp, "rp_regist_key = \"%s\"\n", rhost->rp_regist_key);
   }
 }

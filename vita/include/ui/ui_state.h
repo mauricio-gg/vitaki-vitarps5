@@ -162,7 +162,7 @@ bool ui_cooldown_takion_gate_active(void);
  * @param font_size Font size in pixels
  * @return Text width in pixels
  */
-int ui_text_width_cached(const char* text, int font_size);
+int ui_text_width_cached(const char *text, int font_size);
 
 /**
  * Clear text width cache

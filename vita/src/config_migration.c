@@ -7,7 +7,7 @@
 #include "logging.h"
 
 bool config_fix_legacy_queue_depth(void) {
-  FILE* fp = fopen(CFG_FILENAME, "r");
+  FILE *fp = fopen(CFG_FILENAME, "r");
   if (!fp)
     return false;
 
@@ -26,7 +26,7 @@ bool config_fix_legacy_queue_depth(void) {
   }
 
   size_t size = (size_t)len;
-  char* data = malloc(size + 1);
+  char *data = malloc(size + 1);
   if (!data) {
     fclose(fp);
     return false;
@@ -39,20 +39,21 @@ bool config_fix_legacy_queue_depth(void) {
   }
   data[size] = '\0';
 
-  const char* prefix = "queue_depth = ";
-  char* prefix_pos = strstr(data, prefix);
+  const char *prefix = "queue_depth = ";
+  char *prefix_pos = strstr(data, prefix);
   if (!prefix_pos) {
     free(data);
     return false;
   }
-  char* value_start = prefix_pos + strlen(prefix);
+  char *value_start = prefix_pos + strlen(prefix);
   size_t remaining = (size_t)(data + size - value_start);
-  char* line_end = memchr(value_start, '\n', remaining);
+  char *line_end = memchr(value_start, '\n', remaining);
   if (!line_end)
     line_end = data + size;
 
   char replacement[16];
-  int replacement_len = snprintf(replacement, sizeof(replacement), "%u", VITA_LOG_DEFAULT_QUEUE_DEPTH);
+  int replacement_len =
+      snprintf(replacement, sizeof(replacement), "%d", VITA_LOG_DEFAULT_QUEUE_DEPTH);
   if (replacement_len <= 0) {
     free(data);
     return false;
@@ -61,7 +62,7 @@ bool config_fix_legacy_queue_depth(void) {
   size_t head_len = (size_t)(value_start - data);
   size_t tail_len = (size_t)(data + size - line_end);
   size_t new_size = head_len + (size_t)replacement_len + tail_len;
-  char* patched = malloc(new_size);
+  char *patched = malloc(new_size);
   if (!patched) {
     free(data);
     return false;
@@ -157,11 +158,8 @@ static bool parse_root_string_setting(toml_table_t *parsed, const char *key, cha
   return true;
 }
 
-bool parse_bool_setting_with_migration(toml_table_t *settings,
-                                       toml_table_t *parsed,
-                                       const char *key,
-                                       bool default_value,
-                                       bool *out_value,
+bool parse_bool_setting_with_migration(toml_table_t *settings, toml_table_t *parsed,
+                                       const char *key, bool default_value, bool *out_value,
                                        MigrationSource *out_source) {
   toml_datum_t datum;
   bool legacy_value = false;
@@ -190,8 +188,7 @@ bool parse_bool_setting_with_migration(toml_table_t *settings,
   return true;
 }
 
-void apply_migration_source(MigrationSource source,
-                            bool *migrated_legacy_settings,
+void apply_migration_source(MigrationSource source, bool *migrated_legacy_settings,
                             bool *migrated_root_settings) {
   if (source == MIGRATION_SOURCE_LEGACY_SECTION)
     *migrated_legacy_settings = true;
@@ -199,10 +196,8 @@ void apply_migration_source(MigrationSource source,
     *migrated_root_settings = true;
 }
 
-void parse_resolution_with_migration(VitaChiakiConfig *cfg,
-                                     toml_table_t *settings,
-                                     toml_table_t *parsed,
-                                     bool *migrated_legacy_settings,
+void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
+                                     toml_table_t *parsed, bool *migrated_legacy_settings,
                                      bool *migrated_root_settings,
                                      bool *migrated_resolution_policy) {
   toml_datum_t datum;
@@ -233,11 +228,8 @@ void parse_resolution_with_migration(VitaChiakiConfig *cfg,
   }
 }
 
-void parse_fps_with_migration(VitaChiakiConfig *cfg,
-                              toml_table_t *settings,
-                              toml_table_t *parsed,
-                              bool *migrated_legacy_settings,
-                              bool *migrated_root_settings) {
+void parse_fps_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings, toml_table_t *parsed,
+                              bool *migrated_legacy_settings, bool *migrated_root_settings) {
   toml_datum_t datum;
   int fps_value = 30;
   bool fps_found = false;
@@ -272,10 +264,8 @@ void parse_fps_with_migration(VitaChiakiConfig *cfg,
   apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
 }
 
-void parse_latency_mode_with_migration(VitaChiakiConfig *cfg,
-                                       toml_table_t *settings,
-                                       toml_table_t *parsed,
-                                       bool *migrated_legacy_settings,
+void parse_latency_mode_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
+                                       toml_table_t *parsed, bool *migrated_legacy_settings,
                                        bool *migrated_root_settings) {
   toml_datum_t datum;
   char *str_value = NULL;

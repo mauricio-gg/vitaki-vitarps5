@@ -68,7 +68,8 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
       if (context.config.num_registered_hosts >= MAX_REGISTERED_HOSTS) {
         LOGE("Max registered hosts reached; could not persist new registration.");
       } else {
-        context.config.registered_hosts[context.config.num_registered_hosts++] = context.active_host;
+        context.config.registered_hosts[context.config.num_registered_hosts++] =
+            context.active_host;
       }
     }
 
@@ -79,7 +80,7 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
   chiaki_regist_fini(&regist);
 }
 
-int host_register(VitaChiakiHost* host, int pin) {
+int host_register(VitaChiakiHost *host, int pin) {
   if (!host->hostname || !host->discovery_state) {
     return 1;
   }
@@ -90,10 +91,9 @@ int host_register(VitaChiakiHost* host, int pin) {
   ChiakiRegistInfo regist_info = {};
   regist_info.target = host->target;
   size_t account_id_size = sizeof(uint8_t[CHIAKI_PSN_ACCOUNT_ID_SIZE]);
-  ChiakiErrorCode decode_err = chiaki_base64_decode(context.config.psn_account_id,
-                                                    strlen(context.config.psn_account_id),
-                                                    regist_info.psn_account_id,
-                                                    &(account_id_size));
+  ChiakiErrorCode decode_err =
+      chiaki_base64_decode(context.config.psn_account_id, strlen(context.config.psn_account_id),
+                           regist_info.psn_account_id, &(account_id_size));
   if (decode_err != CHIAKI_ERR_SUCCESS || account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
     LOGE("Failed to decode PSN account id for registration: %s", chiaki_error_string(decode_err));
     return 1;
@@ -106,7 +106,7 @@ int host_register(VitaChiakiHost* host, int pin) {
   return 0;
 }
 
-int host_wakeup(VitaChiakiHost* host) {
+int host_wakeup(VitaChiakiHost *host) {
   if (!host) {
     LOGE("Missing host. Cannot send wakeup signal.");
     return 1;
@@ -127,23 +127,18 @@ int host_wakeup(VitaChiakiHost* host) {
   char *parse_end = NULL;
   uint64_t credential = (uint64_t)strtoull(host->registered_state->rp_regist_key, &parse_end, 16);
   if (parse_end == host->registered_state->rp_regist_key || *parse_end != '\0') {
-    LOGE("Invalid wake credential format for %s: \"%s\"",
-         host->hostname,
+    LOGE("Invalid wake credential format for %s: \"%s\"", host->hostname,
          host->registered_state->rp_regist_key);
     return 1;
   }
 
   bool is_ps5 = chiaki_target_is_ps5(host->target);
-  LOGD("Attempting wake signal to %s (target=%s, discovery_enabled=%d)",
-       host->hostname,
-       is_ps5 ? "PS5" : "PS4",
-       context.discovery_enabled ? 1 : 0);
+  LOGD("Attempting wake signal to %s (target=%s, discovery_enabled=%d)", host->hostname,
+       is_ps5 ? "PS5" : "PS4", context.discovery_enabled ? 1 : 0);
 
-  ChiakiErrorCode wake_err = chiaki_discovery_wakeup(&context.log,
-                                                     context.discovery_enabled ? &context.discovery.discovery : NULL,
-                                                     host->hostname,
-                                                     credential,
-                                                     is_ps5);
+  ChiakiErrorCode wake_err = chiaki_discovery_wakeup(
+      &context.log, context.discovery_enabled ? &context.discovery.discovery : NULL, host->hostname,
+      credential, is_ps5);
   if (wake_err != CHIAKI_ERR_SUCCESS) {
     LOGE("Wake signal failed for %s: %s", host->hostname, chiaki_error_string(wake_err));
     return 1;

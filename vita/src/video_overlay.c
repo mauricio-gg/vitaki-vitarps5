@@ -15,7 +15,7 @@
 
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
 #define STREAM_EXIT_HINT_VISIBLE_US (5 * 1000 * 1000ULL)
-#define STREAM_EXIT_HINT_FADE_US    (500 * 1000ULL)
+#define STREAM_EXIT_HINT_FADE_US (500 * 1000ULL)
 
 enum {
   SCREEN_WIDTH = 960,
@@ -32,7 +32,7 @@ static indicator_status poor_net_indicator = {0};
 static uint64_t stream_exit_hint_start_us = 0;
 static bool stream_exit_hint_visible_this_frame = false;
 
-extern vita2d_font* font;
+extern vita2d_font *font;
 
 static void draw_pill(int x, int y, int width, int height, uint32_t color) {
   if (height <= 0 || width <= 0)
@@ -72,14 +72,13 @@ static void draw_indicators(void) {
     return;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (!context.stream.loss_alert_until_us ||
-      now_us >= context.stream.loss_alert_until_us) {
+  if (!context.stream.loss_alert_until_us || now_us >= context.stream.loss_alert_until_us) {
     poor_net_indicator.activated = false;
     return;
   }
 
-  uint64_t duration = context.stream.loss_alert_duration_us ?
-      context.stream.loss_alert_duration_us : VIDEO_LOSS_ALERT_DEFAULT_US;
+  uint64_t duration = context.stream.loss_alert_duration_us ? context.stream.loss_alert_duration_us
+                                                            : VIDEO_LOSS_ALERT_DEFAULT_US;
   uint64_t remaining = context.stream.loss_alert_until_us - now_us;
   float alpha_ratio = duration ? (float)remaining / (float)duration : 0.0f;
   if (alpha_ratio < 0.0f)
@@ -109,8 +108,8 @@ static void draw_indicators(void) {
 
   int text_x = dot_x + dot_radius + 10;
   int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y,
-                        RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL, headline);
+  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
+                        headline);
 }
 
 static void draw_stream_exit_hint(void) {
@@ -179,8 +178,8 @@ static void draw_stream_stats_panel(void) {
   }
 
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  uint32_t target_fps = context.stream.target_fps ?
-                        context.stream.target_fps : context.stream.negotiated_fps;
+  uint32_t target_fps =
+      context.stream.target_fps ? context.stream.target_fps : context.stream.negotiated_fps;
   if (incoming_fps > 0 && target_fps > 0) {
     snprintf(fps_value, sizeof(fps_value), "%u / %u", incoming_fps, target_fps);
   } else if (incoming_fps > 0) {
@@ -202,13 +201,16 @@ static void draw_stream_stats_panel(void) {
   for (int i = 0; i < row_count; i++) {
     int label_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, labels[i]);
     int value_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, values[i]);
-    if (label_w > label_col_w) label_col_w = label_w;
-    if (value_w > value_col_w) value_col_w = value_w;
+    if (label_w > label_col_w)
+      label_col_w = label_w;
+    if (value_w > value_col_w)
+      value_col_w = value_w;
   }
   int title_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, title);
 
   int content_w = label_col_w + col_gap + value_col_w;
-  if (title_w > content_w) content_w = title_w;
+  if (title_w > content_w)
+    content_w = title_w;
 
   int box_w = content_w + (padding_x * 2);
   int box_h = padding_y + title_h + (row_count * line_h) + padding_y;
@@ -223,10 +225,10 @@ static void draw_stream_stats_panel(void) {
   for (int i = 0; i < row_count; i++) {
     int value_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, values[i]);
     int value_x = box_x + box_w - padding_x - value_w;
-    vita2d_font_draw_text(font, box_x + padding_x, row_y,
-                          RGBA8(0xB8, 0xC1, 0xCC, 255), FONT_SIZE_SMALL, labels[i]);
-    vita2d_font_draw_text(font, value_x, row_y,
-                          RGBA8(0xFF, 0xFF, 0xFF, 255), FONT_SIZE_SMALL, values[i]);
+    vita2d_font_draw_text(font, box_x + padding_x, row_y, RGBA8(0xB8, 0xC1, 0xCC, 255),
+                          FONT_SIZE_SMALL, labels[i]);
+    vita2d_font_draw_text(font, value_x, row_y, RGBA8(0xFF, 0xFF, 0xFF, 255), FONT_SIZE_SMALL,
+                          values[i]);
     row_y += line_h;
   }
 }

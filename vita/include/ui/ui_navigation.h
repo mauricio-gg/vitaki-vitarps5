@@ -167,7 +167,8 @@ bool ui_nav_handle_pill_touch(float x, float y);
  * @param allow_dpad True to enable D-pad navigation handling
  * @return true if navigation action was taken (screen change)
  */
-bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen, bool allow_dpad);
+bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen,
+                             bool allow_dpad);
 
 // ============================================================================
 // Update Functions

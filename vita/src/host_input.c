@@ -25,7 +25,8 @@ typedef struct mapped_touch_slot_t {
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
-static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
+static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in,
+                           bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_l2 == ctrl_in) {
     stream->controller_state.l2_state = 0xff;
@@ -41,7 +42,8 @@ static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool 
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
-static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in, bool *mapped_to_touchpad) {
+static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in,
+                           bool *mapped_to_touchpad) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_r2 == ctrl_in) {
     stream->controller_state.r2_state = 0xff;
@@ -72,7 +74,8 @@ static VitakiCtrlIn front_grid_input_from_touch(int x, int y, int max_w, int max
     row = 0;
   if (row >= VITAKI_FRONT_TOUCH_GRID_ROWS)
     row = VITAKI_FRONT_TOUCH_GRID_ROWS - 1;
-  return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS + col);
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS +
+                        col);
 }
 
 static VitakiCtrlIn rear_grid_input_from_touch(int x, int y, int max_w, int max_h) {
@@ -92,7 +95,8 @@ static VitakiCtrlIn rear_grid_input_from_touch(int x, int y, int max_w, int max_
     row = 0;
   if (row >= VITAKI_REAR_TOUCH_GRID_ROWS)
     row = VITAKI_REAR_TOUCH_GRID_ROWS - 1;
-  return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + row * VITAKI_REAR_TOUCH_GRID_COLS + col);
+  return (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + row * VITAKI_REAR_TOUCH_GRID_COLS +
+                        col);
 }
 
 static uint16_t map_touchpad_x(int x, int max_x) {
@@ -115,7 +119,7 @@ static uint16_t map_touchpad_y(int y, int max_y) {
   return (uint16_t)((y * (CHIAKI_TOUCHPAD_HEIGHT - 1)) / max_y);
 }
 
-void *host_input_thread_func(void* user) {
+void *host_input_thread_func(void *user) {
   sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 96);
   sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
 
@@ -129,31 +133,37 @@ void *host_input_thread_func(void* user) {
 
   VitakiCtrlMapInfo vcmi = stream->vcmi;
 
-  if (!vcmi.did_init) init_controller_map(&vcmi, context.config.controller_map_id);
+  if (!vcmi.did_init)
+    init_controller_map(&vcmi, context.config.controller_map_id);
 
   sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_BACK);
   SceTouchData touch[SCE_TOUCH_PORT_MAX_NUM];
-  MappedTouchSlot mapped_touch_slots[CHIAKI_CONTROLLER_TOUCHES_MAX] = { 0 };
+  MappedTouchSlot mapped_touch_slots[CHIAKI_CONTROLLER_TOUCHES_MAX] = {0};
   int TOUCH_MAX_WIDTH = 1919;
   int TOUCH_MAX_HEIGHT = 1087;
-  int TOUCH_MAX_WIDTH_BY_2 = TOUCH_MAX_WIDTH/2;
-  int TOUCH_MAX_HEIGHT_BY_2 = TOUCH_MAX_HEIGHT/2;
-  int TOUCH_MAX_WIDTH_BY_4 = TOUCH_MAX_WIDTH/4;
-  int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT/4;
-  int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT/3;
-  int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS*FRONT_ARC_RADIUS;
+  int TOUCH_MAX_WIDTH_BY_2 = TOUCH_MAX_WIDTH / 2;
+  int TOUCH_MAX_HEIGHT_BY_2 = TOUCH_MAX_HEIGHT / 2;
+  int TOUCH_MAX_WIDTH_BY_4 = TOUCH_MAX_WIDTH / 4;
+  int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT / 4;
+  int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT / 3;
+  int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS * FRONT_ARC_RADIUS;
   uint8_t pending_touchpad_click_frames = 0;
   for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++)
     mapped_touch_slots[slot_i].chiaki_touch_id = -1;
 
-  bool vitaki_reartouch_left_l1_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT_L1] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
-  bool vitaki_reartouch_right_r1_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
+  bool vitaki_reartouch_left_l1_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_LEFT_L1] != 0) ||
+                                         (vcmi.in_l2 == VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
+  bool vitaki_reartouch_right_r1_mapped =
+      (vcmi.in_out_btn[VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1] != 0) ||
+      (vcmi.in_r2 == VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
   bool vitaki_select_start_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_SELECT_START] != 0);
-  bool vitaki_left_square_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] != 0) || (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
-  bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) || (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
+  bool vitaki_left_square_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] != 0) ||
+                                   (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
+  bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) ||
+                                    (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
 
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;
@@ -174,17 +184,16 @@ void *host_input_thread_func(void* user) {
       uint64_t now_us = sceKernelGetProcessTimeWide();
       if (!context.stream.inputs_blocked_since_us)
         context.stream.inputs_blocked_since_us = now_us;
-      uint64_t delta_since_block =
-          now_us - context.stream.inputs_blocked_since_us;
+      uint64_t delta_since_block = now_us - context.stream.inputs_blocked_since_us;
       uint64_t delta_since_send =
-          context.stream.last_input_packet_us ?
-          (now_us - context.stream.last_input_packet_us) : 0;
+          context.stream.last_input_packet_us ? (now_us - context.stream.last_input_packet_us) : 0;
       uint64_t observed = delta_since_send ? delta_since_send : delta_since_block;
       if (observed >= INPUT_STALL_THRESHOLD_US) {
         if (!context.stream.last_input_stall_log_us ||
             now_us - context.stream.last_input_stall_log_us >= INPUT_STALL_LOG_INTERVAL_US) {
           float ms = (float)observed / 1000.0f;
-          LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last activity)", ms);
+          LOGD("INPUT THREAD: controller packets waiting for Chiaki (%.2f ms since last activity)",
+               ms);
           context.stream.last_input_stall_log_us = now_us;
         }
       }
@@ -197,8 +206,7 @@ void *host_input_thread_func(void* user) {
 
       sceCtrlPeekBufferPositive(0, &ctrl, 1);
 
-      bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) &&
-                        (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
+      bool exit_combo = (ctrl.buttons & SCE_CTRL_LTRIGGER) && (ctrl.buttons & SCE_CTRL_RTRIGGER) &&
                         (ctrl.buttons & SCE_CTRL_START);
       if (exit_combo && stream->session_init && !stream->stop_requested) {
         exit_combo_hold++;
@@ -216,7 +224,7 @@ void *host_input_thread_func(void* user) {
         continue;
       }
 
-      for(int port = 0; port < SCE_TOUCH_PORT_MAX_NUM; port++) {
+      for (int port = 0; port < SCE_TOUCH_PORT_MAX_NUM; port++) {
         sceTouchPeek(port, &touch[port], 1);
       }
 
@@ -249,7 +257,7 @@ void *host_input_thread_func(void* user) {
 
       bool reartouch_right = false;
       bool reartouch_left = false;
-      bool mapped_touch_seen[CHIAKI_CONTROLLER_TOUCHES_MAX] = { false };
+      bool mapped_touch_seen[CHIAKI_CONTROLLER_TOUCHES_MAX] = {false};
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_BACK].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_BACK].report[touch_i].x;
@@ -263,7 +271,8 @@ void *host_input_thread_func(void* user) {
           reartouch_left = true;
         }
 
-        VitakiCtrlIn grid_input = rear_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        VitakiCtrlIn grid_input =
+            rear_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
         if (grid_input != VITAKI_CTRL_IN_NONE && grid_input < VITAKI_CTRL_IN_COUNT) {
           VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
           if (mapped == VITAKI_CTRL_OUT_L2) {
@@ -287,7 +296,8 @@ void *host_input_thread_func(void* user) {
           stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY];
         }
 
-        VitakiCtrlIn grid_input = front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        VitakiCtrlIn grid_input =
+            front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
         if (grid_input != VITAKI_CTRL_IN_NONE) {
           VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
           if (mapped == VITAKI_CTRL_OUT_L2) {
@@ -304,24 +314,26 @@ void *host_input_thread_func(void* user) {
         if (x > TOUCH_MAX_WIDTH_BY_2) {
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT, &mapped_to_touchpad);
 
-          if (y*y + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
+          if (y * y + (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
             set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC, &mapped_to_touchpad);
-          } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + (x-TOUCH_MAX_WIDTH)*(x-TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
+          } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) +
+                         (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <=
+                     FRONT_ARC_RADIUS_2) {
             set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC, &mapped_to_touchpad);
           }
         } else if (x < TOUCH_MAX_WIDTH_BY_2) {
           set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT, &mapped_to_touchpad);
 
-          if (y*y + x*x <= FRONT_ARC_RADIUS_2) {
+          if (y * y + x * x <= FRONT_ARC_RADIUS_2) {
             set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC, &mapped_to_touchpad);
-          } else if ((y-TOUCH_MAX_HEIGHT)*(y-TOUCH_MAX_HEIGHT) + x*x <= FRONT_ARC_RADIUS_2) {
+          } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) + x * x <=
+                     FRONT_ARC_RADIUS_2) {
             set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC, &mapped_to_touchpad);
           }
         }
 
-        if ((x >= TOUCH_MAX_WIDTH_BY_4) && (x <= TOUCH_MAX_WIDTH - TOUCH_MAX_WIDTH_BY_4)
-            && (y >= TOUCH_MAX_HEIGHT_BY_4) && (y <= TOUCH_MAX_HEIGHT - TOUCH_MAX_HEIGHT_BY_4)
-            ) {
+        if ((x >= TOUCH_MAX_WIDTH_BY_4) && (x <= TOUCH_MAX_WIDTH - TOUCH_MAX_WIDTH_BY_4) &&
+            (y >= TOUCH_MAX_HEIGHT_BY_4) && (y <= TOUCH_MAX_HEIGHT - TOUCH_MAX_HEIGHT_BY_4)) {
           if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] == VITAKI_CTRL_OUT_TOUCHPAD) {
             mapped_to_touchpad = true;
           } else {
@@ -335,7 +347,8 @@ void *host_input_thread_func(void* user) {
           int slot_index = -1;
 
           for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
-            if (mapped_touch_slots[slot_i].active && mapped_touch_slots[slot_i].vita_touch_id == vita_touch_id) {
+            if (mapped_touch_slots[slot_i].active &&
+                mapped_touch_slots[slot_i].vita_touch_id == vita_touch_id) {
               slot_index = slot_i;
               break;
             }
@@ -344,9 +357,8 @@ void *host_input_thread_func(void* user) {
           if (slot_index < 0) {
             for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
               if (!mapped_touch_slots[slot_i].active) {
-                int8_t chiaki_touch_id = chiaki_controller_state_start_touch(&stream->controller_state,
-                                                                              touchpad_x,
-                                                                              touchpad_y);
+                int8_t chiaki_touch_id = chiaki_controller_state_start_touch(
+                    &stream->controller_state, touchpad_x, touchpad_y);
                 if (chiaki_touch_id >= 0) {
                   mapped_touch_slots[slot_i].active = true;
                   mapped_touch_slots[slot_i].vita_touch_id = vita_touch_id;
@@ -371,10 +383,9 @@ void *host_input_thread_func(void* user) {
               dy = -dy;
             if (dx > TOUCHPAD_TAP_MOVE_THRESHOLD || dy > TOUCHPAD_TAP_MOVE_THRESHOLD)
               mapped_touch_slots[slot_index].moved = true;
-            chiaki_controller_state_set_touch_pos(&stream->controller_state,
-                                                  (uint8_t)mapped_touch_slots[slot_index].chiaki_touch_id,
-                                                  touchpad_x,
-                                                  touchpad_y);
+            chiaki_controller_state_set_touch_pos(
+                &stream->controller_state, (uint8_t)mapped_touch_slots[slot_index].chiaki_touch_id,
+                touchpad_x, touchpad_y);
           }
 
           if (slot_index >= 0)
@@ -384,7 +395,8 @@ void *host_input_thread_func(void* user) {
 
       for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
         if (mapped_touch_slots[slot_i].active && !mapped_touch_seen[slot_i]) {
-          if (!mapped_touch_slots[slot_i].moved && pending_touchpad_click_frames < TOUCHPAD_CLICK_PULSE_FRAMES)
+          if (!mapped_touch_slots[slot_i].moved &&
+              pending_touchpad_click_frames < TOUCHPAD_CLICK_PULSE_FRAMES)
             pending_touchpad_click_frames = TOUCHPAD_CLICK_PULSE_FRAMES;
           if (mapped_touch_slots[slot_i].chiaki_touch_id >= 0) {
             chiaki_controller_state_stop_touch(&stream->controller_state,
@@ -399,18 +411,30 @@ void *host_input_thread_func(void* user) {
         }
       }
 
-      if (ctrl.buttons & SCE_CTRL_SELECT)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_SHARE;
-      if (ctrl.buttons & SCE_CTRL_START)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_OPTIONS;
-      if (ctrl.buttons & SCE_CTRL_UP)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_UP;
-      if (ctrl.buttons & SCE_CTRL_RIGHT)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
-      if (ctrl.buttons & SCE_CTRL_DOWN)     stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN;
-      if (ctrl.buttons & SCE_CTRL_LEFT)     stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
-      if (ctrl.buttons & SCE_CTRL_TRIANGLE) stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PYRAMID;
-      if (ctrl.buttons & SCE_CTRL_CIRCLE)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_MOON;
-      if (ctrl.buttons & SCE_CTRL_CROSS)    stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_CROSS;
-      if (ctrl.buttons & SCE_CTRL_SQUARE)   stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_BOX;
-      if (ctrl.buttons & SCE_CTRL_L3)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_L3;
-      if (ctrl.buttons & SCE_CTRL_R3)       stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_R3;
+      if (ctrl.buttons & SCE_CTRL_SELECT)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_SHARE;
+      if (ctrl.buttons & SCE_CTRL_START)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_OPTIONS;
+      if (ctrl.buttons & SCE_CTRL_UP)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_UP;
+      if (ctrl.buttons & SCE_CTRL_RIGHT)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
+      if (ctrl.buttons & SCE_CTRL_DOWN)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN;
+      if (ctrl.buttons & SCE_CTRL_LEFT)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
+      if (ctrl.buttons & SCE_CTRL_TRIANGLE)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_PYRAMID;
+      if (ctrl.buttons & SCE_CTRL_CIRCLE)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_MOON;
+      if (ctrl.buttons & SCE_CTRL_CROSS)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_CROSS;
+      if (ctrl.buttons & SCE_CTRL_SQUARE)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_BOX;
+      if (ctrl.buttons & SCE_CTRL_L3)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_L3;
+      if (ctrl.buttons & SCE_CTRL_R3)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_R3;
 
       if (ctrl.buttons & SCE_CTRL_LTRIGGER) {
         if (reartouch_left && vitaki_reartouch_left_l1_mapped) {

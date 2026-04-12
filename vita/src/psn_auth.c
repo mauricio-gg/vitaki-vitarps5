@@ -20,12 +20,11 @@
 #define VITARPS5_PSN_OAUTH_DEVICE_CODE_URL ""
 #endif
 #ifndef VITARPS5_PSN_OAUTH_AUTHORIZE_URL
-#define VITARPS5_PSN_OAUTH_AUTHORIZE_URL                                          \
+#define VITARPS5_PSN_OAUTH_AUTHORIZE_URL \
   "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_TOKEN_URL
-#define VITARPS5_PSN_OAUTH_TOKEN_URL                                              \
-  "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token"
+#define VITARPS5_PSN_OAUTH_TOKEN_URL "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_ID
 #define VITARPS5_PSN_OAUTH_CLIENT_ID "ba495a24-818c-472b-b12d-ff231c1b5745"
@@ -34,14 +33,13 @@
 #define VITARPS5_PSN_OAUTH_CLIENT_SECRET "mvaiZkRsAsI1IBkY"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_SCOPE
-#define VITARPS5_PSN_OAUTH_SCOPE                                                  \
-  "psn:clientapp referenceDataService:countryConfig.read "                        \
-  "pushNotification:webSocket.desktop.connect "                                   \
+#define VITARPS5_PSN_OAUTH_SCOPE                           \
+  "psn:clientapp referenceDataService:countryConfig.read " \
+  "pushNotification:webSocket.desktop.connect "            \
   "sessionManager:remotePlaySession.system.update"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_REDIRECT_URI
-#define VITARPS5_PSN_OAUTH_REDIRECT_URI \
-  "https://remoteplay.dl.playstation.net/remoteplay/redirect"
+#define VITARPS5_PSN_OAUTH_REDIRECT_URI "https://remoteplay.dl.playstation.net/remoteplay/redirect"
 #endif
 
 #define TOKEN_EXPIRY_SKEW_SEC 90ULL
@@ -141,8 +139,7 @@ bool psn_auth_token_is_valid(uint64_t now_unix) {
       context.config.psn_oauth_expires_at_unix == 0) {
     return false;
   }
-  return now_unix + TOKEN_EXPIRY_SKEW_SEC <
-         context.config.psn_oauth_expires_at_unix;
+  return now_unix + TOKEN_EXPIRY_SKEW_SEC < context.config.psn_oauth_expires_at_unix;
 }
 
 const char *psn_auth_access_token(void) {
@@ -176,8 +173,7 @@ static bool ensure_client_duid(void) {
 
   uint8_t random_bytes[PSN_CLIENT_DUID_RANDOM_BYTES];
   char duid[PSN_CLIENT_DUID_SIZE];
-  if (chiaki_random_bytes_crypt(random_bytes, sizeof(random_bytes)) !=
-      CHIAKI_ERR_SUCCESS) {
+  if (chiaki_random_bytes_crypt(random_bytes, sizeof(random_bytes)) != CHIAKI_ERR_SUCCESS) {
     LOGE("PSN auth: failed to generate client DUID");
     return false;
   }
@@ -206,8 +202,7 @@ static void *auth_realloc(void *ptr, size_t new_size) {
   return realloc(ptr, new_size);
 }
 
-static size_t auth_write_cb(void *contents, size_t size, size_t nmemb,
-                            void *userp) {
+static size_t auth_write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
   size_t append = size * nmemb;
   HttpBuffer *buf = (HttpBuffer *)userp;
   if (!buf || append == 0)
@@ -217,8 +212,7 @@ static size_t auth_write_cb(void *contents, size_t size, size_t nmemb,
   if (!next) {
     if (!buf->truncated) {
       buf->truncated = true;
-      LOGE("PSN auth HTTP response exceeded %u bytes; truncating",
-           (unsigned)RESPONSE_CAP_BYTES);
+      LOGE("PSN auth HTTP response exceeded %u bytes; truncating", (unsigned)RESPONSE_CAP_BYTES);
     }
     /* Return full chunk size so libcurl does not abort with CURLE_WRITE_ERROR.
      * Overflow bytes are intentionally discarded. */
@@ -231,15 +225,14 @@ static size_t auth_write_cb(void *contents, size_t size, size_t nmemb,
   return append;
 }
 
-static bool append_form_kv(CURL *curl, char *dst, size_t dst_size, size_t *off,
-                           const char *key, const char *value) {
+static bool append_form_kv(CURL *curl, char *dst, size_t dst_size, size_t *off, const char *key,
+                           const char *value) {
   if (!curl || !dst || !off || !key || !has_text(value))
     return true;
   char *enc = curl_easy_escape(curl, value, 0);
   if (!enc)
     return false;
-  int wrote = snprintf(dst + *off, dst_size - *off, "%s%s=%s",
-                       (*off > 0) ? "&" : "", key, enc);
+  int wrote = snprintf(dst + *off, dst_size - *off, "%s%s=%s", (*off > 0) ? "&" : "", key, enc);
   curl_free(enc);
   if (wrote < 0 || (size_t)wrote >= dst_size - *off)
     return false;
@@ -247,8 +240,8 @@ static bool append_form_kv(CURL *curl, char *dst, size_t dst_size, size_t *off,
   return true;
 }
 
-static bool parse_url_host_port(const char *url, char *host, size_t host_size,
-                                char *port, size_t port_size) {
+static bool parse_url_host_port(const char *url, char *host, size_t host_size, char *port,
+                                size_t port_size) {
   const char *scheme_end;
   const char *host_start;
   const char *host_end;
@@ -265,13 +258,11 @@ static bool parse_url_host_port(const char *url, char *host, size_t host_size,
     if (!host_end)
       return false;
     if (host_end[1] == ':')
-      snprintf(port, port_size, "%.*s",
-               (int)strcspn(host_end + 2, "/?#"), host_end + 2);
+      snprintf(port, port_size, "%.*s", (int)strcspn(host_end + 2, "/?#"), host_end + 2);
   } else {
     host_end = host_start + strcspn(host_start, ":/?#");
     if (*host_end == ':')
-      snprintf(port, port_size, "%.*s",
-               (int)strcspn(host_end + 1, "/?#"), host_end + 1);
+      snprintf(port, port_size, "%.*s", (int)strcspn(host_end + 1, "/?#"), host_end + 1);
   }
 
   if ((size_t)(host_end - host_start) >= host_size)
@@ -280,8 +271,7 @@ static bool parse_url_host_port(const char *url, char *host, size_t host_size,
   return has_text(host);
 }
 
-static void log_sockaddr_text(const struct sockaddr *addr, char *buf,
-                              size_t buf_size) {
+static void log_sockaddr_text(const struct sockaddr *addr, char *buf, size_t buf_size) {
   void *src = NULL;
   if (!addr || !buf || buf_size == 0) {
     return;
@@ -317,8 +307,8 @@ static void log_oauth_transport_probe(const char *url) {
   hints.ai_family = AF_UNSPEC;
   gai_rc = getaddrinfo(host, port, &hints, &res);
   if (gai_rc != 0) {
-    LOGE("PSN auth probe getaddrinfo failed host=%s port=%s rc=%d (%s)",
-         host, port, gai_rc, gai_strerror(gai_rc));
+    LOGE("PSN auth probe getaddrinfo failed host=%s port=%s rc=%d (%s)", host, port, gai_rc,
+         gai_strerror(gai_rc));
     return;
   }
 
@@ -327,13 +317,12 @@ static void log_oauth_transport_probe(const char *url) {
     int sock_fd;
     int rc;
     log_sockaddr_text(ai->ai_addr, addr_buf, sizeof(addr_buf));
-    LOGD("PSN auth probe candidate family=%d socktype=%d proto=%d addr=%s",
-         ai->ai_family, ai->ai_socktype, ai->ai_protocol, addr_buf);
+    LOGD("PSN auth probe candidate family=%d socktype=%d proto=%d addr=%s", ai->ai_family,
+         ai->ai_socktype, ai->ai_protocol, addr_buf);
 
     sock_fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
     if (sock_fd < 0) {
-      LOGE("PSN auth probe socket failed host=%s addr=%s errno=%d",
-           host, addr_buf, errno);
+      LOGE("PSN auth probe socket failed host=%s addr=%s errno=%d", host, addr_buf, errno);
       continue;
     }
 
@@ -341,8 +330,7 @@ static void log_oauth_transport_probe(const char *url) {
     if (rc == 0) {
       LOGD("PSN auth probe TCP connect succeeded host=%s addr=%s", host, addr_buf);
     } else {
-      LOGE("PSN auth probe TCP connect failed host=%s addr=%s errno=%d",
-           host, addr_buf, errno);
+      LOGE("PSN auth probe TCP connect failed host=%s addr=%s errno=%d", host, addr_buf, errno);
     }
     close(sock_fd);
   }
@@ -358,8 +346,8 @@ static void log_oauth_transport_probe(const char *url) {
  * generate a support bundle — credentials and tokens will leak.
  */
 #ifdef VITARPS5_DEBUG_OAUTH
-static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
-                               size_t size, void *userp) {
+static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data, size_t size,
+                               void *userp) {
   (void)handle;
   CurlDebugContext *ctx = (CurlDebugContext *)userp;
   const char *url = (ctx && ctx->url) ? ctx->url : "<unknown>";
@@ -367,37 +355,36 @@ static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
     return 0;
 
   switch (type) {
-  case CURLINFO_TEXT:
-    LOGD("PSN auth curl info url=%s text=%.*s", url, (int)size, data);
-    break;
-  case CURLINFO_HEADER_OUT:
-    LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)size, data);
-    break;
-  case CURLINFO_HEADER_IN:
-    LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)size, data);
-    break;
-  case CURLINFO_SSL_DATA_OUT:
-    LOGD("PSN auth curl ssl_data_out url=%s size=%u", url, (unsigned)size);
-    break;
-  case CURLINFO_SSL_DATA_IN:
-    LOGD("PSN auth curl ssl_data_in url=%s size=%u", url, (unsigned)size);
-    break;
-  case CURLINFO_DATA_OUT:
-    LOGD("PSN auth curl data_out url=%s size=%u", url, (unsigned)size);
-    break;
-  case CURLINFO_DATA_IN:
-    LOGD("PSN auth curl data_in url=%s size=%u", url, (unsigned)size);
-    break;
-  default:
-    break;
+    case CURLINFO_TEXT:
+      LOGD("PSN auth curl info url=%s text=%.*s", url, (int)size, data);
+      break;
+    case CURLINFO_HEADER_OUT:
+      LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)size, data);
+      break;
+    case CURLINFO_HEADER_IN:
+      LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)size, data);
+      break;
+    case CURLINFO_SSL_DATA_OUT:
+      LOGD("PSN auth curl ssl_data_out url=%s size=%u", url, (unsigned)size);
+      break;
+    case CURLINFO_SSL_DATA_IN:
+      LOGD("PSN auth curl ssl_data_in url=%s size=%u", url, (unsigned)size);
+      break;
+    case CURLINFO_DATA_OUT:
+      LOGD("PSN auth curl data_out url=%s size=%u", url, (unsigned)size);
+      break;
+    case CURLINFO_DATA_IN:
+      LOGD("PSN auth curl data_in url=%s size=%u", url, (unsigned)size);
+      break;
+    default:
+      break;
   }
   return 0;
 }
 #endif /* VITARPS5_DEBUG_OAUTH */
 
-static bool oauth_post_form(const char *url, const char *form_data,
-                            const char *basic_user, const char *basic_pass,
-                            long *http_code_out, char **response_out) {
+static bool oauth_post_form(const char *url, const char *form_data, const char *basic_user,
+                            const char *basic_pass, long *http_code_out, char **response_out) {
   if (!has_text(url) || !has_text(form_data))
     return false;
 
@@ -419,20 +406,17 @@ static bool oauth_post_form(const char *url, const char *form_data,
   char *local_ip = NULL;
   FILE *ca_file = NULL;
 
-  if (!curl)
-  {
+  if (!curl) {
     LOGE("PSN auth HTTP init failed for %s", url ? url : "<null>");
     goto cleanup;
   }
 
-  headers = curl_slist_append(headers,
-                              "Content-Type: application/x-www-form-urlencoded");
+  headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
   headers = curl_slist_append(headers, "Accept: application/json");
 
   ca_file = fopen(PSN_CA_BUNDLE_PATH, "rb");
   if (!ca_file) {
-    LOGE("PSN auth CA bundle open failed path=%s errno=%d",
-         PSN_CA_BUNDLE_PATH, errno);
+    LOGE("PSN auth CA bundle open failed path=%s errno=%d", PSN_CA_BUNDLE_PATH, errno);
     goto cleanup;
   }
   fclose(ca_file);
@@ -460,16 +444,13 @@ static bool oauth_post_form(const char *url, const char *form_data,
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, auth_write_cb);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
-  LOGD("PSN auth HTTP POST url=%s cafile=%s basic_user=%s basic_pass_present=%s form_len=%u",
-       url,
-       PSN_CA_BUNDLE_PATH,
-       has_text(basic_user) ? basic_user : "<none>",
-       has_text(basic_pass) ? "true" : "false",
-       (unsigned)strlen(form_data));
+  LOGD("PSN auth HTTP POST url=%s cafile=%s basic_user=%s basic_pass_present=%s form_len=%u", url,
+       PSN_CA_BUNDLE_PATH, has_text(basic_user) ? basic_user : "<none>",
+       has_text(basic_pass) ? "true" : "false", (unsigned)strlen(form_data));
   log_oauth_transport_probe(url);
   curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
-  LOGD("PSN auth curl preflight url=%s ipresolve=v4 timeout=15 verify_peer_result=%ld",
-       url, verify_peer);
+  LOGD("PSN auth curl preflight url=%s ipresolve=v4 timeout=15 verify_peer_result=%ld", url,
+       verify_peer);
 
   CURLcode perform_res = curl_easy_perform(curl);
   curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);
@@ -480,43 +461,31 @@ static bool oauth_post_form(const char *url, const char *form_data,
   if (perform_res != CURLE_OK) {
     curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
     curl_easy_getinfo(curl, CURLINFO_HTTPAUTH_AVAIL, &verify_host);
-    LOGE("PSN auth HTTP transport failed url=%s effective_url=%s curl=%d (%s) errbuf=%s primary_ip=%s primary_port=%ld local_ip=%s local_port=%ld ssl_verify_result=%ld httpauth_avail=%ld response_len=%u truncated=%s",
-         url,
-         effective_url ? effective_url : "<none>",
-         (int)perform_res,
-         curl_easy_strerror(perform_res),
-         error_buf[0] ? error_buf : "<empty>",
-         primary_ip ? primary_ip : "<none>",
-         primary_port,
-         local_ip ? local_ip : "<none>",
-         local_port,
-         verify_peer,
-         verify_host,
-         (unsigned)response.len,
-         response.truncated ? "true" : "false");
+    LOGE(
+        "PSN auth HTTP transport failed url=%s effective_url=%s curl=%d (%s) errbuf=%s "
+        "primary_ip=%s primary_port=%ld local_ip=%s local_port=%ld ssl_verify_result=%ld "
+        "httpauth_avail=%ld response_len=%u truncated=%s",
+        url, effective_url ? effective_url : "<none>", (int)perform_res,
+        curl_easy_strerror(perform_res), error_buf[0] ? error_buf : "<empty>",
+        primary_ip ? primary_ip : "<none>", primary_port, local_ip ? local_ip : "<none>",
+        local_port, verify_peer, verify_host, (unsigned)response.len,
+        response.truncated ? "true" : "false");
     goto cleanup;
   }
   CURLcode info_res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
   if (info_res != CURLE_OK) {
-    LOGE("PSN auth HTTP status lookup failed url=%s curl=%d (%s) response_len=%u truncated=%s",
-         url,
-         (int)info_res,
-         curl_easy_strerror(info_res),
-         (unsigned)response.len,
+    LOGE("PSN auth HTTP status lookup failed url=%s curl=%d (%s) response_len=%u truncated=%s", url,
+         (int)info_res, curl_easy_strerror(info_res), (unsigned)response.len,
          response.truncated ? "true" : "false");
     goto cleanup;
   }
 
-  LOGD("PSN auth HTTP response url=%s effective_url=%s primary_ip=%s primary_port=%ld local_ip=%s local_port=%ld status=%ld response_len=%u truncated=%s",
-       url,
-       effective_url ? effective_url : "<none>",
-       primary_ip ? primary_ip : "<none>",
-       primary_port,
-       local_ip ? local_ip : "<none>",
-       local_port,
-       http_code,
-       (unsigned)response.len,
-       response.truncated ? "true" : "false");
+  LOGD(
+      "PSN auth HTTP response url=%s effective_url=%s primary_ip=%s primary_port=%ld local_ip=%s "
+      "local_port=%ld status=%ld response_len=%u truncated=%s",
+      url, effective_url ? effective_url : "<none>", primary_ip ? primary_ip : "<none>",
+      primary_port, local_ip ? local_ip : "<none>", local_port, http_code, (unsigned)response.len,
+      response.truncated ? "true" : "false");
 
   if (http_code_out)
     *http_code_out = http_code;
@@ -556,8 +525,7 @@ static const char *json_find_key_value(const char *json, const char *key) {
   return p;
 }
 
-static bool json_get_string(const char *json, const char *key, char *out,
-                            size_t out_size) {
+static bool json_get_string(const char *json, const char *key, char *out, size_t out_size) {
   if (!out || out_size == 0)
     return false;
   out[0] = '\0';
@@ -573,23 +541,23 @@ static bool json_get_string(const char *json, const char *key, char *out,
       if (!*p)
         break;
       switch (*p) {
-      case '"':
-      case '\\':
-      case '/':
-        out[o++] = *p;
-        break;
-      case 'n':
-        out[o++] = '\n';
-        break;
-      case 'r':
-        out[o++] = '\r';
-        break;
-      case 't':
-        out[o++] = '\t';
-        break;
-      default:
-        out[o++] = *p;
-        break;
+        case '"':
+        case '\\':
+        case '/':
+          out[o++] = *p;
+          break;
+        case 'n':
+          out[o++] = '\n';
+          break;
+        case 'r':
+          out[o++] = '\r';
+          break;
+        case 't':
+          out[o++] = '\t';
+          break;
+        default:
+          out[o++] = *p;
+          break;
       }
       p++;
       continue;
@@ -628,15 +596,12 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
   char access_token[1024];
   char refresh_token[1024];
   uint64_t expires_in = 0;
-  if (!json_get_string(response, "access_token", access_token,
-                       sizeof(access_token))) {
+  if (!json_get_string(response, "access_token", access_token, sizeof(access_token))) {
     return false;
   }
-  if (!json_get_string(response, "refresh_token", refresh_token,
-                       sizeof(refresh_token))) {
+  if (!json_get_string(response, "refresh_token", refresh_token, sizeof(refresh_token))) {
     if (has_text(context.config.psn_oauth_refresh_token)) {
-      snprintf(refresh_token, sizeof(refresh_token), "%s",
-               context.config.psn_oauth_refresh_token);
+      snprintf(refresh_token, sizeof(refresh_token), "%s", context.config.psn_oauth_refresh_token);
     } else {
       refresh_token[0] = '\0';
     }
@@ -656,8 +621,7 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
 
 static bool oauth_configured_for_device_flow(void) {
   return has_text(oauth_authorize_url()) && has_text(oauth_token_url()) &&
-         has_text(oauth_redirect_uri()) &&
-         has_text(oauth_client_id());
+         has_text(oauth_redirect_uri()) && has_text(oauth_client_id());
 }
 
 static bool oauth_configured_for_refresh(void) {
@@ -673,8 +637,7 @@ PsnAuthState psn_auth_state(uint64_t now_unix) {
       g_psn_auth.state == PSN_AUTH_STATE_TOKEN_REFRESHING) {
     return g_psn_auth.state;
   }
-  if (g_psn_auth.state == PSN_AUTH_STATE_ERROR &&
-      has_text(g_psn_auth.last_error)) {
+  if (g_psn_auth.state == PSN_AUTH_STATE_ERROR && has_text(g_psn_auth.last_error)) {
     return PSN_AUTH_STATE_ERROR;
   }
 
@@ -701,8 +664,7 @@ const char *psn_auth_state_label(void) {
     return "Authenticated";
   if (state == PSN_AUTH_STATE_TOKEN_REFRESHING)
     return "Refreshing token";
-  if (state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING ||
-      state == PSN_AUTH_STATE_DEVICE_LOGIN_POLLING)
+  if (state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING || state == PSN_AUTH_STATE_DEVICE_LOGIN_POLLING)
     return "Awaiting browser sign-in";
   if (state == PSN_AUTH_STATE_ERROR && has_text(g_psn_auth.last_error))
     return g_psn_auth.last_error;
@@ -756,72 +718,53 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
   char auth_url[1536];
   size_t off = 0;
   const char *base = oauth_authorize_url();
-  int base_wrote = snprintf(auth_url, sizeof(auth_url), "%s%s", base,
-                            strchr(base, '?') ? "&" : "?");
+  int base_wrote =
+      snprintf(auth_url, sizeof(auth_url), "%s%s", base, strchr(base, '?') ? "&" : "?");
   if (base_wrote <= 0 || (size_t)base_wrote >= sizeof(auth_url)) {
     curl_easy_cleanup(curl);
     psn_auth_set_error("Failed to build authorization URL");
     return false;
   }
   off = (size_t)base_wrote;
-  bool form_ok = append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "service_entity", "urn:service-entity:psn") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "response_type", "code") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "duid", context.config.psn_client_duid) &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "client_id", oauth_client_id()) &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope",
-                                oauth_scope()) &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "redirect_uri", oauth_redirect_uri()) &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "request_locale", "en_US") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "ui", "pr") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "service_logo", "ps") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "layout_type", "popup") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "smcid", "remoteplay") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "prompt", "always") &&
-                 append_form_kv(curl, auth_url, sizeof(auth_url), &off,
-                                "PlatformPrivacyWs1", "minimal");
+  bool form_ok =
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "service_entity",
+                     "urn:service-entity:psn") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "response_type", "code") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "duid",
+                     context.config.psn_client_duid) &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "client_id", oauth_client_id()) &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope", oauth_scope()) &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "redirect_uri",
+                     oauth_redirect_uri()) &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "request_locale", "en_US") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "ui", "pr") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "service_logo", "ps") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "layout_type", "popup") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "smcid", "remoteplay") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "prompt", "always") &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "PlatformPrivacyWs1", "minimal");
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build authorization URL");
     return false;
   }
 
-  LOGD("PSN auth authorize tuple authorize_url=%s redirect_uri=%s duid=%s client_id=%s scope=%s locale=%s ui=%s service_logo=%s layout_type=%s smcid=%s prompt=%s privacy=%s",
-       oauth_authorize_url(),
-       oauth_redirect_uri(),
-       context.config.psn_client_duid,
-       oauth_client_id(),
-       oauth_scope(),
-       "en_US",
-       "pr",
-       "ps",
-       "popup",
-       "remoteplay",
-       "always",
-       "minimal");
+  LOGD(
+      "PSN auth authorize tuple authorize_url=%s redirect_uri=%s duid=%s client_id=%s scope=%s "
+      "locale=%s ui=%s service_logo=%s layout_type=%s smcid=%s prompt=%s privacy=%s",
+      oauth_authorize_url(), oauth_redirect_uri(), context.config.psn_client_duid,
+      oauth_client_id(), oauth_scope(), "en_US", "pr", "ps", "popup", "remoteplay", "always",
+      "minimal");
   clear_device_flow_fields();
-  int verify_wrote = snprintf(g_psn_auth.verification_url,
-                              sizeof(g_psn_auth.verification_url), "%s",
-                              auth_url);
-  if (verify_wrote < 0 ||
-      (size_t)verify_wrote >= sizeof(g_psn_auth.verification_url)) {
+  int verify_wrote =
+      snprintf(g_psn_auth.verification_url, sizeof(g_psn_auth.verification_url), "%s", auth_url);
+  if (verify_wrote < 0 || (size_t)verify_wrote >= sizeof(g_psn_auth.verification_url)) {
     clear_device_flow_fields();
     psn_auth_set_error("Authorization URL too long for this build");
     return false;
   }
   LOGD("PSN auth authorize URL: %s", g_psn_auth.verification_url);
-  snprintf(g_psn_auth.user_code, sizeof(g_psn_auth.user_code), "%s",
-           "Paste redirect URL/code");
+  snprintf(g_psn_auth.user_code, sizeof(g_psn_auth.user_code), "%s", "Paste redirect URL/code");
   g_psn_auth.device_code_expires_at_unix = now_unix + (10 * 60);
   g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
   psn_auth_clear_error();
@@ -840,15 +783,14 @@ static void trim_ascii_whitespace(const char **start, const char **end) {
     (*end)--;
 }
 
-static bool decode_url_component_range(const char *start, const char *end,
-                                       char *out, size_t out_size) {
+static bool decode_url_component_range(const char *start, const char *end, char *out,
+                                       size_t out_size) {
   if (!out || out_size == 0 || !start || !end || end < start)
     return false;
 
   size_t o = 0;
   while (start < end && o + 1 < out_size) {
-    if (*start == '%' && start + 2 < end &&
-        isxdigit((unsigned char)start[1]) &&
+    if (*start == '%' && start + 2 < end && isxdigit((unsigned char)start[1]) &&
         isxdigit((unsigned char)start[2])) {
       char hex[3] = {start[1], start[2], '\0'};
       out[o++] = (char)strtol(hex, NULL, 16);
@@ -866,8 +808,8 @@ static bool decode_url_component_range(const char *start, const char *end,
   return o > 0;
 }
 
-static bool extract_oauth_param(const char *input, const char *param_name,
-                                char *out, size_t out_size) {
+static bool extract_oauth_param(const char *input, const char *param_name, char *out,
+                                size_t out_size) {
   size_t name_len;
   const char *p;
   if (!has_text(input) || !has_text(param_name) || !out || out_size == 0)
@@ -875,15 +817,13 @@ static bool extract_oauth_param(const char *input, const char *param_name,
 
   name_len = strlen(param_name);
   for (p = input; *p; p++) {
-    if ((p == input || p[-1] == '?' || p[-1] == '&' || p[-1] == '#' ||
-         p[-1] == ' ' || p[-1] == '\n' || p[-1] == '\r' || p[-1] == '"' ||
-         p[-1] == '\'') &&
+    if ((p == input || p[-1] == '?' || p[-1] == '&' || p[-1] == '#' || p[-1] == ' ' ||
+         p[-1] == '\n' || p[-1] == '\r' || p[-1] == '"' || p[-1] == '\'') &&
         strncmp(p, param_name, name_len) == 0 && p[name_len] == '=') {
       const char *value_start = p + name_len + 1;
       const char *value_end = value_start;
-      while (*value_end && *value_end != '&' && *value_end != '#' &&
-             *value_end != '"' && *value_end != '\'' &&
-             *value_end != '\n' && *value_end != '\r')
+      while (*value_end && *value_end != '&' && *value_end != '#' && *value_end != '"' &&
+             *value_end != '\'' && *value_end != '\n' && *value_end != '\r')
         value_end++;
       return decode_url_component_range(value_start, value_end, out, out_size);
     }
@@ -891,9 +831,8 @@ static bool extract_oauth_param(const char *input, const char *param_name,
   return false;
 }
 
-static bool parse_auth_code_input(const char *input, char *out_code,
-                                  size_t out_code_size, char *out_error,
-                                  size_t out_error_size) {
+static bool parse_auth_code_input(const char *input, char *out_code, size_t out_code_size,
+                                  char *out_error, size_t out_error_size) {
   const char *start;
   const char *end;
   if (!has_text(input) || !out_code || out_code_size == 0)
@@ -903,8 +842,7 @@ static bool parse_auth_code_input(const char *input, char *out_code,
   if (out_error && out_error_size > 0)
     out_error[0] = '\0';
 
-  if (extract_oauth_param(input, "error_description", out_error,
-                          out_error_size)) {
+  if (extract_oauth_param(input, "error_description", out_error, out_error_size)) {
     return false;
   }
   if (extract_oauth_param(input, "error", out_error, out_error_size)) {
@@ -917,8 +855,7 @@ static bool parse_auth_code_input(const char *input, char *out_code,
   start = input;
   end = input + strlen(input);
   trim_ascii_whitespace(&start, &end);
-  if (end > start && ((*start == '"' && end[-1] == '"') ||
-                      (*start == '\'' && end[-1] == '\''))) {
+  if (end > start && ((*start == '"' && end[-1] == '"') || (*start == '\'' && end[-1] == '\''))) {
     start++;
     end--;
     trim_ascii_whitespace(&start, &end);
@@ -947,19 +884,16 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
   char auth_code[1024];
   char auth_error[160];
   const char *input_type = classify_auth_input(input);
-  LOGD("PSN auth submit input_type=%s input_len=%u",
-       input_type,
+  LOGD("PSN auth submit input_type=%s input_len=%u", input_type,
        (unsigned)(has_text(input) ? strlen(input) : 0));
-  if (!parse_auth_code_input(input, auth_code, sizeof(auth_code), auth_error,
-                             sizeof(auth_error))) {
+  if (!parse_auth_code_input(input, auth_code, sizeof(auth_code), auth_error, sizeof(auth_error))) {
     if (auth_error[0])
       psn_auth_set_error(auth_error);
     else
       psn_auth_set_error("Could not parse authorization code");
     return false;
   }
-  LOGD("PSN auth parsed authorization code: code_len=%u source=%s",
-       (unsigned)strlen(auth_code),
+  LOGD("PSN auth parsed authorization code: code_len=%u source=%s", (unsigned)strlen(auth_code),
        strcmp(input_type, "full_url") == 0 ? "full_url" : "fallback");
 
   CURL *curl = curl_easy_init();
@@ -971,14 +905,11 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
   g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_POLLING;
   char form[1800];
   size_t off = 0;
-  bool form_ok = append_form_kv(curl, form, sizeof(form), &off, "grant_type",
-                                "authorization_code") &&
-                 append_form_kv(curl, form, sizeof(form), &off, "code",
-                                auth_code) &&
-                 append_form_kv(curl, form, sizeof(form), &off, "scope",
-                                oauth_scope()) &&
-                 append_form_kv(curl, form, sizeof(form), &off, "redirect_uri",
-                                oauth_redirect_uri());
+  bool form_ok =
+      append_form_kv(curl, form, sizeof(form), &off, "grant_type", "authorization_code") &&
+      append_form_kv(curl, form, sizeof(form), &off, "code", auth_code) &&
+      append_form_kv(curl, form, sizeof(form), &off, "scope", oauth_scope()) &&
+      append_form_kv(curl, form, sizeof(form), &off, "redirect_uri", oauth_redirect_uri());
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build token exchange request");
@@ -987,13 +918,10 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
 
   long http_code = 0;
   char *response = NULL;
-  LOGD("PSN auth token exchange url=%s redirect_uri=%s client_id=%s form_len=%u",
-       oauth_token_url(),
-       oauth_redirect_uri(),
-       oauth_client_id(),
-       (unsigned)strlen(form));
-  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(),
-                       oauth_client_secret(), &http_code, &response)) {
+  LOGD("PSN auth token exchange url=%s redirect_uri=%s client_id=%s form_len=%u", oauth_token_url(),
+       oauth_redirect_uri(), oauth_client_id(), (unsigned)strlen(form));
+  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(), oauth_client_secret(),
+                       &http_code, &response)) {
     g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
     psn_auth_set_error("Authorization code exchange failed");
     return false;
@@ -1005,13 +933,11 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
          (unsigned)(response ? strlen(response) : 0));
     ok = true;
   } else {
-    LOGE("PSN auth token exchange rejected status=%ld response_len=%u",
-         http_code,
+    LOGE("PSN auth token exchange rejected status=%ld response_len=%u", http_code,
          (unsigned)(response ? strlen(response) : 0));
     char error_desc[160];
     if (response &&
-        json_get_string(response, "error_description", error_desc,
-                        sizeof(error_desc))) {
+        json_get_string(response, "error_description", error_desc, sizeof(error_desc))) {
       psn_auth_set_error(error_desc);
     } else {
       psn_auth_set_error("Authorization code was rejected");
@@ -1045,14 +971,11 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
   char form[1400];
   size_t off = 0;
   bool form_ok =
-      append_form_kv(curl, form, sizeof(form), &off, "grant_type",
-                     "refresh_token") &&
+      append_form_kv(curl, form, sizeof(form), &off, "grant_type", "refresh_token") &&
       append_form_kv(curl, form, sizeof(form), &off, "refresh_token",
                      context.config.psn_oauth_refresh_token) &&
-      append_form_kv(curl, form, sizeof(form), &off, "scope",
-                     oauth_scope()) &&
-      append_form_kv(curl, form, sizeof(form), &off, "redirect_uri",
-                     oauth_redirect_uri());
+      append_form_kv(curl, form, sizeof(form), &off, "scope", oauth_scope()) &&
+      append_form_kv(curl, form, sizeof(form), &off, "redirect_uri", oauth_redirect_uri());
   curl_easy_cleanup(curl);
   if (!form_ok) {
     psn_auth_set_error("Failed to build refresh request");
@@ -1062,30 +985,23 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
   long http_code = 0;
   char *response = NULL;
   LOGD("PSN auth refresh exchange url=%s redirect_uri=%s client_id=%s form_len=%u",
-       oauth_token_url(),
-       oauth_redirect_uri(),
-       oauth_client_id(),
-       (unsigned)strlen(form));
-  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(),
-                       oauth_client_secret(), &http_code,
-                       &response)) {
+       oauth_token_url(), oauth_redirect_uri(), oauth_client_id(), (unsigned)strlen(form));
+  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(), oauth_client_secret(),
+                       &http_code, &response)) {
     psn_auth_set_error("Token refresh request failed");
     return false;
   }
 
   bool refreshed = false;
   if (http_code == 200 && apply_token_response(response, now_unix)) {
-    LOGD("PSN auth refresh succeeded response_len=%u",
-         (unsigned)(response ? strlen(response) : 0));
+    LOGD("PSN auth refresh succeeded response_len=%u", (unsigned)(response ? strlen(response) : 0));
     refreshed = true;
   } else {
-    LOGE("PSN auth refresh rejected status=%ld response_len=%u",
-         http_code,
+    LOGE("PSN auth refresh rejected status=%ld response_len=%u", http_code,
          (unsigned)(response ? strlen(response) : 0));
     char error_desc[160];
     if (response &&
-        json_get_string(response, "error_description", error_desc,
-                        sizeof(error_desc))) {
+        json_get_string(response, "error_description", error_desc, sizeof(error_desc))) {
       psn_auth_set_error(error_desc);
     } else {
       psn_auth_set_error("Token refresh failed");

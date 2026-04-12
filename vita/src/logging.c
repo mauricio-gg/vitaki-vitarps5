@@ -30,13 +30,16 @@
 #endif
 
 #ifndef VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS
-#warning "VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS not defined by build system - using fallback default (1)"
-#define VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS 1  // Always log critical errors even when logging disabled
+#warning \
+    "VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS not defined by build system - using fallback default (1)"
+#define VITARPS5_LOGGING_DEFAULT_FORCE_ERRORS \
+  1  // Always log critical errors even when logging disabled
 #define VITARPS5_USING_FALLBACK_FORCE_ERRORS
 #endif
 
 #ifndef VITARPS5_DEFAULT_LOG_PROFILE
-#warning "VITARPS5_DEFAULT_LOG_PROFILE not defined by build system - using fallback default (ERRORS)"
+#warning \
+    "VITARPS5_DEFAULT_LOG_PROFILE not defined by build system - using fallback default (ERRORS)"
 #define VITARPS5_DEFAULT_LOG_PROFILE VITA_LOG_PROFILE_ERRORS  // Only critical errors by default
 #define VITARPS5_USING_FALLBACK_PROFILE
 #endif
@@ -70,10 +73,8 @@
 #endif
 
 // Compile-time summary: detect if ANY fallbacks are active
-#if defined(VITARPS5_USING_FALLBACK_ENABLED) || \
-    defined(VITARPS5_USING_FALLBACK_FORCE_ERRORS) || \
-    defined(VITARPS5_USING_FALLBACK_PROFILE) || \
-    defined(VITARPS5_USING_FALLBACK_QUEUE_DEPTH) || \
+#if defined(VITARPS5_USING_FALLBACK_ENABLED) || defined(VITARPS5_USING_FALLBACK_FORCE_ERRORS) || \
+    defined(VITARPS5_USING_FALLBACK_PROFILE) || defined(VITARPS5_USING_FALLBACK_QUEUE_DEPTH) ||  \
     defined(VITARPS5_USING_FALLBACK_PATH)
 #define VITARPS5_USING_FALLBACK_CONFIG
 #endif
@@ -147,19 +148,15 @@ static const char *vita_log_get_path(void) {
 
   size_t pos = 0;
   if (dir_len > 0) {
-    size_t copy_len = dir_len < sizeof(resolved_log_path) - 1
-                          ? dir_len
-                          : sizeof(resolved_log_path) - 1;
+    size_t copy_len =
+        dir_len < sizeof(resolved_log_path) - 1 ? dir_len : sizeof(resolved_log_path) - 1;
     sceClibMemcpy(resolved_log_path, base_path, copy_len);
     pos = copy_len;
   }
 
   if (pos < sizeof(resolved_log_path)) {
-    sceClibSnprintf(resolved_log_path + pos,
-                    sizeof(resolved_log_path) - pos,
-                    "%s%s",
-                    timestamp_prefix,
-                    filename);
+    sceClibSnprintf(resolved_log_path + pos, sizeof(resolved_log_path) - pos, "%s%s",
+                    timestamp_prefix, filename);
   } else {
     resolved_log_path[sizeof(resolved_log_path) - 1] = '\0';
   }
@@ -175,14 +172,11 @@ static void vita_log_try_open(void) {
   const char *log_path = vita_log_get_path();
   sceIoMkdir("ux0:data", 0777);
   sceIoMkdir("ux0:data/vita-chiaki", 0777);
-  log_file_fd = sceIoOpen(log_path,
-                          SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND,
-                          0666);
+  log_file_fd = sceIoOpen(log_path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
   if (log_file_fd >= 0) {
     char header[96];
     uint64_t timestamp = sceKernelGetProcessTimeWide();
-    int len = sceClibSnprintf(header, sizeof(header),
-                              "\n----- VitaRPS5 log start %ju -----\n",
+    int len = sceClibSnprintf(header, sizeof(header), "\n----- VitaRPS5 log start %ju -----\n",
                               timestamp);
     if (len > 0)
       sceIoWrite(log_file_fd, header, len);
@@ -239,8 +233,8 @@ static void vita_log_worker_init(void) {
     return;
 
   if (log_queue_cap == 0)
-    log_queue_cap = active_cfg.queue_depth > 0 ? active_cfg.queue_depth
-                                               : VITA_LOG_DEFAULT_QUEUE_DEPTH;
+    log_queue_cap =
+        active_cfg.queue_depth > 0 ? active_cfg.queue_depth : VITA_LOG_DEFAULT_QUEUE_DEPTH;
   log_queue = calloc(log_queue_cap, sizeof(VitaLogMessage));
   if (!log_queue) {
     log_queue_cap = 0;
@@ -256,8 +250,8 @@ static void vita_log_worker_init(void) {
     return;
 
   log_thread_should_exit = false;
-  log_thread_id = sceKernelCreateThread("VitaLogThread", vita_log_thread_func,
-                                        0x40, 0x1000, 0, 0, NULL);
+  log_thread_id =
+      sceKernelCreateThread("VitaLogThread", vita_log_thread_func, 0x40, 0x1000, 0, 0, NULL);
   if (log_thread_id < 0)
     return;
   sceKernelStartThread(log_thread_id, 0, NULL);
@@ -289,9 +283,12 @@ VitaLogProfile vita_logging_profile_from_string(const char *value) {
 
 const char *vita_logging_profile_to_string(VitaLogProfile profile) {
   switch (profile) {
-    case VITA_LOG_PROFILE_OFF: return "off";
-    case VITA_LOG_PROFILE_ERRORS: return "errors";
-    case VITA_LOG_PROFILE_VERBOSE: return "verbose";
+    case VITA_LOG_PROFILE_OFF:
+      return "off";
+    case VITA_LOG_PROFILE_ERRORS:
+      return "errors";
+    case VITA_LOG_PROFILE_VERBOSE:
+      return "verbose";
     case VITA_LOG_PROFILE_STANDARD:
     default:
       return "standard";
@@ -341,16 +338,10 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
                   "[LOGGING] Initialized from %s:\n"
                   "  enabled=%d, force_errors=%d, profile=%s, queue=%zu, path=%s\n"
                   "[PIPE/BUILD] commit=%s branch=%s dirty=%d built=%s\n",
-                  config_source,
-                  active_cfg.enabled,
-                  active_cfg.force_error_logging,
-                  vita_logging_profile_to_string(active_cfg.profile),
-                  active_cfg.queue_depth,
-                  active_cfg.path,
-                  VITARPS5_BUILD_GIT_COMMIT,
-                  VITARPS5_BUILD_GIT_BRANCH,
-                  VITARPS5_BUILD_GIT_DIRTY,
-                  VITARPS5_BUILD_TIMESTAMP);
+                  config_source, active_cfg.enabled, active_cfg.force_error_logging,
+                  vita_logging_profile_to_string(active_cfg.profile), active_cfg.queue_depth,
+                  active_cfg.path, VITARPS5_BUILD_GIT_COMMIT, VITARPS5_BUILD_GIT_BRANCH,
+                  VITARPS5_BUILD_GIT_DIRTY, VITARPS5_BUILD_TIMESTAMP);
 
   // Log initialization details in testing/debug builds where logging is enabled.
   // Production builds (enabled=false) will skip this entirely.
@@ -386,8 +377,7 @@ void vita_log_module_shutdown(void) {
 bool vita_log_should_write_level(ChiakiLogLevel level) {
   if (!cfg_initialized)
     return false;
-  bool is_error_or_warning = (level == CHIAKI_LOG_ERROR ||
-                              level == CHIAKI_LOG_WARNING);
+  bool is_error_or_warning = (level == CHIAKI_LOG_ERROR || level == CHIAKI_LOG_WARNING);
   if (!active_cfg.enabled)
     return active_cfg.force_error_logging && is_error_or_warning;
   return true;
