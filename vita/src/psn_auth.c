@@ -27,10 +27,10 @@
 #define VITARPS5_PSN_OAUTH_TOKEN_URL "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_ID
-#define VITARPS5_PSN_OAUTH_CLIENT_ID "ba495a24-818c-472b-b12d-ff231c1b5745"
+#error "VITARPS5_PSN_OAUTH_CLIENT_ID must be provided via .env.prod/.env.testing -> CMake"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_SECRET
-#define VITARPS5_PSN_OAUTH_CLIENT_SECRET "mvaiZkRsAsI1IBkY"
+#error "VITARPS5_PSN_OAUTH_CLIENT_SECRET must be provided via .env.prod/.env.testing -> CMake"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_SCOPE
 #define VITARPS5_PSN_OAUTH_SCOPE                           \
