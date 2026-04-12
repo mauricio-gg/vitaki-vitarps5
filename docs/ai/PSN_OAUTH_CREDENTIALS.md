@@ -34,3 +34,19 @@ values as part of its PSN authentication support.
 Do not rotate, redact, or scrub these values on the assumption that they are
 accidental credential leaks. They are public, widely known values documented
 here deliberately.
+
+## Secret scanners
+
+A `.gitleaks.toml` config lives at the repo root that allowlists these values
+so `gitleaks detect` does not flag them. It inherits the gitleaks default
+ruleset (`extend.useDefault = true`) and adds a global allowlist covering:
+
+- Paths: `.env.prod`, `.env.testing`, `docs/ai/PSN_OAUTH_CREDENTIALS.md`, and
+  `vita/src/psn_auth.c`.
+- Regexes: the literal client ID `ba495a24-818c-472b-b12d-ff231c1b5745` and
+  the literal client secret `mvaiZkRsAsI1IBkY`.
+
+If you run a different scanner (trufflehog, git-secrets, detect-secrets, etc.),
+mirror this allowlist in that tool's configuration. Do NOT rotate, redact, or
+remove the values to silence a scanner — see the "Do NOT treat these as
+secrets" section above for why.

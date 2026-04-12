@@ -1,0 +1,28 @@
+# gitleaks configuration for vitarps5
+#
+# Allowlists the public, reverse-engineered PS App OAuth client credentials that
+# are intentionally committed to this repository. See docs/ai/PSN_OAUTH_CREDENTIALS.md
+# for the full justification.
+#
+# These are NOT secrets. They identify the client application to Sony's OAuth
+# endpoint and are freely available across the open-source Remote Play ecosystem
+# (Chiaki, chiaki-ng, chiaki4deck, and derivatives). Removing them would only
+# break the build.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public PS-App OAuth client credentials (see docs/ai/PSN_OAUTH_CREDENTIALS.md)"
+
+paths = [
+    '''\.env\.prod$''',
+    '''\.env\.testing$''',
+    '''docs/ai/PSN_OAUTH_CREDENTIALS\.md$''',
+    '''vita/src/psn_auth\.c$''',
+]
+
+regexes = [
+    '''ba495a24-818c-472b-b12d-ff231c1b5745''',
+    '''mvaiZkRsAsI1IBkY''',
+]
