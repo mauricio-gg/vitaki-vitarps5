@@ -2267,6 +2267,9 @@ static void* websocket_thread_func(void *user) {
         goto fail_before_curl;
     }
 
+    /* 128 bytes fits wss:// + FQDN + /np/pushNotification + NUL for any FQDN up to
+     * ~101 chars. Sony's production push-notification FQDN is well under that; the
+     * snprintf truncation guard below will log and fail cleanly if it ever grows. */
     char ws_url[128] = {0};
     int url_len = snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
     if (url_len < 0 || (size_t)url_len >= sizeof(ws_url)) {
@@ -2561,15 +2564,25 @@ cleanup:
      * deadlock waiting on state_cond. */
 fail_before_curl:
     {
-        ChiakiErrorCode _err = chiaki_mutex_lock(&session->state_mutex);
-        assert(_err == CHIAKI_ERR_SUCCESS);
+        /* This label is the deadlock-prevention path. Do not use assert() for the
+         * mutex/cond ops here: asserts compile away under NDEBUG and a silent failure
+         * would leave state_cond unsignalled, hanging the creator thread. */
+        ChiakiErrorCode mutex_err = chiaki_mutex_lock(&session->state_mutex);
+        if (mutex_err != CHIAKI_ERR_SUCCESS) {
+            CHIAKI_LOGE(session->log, "fail_before_curl: chiaki_mutex_lock failed (%d); caller may hang", mutex_err);
+            return NULL;
+        }
         session->ws_connect_err = CHIAKI_ERR_UNKNOWN;
         session->state |= SESSION_STATE_WS_FAILED;
         log_session_state(session);
-        _err = chiaki_cond_signal(&session->state_cond);
-        assert(_err == CHIAKI_ERR_SUCCESS);
-        _err = chiaki_mutex_unlock(&session->state_mutex);
-        assert(_err == CHIAKI_ERR_SUCCESS);
+        ChiakiErrorCode signal_err = chiaki_cond_signal(&session->state_cond);
+        if (signal_err != CHIAKI_ERR_SUCCESS) {
+            CHIAKI_LOGE(session->log, "fail_before_curl: chiaki_cond_signal failed (%d); caller may hang", signal_err);
+        }
+        ChiakiErrorCode unlock_err = chiaki_mutex_unlock(&session->state_mutex);
+        if (unlock_err != CHIAKI_ERR_SUCCESS) {
+            CHIAKI_LOGE(session->log, "fail_before_curl: chiaki_mutex_unlock failed (%d)", unlock_err);
+        }
         return NULL;
     }
 }
@@ -5991,6 +6004,8 @@ static ChiakiErrorCode get_stun_servers(Session *session)
                           sizeof(server_strings[0]), "%s", ptr);
         if (entry_len < 0 || (size_t)entry_len >= sizeof(server_strings[0])) {
             CHIAKI_LOGW(session->log, "STUN server entry truncated, skipping");
+        } else if (entry_len == 0) {
+            CHIAKI_LOGW(session->log, "STUN server entry empty, skipping");
         } else {
             session->num_stun_servers++;
         }
@@ -6065,8 +6080,8 @@ static ChiakiErrorCode get_stun_servers(Session *session)
         }
         goto cleanup;
     }
-    // ipv6 string has max of 45 chars: 39 chars + 2 chars for [] + 1 char for colon : + port has max of 4 chars + 1 char for null termination
-    char server_strings_ipv6[10][47];
+    // ipv6 string has max of 46 chars: 39 chars for addr + 2 chars for [] + 1 char for colon : + port has max of 5 chars (65535) + 1 char for null termination
+    char server_strings_ipv6[10][48];
     ptr = strtok(response_data.data, "\n");
     while(ptr != NULL && session->num_stun_servers_ipv6 <= 9)
     {
@@ -6075,6 +6090,8 @@ static ChiakiErrorCode get_stun_servers(Session *session)
                           sizeof(server_strings_ipv6[0]), "%s", ptr + 1);
         if (entry_len < 0 || (size_t)entry_len >= sizeof(server_strings_ipv6[0])) {
             CHIAKI_LOGW(session->log, "IPv6 STUN server entry truncated, skipping");
+        } else if (entry_len == 0) {
+            CHIAKI_LOGW(session->log, "IPv6 STUN server entry empty, skipping");
         } else {
             session->num_stun_servers_ipv6++;
         }
