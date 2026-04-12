@@ -9,8 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <chiaki/base64.h>
-#include <chiaki/random.h>
+#include <chiaki/remote/holepunch.h>
 
 #include "config.h"
 #include "context.h"
@@ -45,11 +44,7 @@
 #define TOKEN_EXPIRY_SKEW_SEC 90ULL
 #define RESPONSE_CAP_BYTES (16 * 1024)
 #define AUTH_VERIFICATION_URL_MAX 1536
-#define PSN_CLIENT_DUID_PREFIX "0000000700410080"
-#define PSN_CLIENT_DUID_RANDOM_BYTES 16
 #define PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
-#define PSN_CLIENT_DUID_SIZE \
-  (sizeof(PSN_CLIENT_DUID_PREFIX) - 1 + PSN_CLIENT_DUID_RANDOM_BYTES * 2 + 1)
 
 typedef struct {
   PsnAuthState state;
@@ -171,17 +166,11 @@ static bool ensure_client_duid(void) {
   if (has_text(context.config.psn_client_duid))
     return true;
 
-  uint8_t random_bytes[PSN_CLIENT_DUID_RANDOM_BYTES];
-  char duid[PSN_CLIENT_DUID_SIZE];
-  if (chiaki_random_bytes_crypt(random_bytes, sizeof(random_bytes)) != CHIAKI_ERR_SUCCESS) {
+  char duid[CHIAKI_DUID_STR_SIZE];
+  size_t duid_size = sizeof(duid);
+  if (chiaki_holepunch_generate_client_device_uid(duid, &duid_size) != CHIAKI_ERR_SUCCESS) {
     LOGE("PSN auth: failed to generate client DUID");
     return false;
-  }
-
-  snprintf(duid, sizeof(duid), "%s", PSN_CLIENT_DUID_PREFIX);
-  for (size_t i = 0; i < sizeof(random_bytes); i++) {
-    size_t used = strlen(duid);
-    snprintf(duid + used, sizeof(duid) - used, "%02x", random_bytes[i]);
   }
 
   set_config_string(&context.config.psn_client_duid, duid);
