@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="630"
+VERSION_ITERATION="637"
 
 # Colors for output
 RED='\033[0;31m'
@@ -159,6 +159,13 @@ configure_feature_cmake_args() {
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=$( [ "$holepunch_val" = "1" ] && echo ON || echo OFF )")
     elif [ "$ENV_PROFILE_PATH" = ".env.testing" ]; then
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON")
+    fi
+
+    # Security: plaintext token storage is OFF by default (production-safe).
+    # Enable automatically for .env.testing so QA token persistence keeps working.
+    # Never enable for .env.prod — encrypted storage (#81) must land first.
+    if [ "$ENV_PROFILE_PATH" = ".env.testing" ]; then
+        cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=ON")
     fi
 
     if [ ${#cmake_args[@]} -gt 0 ]; then

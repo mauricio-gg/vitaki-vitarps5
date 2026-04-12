@@ -128,6 +128,14 @@ if(DEFINED VITARPS5_DEBUG_MENU)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_MENU=${VITARPS5_DEBUG_MENU})
 endif()
 
+# Security: Gate plaintext PSN OAuth token persistence. Default OFF so production builds
+# never silently write tokens to disk. Enable only for local/QA debugging until encrypted
+# storage lands (see GitHub issue #81).
+option(VITARPS5_PLAINTEXT_TOKEN_STORAGE "Persist PSN OAuth tokens in plaintext config. INSECURE — enable only for local debugging until token encryption (#81) lands." OFF)
+if(VITARPS5_PLAINTEXT_TOKEN_STORAGE)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_PLAINTEXT_TOKEN_STORAGE=1)
+endif()
+
 # Security: Control whether runtime TOML can override compiled logging settings
 if(DEFINED VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG=${VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG})
