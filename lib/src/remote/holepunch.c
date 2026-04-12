@@ -2308,9 +2308,9 @@ static void* websocket_thread_func(void *user) {
     curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, ws_curl_debug_cb);
     curl_easy_setopt(curl, CURLOPT_DEBUGDATA, session);
 
-    /* cleanup_headers is only reached via APPEND_WS_HEADER on truncation, before
-     * curl_easy_perform runs.  Free the partially-built header list and then fall
-     * through to cleanup: to tear down the curl handle. */
+    /* Label scaffold: C requires a label to attach to a statement. The `if (0)` provides
+     * an unreachable statement so this block is only entered via `goto cleanup_headers`
+     * from APPEND_WS_HEADER on error; never executed sequentially. Do not remove. */
     if (0) {
 cleanup_headers:
         curl_slist_free_all(headers);
