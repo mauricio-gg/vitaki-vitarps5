@@ -2,7 +2,7 @@
 
 **Date:** 2025-12-11
 **Version:** v0.1.236
-**File Modified:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui.c`
+**File Modified:** `vita/src/ui.c`
 
 ## Overview
 
@@ -142,7 +142,7 @@ Added breathing alpha animation to status dots (green/yellow/red ellipses):
 
 **Build Command:** `./tools/build.sh debug`
 **Result:** ✅ Success
-**Output:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/build/vita/VitaRPS5.vpk` (3.0M)
+**Output:** `build/vita/VitaRPS5.vpk` (3.0M)
 **Version:** v0.1.236
 **Warnings:** None related to UI polish changes (all pre-existing warnings preserved)
 
@@ -182,7 +182,7 @@ Users will see:
 ## Files Modified
 
 ### Primary
-- `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui.c`
+- `vita/src/ui.c`
   - Lines 66-71: Particle constants
   - Lines 85-97: Particle struct
   - Lines 1121-1126: init_particles() enhancements

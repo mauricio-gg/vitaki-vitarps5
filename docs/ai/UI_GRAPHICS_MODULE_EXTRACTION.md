@@ -15,7 +15,7 @@ Successfully extracted 7 drawing primitive functions from `vita/src/ui.c` (4,776
 
 ## Files Created
 
-### 1. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_graphics.h`
+### 1. `vita/include/ui/ui_graphics.h`
 **Lines:** 165
 **Purpose:** Public API header for graphics primitives
 
@@ -30,7 +30,7 @@ void ui_draw_content_focus_overlay(void);
 void ui_draw_loss_indicator(void);
 ```
 
-### 2. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui/ui_graphics.c`
+### 2. `vita/src/ui/ui_graphics.c`
 **Lines:** 280
 **Purpose:** Implementation of graphics primitives
 

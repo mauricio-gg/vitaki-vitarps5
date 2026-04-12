@@ -80,7 +80,14 @@
 #define SELECT_CANDIDATE_TRIES 20
 #define SELECT_CANDIDATE_CONNECTION_SEC 5
 #define RANDOM_ALLOCATION_GUESSES_NUMBER 75
+/* On PS Vita sceNet caps simultaneous sockets at ~64-128. Keep 48 to leave
+ * headroom for other session sockets (control, data, IPv6). Non-Vita
+ * platforms keep the original 250 for full random-allocation coverage. */
+#ifdef __PSVITA__
+#define RANDOM_ALLOCATION_SOCKS_NUMBER 48
+#else
 #define RANDOM_ALLOCATION_SOCKS_NUMBER 250
+#endif
 #define CHECK_CANDIDATES_REQUEST_NUMBER 1
 #define WAIT_RESPONSE_TIMEOUT_SEC 1
 #define MSG_TYPE_REQ 0x06000000
@@ -4316,11 +4323,13 @@ static ChiakiErrorCode check_candidates(
 
     if(session->stun_random_allocation)
     {
+        unsigned failed_socks = 0;
         for (int i=0; i < RANDOM_ALLOCATION_SOCKS_NUMBER; i++)
         {
             socks[i] = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (CHIAKI_SOCKET_IS_INVALID(socks[i]))
             {
+                failed_socks++;
                 CHIAKI_LOGE(session->log, "send_offer: Creating ipv4 socket %d failed", i);
                 CHIAKI_SOCKET_CLOSE(socks[i]);
                 socks[i] = CHIAKI_INVALID_SOCKET;
@@ -4373,6 +4382,8 @@ static ChiakiErrorCode check_candidates(
                 continue;
             }
         }
+        if(failed_socks)
+            CHIAKI_LOGW(session->log, "[NAT] Random socket allocation: %u of %u sockets failed to open", failed_socks, RANDOM_ALLOCATION_SOCKS_NUMBER);
     }
     for (int i=0; i < num_candidates; i++)
     {

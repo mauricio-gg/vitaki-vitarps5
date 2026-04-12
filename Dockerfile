@@ -35,6 +35,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # Install nanopb (Protocol Buffers for embedded C) - cross-compile for ARM
 RUN cd /tmp && \
     wget https://github.com/nanopb/nanopb/archive/refs/tags/0.4.8.tar.gz && \
+    echo "3f78bf63722a810edb6da5ab5f0e76c7db13a961c2aad4ab49296e3095d0d830  0.4.8.tar.gz" | sha256sum -cs && \
     tar -xzf 0.4.8.tar.gz && \
     cd nanopb-0.4.8 && \
     mkdir build && cd build && \
@@ -50,6 +51,7 @@ RUN cd /tmp && \
 # Install json-c for Vita (required by Chiaki holepunch path)
 RUN cd /tmp && \
     wget https://github.com/json-c/json-c/archive/refs/tags/json-c-0.17-20230812.tar.gz && \
+    echo "024d302a3aadcbf9f78735320a6d5aedf8b77876c8ac8bbb95081ca55054c7eb  json-c-0.17-20230812.tar.gz" | sha256sum -cs && \
     tar -xzf json-c-0.17-20230812.tar.gz && \
     cd json-c-json-c-0.17-20230812 && \
     mkdir build && cd build && \
@@ -82,6 +84,7 @@ COPY third-party/vita-stubs/ /tmp/vita-stubs/
 # Install miniupnpc for Vita (required by UPnP NAT traversal in holepunch path)
 RUN cd /tmp && \
     wget https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_3_3.tar.gz && \
+    echo "8cf2c833b3e76fc4893ff29c2a376e3394962449e5970e373c0a91421724d222  miniupnpc_2_3_3.tar.gz" | sha256sum -cs && \
     tar -xzf miniupnpc_2_3_3.tar.gz && \
     cd miniupnp-miniupnpc_2_3_3/miniupnpc && \
     sed -i '/set(CMAKE_POSITION_INDEPENDENT_CODE ON)/d' CMakeLists.txt && \

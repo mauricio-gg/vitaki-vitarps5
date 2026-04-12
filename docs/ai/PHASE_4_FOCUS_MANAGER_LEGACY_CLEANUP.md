@@ -20,7 +20,7 @@ Phase 4 completes the focus manager refactor by removing legacy state variables 
 
 ### 1. Removed Legacy Variables
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui/ui_navigation.c`
+**File:** `vita/src/ui/ui_navigation.c`
 
 - **Removed:** `FocusArea current_focus = FOCUS_CONSOLE_CARDS;`
 - **Removed:** `int last_console_selection = 0;`
@@ -28,7 +28,7 @@ Phase 4 completes the focus manager refactor by removing legacy state variables 
 
 ### 2. Removed Legacy Functions
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui/ui_navigation.c`
+**File:** `vita/src/ui/ui_navigation.c`
 
 Removed the following functions:
 - `FocusArea ui_nav_get_focus(void)` - Replaced by `ui_focus_get_zone()`
@@ -36,14 +36,14 @@ Removed the following functions:
 - `int ui_nav_get_last_console_selection(void)` - No longer needed
 - `void ui_nav_set_last_console_selection(int index)` - No longer needed
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_navigation.h`
+**File:** `vita/include/ui/ui_navigation.h`
 
 - Removed function declarations
 - Added comment directing developers to use `ui_focus.h` instead
 
 ### 3. Updated Code to Use Focus Manager
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui/ui_navigation.c`
+**File:** `vita/src/ui/ui_navigation.c`
 
 Updated all internal references to use the focus manager:
 
@@ -67,7 +67,7 @@ Affected locations:
 
 ### 4. Updated Header Declarations
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_internal.h`
+**File:** `vita/include/ui/ui_internal.h`
 
 ```c
 // Before:
@@ -83,7 +83,7 @@ extern int selected_nav_icon;
 
 ### 5. Deprecated FocusArea Enum
 
-**File:** `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_types.h`
+**File:** `vita/include/ui/ui_types.h`
 
 Added deprecation notice to the `FocusArea` enum:
 
@@ -161,10 +161,10 @@ The `FocusArea` enum is kept for potential external compatibility but marked as 
 
 ## Files Modified
 
-1. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/ui/ui_navigation.c` - Removed legacy variables and functions, updated to use focus manager
-2. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_navigation.h` - Removed legacy function declarations
-3. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_internal.h` - Removed extern declarations
-4. `/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/include/ui/ui_types.h` - Deprecated FocusArea enum
+1. `vita/src/ui/ui_navigation.c` - Removed legacy variables and functions, updated to use focus manager
+2. `vita/include/ui/ui_navigation.h` - Removed legacy function declarations
+3. `vita/include/ui/ui_internal.h` - Removed extern declarations
+4. `vita/include/ui/ui_types.h` - Deprecated FocusArea enum
 
 ## Next Steps
 

@@ -64,9 +64,9 @@ The following are now confirmed working on Vita:
 
 Relevant code paths:
 
-- [`vita/src/psn_auth.c`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/psn_auth.c)
-- [`vita/src/psn_remote.c`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/psn_remote.c)
-- [`lib/src/remote/holepunch.c`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/lib/src/remote/holepunch.c)
+- [`vita/src/psn_auth.c`](vita/src/psn_auth.c)
+- [`vita/src/psn_remote.c`](vita/src/psn_remote.c)
+- [`lib/src/remote/holepunch.c`](lib/src/remote/holepunch.c)
 
 ## Current Blocker
 
@@ -96,9 +96,9 @@ implementation gap.
 
 Relevant implementation:
 
-- shared PSN client profile: [`lib/src/remote/holepunch.c:91`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/lib/src/remote/holepunch.c#L91)
-- websocket request + retry-header capture: [`lib/src/remote/holepunch.c:1997`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/lib/src/remote/holepunch.c#L1997)
-- Vita error surfacing for websocket rejection: [`vita/src/psn_remote.c:252`](/Users/mauriciogaldos/Developer/AndeanBear/vitarps5/vita/src/psn_remote.c#L252)
+- shared PSN client profile: [`lib/src/remote/holepunch.c:91`](lib/src/remote/holepunch.c#L91)
+- websocket request + retry-header capture: [`lib/src/remote/holepunch.c:1997`](lib/src/remote/holepunch.c#L1997)
+- Vita error surfacing for websocket rejection: [`vita/src/psn_remote.c:252`](vita/src/psn_remote.c#L252)
 
 ## What Was Fixed During Investigation
 
