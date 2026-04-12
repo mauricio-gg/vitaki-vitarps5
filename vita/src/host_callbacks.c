@@ -33,11 +33,11 @@ void host_event_cb(ChiakiEvent *event, void *user) {
       context.stream.last_restart_source[0] = '\0';
       context.stream.restart_source_attempts = 0;
       LOGD("PIPE/SESSION connected gen=%u reconnect_gen=%u post_window_ms=%llu",
-           context.stream.session_generation,
-           context.stream.reconnect_generation,
-           context.stream.post_reconnect_window_until_us ?
-               (unsigned long long)((context.stream.post_reconnect_window_until_us -
-                                     context.stream.stream_start_us) / 1000ULL)
+           context.stream.session_generation, context.stream.reconnect_generation,
+           context.stream.post_reconnect_window_until_us
+               ? (unsigned long long)((context.stream.post_reconnect_window_until_us -
+                                       context.stream.stream_start_us) /
+                                      1000ULL)
                : 0ULL);
       ui_connection_set_stage(UI_CONNECTION_STAGE_STARTING_STREAM);
       if (context.stream.fast_restart_active) {
@@ -57,7 +57,8 @@ void host_event_cb(ChiakiEvent *event, void *user) {
   }
 }
 
-bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
+bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered,
+                   void *user) {
   if (context.stream.stop_requested)
     return false;
   if (!context.stream.video_first_frame_logged) {

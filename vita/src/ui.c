@@ -55,10 +55,10 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
 
-vita2d_font* font;
-vita2d_font* font_mono;
-vita2d_texture *img_ps4, *img_ps4_off, *img_ps4_rest,
-    *img_ps5, *img_ps5_off, *img_ps5_rest, *img_discovery_host;
+vita2d_font *font;
+vita2d_font *font_mono;
+vita2d_texture *img_ps4, *img_ps4_off, *img_ps4_rest, *img_ps5, *img_ps5_off, *img_ps5_rest,
+    *img_discovery_host;
 
 // VitaRPS5 UI textures
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
@@ -121,7 +121,6 @@ static void render_loss_indicator_preview(void);
 
 // PinEntryState type moved to ui_types.h
 
-
 // PIN entry state moved to ui_screens.c
 // cursor_blink_timer moved to ui_screens.c
 
@@ -136,9 +135,9 @@ char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
 
 // Initialize Yes and No button from settings (will be updated in init_ui)
 int SCE_CTRL_CONFIRM = SCE_CTRL_CROSS;
-int SCE_CTRL_CANCEL  = SCE_CTRL_CIRCLE;
-char* confirm_btn_str = "Cross";
-char* cancel_btn_str  = "Circle";
+int SCE_CTRL_CANCEL = SCE_CTRL_CIRCLE;
+char *confirm_btn_str = "Cross";
+char *cancel_btn_str = "Circle";
 
 // btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
@@ -156,12 +155,11 @@ static void render_loss_indicator_preview(void) {
   if (!context.config.show_network_indicator)
     return;
   uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (!context.stream.loss_alert_until_us ||
-      now_us >= context.stream.loss_alert_until_us)
+  if (!context.stream.loss_alert_until_us || now_us >= context.stream.loss_alert_until_us)
     return;
 
-  uint64_t duration = context.stream.loss_alert_duration_us ?
-      context.stream.loss_alert_duration_us : VIDEO_LOSS_ALERT_DEFAULT_US;
+  uint64_t duration = context.stream.loss_alert_duration_us ? context.stream.loss_alert_duration_us
+                                                            : VIDEO_LOSS_ALERT_DEFAULT_US;
   if (!duration)
     duration = VIDEO_LOSS_ALERT_DEFAULT_US;
   uint64_t remaining = context.stream.loss_alert_until_us - now_us;
@@ -184,19 +182,15 @@ static void render_loss_indicator_preview(void) {
   uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
   if (bg_alpha < 40)
     bg_alpha = 40;
-  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2,
-                         RGBA8(0, 0, 0, bg_alpha));
+  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2, RGBA8(0, 0, 0, bg_alpha));
 
   int dot_x = box_x + padding_x;
   int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius,
-                          RGBA8(0xF4, 0x43, 0x36, alpha));
+  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
 
   int text_x = dot_x + dot_radius + 10;
   int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y,
-                        RGBA8(0xFF, 0xFF, 0xFF, alpha),
-                        FONT_SIZE_SMALL,
+  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
                         headline);
 }
 
@@ -211,9 +205,9 @@ static void render_loss_indicator_preview(void) {
 // ============================================================================
 // REUSABLE UI COMPONENTS
 // ============================================================================
-// Widget drawing functions (toggle, dropdown, tabs, status_dot, section_header) moved to ui_components.c
-// StatusType enum moved to ui_components.h as UIStatusType
-// Spinner drawing moved to ui_graphics.c (ui_draw_spinner)
+// Widget drawing functions (toggle, dropdown, tabs, status_dot, section_header) moved to
+// ui_components.c StatusType enum moved to ui_components.h as UIStatusType Spinner drawing moved to
+// ui_graphics.c (ui_draw_spinner)
 
 // ============================================================================
 // CONSOLE CARDS
@@ -291,13 +285,13 @@ void load_textures() {
  * Returns: true if region is touched, false otherwise
  */
 bool is_touched(int x, int y, int width, int height) {
-  SceTouchData* tdf = &(context.ui_state.touch_state_front);
+  SceTouchData *tdf = &(context.ui_state.touch_state_front);
   if (!tdf) {
     return false;
   }
   // TODO: Do the coordinate systems really match?
-  return tdf->report->x > x && tdf->report->x <= x + width &&
-         tdf->report->y > y && tdf->report->y <= y + height;
+  return tdf->report->x > x && tdf->report->x <= x + width && tdf->report->y > y &&
+         tdf->report->y <= y + height;
 }
 
 // is_point_in_circle() and is_point_in_rect() moved to ui_input.c
@@ -311,16 +305,14 @@ bool is_touched(int x, int y, int width, int height) {
 // ============================================================================
 
 static bool load_psn_id_from_registry(bool force_reload) {
-  if (!force_reload && context.config.psn_account_id &&
-      strlen(context.config.psn_account_id) > 0) {
+  if (!force_reload && context.config.psn_account_id && strlen(context.config.psn_account_id) > 0) {
     return true;
   }
 
   char acc_id_buf[8];
   memset(acc_id_buf, 0, sizeof(acc_id_buf));
 
-  int reg_result = sceRegMgrGetKeyBin("/CONFIG/NP/", "account_id",
-                                      acc_id_buf, sizeof(acc_id_buf));
+  int reg_result = sceRegMgrGetKeyBin("/CONFIG/NP/", "account_id", acc_id_buf, sizeof(acc_id_buf));
   if (reg_result < 0) {
     LOGE("Failed to read PSN account_id from registry: 0x%08X", reg_result);
     return false;
@@ -407,16 +399,16 @@ void init_ui() {
 
   // Set yes/no buttons (circle = yes on Japanese vitas, typically)
   SCE_CTRL_CONFIRM = context.config.circle_btn_confirm ? SCE_CTRL_CIRCLE : SCE_CTRL_CROSS;
-  SCE_CTRL_CANCEL  = context.config.circle_btn_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
+  SCE_CTRL_CANCEL = context.config.circle_btn_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
   confirm_btn_str = context.config.circle_btn_confirm ? "Circle" : "Cross";
-  cancel_btn_str  = context.config.circle_btn_confirm ? "Cross" : "Circle";
+  cancel_btn_str = context.config.circle_btn_confirm ? "Cross" : "Circle";
 
   // Initialize UI modules
   ui_input_init();
   ui_screens_init();
   ui_state_init();
-  ui_nav_init();     // Initialize navigation module
-  ui_focus_init();   // Initialize centralized focus manager (Phase 1)
+  ui_nav_init();    // Initialize navigation module
+  ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
   button_block_mask = ui_input_get_button_block_mask_ptr();
@@ -446,7 +438,6 @@ void draw_ui() {
   SceCtrlData ctrl;
   memset(&ctrl, 0, sizeof(ctrl));
 
-
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
@@ -463,7 +454,8 @@ void draw_ui() {
       host_finalize_deferred_session();
     }
 
-    // Always read controller input - input thread uses Ext2 variant to access controller independently
+    // Always read controller input - input thread uses Ext2 variant to access controller
+    // independently
     if (!sceCtrlReadBufferPositive(0, &ctrl, 1)) {
       // Try again...
       LOGE("Failed to get controller state");
@@ -480,163 +472,159 @@ void draw_ui() {
     handle_error_popup_input();
     handle_debug_menu_input();
 
-    if (debug_menu_enabled && !context.stream.is_streaming &&
-        !context.ui_state.debug_menu_active) {
+    if (debug_menu_enabled && !context.stream.is_streaming && !context.ui_state.debug_menu_active) {
       if ((context.ui_state.button_state & DEBUG_MENU_COMBO_MASK) == DEBUG_MENU_COMBO_MASK &&
           (context.ui_state.old_button_state & DEBUG_MENU_COMBO_MASK) != DEBUG_MENU_COMBO_MASK) {
         open_debug_menu();
       }
     }
 
-
-      // handle invalid items
-      int this_active_item = context.ui_state.next_active_item;
-      if (this_active_item == -1) {
-        this_active_item = context.ui_state.active_item;
-      }
-      if (this_active_item > -1) {
-        if (this_active_item & UI_MAIN_WIDGET_HOST_TILE) {
-          if (context.num_hosts == 0) {
-            // return to toolbar
-            context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
-          } else {
-            int host_j = this_active_item - UI_MAIN_WIDGET_HOST_TILE;
-            if (host_j >= context.num_hosts) {
-              context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | (context.num_hosts-1);
-            }
-          }
-        }
-      }
-
-      if (context.ui_state.next_active_item >= 0) {
-        context.ui_state.active_item = context.ui_state.next_active_item;
-        context.ui_state.next_active_item = -1;
-      }
-
-      // Skip ALL rendering when streaming - match ywnico pattern
-      if (!context.stream.is_streaming) {
-        if (context.stream.reconnect_overlay_active) {
-          screen = UI_SCREEN_TYPE_RECONNECTING;
-        } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
-          screen = UI_SCREEN_TYPE_MAIN;
-        }
-
-        vita2d_start_drawing();
-        vita2d_clear_screen();
-
-        // Draw full-screen background - nav is a pure overlay
-        if (background_gradient) {
-          vita2d_draw_texture_part(background_gradient, 0, 0,
-                                   0, 0, VITA_WIDTH, VITA_HEIGHT);
+    // handle invalid items
+    int this_active_item = context.ui_state.next_active_item;
+    if (this_active_item == -1) {
+      this_active_item = context.ui_state.active_item;
+    }
+    if (this_active_item > -1) {
+      if (this_active_item & UI_MAIN_WIDGET_HOST_TILE) {
+        if (context.num_hosts == 0) {
+          // return to toolbar
+          context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
         } else {
-          vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
-        }
-
-        // Wave navigation area removed - nav is a pure overlay with no background
-
-        // Focus overlay moved to after screen rendering for correct z-order
-
-        // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
-        if (vita_rps5_logo) {
-          int logo_w = vita2d_texture_get_width(vita_rps5_logo);
-          int logo_h = vita2d_texture_get_height(vita_rps5_logo);
-          float logo_scale = 0.1f;  // 10% of original size
-          int scaled_w = (int)(logo_w * logo_scale);
-          int scaled_h = (int)(logo_h * logo_scale);
-          int logo_x = VITA_WIDTH - scaled_w - 20;  // 20px margin from right
-          int logo_y = 20;  // 20px margin from top
-
-          // Draw with 50% transparency (alpha = 128)
-          vita2d_draw_texture_tint_scale(vita_rps5_logo, logo_x, logo_y,
-                                         logo_scale, logo_scale,
-                                         RGBA8(255, 255, 255, 128));
-        }
-
-        UIScreenType prev_screen = screen;
-        UIScreenType next_screen = screen;
-
-        // Handle zone-crossing navigation (LEFT/RIGHT between nav bar and content)
-        // This must happen before screen-specific input handling
-        ui_focus_handle_zone_crossing(screen);
-
-        // Render the current screen
-        if (screen == UI_SCREEN_TYPE_MAIN) {
-          next_screen = ui_screen_draw_main();
-        } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-          context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
-          if (!ui_screen_draw_registration()) {
-            next_screen = UI_SCREEN_TYPE_MAIN;
+          int host_j = this_active_item - UI_MAIN_WIDGET_HOST_TILE;
+          if (host_j >= context.num_hosts) {
+            context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | (context.num_hosts - 1);
           }
-        } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
-          if (!ui_screen_draw_messages()) {
-            next_screen = UI_SCREEN_TYPE_MAIN;
-          }
-        } else if (screen == UI_SCREEN_TYPE_STREAM) {
-          if (!ui_screen_draw_stream()) {
-            next_screen = UI_SCREEN_TYPE_MAIN;
-          }
-        } else if (screen == UI_SCREEN_TYPE_WAKING) {
-          next_screen = ui_screen_draw_waking();
-        } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
-          next_screen = ui_screen_draw_reconnecting();
-        } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
-          if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
-            context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
-          }
-          next_screen = ui_screen_draw_settings();
-        } else if (screen == UI_SCREEN_TYPE_PROFILE) {
-          // Phase 2: Profile & Registration screen
-          next_screen = ui_screen_draw_profile();
-        } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
-          // Phase 2: Controller Configuration screen
-          next_screen = ui_screen_draw_controller();
-        }
-
-        if (next_screen != prev_screen) {
-          block_inputs_for_transition();
-          // Menu stays in current state - user controls collapse via Triangle or content tap
-
-          // Handle modal focus for PIN entry screen only
-          // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
-          // Pop modal when leaving PIN entry screen
-          if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-              context.ui_state.register_host_modal_pushed) {
-            ui_focus_pop_modal();
-            context.ui_state.register_host_modal_pushed = false;
-          }
-
-          // Push modal when entering PIN entry screen
-          if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-              !context.ui_state.register_host_modal_pushed) {
-            ui_focus_push_modal();
-            context.ui_state.register_host_modal_pushed = true;
-          }
-        }
-        screen = next_screen;
-
-        // Render focus overlay after all screen content (correct z-order)
-        ui_nav_render_content_overlay();
-
-        // Render navigation menu overlay (on top of tint)
-        render_wave_navigation();
-
-        // Render hints system (indicator + popup)
-        render_hints_indicator();
-        render_hints_popup();
-
-        render_loss_indicator_preview();
-        render_debug_menu();
-        render_error_popup();
-        vita2d_end_drawing();
-        vita2d_common_dialog_update();
-        vita2d_swap_buffers();
-      } else {
-        // Streaming active — render decoded frames from the UI thread.
-        // This decouples GPU display from the Takion network receive thread,
-        // freeing ~15-20ms per frame on the decode path.
-        if (!vita_video_render_latest_frame()) {
-          sceKernelDelayThread(1000);  // 1ms sleep to avoid busy-spin
         }
       }
+    }
+
+    if (context.ui_state.next_active_item >= 0) {
+      context.ui_state.active_item = context.ui_state.next_active_item;
+      context.ui_state.next_active_item = -1;
+    }
+
+    // Skip ALL rendering when streaming - match ywnico pattern
+    if (!context.stream.is_streaming) {
+      if (context.stream.reconnect_overlay_active) {
+        screen = UI_SCREEN_TYPE_RECONNECTING;
+      } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
+        screen = UI_SCREEN_TYPE_MAIN;
+      }
+
+      vita2d_start_drawing();
+      vita2d_clear_screen();
+
+      // Draw full-screen background - nav is a pure overlay
+      if (background_gradient) {
+        vita2d_draw_texture_part(background_gradient, 0, 0, 0, 0, VITA_WIDTH, VITA_HEIGHT);
+      } else {
+        vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
+      }
+
+      // Wave navigation area removed - nav is a pure overlay with no background
+
+      // Focus overlay moved to after screen rendering for correct z-order
+
+      // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
+      if (vita_rps5_logo) {
+        int logo_w = vita2d_texture_get_width(vita_rps5_logo);
+        int logo_h = vita2d_texture_get_height(vita_rps5_logo);
+        float logo_scale = 0.1f;  // 10% of original size
+        int scaled_w = (int)(logo_w * logo_scale);
+        int scaled_h = (int)(logo_h * logo_scale);
+        int logo_x = VITA_WIDTH - scaled_w - 20;  // 20px margin from right
+        int logo_y = 20;                          // 20px margin from top
+
+        // Draw with 50% transparency (alpha = 128)
+        vita2d_draw_texture_tint_scale(vita_rps5_logo, logo_x, logo_y, logo_scale, logo_scale,
+                                       RGBA8(255, 255, 255, 128));
+      }
+
+      UIScreenType prev_screen = screen;
+      UIScreenType next_screen = screen;
+
+      // Handle zone-crossing navigation (LEFT/RIGHT between nav bar and content)
+      // This must happen before screen-specific input handling
+      ui_focus_handle_zone_crossing(screen);
+
+      // Render the current screen
+      if (screen == UI_SCREEN_TYPE_MAIN) {
+        next_screen = ui_screen_draw_main();
+      } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
+        context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
+        if (!ui_screen_draw_registration()) {
+          next_screen = UI_SCREEN_TYPE_MAIN;
+        }
+      } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
+        if (!ui_screen_draw_messages()) {
+          next_screen = UI_SCREEN_TYPE_MAIN;
+        }
+      } else if (screen == UI_SCREEN_TYPE_STREAM) {
+        if (!ui_screen_draw_stream()) {
+          next_screen = UI_SCREEN_TYPE_MAIN;
+        }
+      } else if (screen == UI_SCREEN_TYPE_WAKING) {
+        next_screen = ui_screen_draw_waking();
+      } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
+        next_screen = ui_screen_draw_reconnecting();
+      } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
+        if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
+          context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
+        }
+        next_screen = ui_screen_draw_settings();
+      } else if (screen == UI_SCREEN_TYPE_PROFILE) {
+        // Phase 2: Profile & Registration screen
+        next_screen = ui_screen_draw_profile();
+      } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
+        // Phase 2: Controller Configuration screen
+        next_screen = ui_screen_draw_controller();
+      }
+
+      if (next_screen != prev_screen) {
+        block_inputs_for_transition();
+        // Menu stays in current state - user controls collapse via Triangle or content tap
+
+        // Handle modal focus for PIN entry screen only
+        // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
+        // Pop modal when leaving PIN entry screen
+        if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
+            context.ui_state.register_host_modal_pushed) {
+          ui_focus_pop_modal();
+          context.ui_state.register_host_modal_pushed = false;
+        }
+
+        // Push modal when entering PIN entry screen
+        if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
+            !context.ui_state.register_host_modal_pushed) {
+          ui_focus_push_modal();
+          context.ui_state.register_host_modal_pushed = true;
+        }
+      }
+      screen = next_screen;
+
+      // Render focus overlay after all screen content (correct z-order)
+      ui_nav_render_content_overlay();
+
+      // Render navigation menu overlay (on top of tint)
+      render_wave_navigation();
+
+      // Render hints system (indicator + popup)
+      render_hints_indicator();
+      render_hints_popup();
+
+      render_loss_indicator_preview();
+      render_debug_menu();
+      render_error_popup();
+      vita2d_end_drawing();
+      vita2d_common_dialog_update();
+      vita2d_swap_buffers();
+    } else {
+      // Streaming active — render decoded frames from the UI thread.
+      // This decouples GPU display from the Takion network receive thread,
+      // freeing ~15-20ms per frame on the decode path.
+      if (!vita_video_render_latest_frame()) {
+        sceKernelDelayThread(1000);  // 1ms sleep to avoid busy-spin
+      }
+    }
   }
 }

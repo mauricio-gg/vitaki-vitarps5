@@ -37,13 +37,13 @@
 static void draw_streaming(vita2d_texture *frame_texture);
 
 enum {
-  VITA_VIDEO_INIT_OK                    = 0,
-  VITA_VIDEO_ERROR_NO_MEM               = 0x80010001,
-  VITA_VIDEO_ERROR_INIT_LIB             = 0x80010002,
-  VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE    = 0x80010003,
-  VITA_VIDEO_ERROR_ALLOC_MEM            = 0x80010004,
-  VITA_VIDEO_ERROR_GET_MEMBASE          = 0x80010005,
-  VITA_VIDEO_ERROR_CREATE_DEC           = 0x80010006,
+  VITA_VIDEO_INIT_OK = 0,
+  VITA_VIDEO_ERROR_NO_MEM = 0x80010001,
+  VITA_VIDEO_ERROR_INIT_LIB = 0x80010002,
+  VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE = 0x80010003,
+  VITA_VIDEO_ERROR_ALLOC_MEM = 0x80010004,
+  VITA_VIDEO_ERROR_GET_MEMBASE = 0x80010005,
+  VITA_VIDEO_ERROR_CREATE_DEC = 0x80010006,
 };
 
 enum {
@@ -73,7 +73,6 @@ SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 static bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
-
 typedef struct {
   unsigned int texture_width;
   unsigned int texture_height;
@@ -101,8 +100,8 @@ static void record_incoming_frame_sample(void) {
       uint32_t requested = context.stream.negotiated_fps;
       if (requested == 0)
         requested = 30;
-      LOGD("Video FPS — incoming %u fps (requested %u)",
-           context.stream.measured_incoming_fps, requested);
+      LOGD("Video FPS — incoming %u fps (requested %u)", context.stream.measured_incoming_fps,
+           requested);
     }
     // D1: Publish decode timing window stats
     if (context.stream.decode_window_count > 0) {
@@ -130,8 +129,8 @@ static bool should_drop_frame_for_pacing(void) {
   if (target == 0)
     return false;
 
-  uint32_t source = context.stream.measured_incoming_fps ?
-      context.stream.measured_incoming_fps : context.stream.negotiated_fps;
+  uint32_t source = context.stream.measured_incoming_fps ? context.stream.measured_incoming_fps
+                                                         : context.stream.negotiated_fps;
   if (source == 0 || target >= source)
     return false;
 
@@ -187,12 +186,8 @@ void update_scaling_settings(int width, int height) {
   }
 
   LOGD("update_scaling_settings: src=%ux%u tex=%ux%u dst=%.0fx%.0f stretch=%s",
-       image_scaling.source_width,
-       image_scaling.source_height,
-       image_scaling.texture_width,
-       image_scaling.texture_height,
-       image_scaling.region_x2,
-       image_scaling.region_y2,
+       image_scaling.source_width, image_scaling.source_height, image_scaling.texture_width,
+       image_scaling.texture_height, image_scaling.region_x2, image_scaling.region_y2,
        context.config.stretch_video ? "true" : "false");
 }
 
@@ -201,23 +196,25 @@ ChiakiMutex mtx;
 bool threadSetupComplete = false;
 
 typedef struct SceVideodecMemInfo {
-    SceUInt32    memSize;
+  SceUInt32 memSize;
 
 } SceVideodecMemInfo;
 
 typedef struct SceVideodecCtrl {
-    SceAvcdecBuf    memBuf;
-    SceUID            memBufUid;
+  SceAvcdecBuf memBuf;
+  SceUID memBufUid;
 
-    SceUIntVAddr    vaContext;
-    SceUInt32        contextSize;
+  SceUIntVAddr vaContext;
+  SceUInt32 contextSize;
 } SceVideodecCtrl;
-extern SceInt32 sceVideodecQueryMemSize(SceUInt32 codecType, const SceVideodecQueryInitInfo *pInitInfo, SceVideodecMemInfo *pMemInfo);
+extern SceInt32 sceVideodecQueryMemSize(SceUInt32 codecType,
+                                        const SceVideodecQueryInitInfo *pInitInfo,
+                                        SceVideodecMemInfo *pMemInfo);
 
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
 struct SceAvcdecPicture picture = {0};
-struct SceAvcdecPicture *pictures = { &picture };
+struct SceAvcdecPicture *pictures = {&picture};
 
 static void video_cleanup_decoder(void) {
   if (video_status != INIT_AVC_DEC)
@@ -284,10 +281,9 @@ static int video_setup_framebuffer(int width, int height) {
   picture.frame.frameWidth = image_scaling.texture_width;
   picture.frame.frameHeight = image_scaling.texture_height;
 
-  frame_texture = vita2d_create_empty_texture_format(
-      image_scaling.texture_width,
-      image_scaling.texture_height,
-      SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
+  frame_texture =
+      vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
+                                         SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
   if (frame_texture == NULL) {
     LOGD("not enough memory4\n");
     return VITA_VIDEO_ERROR_NO_MEM;
@@ -296,9 +292,7 @@ static int video_setup_framebuffer(int width, int height) {
   return VITA_VIDEO_INIT_OK;
 }
 
-static int video_setup_avc_lib(int width,
-                               int height,
-                               SceVideodecCtrl *libCtrl,
+static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
                                SceVideodecMemInfo *libMemInfo,
                                SceVideodecQueryInitInfo *initVideodec) {
   void *libMem;
@@ -324,10 +318,8 @@ static int video_setup_avc_lib(int width,
   opt.attr = 4;
   opt.alignment = 256 * 1024;
 
-  videodecblock = sceKernelAllocMemBlock("videodec",
-                                         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
-                                         libMemInfo->memSize,
-                                         &opt);
+  videodecblock = sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+                                         libMemInfo->memSize, &opt);
   if (videodecblock < 0) {
     sceClibPrintf("videodecblock: 0x%08x\n", videodecblock);
     return VITA_VIDEO_ERROR_INIT_LIB;
@@ -345,9 +337,8 @@ static int video_setup_avc_lib(int width,
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
-  videodecContext = sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap,
-                                                                libMemInfo->memSize,
-                                                                256 * 1024);
+  videodecContext =
+      sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, libMemInfo->memSize, 256 * 1024);
   if (videodecContext < 0) {
     sceClibPrintf("sceCodecEngineAllocMemoryFromUnmapMemBlock: 0x%x\n", videodecContext);
     return VITA_VIDEO_ERROR_INIT_LIB;
@@ -379,7 +370,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoder_info->numOfRefFrames = initVideodec->hwAvc.numOfRefFrames;
 
   SceAvcdecDecoderInfo decoder_info_out = (SceAvcdecDecoderInfo){0};
-  int ret = sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
+  int ret =
+      sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
   if (ret < 0) {
     LOGD("sceAvcdecQueryDecoderMemSize 0x%x size 0x%x\n", ret, decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE;
@@ -398,10 +390,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   opt.size = sizeof(SceKernelAllocMemBlockOpt);
   opt.attr = 4;
   opt.alignment = 1024 * 1024;
-  decoderblock = sceKernelAllocMemBlock("decoder",
-                                        SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
-                                        decoder_info_out.frameMemSize,
-                                        &opt);
+  decoderblock = sceKernelAllocMemBlock("decoder", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+                                        decoder_info_out.frameMemSize, &opt);
   if (decoderblock < 0) {
     LOGD("decoderblock: 0x%08x\n", decoderblock);
     return VITA_VIDEO_ERROR_ALLOC_MEM;
@@ -427,24 +417,23 @@ static int video_setup_decoder_instance(void) {
 }
 
 void vita_h264_cleanup() {
-	video_cleanup_decoder();
-	video_cleanup_decoder_memblock();
-	video_cleanup_avc_lib();
-	video_cleanup_framebuffer();
+  video_cleanup_decoder();
+  video_cleanup_decoder_memblock();
+  video_cleanup_avc_lib();
+  video_cleanup_framebuffer();
 
-	if (video_status == INIT_GS) {
-		// gs_sps_stop();
+  if (video_status == INIT_GS) {
+    // gs_sps_stop();
     threadSetupComplete = false;
-		video_status--;
-	}
-
+    video_status--;
+  }
 }
 
 int vita_h264_setup(int width, int height) {
   int ret = VITA_VIDEO_INIT_OK;
   LOGD("vita video setup\n");
-	SceVideodecCtrl libCtrl;
-	SceVideodecMemInfo libMemInfo;
+  SceVideodecCtrl libCtrl;
+  SceVideodecMemInfo libMemInfo;
   SceVideodecQueryInitInfo initVideodec;
 
   array_picture.numOfElm = 1;
@@ -512,17 +501,16 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   }
 
   chiaki_mutex_lock(&mtx);
-  if(!threadSetupComplete) {
-		sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-		sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
-		threadSetupComplete = true;
-	}
+  if (!threadSetupComplete) {
+    sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+    sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
+    threadSetupComplete = true;
+  }
   if (buf_size > sceAvcdecDecodeAvailableSize(decoder)) {
     sceClibPrintf("Video decode buffer too small\n");
     chiaki_mutex_unlock(&mtx);
     return 1;
   }
-
 
   int ret = 0;
   au.es.pBuf = buf;
@@ -533,7 +521,8 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
   record_decode_timing_sample(decode_elapsed_us);
   if (ret < 0) {
-    LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret, array_picture.numOfOutput);
+    LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret,
+         array_picture.numOfOutput);
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -569,11 +558,8 @@ static void draw_streaming(vita2d_texture *frame_texture) {
   if (src_w <= 0.0f || src_h <= 0.0f) {
     static uint64_t last_invalid_source_log_us = 0;
     uint64_t now_us = sceKernelGetProcessTimeWide();
-    if (last_invalid_source_log_us == 0 ||
-        (now_us - last_invalid_source_log_us) >= 1000000ULL) {
-      LOGD("draw_streaming skipped invalid source dimensions (w=%.1f h=%.1f)",
-           src_w,
-           src_h);
+    if (last_invalid_source_log_us == 0 || (now_us - last_invalid_source_log_us) >= 1000000ULL) {
+      LOGD("draw_streaming skipped invalid source dimensions (w=%.1f h=%.1f)", src_w, src_h);
       last_invalid_source_log_us = now_us;
     }
     return;
@@ -583,28 +569,14 @@ static void draw_streaming(vita2d_texture *frame_texture) {
     // Fill Screen: scale active decoded source region to full display
     float scale_x = (float)SCREEN_WIDTH / src_w;
     float scale_y = (float)SCREEN_HEIGHT / src_h;
-    vita2d_draw_texture_part_scale(frame_texture,
-                                   0.0f,
-                                   0.0f,
-                                   0.0f,
-                                   0.0f,
-                                   src_w,
-                                   src_h,
-                                   scale_x,
+    vita2d_draw_texture_part_scale(frame_texture, 0.0f, 0.0f, 0.0f, 0.0f, src_w, src_h, scale_x,
                                    scale_y);
   } else {
     // Aspect-preserving: draw active source region centered with computed scale
     float scale_x = image_scaling.region_x2 / src_w;
     float scale_y = image_scaling.region_y2 / src_h;
-    vita2d_draw_texture_part_scale(frame_texture,
-                                   image_scaling.origin_x,
-                                   image_scaling.origin_y,
-                                   0.0f,
-                                   0.0f,
-                                   src_w,
-                                   src_h,
-                                   scale_x,
-                                   scale_y);
+    vita2d_draw_texture_part_scale(frame_texture, image_scaling.origin_x, image_scaling.origin_y,
+                                   0.0f, 0.0f, src_w, src_h, scale_x, scale_y);
   }
 }
 
@@ -646,7 +618,7 @@ bool vita_video_render_latest_frame(void) {
 
 void vita_h264_start() {
   active_video_thread = true;
-	chiaki_mutex_init(&mtx, false);
+  chiaki_mutex_init(&mtx, false);
   vita2d_set_vblank_wait(false);
   frame_ready_for_display = false;
   context.stream.display_fps = 0;
@@ -659,7 +631,7 @@ void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
   frame_ready_for_display = false;
-	chiaki_mutex_fini(&mtx);
+  chiaki_mutex_fini(&mtx);
   vitavideo_overlay_on_stream_stop();
 }
 

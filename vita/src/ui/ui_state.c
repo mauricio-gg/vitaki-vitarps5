@@ -183,14 +183,8 @@ bool ui_connection_start_thread(VitaChiakiHost *host) {
     return true;
 
   connection_thread_host = host;
-  connection_thread_id = sceKernelCreateThread(
-      "VitaConnWorker",
-      connection_thread_func,
-      0x40,
-      0x10000,
-      0,
-      0,
-      NULL);
+  connection_thread_id =
+      sceKernelCreateThread("VitaConnWorker", connection_thread_func, 0x40, 0x10000, 0, 0, NULL);
 
   if (connection_thread_id < 0) {
     LOGE("Failed to create connection worker thread (%d)", connection_thread_id);
@@ -242,11 +236,10 @@ bool ui_cooldown_takion_gate_active(void) {
 // Text Width Caching Implementation
 // ============================================================================
 
-int ui_text_width_cached(const char* text, int font_size) {
+int ui_text_width_cached(const char *text, int font_size) {
   // Try to find in cache (pointer comparison for static strings)
   for (int i = 0; i < TEXT_WIDTH_CACHE_SIZE; i++) {
-    if (text_width_cache[i].valid &&
-        text_width_cache[i].text == text &&  // Pointer comparison
+    if (text_width_cache[i].valid && text_width_cache[i].text == text &&  // Pointer comparison
         text_width_cache[i].font_size == font_size) {
       return text_width_cache[i].width;
     }
@@ -346,7 +339,7 @@ bool start_connection_thread(VitaChiakiHost *host) {
  * Get cached text width (internal alias)
  * Original function name used in ui.c
  */
-int get_text_width_cached(const char* text, int font_size) {
+int get_text_width_cached(const char *text, int font_size) {
   return ui_text_width_cached(text, font_size);
 }
 

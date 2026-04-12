@@ -120,9 +120,9 @@ void ui_particles_init(void) {
     particles[i].sway_phase = ((float)(rand() % 360)) * (M_PI / 180.0f);
 
     // Sway speed randomized between min and max
-    particles[i].sway_speed = PARTICLE_SWAY_SPEED_MIN +
-                              ((float)(rand() % 100) / 100.0f) *
-                              (PARTICLE_SWAY_SPEED_MAX - PARTICLE_SWAY_SPEED_MIN);
+    particles[i].sway_speed =
+        PARTICLE_SWAY_SPEED_MIN +
+        ((float)(rand() % 100) / 100.0f) * (PARTICLE_SWAY_SPEED_MAX - PARTICLE_SWAY_SPEED_MIN);
   }
 
   particles_initialized = true;
@@ -153,9 +153,8 @@ void ui_particles_update(void) {
     // Apply layer-based speed multiplier
     // Background layer (0) moves at 0.7x speed for depth effect
     // Foreground layer (1) moves at 1.0x speed
-    float layer_speed = (particles[i].layer == 0) ?
-                        PARTICLE_LAYER_BG_SPEED :
-                        PARTICLE_LAYER_FG_SPEED;
+    float layer_speed =
+        (particles[i].layer == 0) ? PARTICLE_LAYER_BG_SPEED : PARTICLE_LAYER_FG_SPEED;
 
     // Update position with layer speed (doubled for 30fps compensation)
     particles[i].x += particles[i].vx * 2.0f * layer_speed;
@@ -193,19 +192,14 @@ void ui_particles_render(void) {
   }
 
   // Symbol texture array mapping symbol_type to texture
-  vita2d_texture* symbol_textures[4] = {
-    symbol_triangle,
-    symbol_circle,
-    symbol_ex,
-    symbol_square
-  };
+  vita2d_texture *symbol_textures[4] = {symbol_triangle, symbol_circle, symbol_ex, symbol_square};
 
   for (int i = 0; i < PARTICLE_COUNT; i++) {
     if (!particles[i].active) {
       continue;
     }
 
-    vita2d_texture* tex = symbol_textures[particles[i].symbol_type];
+    vita2d_texture *tex = symbol_textures[particles[i].symbol_type];
     if (!tex) {
       continue;
     }
@@ -215,10 +209,8 @@ void ui_particles_render(void) {
     float render_x = particles[i].x + sway_offset;
 
     // Draw with scale, rotation, and sway
-    vita2d_draw_texture_scale_rotate(tex,
-      render_x, particles[i].y,
-      particles[i].scale, particles[i].scale,
-      particles[i].rotation);
+    vita2d_draw_texture_scale_rotate(tex, render_x, particles[i].y, particles[i].scale,
+                                     particles[i].scale, particles[i].rotation);
 
     // Note: Color tinting would require custom shader
     // For now particles use texture colors

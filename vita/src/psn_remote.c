@@ -18,7 +18,8 @@ typedef enum psn_host_add_result_t {
   PSN_HOST_ADD_RESULT_SKIPPED_OOM = -3,
 } PsnHostAddResult;
 
-static char g_psn_remote_last_error[160] = "PSN internet remote play stack is unavailable in this build.";
+static char g_psn_remote_last_error[160] =
+    "PSN internet remote play stack is unavailable in this build.";
 
 static void psn_remote_set_error(const char *message) {
   if (!message || !message[0]) {
@@ -41,8 +42,8 @@ static bool psn_uid_is_zero(const uint8_t uid[32]) {
 static unsigned int psn_uid_debug_prefix(const uint8_t uid[32]) {
   if (!uid)
     return 0;
-  return ((unsigned int)uid[0] << 24) | ((unsigned int)uid[1] << 16) |
-         ((unsigned int)uid[2] << 8) | (unsigned int)uid[3];
+  return ((unsigned int)uid[0] << 24) | ((unsigned int)uid[1] << 16) | ((unsigned int)uid[2] << 8) |
+         (unsigned int)uid[3];
 }
 
 static bool host_target_is_ps5_registered(const VitaChiakiHost *host) {
@@ -61,11 +62,8 @@ static VitaChiakiHost *find_registered_source_for_device(const char *device_name
   for (int i = 0; i < context.config.num_registered_hosts; i++) {
     VitaChiakiHost *candidate = context.config.registered_hosts[i];
     bool usable = host_target_is_ps5_registered(candidate);
-    LOGD("PSN host refresh seed candidate[%d]: usable=%d type=0x%x target=%d nickname=%s",
-         i,
-         usable,
-         candidate ? candidate->type : 0,
-         candidate ? candidate->target : -1,
+    LOGD("PSN host refresh seed candidate[%d]: usable=%d type=0x%x target=%d nickname=%s", i,
+         usable, candidate ? candidate->type : 0, candidate ? candidate->target : -1,
          (candidate && candidate->registered_state &&
           candidate->registered_state->server_nickname[0])
              ? candidate->registered_state->server_nickname
@@ -118,16 +116,13 @@ static size_t count_psn_context_hosts(void) {
 static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo *device,
                                                  size_t device_index) {
   if (!device) {
-    LOGE("PSN host refresh device[%u]: null device entry",
-         (unsigned int)device_index);
+    LOGE("PSN host refresh device[%u]: null device entry", (unsigned int)device_index);
     return PSN_HOST_ADD_RESULT_SKIPPED_OOM;
   }
 
   LOGD("PSN host refresh device[%u]: name=%s remoteplay_enabled=%d type=%d",
-       (unsigned int)device_index,
-       device->device_name[0] ? device->device_name : "<unnamed>",
-       device->remoteplay_enabled,
-       device->type);
+       (unsigned int)device_index, device->device_name[0] ? device->device_name : "<unnamed>",
+       device->remoteplay_enabled, device->type);
 
   if (!device->remoteplay_enabled) {
     LOGD("PSN host refresh device[%u]: skipped because remote play is disabled",
@@ -136,17 +131,14 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
   }
 
   bool exact_match = false;
-  VitaChiakiHost *src =
-      find_registered_source_for_device(device->device_name, &exact_match);
+  VitaChiakiHost *src = find_registered_source_for_device(device->device_name, &exact_match);
   if (!src) {
     LOGD("PSN host refresh device[%u]: skipped because no registered PS5 seed host matched name=%s",
-         (unsigned int)device_index,
-         device->device_name[0] ? device->device_name : "<unnamed>");
+         (unsigned int)device_index, device->device_name[0] ? device->device_name : "<unnamed>");
     return PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE;
   }
 
-  LOGD("PSN host refresh device[%u]: using %s registered seed host=%s",
-       (unsigned int)device_index,
+  LOGD("PSN host refresh device[%u]: using %s registered seed host=%s", (unsigned int)device_index,
        exact_match ? "exact-match" : "fallback",
        (src->registered_state && src->registered_state->server_nickname &&
         src->registered_state->server_nickname[0])
@@ -186,26 +178,23 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
   }
 
   context.hosts[slot] = host;
-  LOGD("PSN host refresh device[%u]: added PSN host slot=%d host_ptr=%p hostname=%s source_seed=%s uid_zero=%d uid_prefix=%08x",
-       (unsigned int)device_index,
-       slot,
-       (void *)host,
-       host->hostname ? host->hostname : "<unnamed>",
-       (src->registered_state && src->registered_state->server_nickname &&
-        src->registered_state->server_nickname[0])
-           ? src->registered_state->server_nickname
-           : (src->hostname ? src->hostname : "<unnamed>"),
-       psn_uid_is_zero(host->psn_device_uid),
-       psn_uid_debug_prefix(host->psn_device_uid));
+  LOGD(
+      "PSN host refresh device[%u]: added PSN host slot=%d host_ptr=%p hostname=%s source_seed=%s "
+      "uid_zero=%d uid_prefix=%08x",
+      (unsigned int)device_index, slot, (void *)host, host->hostname ? host->hostname : "<unnamed>",
+      (src->registered_state && src->registered_state->server_nickname &&
+       src->registered_state->server_nickname[0])
+          ? src->registered_state->server_nickname
+          : (src->hostname ? src->hostname : "<unnamed>"),
+      psn_uid_is_zero(host->psn_device_uid), psn_uid_debug_prefix(host->psn_device_uid));
   return PSN_HOST_ADD_RESULT_ADDED;
 }
 #endif
 
-int psn_remote_prepare_connect_host(
-    VitaChiakiHost *host
+int psn_remote_prepare_connect_host(VitaChiakiHost *host
 #if CHIAKI_CAN_USE_HOLEPUNCH
-    ,
-    ChiakiHolepunchSession *out_session
+                                    ,
+                                    ChiakiHolepunchSession *out_session
 #endif
 ) {
   if (!host) {
@@ -224,13 +213,13 @@ int psn_remote_prepare_connect_host(
 
   if (psn_uid_is_zero(host->psn_device_uid)) {
     LOGE("PSN remote prepare failed: missing PSN device UID");
-    psn_remote_set_error("Selected PSN host is missing device identity. Refresh the PSN host list.");
+    psn_remote_set_error(
+        "Selected PSN host is missing device identity. Refresh the PSN host list.");
     return 1;
   }
 
   uint64_t now_unix = (uint64_t)time(NULL);
-  if (!psn_auth_token_is_valid(now_unix) &&
-      !psn_auth_refresh_token_if_needed(now_unix, false)) {
+  if (!psn_auth_token_is_valid(now_unix) && !psn_auth_refresh_token_if_needed(now_unix, false)) {
     LOGE("PSN remote prepare failed: OAuth token invalid and refresh failed");
     psn_remote_set_error("PSN session expired. Re-authenticate in Profile.");
     return 1;
@@ -261,13 +250,11 @@ int psn_remote_prepare_connect_host(
     long ws_http_code = 0;
     long retry_interval_min = 0;
     long retry_interval_max = 0;
-    chiaki_holepunch_session_get_ws_reject_info(session, &ws_http_code,
-                                                &retry_interval_min,
+    chiaki_holepunch_session_get_ws_reject_info(session, &ws_http_code, &retry_interval_min,
                                                 &retry_interval_max);
     LOGE("PSN remote prepare failed: session_create: %s", chiaki_error_string(err));
     if (err == CHIAKI_ERR_HTTP_NONOK) {
-      if (ws_http_code == 403 &&
-          (retry_interval_min > 0 || retry_interval_max > 0)) {
+      if (ws_http_code == 403 && (retry_interval_min > 0 || retry_interval_max > 0)) {
         char message[160];
         snprintf(message, sizeof(message),
                  "PSN cloud connection was rejected by Sony. Retry in %ld-%ld sec.",
@@ -333,19 +320,17 @@ int psn_remote_prepare_connect_host(
 int psn_remote_refresh_hosts(void) {
 #if CHIAKI_CAN_USE_HOLEPUNCH
   uint64_t now_unix = (uint64_t)time(NULL);
-  LOGD("PSN host refresh begin: enabled=%d has_tokens=%d token_valid=%d now=%llu expires_at=%llu current_psn_hosts=%u",
-       psn_auth_enabled(),
-       psn_auth_has_tokens(),
-       psn_auth_token_is_valid(now_unix),
-       (unsigned long long)now_unix,
-       (unsigned long long)context.config.psn_oauth_expires_at_unix,
-       (unsigned int)count_psn_context_hosts());
+  LOGD(
+      "PSN host refresh begin: enabled=%d has_tokens=%d token_valid=%d now=%llu expires_at=%llu "
+      "current_psn_hosts=%u",
+      psn_auth_enabled(), psn_auth_has_tokens(), psn_auth_token_is_valid(now_unix),
+      (unsigned long long)now_unix, (unsigned long long)context.config.psn_oauth_expires_at_unix,
+      (unsigned int)count_psn_context_hosts());
   if (!psn_auth_enabled()) {
     LOGD("PSN host refresh skipped: PSN internet mode disabled");
     return 1;
   }
-  if (!psn_auth_token_is_valid(now_unix) &&
-      !psn_auth_refresh_token_if_needed(now_unix, false)) {
+  if (!psn_auth_token_is_valid(now_unix) && !psn_auth_refresh_token_if_needed(now_unix, false)) {
     LOGD("PSN host refresh skipped: OAuth token invalid and refresh failed");
     return 1;
   }
@@ -357,9 +342,8 @@ int psn_remote_refresh_hosts(void) {
 
   ChiakiHolepunchDeviceInfo *devices = NULL;
   size_t device_count = 0;
-  ChiakiErrorCode err = chiaki_holepunch_list_devices(
-      token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &devices, &device_count,
-      &context.log);
+  ChiakiErrorCode err = chiaki_holepunch_list_devices(token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5,
+                                                      &devices, &device_count, &context.log);
   if (err != CHIAKI_ERR_SUCCESS) {
     LOGE("Failed to fetch PSN remote hosts: %s", chiaki_error_string(err));
     return 1;
@@ -375,33 +359,31 @@ int psn_remote_refresh_hosts(void) {
   for (size_t i = 0; i < device_count; i++) {
     PsnHostAddResult result = add_psn_host_from_device(&devices[i], i);
     switch (result) {
-    case PSN_HOST_ADD_RESULT_ADDED:
-      added++;
-      break;
-    case PSN_HOST_ADD_RESULT_SKIPPED_REMOTEPLAY_DISABLED:
-      skipped_remoteplay_disabled++;
-      break;
-    case PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE:
-      skipped_no_registered_source++;
-      break;
-    case PSN_HOST_ADD_RESULT_SKIPPED_NO_FREE_SLOT:
-      skipped_no_free_slot++;
-      break;
-    case PSN_HOST_ADD_RESULT_SKIPPED_OOM:
-      skipped_oom++;
-      break;
+      case PSN_HOST_ADD_RESULT_ADDED:
+        added++;
+        break;
+      case PSN_HOST_ADD_RESULT_SKIPPED_REMOTEPLAY_DISABLED:
+        skipped_remoteplay_disabled++;
+        break;
+      case PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE:
+        skipped_no_registered_source++;
+        break;
+      case PSN_HOST_ADD_RESULT_SKIPPED_NO_FREE_SLOT:
+        skipped_no_free_slot++;
+        break;
+      case PSN_HOST_ADD_RESULT_SKIPPED_OOM:
+        skipped_oom++;
+        break;
     }
   }
   chiaki_holepunch_free_device_list(&devices);
   update_context_hosts();
-  LOGD("PSN host refresh completed: added=%d skipped_remoteplay_disabled=%d skipped_no_registered_source=%d skipped_no_free_slot=%d skipped_oom=%d visible_psn_hosts=%u total_hosts=%u",
-       added,
-       skipped_remoteplay_disabled,
-       skipped_no_registered_source,
-       skipped_no_free_slot,
-       skipped_oom,
-       (unsigned int)count_psn_context_hosts(),
-       (unsigned int)context.num_hosts);
+  LOGD(
+      "PSN host refresh completed: added=%d skipped_remoteplay_disabled=%d "
+      "skipped_no_registered_source=%d skipped_no_free_slot=%d skipped_oom=%d visible_psn_hosts=%u "
+      "total_hosts=%u",
+      added, skipped_remoteplay_disabled, skipped_no_registered_source, skipped_no_free_slot,
+      skipped_oom, (unsigned int)count_psn_context_hosts(), (unsigned int)context.num_hosts);
   if (!config_serialize(&context.config)) {
     LOGE("Failed to persist config after PSN host refresh");
   }
@@ -420,6 +402,5 @@ void psn_remote_clear_cached_hosts(void) {
 }
 
 const char *psn_remote_last_error(void) {
-  return g_psn_remote_last_error[0] ? g_psn_remote_last_error
-                                    : "PSN internet remote play failed.";
+  return g_psn_remote_last_error[0] ? g_psn_remote_last_error : "PSN internet remote play failed.";
 }

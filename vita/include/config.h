@@ -16,11 +16,11 @@
 #endif
 
 typedef enum vita_chiaki_latency_mode_t {
-  VITA_LATENCY_MODE_ULTRA_LOW = 0,   // Minimum bandwidth (≈1.2 Mbps)
-  VITA_LATENCY_MODE_LOW,             // Low bandwidth (≈1.8 Mbps)
-  VITA_LATENCY_MODE_BALANCED,        // Balanced default (≈2.6 Mbps)
-  VITA_LATENCY_MODE_HIGH,            // High quality (≈3.2 Mbps)
-  VITA_LATENCY_MODE_MAX,             // Near-max Vita Wi-Fi (≈3.8 Mbps)
+  VITA_LATENCY_MODE_ULTRA_LOW = 0,  // Minimum bandwidth (≈1.2 Mbps)
+  VITA_LATENCY_MODE_LOW,            // Low bandwidth (≈1.8 Mbps)
+  VITA_LATENCY_MODE_BALANCED,       // Balanced default (≈2.6 Mbps)
+  VITA_LATENCY_MODE_HIGH,           // High quality (≈3.2 Mbps)
+  VITA_LATENCY_MODE_MAX,            // Near-max Vita Wi-Fi (≈3.8 Mbps)
   VITA_LATENCY_MODE_COUNT
 } VitaChiakiLatencyMode;
 
@@ -28,48 +28,48 @@ typedef enum vita_chiaki_latency_mode_t {
 typedef struct vita_chiaki_config_t {
   int cfg_version;
   // We use a global PSN Account ID so users only have to enter it once
-  char* psn_account_id;
+  char *psn_account_id;
   // PSN OAuth tokens used for internet remote play.
-  char* psn_oauth_access_token;
-  char* psn_oauth_refresh_token;
+  char *psn_oauth_access_token;
+  char *psn_oauth_refresh_token;
   uint64_t psn_oauth_expires_at_unix;
-  char* psn_oauth_device_code_url;
-  char* psn_oauth_authorize_url;
-  char* psn_oauth_token_url;
-  char* psn_oauth_client_id;
-  char* psn_oauth_client_secret;
-  char* psn_oauth_scope;
-  char* psn_oauth_redirect_uri;
-  char* psn_client_duid;
+  char *psn_oauth_device_code_url;
+  char *psn_oauth_authorize_url;
+  char *psn_oauth_token_url;
+  char *psn_oauth_client_id;
+  char *psn_oauth_client_secret;
+  char *psn_oauth_scope;
+  char *psn_oauth_redirect_uri;
+  char *psn_client_duid;
   bool psn_remoteplay_enabled;
   /// Whether discovery is enabled by default
   bool auto_discovery;
   ChiakiVideoResolutionPreset resolution;
   ChiakiVideoFPSPreset fps;
   size_t num_manual_hosts;
-  VitaChiakiHost* manual_hosts[MAX_MANUAL_HOSTS];
+  VitaChiakiHost *manual_hosts[MAX_MANUAL_HOSTS];
   size_t num_registered_hosts;
-  VitaChiakiHost* registered_hosts[MAX_REGISTERED_HOSTS];
+  VitaChiakiHost *registered_hosts[MAX_REGISTERED_HOSTS];
   // TODO: Logfile path
   // TODO: Loglevel
   // controller map id - corresponds to custom slot index (0, 1, or 2)
   int controller_map_id;
-  ControllerMapStorage custom_maps[3];   // 3 independent custom mapping slots
-  bool custom_maps_valid[3];             // Validity flags for each custom slot
+  ControllerMapStorage custom_maps[3];  // 3 independent custom mapping slots
+  bool custom_maps_valid[3];            // Validity flags for each custom slot
   bool circle_btn_confirm;
-  bool show_latency;  // Display live latency/FPS metrics in Profile + stream HUD
-  bool show_network_indicator; // Display "Network unstable" overlay in stream HUD
-  bool show_stream_exit_hint; // Display stream exit shortcut hint in stream HUD
+  bool show_latency;            // Display live latency/FPS metrics in Profile + stream HUD
+  bool show_network_indicator;  // Display "Network unstable" overlay in stream HUD
+  bool show_stream_exit_hint;   // Display stream exit shortcut hint in stream HUD
   bool stretch_video;
-  bool force_30fps;   // Drop frames locally to hold 30 fps presentation
-  bool send_actual_start_bitrate; // Guard for RP-StartBitrate payload
-  bool clamp_soft_restart_bitrate; // Keep soft restart bitrate <= ~1.5 Mbps
+  bool force_30fps;                 // Drop frames locally to hold 30 fps presentation
+  bool send_actual_start_bitrate;   // Guard for RP-StartBitrate payload
+  bool clamp_soft_restart_bitrate;  // Keep soft restart bitrate <= ~1.5 Mbps
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
-  bool show_nav_labels;  // Show text labels below navigation icons when selected
+  bool show_nav_labels;   // Show text labels below navigation icons when selected
   bool show_only_paired;  // Only show registered/paired consoles on main screen
 } VitaChiakiConfig;
 
-void config_parse(VitaChiakiConfig* cfg);
-void config_free(VitaChiakiConfig* cfg);
-bool config_serialize(VitaChiakiConfig* cfg);
+void config_parse(VitaChiakiConfig *cfg);
+void config_free(VitaChiakiConfig *cfg);
+bool config_serialize(VitaChiakiConfig *cfg);

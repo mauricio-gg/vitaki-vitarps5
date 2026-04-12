@@ -34,7 +34,7 @@
 // Selected navigation icon (intra-zone state)
 // Note: Exposed via ui_internal.h for backward compatibility during refactoring
 // New code should use ui_nav_get/set functions instead
-int selected_nav_icon = 0;   // 0=Play, 1=Settings, 2=Controller, 3=Profile
+int selected_nav_icon = 0;  // 0=Play, 1=Settings, 2=Controller, 3=Profile
 
 // Wave animation state
 static WaveLayerState wave_bottom_state = {0.0f, WAVE_SPEED_BOTTOM};
@@ -42,19 +42,17 @@ static WaveLayerState wave_top_state = {0.0f, WAVE_SPEED_TOP};
 static uint64_t wave_last_update_us = 0;  // For delta time calculation
 
 // Navigation collapse state (exposed via ui_internal.h for backward compatibility)
-NavCollapseState nav_collapse = {
-    .state = NAV_STATE_COLLAPSED,
-    .anim_start_us = 0,
-    .anim_progress = 0.0f,
-    .stored_wave_bottom_phase = 0.0f,
-    .stored_wave_top_phase = 0.0f,
-    .current_width = 0.0f,
-    .pill_width = NAV_PILL_WIDTH,
-    .pill_opacity = 1.0f,
-    .toast_shown_this_session = false,
-    .toast_active = false,
-    .toast_start_us = 0
-};
+NavCollapseState nav_collapse = {.state = NAV_STATE_COLLAPSED,
+                                 .anim_start_us = 0,
+                                 .anim_progress = 0.0f,
+                                 .stored_wave_bottom_phase = 0.0f,
+                                 .stored_wave_top_phase = 0.0f,
+                                 .current_width = 0.0f,
+                                 .pill_width = NAV_PILL_WIDTH,
+                                 .pill_opacity = 1.0f,
+                                 .toast_shown_this_session = false,
+                                 .toast_active = false,
+                                 .toast_start_us = 0};
 
 // ============================================================================
 // Helper Functions
@@ -64,7 +62,7 @@ NavCollapseState nav_collapse = {
  * Ease-in-out cubic interpolation for smooth animation
  */
 static inline float ease_in_out_cubic(float t) {
-    return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
 }
 
 // ============================================================================
@@ -72,28 +70,28 @@ static inline float ease_in_out_cubic(float t) {
 // ============================================================================
 
 void ui_nav_init(void) {
-    // Reset to default collapsed state
-    nav_collapse.state = NAV_STATE_COLLAPSED;
-    nav_collapse.anim_start_us = 0;
-    nav_collapse.anim_progress = 0.0f;
-    nav_collapse.stored_wave_bottom_phase = 0.0f;
-    nav_collapse.stored_wave_top_phase = 0.0f;
-    nav_collapse.current_width = 0.0f;
-    nav_collapse.pill_width = NAV_PILL_WIDTH;
-    nav_collapse.pill_opacity = 1.0f;
-    nav_collapse.toast_shown_this_session = false;
-    nav_collapse.toast_active = false;
-    nav_collapse.toast_start_us = 0;
+  // Reset to default collapsed state
+  nav_collapse.state = NAV_STATE_COLLAPSED;
+  nav_collapse.anim_start_us = 0;
+  nav_collapse.anim_progress = 0.0f;
+  nav_collapse.stored_wave_bottom_phase = 0.0f;
+  nav_collapse.stored_wave_top_phase = 0.0f;
+  nav_collapse.current_width = 0.0f;
+  nav_collapse.pill_width = NAV_PILL_WIDTH;
+  nav_collapse.pill_opacity = 1.0f;
+  nav_collapse.toast_shown_this_session = false;
+  nav_collapse.toast_active = false;
+  nav_collapse.toast_start_us = 0;
 
-    // Initialize wave animation
-    wave_bottom_state.phase = 0.0f;
-    wave_bottom_state.speed = WAVE_SPEED_BOTTOM;
-    wave_top_state.phase = 0.0f;
-    wave_top_state.speed = WAVE_SPEED_TOP;
-    wave_last_update_us = 0;
+  // Initialize wave animation
+  wave_bottom_state.phase = 0.0f;
+  wave_bottom_state.speed = WAVE_SPEED_BOTTOM;
+  wave_top_state.phase = 0.0f;
+  wave_top_state.speed = WAVE_SPEED_TOP;
+  wave_last_update_us = 0;
 
-    // Initialize selection
-    selected_nav_icon = 0;
+  // Initialize selection
+  selected_nav_icon = 0;
 }
 
 // ============================================================================
@@ -101,54 +99,54 @@ void ui_nav_init(void) {
 // ============================================================================
 
 void ui_nav_request_collapse(void) {
-    // Only collapse from expanded state
-    if (nav_collapse.state != NAV_STATE_EXPANDED) {
-        return;
-    }
+  // Only collapse from expanded state
+  if (nav_collapse.state != NAV_STATE_EXPANDED) {
+    return;
+  }
 
-    // Store wave phases for resume
-    nav_collapse.stored_wave_bottom_phase = wave_bottom_state.phase;
-    nav_collapse.stored_wave_top_phase = wave_top_state.phase;
+  // Store wave phases for resume
+  nav_collapse.stored_wave_bottom_phase = wave_bottom_state.phase;
+  nav_collapse.stored_wave_top_phase = wave_top_state.phase;
 
-    // Start collapse animation
-    nav_collapse.state = NAV_STATE_COLLAPSING;
-    nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
-    nav_collapse.anim_progress = 0.0f;
+  // Start collapse animation
+  nav_collapse.state = NAV_STATE_COLLAPSING;
+  nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
+  nav_collapse.anim_progress = 0.0f;
 }
 
 void ui_nav_request_expand(void) {
-    // Only expand from collapsed state
-    if (nav_collapse.state != NAV_STATE_COLLAPSED) {
-        return;
-    }
+  // Only expand from collapsed state
+  if (nav_collapse.state != NAV_STATE_COLLAPSED) {
+    return;
+  }
 
-    // Restore wave phases and reset delta timer to prevent phase jump
-    wave_bottom_state.phase = nav_collapse.stored_wave_bottom_phase;
-    wave_top_state.phase = nav_collapse.stored_wave_top_phase;
-    wave_last_update_us = sceKernelGetProcessTimeWide();
+  // Restore wave phases and reset delta timer to prevent phase jump
+  wave_bottom_state.phase = nav_collapse.stored_wave_bottom_phase;
+  wave_top_state.phase = nav_collapse.stored_wave_top_phase;
+  wave_last_update_us = sceKernelGetProcessTimeWide();
 
-    // Start expand animation
-    nav_collapse.state = NAV_STATE_EXPANDING;
-    nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
-    nav_collapse.anim_progress = 0.0f;
+  // Start expand animation
+  nav_collapse.state = NAV_STATE_EXPANDING;
+  nav_collapse.anim_start_us = sceKernelGetProcessTimeWide();
+  nav_collapse.anim_progress = 0.0f;
 }
 
 void ui_nav_toggle(void) {
-    if (nav_collapse.state == NAV_STATE_EXPANDED) {
-        ui_nav_request_collapse();
-    } else if (nav_collapse.state == NAV_STATE_COLLAPSED) {
-        ui_nav_request_expand();
-    }
-    // Ignore toggle during animation
+  if (nav_collapse.state == NAV_STATE_EXPANDED) {
+    ui_nav_request_collapse();
+  } else if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+    ui_nav_request_expand();
+  }
+  // Ignore toggle during animation
 }
 
 void ui_nav_reset_collapsed(void) {
-    nav_collapse.state = NAV_STATE_COLLAPSED;
-    nav_collapse.anim_progress = 0.0f;
-    nav_collapse.current_width = 0.0f;
-    nav_collapse.pill_width = NAV_PILL_WIDTH;
-    nav_collapse.pill_opacity = 1.0f;
-    // Don't reset toast_shown_this_session - should persist for whole app session
+  nav_collapse.state = NAV_STATE_COLLAPSED;
+  nav_collapse.anim_progress = 0.0f;
+  nav_collapse.current_width = 0.0f;
+  nav_collapse.pill_width = NAV_PILL_WIDTH;
+  nav_collapse.pill_opacity = 1.0f;
+  // Don't reset toast_shown_this_session - should persist for whole app session
 }
 
 // ============================================================================
@@ -159,26 +157,26 @@ void ui_nav_reset_collapsed(void) {
  * Internal function to show the nav collapse toast
  */
 static void internal_show_nav_collapse_toast(void) {
-    if (nav_collapse.toast_shown_this_session) {
-        return;
-    }
-    nav_collapse.toast_shown_this_session = true;
-    nav_collapse.toast_active = true;
-    nav_collapse.toast_start_us = sceKernelGetProcessTimeWide();
+  if (nav_collapse.toast_shown_this_session) {
+    return;
+  }
+  nav_collapse.toast_shown_this_session = true;
+  nav_collapse.toast_active = true;
+  nav_collapse.toast_start_us = sceKernelGetProcessTimeWide();
 }
 
 void ui_nav_update_toast(void) {
-    if (!nav_collapse.toast_active) {
-        return;
-    }
+  if (!nav_collapse.toast_active) {
+    return;
+  }
 
-    uint64_t now = sceKernelGetProcessTimeWide();
-    uint64_t elapsed_us = now - nav_collapse.toast_start_us;
-    uint64_t total_us = (NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS + NAV_TOAST_FADE_MS) * 1000ULL;
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.toast_start_us;
+  uint64_t total_us = (NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS + NAV_TOAST_FADE_MS) * 1000ULL;
 
-    if (elapsed_us >= total_us) {
-        nav_collapse.toast_active = false;
-    }
+  if (elapsed_us >= total_us) {
+    nav_collapse.toast_active = false;
+  }
 }
 
 // ============================================================================
@@ -186,88 +184,90 @@ void ui_nav_update_toast(void) {
 // ============================================================================
 
 void ui_nav_update_collapse_animation(void) {
-    if (nav_collapse.state != NAV_STATE_COLLAPSING && nav_collapse.state != NAV_STATE_EXPANDING) {
-        return;
-    }
+  if (nav_collapse.state != NAV_STATE_COLLAPSING && nav_collapse.state != NAV_STATE_EXPANDING) {
+    return;
+  }
 
-    uint64_t now = sceKernelGetProcessTimeWide();
-    uint64_t elapsed_us = now - nav_collapse.anim_start_us;
-    float elapsed_ms = (float)elapsed_us / 1000.0f;
-    float progress = elapsed_ms / (float)NAV_COLLAPSE_DURATION_MS;
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.anim_start_us;
+  float elapsed_ms = (float)elapsed_us / 1000.0f;
+  float progress = elapsed_ms / (float)NAV_COLLAPSE_DURATION_MS;
 
-    if (progress >= 1.0f) {
-        progress = 1.0f;
+  if (progress >= 1.0f) {
+    progress = 1.0f;
 
-        // Animation complete - transition to final state
-        if (nav_collapse.state == NAV_STATE_COLLAPSING) {
-            nav_collapse.state = NAV_STATE_COLLAPSED;
-            nav_collapse.current_width = 0.0f;
-            nav_collapse.pill_width = NAV_PILL_WIDTH;
-            nav_collapse.pill_opacity = 1.0f;
-            internal_show_nav_collapse_toast();
-        } else if (nav_collapse.state == NAV_STATE_EXPANDING) {
-            nav_collapse.state = NAV_STATE_EXPANDED;
-            nav_collapse.current_width = WAVE_NAV_WIDTH;
-            nav_collapse.pill_width = NAV_PILL_HEIGHT;
-            nav_collapse.pill_opacity = 0.0f;
-        }
-    }
-
-    nav_collapse.anim_progress = progress;
-
-    // Calculate interpolated values based on animation state
+    // Animation complete - transition to final state
     if (nav_collapse.state == NAV_STATE_COLLAPSING) {
-        // Collapsing: width goes down, pill fades in
-        float eased = ease_in_out_cubic(progress);
-        nav_collapse.current_width = WAVE_NAV_WIDTH * (1.0f - eased);
-
-        // Pill only appears in phase 3 (200-280ms, progress 0.71-1.0)
-        if (progress > 0.71f) {
-            float pill_progress = (progress - 0.71f) / 0.29f;
-            nav_collapse.pill_width = NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
-            nav_collapse.pill_opacity = pill_progress;
-        } else {
-            nav_collapse.pill_width = NAV_PILL_HEIGHT;
-            nav_collapse.pill_opacity = 0.0f;
-        }
+      nav_collapse.state = NAV_STATE_COLLAPSED;
+      nav_collapse.current_width = 0.0f;
+      nav_collapse.pill_width = NAV_PILL_WIDTH;
+      nav_collapse.pill_opacity = 1.0f;
+      internal_show_nav_collapse_toast();
     } else if (nav_collapse.state == NAV_STATE_EXPANDING) {
-        // Expanding: reverse of collapsing
-        // Pill contracts first (0-80ms, progress 0-0.29)
-        if (progress < 0.29f) {
-            float pill_progress = 1.0f - (progress / 0.29f);
-            nav_collapse.pill_width = NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
-            nav_collapse.pill_opacity = pill_progress;
-            nav_collapse.current_width = 0.0f;
-        } else {
-            // Sidebar expands (80-280ms, progress 0.29-1.0)
-            nav_collapse.pill_width = NAV_PILL_HEIGHT;
-            nav_collapse.pill_opacity = 0.0f;
-            float width_progress = (progress - 0.29f) / 0.71f;
-            nav_collapse.current_width = WAVE_NAV_WIDTH * width_progress;
-        }
+      nav_collapse.state = NAV_STATE_EXPANDED;
+      nav_collapse.current_width = WAVE_NAV_WIDTH;
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
     }
+  }
+
+  nav_collapse.anim_progress = progress;
+
+  // Calculate interpolated values based on animation state
+  if (nav_collapse.state == NAV_STATE_COLLAPSING) {
+    // Collapsing: width goes down, pill fades in
+    float eased = ease_in_out_cubic(progress);
+    nav_collapse.current_width = WAVE_NAV_WIDTH * (1.0f - eased);
+
+    // Pill only appears in phase 3 (200-280ms, progress 0.71-1.0)
+    if (progress > 0.71f) {
+      float pill_progress = (progress - 0.71f) / 0.29f;
+      nav_collapse.pill_width =
+          NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
+      nav_collapse.pill_opacity = pill_progress;
+    } else {
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
+    }
+  } else if (nav_collapse.state == NAV_STATE_EXPANDING) {
+    // Expanding: reverse of collapsing
+    // Pill contracts first (0-80ms, progress 0-0.29)
+    if (progress < 0.29f) {
+      float pill_progress = 1.0f - (progress / 0.29f);
+      nav_collapse.pill_width =
+          NAV_PILL_HEIGHT + (NAV_PILL_WIDTH - NAV_PILL_HEIGHT) * pill_progress;
+      nav_collapse.pill_opacity = pill_progress;
+      nav_collapse.current_width = 0.0f;
+    } else {
+      // Sidebar expands (80-280ms, progress 0.29-1.0)
+      nav_collapse.pill_width = NAV_PILL_HEIGHT;
+      nav_collapse.pill_opacity = 0.0f;
+      float width_progress = (progress - 0.29f) / 0.71f;
+      nav_collapse.current_width = WAVE_NAV_WIDTH * width_progress;
+    }
+  }
 }
 
 void ui_nav_update_wave_animation(void) {
-    uint64_t now_us = sceKernelGetProcessTimeWide();
-    if (wave_last_update_us == 0) {
-        wave_last_update_us = now_us;
-        return;
-    }
-
-    float delta_sec = (float)(now_us - wave_last_update_us) / 1000000.0f;
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (wave_last_update_us == 0) {
     wave_last_update_us = now_us;
+    return;
+  }
 
-    // Update wave phases
-    wave_bottom_state.phase += wave_bottom_state.speed * delta_sec;
-    wave_top_state.phase += wave_top_state.speed * delta_sec;
+  float delta_sec = (float)(now_us - wave_last_update_us) / 1000000.0f;
+  wave_last_update_us = now_us;
 
-    // Wrap phases to prevent float overflow, using a large period for seamless looping.
-    // We wrap at 1000*2*PI (~6283 radians) to ensure long-running animation remains
-    // smooth and within float precision limits.
-    float wrap_period = 1000.0f * 2.0f * M_PI;
-    wave_bottom_state.phase = fmodf(wave_bottom_state.phase, wrap_period);
-    wave_top_state.phase = fmodf(wave_top_state.phase, wrap_period);
+  // Update wave phases
+  wave_bottom_state.phase += wave_bottom_state.speed * delta_sec;
+  wave_top_state.phase += wave_top_state.speed * delta_sec;
+
+  // Wrap phases to prevent float overflow, using a large period for seamless looping.
+  // We wrap at 1000*2*PI (~6283 radians) to ensure long-running animation remains
+  // smooth and within float precision limits.
+  float wrap_period = 1000.0f * 2.0f * M_PI;
+  wave_bottom_state.phase = fmodf(wave_bottom_state.phase, wrap_period);
+  wave_top_state.phase = fmodf(wave_top_state.phase, wrap_period);
 }
 
 // ============================================================================
@@ -275,118 +275,120 @@ void ui_nav_update_wave_animation(void) {
 // ============================================================================
 
 void ui_nav_draw_hamburger_icon(int x, int cy, int size, uint32_t color) {
-    int line_h = 2;
-    int line_w = size;
+  int line_h = 2;
+  int line_w = size;
 
-    // Position three lines evenly: top at -size/2, middle at center, bottom at +size/2
-    int y1 = cy - size / 2 + line_h / 2;
-    int y2 = cy;
-    int y3 = cy + size / 2 - line_h / 2;
+  // Position three lines evenly: top at -size/2, middle at center, bottom at +size/2
+  int y1 = cy - size / 2 + line_h / 2;
+  int y2 = cy;
+  int y3 = cy + size / 2 - line_h / 2;
 
-    vita2d_draw_rectangle(x, y1 - line_h / 2, line_w, line_h, color);
-    vita2d_draw_rectangle(x, y2 - line_h / 2, line_w, line_h, color);
-    vita2d_draw_rectangle(x, y3 - line_h / 2, line_w, line_h, color);
+  vita2d_draw_rectangle(x, y1 - line_h / 2, line_w, line_h, color);
+  vita2d_draw_rectangle(x, y2 - line_h / 2, line_w, line_h, color);
+  vita2d_draw_rectangle(x, y3 - line_h / 2, line_w, line_h, color);
 }
 
 void ui_nav_draw_play_icon(int cx, int cy, int size) {
-    uint32_t white = RGBA8(255, 255, 255, 255);
-    int half_size = size / 2;
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int half_size = size / 2;
 
-    // Triangle centroid is at 1/3 from left edge for proper visual centering
-    // Offset the triangle left by size/6 to center it visually
-    int offset = size / 6;
+  // Triangle centroid is at 1/3 from left edge for proper visual centering
+  // Offset the triangle left by size/6 to center it visually
+  int offset = size / 6;
 
-    // Draw filled triangle using horizontal lines
-    // Triangle points adjusted for visual centering
-    for (int y = -half_size; y <= half_size; y++) {
-        int x_start = cx - half_size + abs(y) - offset;  // Left edge moves right as we go away from center
-        int x_end = cx + half_size - offset;              // Right edge is fixed
-        int width = x_end - x_start;
-        if (width > 0) {
-            vita2d_draw_rectangle(x_start, cy + y, width, 1, white);
-        }
+  // Draw filled triangle using horizontal lines
+  // Triangle points adjusted for visual centering
+  for (int y = -half_size; y <= half_size; y++) {
+    int x_start =
+        cx - half_size + abs(y) - offset;  // Left edge moves right as we go away from center
+    int x_end = cx + half_size - offset;   // Right edge is fixed
+    int width = x_end - x_start;
+    if (width > 0) {
+      vita2d_draw_rectangle(x_start, cy + y, width, 1, white);
     }
+  }
 }
 
 void ui_nav_draw_settings_icon(int cx, int cy, int size) {
-    uint32_t white = RGBA8(255, 255, 255, 255);
-    int outer_r = size / 2;
-    int inner_r = size / 4;
-    int tooth_count = 8;
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int outer_r = size / 2;
+  int inner_r = size / 4;
+  int tooth_count = 8;
 
-    // Draw center circle
-    ui_draw_circle(cx, cy, inner_r, white);
+  // Draw center circle
+  ui_draw_circle(cx, cy, inner_r, white);
 
-    // Draw gear teeth as small rectangles around the perimeter
-    for (int i = 0; i < tooth_count; i++) {
-        float angle = (float)i * 2.0f * M_PI / (float)tooth_count;
-        int tooth_x = cx + (int)(cosf(angle) * (outer_r - 3));
-        int tooth_y = cy + (int)(sinf(angle) * (outer_r - 3));
-        // Draw small square tooth
-        vita2d_draw_rectangle(tooth_x - 3, tooth_y - 3, 6, 6, white);
-    }
+  // Draw gear teeth as small rectangles around the perimeter
+  for (int i = 0; i < tooth_count; i++) {
+    float angle = (float)i * 2.0f * M_PI / (float)tooth_count;
+    int tooth_x = cx + (int)(cosf(angle) * (outer_r - 3));
+    int tooth_y = cy + (int)(sinf(angle) * (outer_r - 3));
+    // Draw small square tooth
+    vita2d_draw_rectangle(tooth_x - 3, tooth_y - 3, 6, 6, white);
+  }
 
-    // Draw outer ring using line segments
-    int segments = 32;
-    for (int i = 0; i < segments; i++) {
-        float a1 = (float)i * 2.0f * M_PI / (float)segments;
-        float a2 = (float)(i + 1) * 2.0f * M_PI / (float)segments;
-        int x1 = cx + (int)(cosf(a1) * (outer_r - 5));
-        int y1 = cy + (int)(sinf(a1) * (outer_r - 5));
-        int x2 = cx + (int)(cosf(a2) * (outer_r - 5));
-        int y2 = cy + (int)(sinf(a2) * (outer_r - 5));
-        vita2d_draw_line(x1, y1, x2, y2, white);
-    }
+  // Draw outer ring using line segments
+  int segments = 32;
+  for (int i = 0; i < segments; i++) {
+    float a1 = (float)i * 2.0f * M_PI / (float)segments;
+    float a2 = (float)(i + 1) * 2.0f * M_PI / (float)segments;
+    int x1 = cx + (int)(cosf(a1) * (outer_r - 5));
+    int y1 = cy + (int)(sinf(a1) * (outer_r - 5));
+    int x2 = cx + (int)(cosf(a2) * (outer_r - 5));
+    int y2 = cy + (int)(sinf(a2) * (outer_r - 5));
+    vita2d_draw_line(x1, y1, x2, y2, white);
+  }
 }
 
 void ui_nav_draw_controller_icon(int cx, int cy, int size) {
-    uint32_t white = RGBA8(255, 255, 255, 255);
-    int w = size;
-    int h = size * 2 / 3;
+  uint32_t white = RGBA8(255, 255, 255, 255);
+  int w = size;
+  int h = size * 2 / 3;
 
-    // Main body (rounded rectangle approximation)
-    int body_x = cx - w / 2;
-    int body_y = cy - h / 3;
-    ui_draw_rounded_rect(body_x, body_y, w, h, 4, white);
+  // Main body (rounded rectangle approximation)
+  int body_x = cx - w / 2;
+  int body_y = cy - h / 3;
+  ui_draw_rounded_rect(body_x, body_y, w, h, 4, white);
 
-    // Left handle
-    int handle_w = w / 4;
-    int handle_h = h / 2;
-    ui_draw_rounded_rect(body_x - handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+  // Left handle
+  int handle_w = w / 4;
+  int handle_h = h / 2;
+  ui_draw_rounded_rect(body_x - handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
 
-    // Right handle
-    ui_draw_rounded_rect(body_x + w - handle_w + handle_w / 3, body_y + h / 3, handle_w, handle_h, 3, white);
+  // Right handle
+  ui_draw_rounded_rect(body_x + w - handle_w + handle_w / 3, body_y + h / 3, handle_w, handle_h, 3,
+                       white);
 
-    // D-pad (left side) - draw as cross
-    int dpad_x = body_x + w / 4;
-    int dpad_y = body_y + h / 2;
-    int dpad_size = 3;
-    vita2d_draw_rectangle(dpad_x - dpad_size, dpad_y - 1, dpad_size * 2, 2, UI_COLOR_CARD_BG);
-    vita2d_draw_rectangle(dpad_x - 1, dpad_y - dpad_size, 2, dpad_size * 2, UI_COLOR_CARD_BG);
+  // D-pad (left side) - draw as cross
+  int dpad_x = body_x + w / 4;
+  int dpad_y = body_y + h / 2;
+  int dpad_size = 3;
+  vita2d_draw_rectangle(dpad_x - dpad_size, dpad_y - 1, dpad_size * 2, 2, UI_COLOR_CARD_BG);
+  vita2d_draw_rectangle(dpad_x - 1, dpad_y - dpad_size, 2, dpad_size * 2, UI_COLOR_CARD_BG);
 
-    // Buttons (right side) - draw as small circles
-    int btn_x = body_x + w * 3 / 4;
-    int btn_y = body_y + h / 2;
-    ui_draw_circle(btn_x, btn_y - 3, 2, UI_COLOR_CARD_BG);
-    ui_draw_circle(btn_x, btn_y + 3, 2, UI_COLOR_CARD_BG);
-    ui_draw_circle(btn_x - 3, btn_y, 2, UI_COLOR_CARD_BG);
-    ui_draw_circle(btn_x + 3, btn_y, 2, UI_COLOR_CARD_BG);
+  // Buttons (right side) - draw as small circles
+  int btn_x = body_x + w * 3 / 4;
+  int btn_y = body_y + h / 2;
+  ui_draw_circle(btn_x, btn_y - 3, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x, btn_y + 3, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x - 3, btn_y, 2, UI_COLOR_CARD_BG);
+  ui_draw_circle(btn_x + 3, btn_y, 2, UI_COLOR_CARD_BG);
 }
 
 void ui_nav_draw_profile_icon(int cx, int cy, int size) {
-    uint32_t white = RGBA8(255, 255, 255, 255);
+  uint32_t white = RGBA8(255, 255, 255, 255);
 
-    // Head (circle at top)
-    int head_r = size / 4;
-    int head_y = cy - size / 6;
-    ui_draw_circle(cx, head_y, head_r, white);
+  // Head (circle at top)
+  int head_r = size / 4;
+  int head_y = cy - size / 6;
+  ui_draw_circle(cx, head_y, head_r, white);
 
-    // Body (arc/shoulders) - approximate with rounded rectangle
-    int body_w = size * 2 / 3;
-    int body_h = size / 3;
-    int body_x = cx - body_w / 2;
-    int body_y = cy + size / 8;
-    ui_draw_rounded_rect(body_x, body_y, body_w, body_h, body_h / 2, white);
+  // Body (arc/shoulders) - approximate with rounded rectangle
+  int body_w = size * 2 / 3;
+  int body_h = size / 3;
+  int body_x = cx - body_w / 2;
+  int body_y = cy + size / 8;
+  ui_draw_rounded_rect(body_x, body_y, body_w, body_h, body_h / 2, white);
 }
 
 // ============================================================================
@@ -394,110 +396,105 @@ void ui_nav_draw_profile_icon(int cx, int cy, int size) {
 // ============================================================================
 
 void ui_nav_render_pill(void) {
-    if (nav_collapse.pill_opacity <= 0.0f) {
-        return;
+  if (nav_collapse.pill_opacity <= 0.0f) {
+    return;
+  }
+
+  int x = NAV_PILL_X;
+  int y = NAV_PILL_Y;
+  int w = (int)nav_collapse.pill_width;
+  int h = NAV_PILL_HEIGHT;
+  int r = h / 2;  // Fully rounded ends
+
+  // Calculate alpha from pill_opacity (90% max opacity)
+  uint8_t alpha = (uint8_t)(nav_collapse.pill_opacity * 230);
+  uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
+
+  // Focus highlight (if pill is focused while collapsed)
+  bool pill_focused =
+      (nav_collapse.state == NAV_STATE_COLLAPSED && ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
+  if (pill_focused) {
+    ui_draw_rounded_rect(x - 2, y - 2, w + 4, h + 4, r + 2, UI_COLOR_PRIMARY_BLUE);
+  }
+
+  // Pill background
+  ui_draw_rounded_rect(x, y, w, h, r, bg_color);
+
+  // Triangle button icon + "Menu" text (centered together as a single unit)
+  if (w > 50) {
+    int icon_target_size = NAV_PILL_ICON_SIZE;
+    int menu_text_width = vita2d_font_text_width(font, FONT_SIZE_BODY, "Menu");
+    int gap = NAV_PILL_ICON_GAP;
+    int total_content_width = icon_target_size + gap + menu_text_width;
+    int content_start_x = x + (w - total_content_width) / 2;
+
+    uint8_t icon_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
+
+    // Draw triangle button icon (scaled from source texture)
+    // Triangle replaces hamburger to match PlayStation UI conventions
+    if (icon_button_triangle) {
+      int tex_h = vita2d_texture_get_height(icon_button_triangle);
+      float scale = (float)icon_target_size / (float)tex_h;
+      int icon_y = y + (h - icon_target_size) / 2;
+      vita2d_draw_texture_tint_scale(icon_button_triangle, content_start_x, icon_y, scale, scale,
+                                     RGBA8(255, 255, 255, icon_alpha));
     }
 
-    int x = NAV_PILL_X;
-    int y = NAV_PILL_Y;
-    int w = (int)nav_collapse.pill_width;
-    int h = NAV_PILL_HEIGHT;
-    int r = h / 2;  // Fully rounded ends
-
-    // Calculate alpha from pill_opacity (90% max opacity)
-    uint8_t alpha = (uint8_t)(nav_collapse.pill_opacity * 230);
-    uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
-
-    // Focus highlight (if pill is focused while collapsed)
-    bool pill_focused = (nav_collapse.state == NAV_STATE_COLLAPSED &&
-                         ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
-    if (pill_focused) {
-        ui_draw_rounded_rect(x - 2, y - 2, w + 4, h + 4, r + 2,
-                             UI_COLOR_PRIMARY_BLUE);
+    if (w >= NAV_PILL_WIDTH - 10) {
+      uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
+      int text_x = content_start_x + icon_target_size + gap;
+      vita2d_font_draw_text(font, text_x, y + h / 2 + 5, RGBA8(250, 250, 250, text_alpha),
+                            FONT_SIZE_BODY, "Menu");
     }
-
-    // Pill background
-    ui_draw_rounded_rect(x, y, w, h, r, bg_color);
-
-    // Triangle button icon + "Menu" text (centered together as a single unit)
-    if (w > 50) {
-        int icon_target_size = NAV_PILL_ICON_SIZE;
-        int menu_text_width = vita2d_font_text_width(font, FONT_SIZE_BODY, "Menu");
-        int gap = NAV_PILL_ICON_GAP;
-        int total_content_width = icon_target_size + gap + menu_text_width;
-        int content_start_x = x + (w - total_content_width) / 2;
-
-        uint8_t icon_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-
-        // Draw triangle button icon (scaled from source texture)
-        // Triangle replaces hamburger to match PlayStation UI conventions
-        if (icon_button_triangle) {
-            int tex_h = vita2d_texture_get_height(icon_button_triangle);
-            float scale = (float)icon_target_size / (float)tex_h;
-            int icon_y = y + (h - icon_target_size) / 2;
-            vita2d_draw_texture_tint_scale(icon_button_triangle,
-                                           content_start_x, icon_y,
-                                           scale, scale,
-                                           RGBA8(255, 255, 255, icon_alpha));
-        }
-
-        if (w >= NAV_PILL_WIDTH - 10) {
-            uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
-            int text_x = content_start_x + icon_target_size + gap;
-            vita2d_font_draw_text(font, text_x, y + h / 2 + 5,
-                                  RGBA8(250, 250, 250, text_alpha),
-                                  FONT_SIZE_BODY, "Menu");
-        }
-    }
+  }
 }
 
 void ui_nav_render_toast(void) {
-    if (!nav_collapse.toast_active) {
-        return;
-    }
+  if (!nav_collapse.toast_active) {
+    return;
+  }
 
-    uint64_t now = sceKernelGetProcessTimeWide();
-    uint64_t elapsed_us = now - nav_collapse.toast_start_us;
-    uint64_t elapsed_ms = elapsed_us / 1000ULL;
+  uint64_t now = sceKernelGetProcessTimeWide();
+  uint64_t elapsed_us = now - nav_collapse.toast_start_us;
+  uint64_t elapsed_ms = elapsed_us / 1000ULL;
 
-    // Calculate opacity based on animation phase
-    float opacity = 1.0f;
-    if (elapsed_ms < NAV_TOAST_FADE_MS) {
-        // Fade in
-        opacity = (float)elapsed_ms / (float)NAV_TOAST_FADE_MS;
-    } else if (elapsed_ms > NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS) {
-        // Fade out
-        uint64_t fade_elapsed = elapsed_ms - NAV_TOAST_FADE_MS - NAV_TOAST_DURATION_MS;
-        opacity = 1.0f - ((float)fade_elapsed / (float)NAV_TOAST_FADE_MS);
-    }
+  // Calculate opacity based on animation phase
+  float opacity = 1.0f;
+  if (elapsed_ms < NAV_TOAST_FADE_MS) {
+    // Fade in
+    opacity = (float)elapsed_ms / (float)NAV_TOAST_FADE_MS;
+  } else if (elapsed_ms > NAV_TOAST_FADE_MS + NAV_TOAST_DURATION_MS) {
+    // Fade out
+    uint64_t fade_elapsed = elapsed_ms - NAV_TOAST_FADE_MS - NAV_TOAST_DURATION_MS;
+    opacity = 1.0f - ((float)fade_elapsed / (float)NAV_TOAST_FADE_MS);
+  }
 
-    if (opacity <= 0.0f) {
-        return;
-    }
+  if (opacity <= 0.0f) {
+    return;
+  }
 
-    const char* text = "Menu hidden - tap pill or press Triangle to reopen";
-    int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
+  const char *text = "Menu hidden - tap pill or press Triangle to reopen";
+  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
 
-    int toast_x = NAV_PILL_X;
-    int toast_y = NAV_PILL_Y + NAV_PILL_HEIGHT + 8;
-    int toast_w = text_w + 24;
-    int toast_h = 28;
+  int toast_x = NAV_PILL_X;
+  int toast_y = NAV_PILL_Y + NAV_PILL_HEIGHT + 8;
+  int toast_w = text_w + 24;
+  int toast_h = 28;
 
-    uint8_t alpha = (uint8_t)(opacity * 230);
-    uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
-    uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
+  uint8_t alpha = (uint8_t)(opacity * 230);
+  uint32_t bg_color = RGBA8(0x2D, 0x32, 0x37, alpha);
+  uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
 
-    ui_draw_rounded_rect(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
-    vita2d_font_draw_text(font, toast_x + 12, toast_y + toast_h / 2 + 4,
-                          text_color, FONT_SIZE_SMALL, text);
+  ui_draw_rounded_rect(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
+  vita2d_font_draw_text(font, toast_x + 12, toast_y + toast_h / 2 + 4, text_color, FONT_SIZE_SMALL,
+                        text);
 }
 
 void ui_nav_render_content_overlay(void) {
-    if (nav_collapse.state != NAV_STATE_EXPANDED) {
-        return;
-    }
-    vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT,
-                          RGBA8(0, 0, 0, 80));
+  if (nav_collapse.state != NAV_STATE_EXPANDED) {
+    return;
+  }
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 80));
 }
 
 // ============================================================================
@@ -505,180 +502,202 @@ void ui_nav_render_content_overlay(void) {
 // ============================================================================
 
 void ui_nav_render(void) {
-    // Update collapse animation state first
-    ui_nav_update_collapse_animation();
-    ui_nav_update_toast();
+  // Update collapse animation state first
+  ui_nav_update_collapse_animation();
+  ui_nav_update_toast();
 
-    // If fully collapsed, render only the pill and toast (save GPU cycles)
-    if (nav_collapse.state == NAV_STATE_COLLAPSED) {
-        ui_nav_render_pill();
-        ui_nav_render_toast();
-        return;
-    }
-
-    // Update wave animation state (only when not collapsed)
-    if (nav_collapse.state == NAV_STATE_EXPANDED) {
-        ui_nav_update_wave_animation();
-    }
-
-    // Calculate width scale for animation
-    float width_scale = nav_collapse.current_width / (float)WAVE_NAV_WIDTH;
-    if (width_scale < 0.01f) {
-        // Nearly collapsed - just render pill during transition
-        ui_nav_render_pill();
-        ui_nav_render_toast();
-        return;
-    }
-
-    // Draw procedural fluid wave background with continuous vertical animation
-    // Base teal colors matching PlayStation aesthetic
-    // Note: No solid background rectangle - waves extend fully to screen top
-
-    // Draw multiple sine wave layers that create fluid motion
-    // Using wave phase from ui_nav_update_wave_animation() for time-based animation
-    for (int layer = 0; layer < 2; layer++) {
-        // Each layer has different speed and amplitude for depth
-        float phase = (layer == 0) ? wave_bottom_state.phase : wave_top_state.phase;
-        float amplitude = (12.0f + (float)layer * 8.0f) * width_scale;
-
-        // Draw wave as filled polygon using horizontal slices
-        for (int y = 0; y < VITA_HEIGHT; y++) {
-            // Calculate wave X offset at this Y position
-            // Multiple frequencies create complex wave pattern
-            float wave_x = sinf((float)y * 0.015f + phase) * amplitude +
-                           sinf((float)y * 0.008f - phase * 0.7f) * (amplitude * 0.5f);
-
-            // Allow waves to extend freely beyond current width
-            int right_edge = (int)(nav_collapse.current_width + wave_x);
-
-            // Clamp to prevent negative width and excessive overdraw
-            if (right_edge < 0) right_edge = 0;
-            if (right_edge > (int)(nav_collapse.current_width) + 50) {
-                right_edge = (int)(nav_collapse.current_width) + 50;
-            }
-
-            // Draw horizontal slice with layered alpha for depth
-            uint8_t alpha = (layer == 0) ? WAVE_ALPHA_BOTTOM : WAVE_ALPHA_TOP;
-            uint32_t wave_color = RGBA8(90, 150, 160, alpha);
-            vita2d_draw_rectangle(0, y, right_edge, 1, wave_color);
-        }
-    }
-
-    // Calculate icon opacity for fade effect during collapse
-    float icon_opacity = width_scale;
-    if (icon_opacity > 1.0f) icon_opacity = 1.0f;
-    if (icon_opacity < 0.0f) icon_opacity = 0.0f;
-    // Draw navigation icons (fade during collapse animation)
-    for (int i = 0; i < 4; i++) {
-        // Base Y position
-        int base_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
-
-        // Icons are static (no bobbing animation)
-        int y = base_y;
-
-        bool is_selected_icon = (i == selected_nav_icon);
-        bool is_nav_focused = (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
-        bool is_focused_selected = is_selected_icon && is_nav_focused;
-
-        // Keep selection visible even when focus moves back to content.
-        float icon_scale_multiplier = 1.0f;
-        if (is_focused_selected) {
-            icon_scale_multiplier = WAVE_NAV_FOCUSED_ICON_SCALE;
-        } else if (is_selected_icon) {
-            icon_scale_multiplier = WAVE_NAV_SELECTED_ICON_SCALE;
-        }
-
-        if (is_selected_icon && icon_opacity > 0.08f &&
-            nav_collapse.state != NAV_STATE_COLLAPSED) {
-            int glass_radius = WAVE_NAV_GLASS_RADIUS;
-            int base_alpha_i = WAVE_NAV_GLASS_BASE_ALPHA +
-                               (is_focused_selected ? WAVE_NAV_GLASS_FOCUS_BOOST : 0);
-            if (base_alpha_i > 255) {
-                base_alpha_i = 255;
-            }
-            uint8_t base_alpha = (uint8_t)(icon_opacity * base_alpha_i);
-            uint8_t glow_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOW_ALPHA);
-            uint8_t gloss_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOSS_ALPHA);
-
-            // Borderless glass sphere: soft halo + translucent body + small gloss.
-            vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, WAVE_NAV_GLASS_GLOW_RADIUS,
-                                    RGBA8(WAVE_NAV_SELECTION_COLOR_R,
-                                          WAVE_NAV_SELECTION_COLOR_G,
-                                          WAVE_NAV_SELECTION_COLOR_B,
-                                          glow_alpha));
-            vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, glass_radius,
-                                    RGBA8(WAVE_NAV_SELECTION_COLOR_R,
-                                          WAVE_NAV_SELECTION_COLOR_G,
-                                          WAVE_NAV_SELECTION_COLOR_B,
-                                          base_alpha));
-            vita2d_draw_fill_circle(WAVE_NAV_ICON_X - WAVE_NAV_GLASS_GLOSS_OFFSET_X,
-                                    y - WAVE_NAV_GLASS_GLOSS_OFFSET_Y,
-                                    WAVE_NAV_GLASS_GLOSS_RADIUS,
-                                    RGBA8(0xFF, 0xFF, 0xFF, gloss_alpha));
-        }
-
-        // Use texture-based icons (fallback to procedural if NULL)
-        vita2d_texture* icon_tex = NULL;
-        switch (i) {
-            case 0: icon_tex = icon_play; break;
-            case 1: icon_tex = icon_settings; break;
-            case 2: icon_tex = icon_controller; break;
-            case 3: icon_tex = icon_profile; break;
-        }
-
-        if (icon_tex) {
-            // Texture-based rendering: single draw call per icon
-            int tex_w = vita2d_texture_get_width(icon_tex);
-            int tex_h = vita2d_texture_get_height(icon_tex);
-            float scale = (WAVE_NAV_ICON_SIZE * icon_scale_multiplier) / (float)tex_w;
-            int scaled_w = (int)(tex_w * scale);
-            int scaled_h = (int)(tex_h * scale);
-            int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
-            int draw_y = y - scaled_h / 2;
-
-            // Apply stronger alpha on selected icon for clarity.
-            uint8_t base_alpha = is_selected_icon ? 245 : WAVE_NAV_ICON_BASE_ALPHA;
-            uint8_t tint_alpha = (uint8_t)(icon_opacity * base_alpha);
-            vita2d_draw_texture_tint_scale(icon_tex, draw_x, draw_y, scale, scale,
-                                           RGBA8(WAVE_NAV_ICON_TINT_R, WAVE_NAV_ICON_TINT_G, WAVE_NAV_ICON_TINT_B, tint_alpha));
-        } else {
-            // Fallback to procedural icons if texture failed to load
-            int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
-            switch (i) {
-                case 0: ui_nav_draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
-                case 1: ui_nav_draw_settings_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
-                case 2: ui_nav_draw_controller_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
-                case 3: ui_nav_draw_profile_icon(WAVE_NAV_ICON_X, y, current_icon_size); break;
-            }
-        }
-
-        // Draw text label below icon when setting enabled and icon is selected
-        if (context.config.show_nav_labels && is_selected_icon &&
-            nav_collapse.state == NAV_STATE_EXPANDED) {
-            const char* label = NULL;
-            switch (i) {
-                case 0: label = "Play"; break;
-                case 1: label = "Settings"; break;
-                case 2: label = "Controller"; break;
-                case 3: label = "Profile"; break;
-            }
-            if (label) {
-                int label_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
-                int label_x = WAVE_NAV_ICON_X - label_width / 2;
-                int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
-                vita2d_font_draw_text(font, label_x, label_y,
-                                      UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, label);
-            }
-        }
-    }
-
-    // Render pill during expanding animation (fades out as sidebar expands)
-    if (nav_collapse.state == NAV_STATE_EXPANDING) {
-        ui_nav_render_pill();
-    }
-
-    // Toast may still be visible during expansion
+  // If fully collapsed, render only the pill and toast (save GPU cycles)
+  if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+    ui_nav_render_pill();
     ui_nav_render_toast();
+    return;
+  }
+
+  // Update wave animation state (only when not collapsed)
+  if (nav_collapse.state == NAV_STATE_EXPANDED) {
+    ui_nav_update_wave_animation();
+  }
+
+  // Calculate width scale for animation
+  float width_scale = nav_collapse.current_width / (float)WAVE_NAV_WIDTH;
+  if (width_scale < 0.01f) {
+    // Nearly collapsed - just render pill during transition
+    ui_nav_render_pill();
+    ui_nav_render_toast();
+    return;
+  }
+
+  // Draw procedural fluid wave background with continuous vertical animation
+  // Base teal colors matching PlayStation aesthetic
+  // Note: No solid background rectangle - waves extend fully to screen top
+
+  // Draw multiple sine wave layers that create fluid motion
+  // Using wave phase from ui_nav_update_wave_animation() for time-based animation
+  for (int layer = 0; layer < 2; layer++) {
+    // Each layer has different speed and amplitude for depth
+    float phase = (layer == 0) ? wave_bottom_state.phase : wave_top_state.phase;
+    float amplitude = (12.0f + (float)layer * 8.0f) * width_scale;
+
+    // Draw wave as filled polygon using horizontal slices
+    for (int y = 0; y < VITA_HEIGHT; y++) {
+      // Calculate wave X offset at this Y position
+      // Multiple frequencies create complex wave pattern
+      float wave_x = sinf((float)y * 0.015f + phase) * amplitude +
+                     sinf((float)y * 0.008f - phase * 0.7f) * (amplitude * 0.5f);
+
+      // Allow waves to extend freely beyond current width
+      int right_edge = (int)(nav_collapse.current_width + wave_x);
+
+      // Clamp to prevent negative width and excessive overdraw
+      if (right_edge < 0)
+        right_edge = 0;
+      if (right_edge > (int)(nav_collapse.current_width) + 50) {
+        right_edge = (int)(nav_collapse.current_width) + 50;
+      }
+
+      // Draw horizontal slice with layered alpha for depth
+      uint8_t alpha = (layer == 0) ? WAVE_ALPHA_BOTTOM : WAVE_ALPHA_TOP;
+      uint32_t wave_color = RGBA8(90, 150, 160, alpha);
+      vita2d_draw_rectangle(0, y, right_edge, 1, wave_color);
+    }
+  }
+
+  // Calculate icon opacity for fade effect during collapse
+  float icon_opacity = width_scale;
+  if (icon_opacity > 1.0f)
+    icon_opacity = 1.0f;
+  if (icon_opacity < 0.0f)
+    icon_opacity = 0.0f;
+  // Draw navigation icons (fade during collapse animation)
+  for (int i = 0; i < 4; i++) {
+    // Base Y position
+    int base_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+
+    // Icons are static (no bobbing animation)
+    int y = base_y;
+
+    bool is_selected_icon = (i == selected_nav_icon);
+    bool is_nav_focused = (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR);
+    bool is_focused_selected = is_selected_icon && is_nav_focused;
+
+    // Keep selection visible even when focus moves back to content.
+    float icon_scale_multiplier = 1.0f;
+    if (is_focused_selected) {
+      icon_scale_multiplier = WAVE_NAV_FOCUSED_ICON_SCALE;
+    } else if (is_selected_icon) {
+      icon_scale_multiplier = WAVE_NAV_SELECTED_ICON_SCALE;
+    }
+
+    if (is_selected_icon && icon_opacity > 0.08f && nav_collapse.state != NAV_STATE_COLLAPSED) {
+      int glass_radius = WAVE_NAV_GLASS_RADIUS;
+      int base_alpha_i =
+          WAVE_NAV_GLASS_BASE_ALPHA + (is_focused_selected ? WAVE_NAV_GLASS_FOCUS_BOOST : 0);
+      if (base_alpha_i > 255) {
+        base_alpha_i = 255;
+      }
+      uint8_t base_alpha = (uint8_t)(icon_opacity * base_alpha_i);
+      uint8_t glow_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOW_ALPHA);
+      uint8_t gloss_alpha = (uint8_t)(icon_opacity * WAVE_NAV_GLASS_GLOSS_ALPHA);
+
+      // Borderless glass sphere: soft halo + translucent body + small gloss.
+      vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, WAVE_NAV_GLASS_GLOW_RADIUS,
+                              RGBA8(WAVE_NAV_SELECTION_COLOR_R, WAVE_NAV_SELECTION_COLOR_G,
+                                    WAVE_NAV_SELECTION_COLOR_B, glow_alpha));
+      vita2d_draw_fill_circle(WAVE_NAV_ICON_X, y, glass_radius,
+                              RGBA8(WAVE_NAV_SELECTION_COLOR_R, WAVE_NAV_SELECTION_COLOR_G,
+                                    WAVE_NAV_SELECTION_COLOR_B, base_alpha));
+      vita2d_draw_fill_circle(WAVE_NAV_ICON_X - WAVE_NAV_GLASS_GLOSS_OFFSET_X,
+                              y - WAVE_NAV_GLASS_GLOSS_OFFSET_Y, WAVE_NAV_GLASS_GLOSS_RADIUS,
+                              RGBA8(0xFF, 0xFF, 0xFF, gloss_alpha));
+    }
+
+    // Use texture-based icons (fallback to procedural if NULL)
+    vita2d_texture *icon_tex = NULL;
+    switch (i) {
+      case 0:
+        icon_tex = icon_play;
+        break;
+      case 1:
+        icon_tex = icon_settings;
+        break;
+      case 2:
+        icon_tex = icon_controller;
+        break;
+      case 3:
+        icon_tex = icon_profile;
+        break;
+    }
+
+    if (icon_tex) {
+      // Texture-based rendering: single draw call per icon
+      int tex_w = vita2d_texture_get_width(icon_tex);
+      int tex_h = vita2d_texture_get_height(icon_tex);
+      float scale = (WAVE_NAV_ICON_SIZE * icon_scale_multiplier) / (float)tex_w;
+      int scaled_w = (int)(tex_w * scale);
+      int scaled_h = (int)(tex_h * scale);
+      int draw_x = WAVE_NAV_ICON_X - scaled_w / 2;
+      int draw_y = y - scaled_h / 2;
+
+      // Apply stronger alpha on selected icon for clarity.
+      uint8_t base_alpha = is_selected_icon ? 245 : WAVE_NAV_ICON_BASE_ALPHA;
+      uint8_t tint_alpha = (uint8_t)(icon_opacity * base_alpha);
+      vita2d_draw_texture_tint_scale(
+          icon_tex, draw_x, draw_y, scale, scale,
+          RGBA8(WAVE_NAV_ICON_TINT_R, WAVE_NAV_ICON_TINT_G, WAVE_NAV_ICON_TINT_B, tint_alpha));
+    } else {
+      // Fallback to procedural icons if texture failed to load
+      int current_icon_size = (int)(WAVE_NAV_ICON_SIZE * icon_scale_multiplier);
+      switch (i) {
+        case 0:
+          ui_nav_draw_play_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+          break;
+        case 1:
+          ui_nav_draw_settings_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+          break;
+        case 2:
+          ui_nav_draw_controller_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+          break;
+        case 3:
+          ui_nav_draw_profile_icon(WAVE_NAV_ICON_X, y, current_icon_size);
+          break;
+      }
+    }
+
+    // Draw text label below icon when setting enabled and icon is selected
+    if (context.config.show_nav_labels && is_selected_icon &&
+        nav_collapse.state == NAV_STATE_EXPANDED) {
+      const char *label = NULL;
+      switch (i) {
+        case 0:
+          label = "Play";
+          break;
+        case 1:
+          label = "Settings";
+          break;
+        case 2:
+          label = "Controller";
+          break;
+        case 3:
+          label = "Profile";
+          break;
+      }
+      if (label) {
+        int label_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+        int label_x = WAVE_NAV_ICON_X - label_width / 2;
+        int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
+        vita2d_font_draw_text(font, label_x, label_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
+                              label);
+      }
+    }
+  }
+
+  // Render pill during expanding animation (fades out as sidebar expands)
+  if (nav_collapse.state == NAV_STATE_EXPANDING) {
+    ui_nav_render_pill();
+  }
+
+  // Toast may still be visible during expansion
+  ui_nav_render_toast();
 }
 
 // ============================================================================
@@ -686,24 +705,23 @@ void ui_nav_render(void) {
 // ============================================================================
 
 bool ui_nav_is_expanded(void) {
-    return nav_collapse.state == NAV_STATE_EXPANDED;
+  return nav_collapse.state == NAV_STATE_EXPANDED;
 }
 
 bool ui_nav_is_collapsed(void) {
-    return nav_collapse.state == NAV_STATE_COLLAPSED;
+  return nav_collapse.state == NAV_STATE_COLLAPSED;
 }
 
 bool ui_nav_is_animating(void) {
-    return nav_collapse.state == NAV_STATE_COLLAPSING ||
-           nav_collapse.state == NAV_STATE_EXPANDING;
+  return nav_collapse.state == NAV_STATE_COLLAPSING || nav_collapse.state == NAV_STATE_EXPANDING;
 }
 
 float ui_nav_get_current_width(void) {
-    return nav_collapse.current_width;
+  return nav_collapse.current_width;
 }
 
 NavSidebarState ui_nav_get_state(void) {
-    return nav_collapse.state;
+  return nav_collapse.state;
 }
 
 // ============================================================================
@@ -711,33 +729,43 @@ NavSidebarState ui_nav_get_state(void) {
 // ============================================================================
 
 int ui_nav_get_selected_icon(void) {
-    return selected_nav_icon;
+  return selected_nav_icon;
 }
 
 void ui_nav_set_selected_icon(int index) {
-    if (index >= 0 && index < 4) {
-        selected_nav_icon = index;
-    }
+  if (index >= 0 && index < 4) {
+    selected_nav_icon = index;
+  }
 }
 
 UIScreenType ui_nav_screen_for_icon(int index) {
-    switch (index) {
-        case 0: return UI_SCREEN_TYPE_MAIN;
-        case 1: return UI_SCREEN_TYPE_SETTINGS;
-        case 2: return UI_SCREEN_TYPE_CONTROLLER;
-        case 3: return UI_SCREEN_TYPE_PROFILE;
-        default: return UI_SCREEN_TYPE_MAIN;
-    }
+  switch (index) {
+    case 0:
+      return UI_SCREEN_TYPE_MAIN;
+    case 1:
+      return UI_SCREEN_TYPE_SETTINGS;
+    case 2:
+      return UI_SCREEN_TYPE_CONTROLLER;
+    case 3:
+      return UI_SCREEN_TYPE_PROFILE;
+    default:
+      return UI_SCREEN_TYPE_MAIN;
+  }
 }
 
 int ui_nav_icon_for_screen(UIScreenType screen) {
-    switch (screen) {
-        case UI_SCREEN_TYPE_MAIN:       return 0;  // Play icon
-        case UI_SCREEN_TYPE_SETTINGS:   return 1;  // Settings icon
-        case UI_SCREEN_TYPE_CONTROLLER: return 2;  // Controller icon
-        case UI_SCREEN_TYPE_PROFILE:    return 3;  // Profile icon
-        default:                        return 0;
-    }
+  switch (screen) {
+    case UI_SCREEN_TYPE_MAIN:
+      return 0;  // Play icon
+    case UI_SCREEN_TYPE_SETTINGS:
+      return 1;  // Settings icon
+    case UI_SCREEN_TYPE_CONTROLLER:
+      return 2;  // Controller icon
+    case UI_SCREEN_TYPE_PROFILE:
+      return 3;  // Profile icon
+    default:
+      return 0;
+  }
 }
 
 // Legacy focus getters/setters removed - use ui_focus_get_zone()/ui_focus_set_zone() directly
@@ -747,132 +775,133 @@ int ui_nav_icon_for_screen(UIScreenType screen) {
 // ============================================================================
 
 bool ui_nav_handle_touch(float touch_x, float touch_y, UIScreenType *out_screen) {
-    for (int i = 0; i < 4; i++) {
-        int icon_x = WAVE_NAV_ICON_X;
-        int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
-        if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
-            selected_nav_icon = i;
-            ui_focus_set_zone(FOCUS_ZONE_NAV_BAR);
-            if (out_screen)
-                *out_screen = ui_nav_screen_for_icon(i);
-            return true;
-        }
+  for (int i = 0; i < 4; i++) {
+    int icon_x = WAVE_NAV_ICON_X;
+    int icon_y = WAVE_NAV_ICON_START_Y + (i * WAVE_NAV_ICON_SPACING);
+    if (is_point_in_circle(touch_x, touch_y, icon_x, icon_y, 30)) {
+      selected_nav_icon = i;
+      ui_focus_set_zone(FOCUS_ZONE_NAV_BAR);
+      if (out_screen)
+        *out_screen = ui_nav_screen_for_icon(i);
+      return true;
     }
-    return false;
+  }
+  return false;
 }
 
 bool ui_nav_handle_pill_touch(float touch_x, float touch_y) {
-    if (nav_collapse.state != NAV_STATE_COLLAPSED) {
-        return false;
-    }
+  if (nav_collapse.state != NAV_STATE_COLLAPSED) {
+    return false;
+  }
 
-    float x = NAV_PILL_X;
-    float y = NAV_PILL_Y;
-    float w = nav_collapse.pill_width;
-    float h = NAV_PILL_HEIGHT;
+  float x = NAV_PILL_X;
+  float y = NAV_PILL_Y;
+  float w = nav_collapse.pill_width;
+  float h = NAV_PILL_HEIGHT;
 
-    // Expand hitbox slightly for easier touch (8px padding)
-    float pad = 8.0f;
-    return (touch_x >= x - pad && touch_x <= x + w + pad &&
-            touch_y >= y - pad && touch_y <= y + h + pad);
+  // Expand hitbox slightly for easier touch (8px padding)
+  float pad = 8.0f;
+  return (touch_x >= x - pad && touch_x <= x + w + pad && touch_y >= y - pad &&
+          touch_y <= y + h + pad);
 }
 
-bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen, bool allow_dpad) {
-    // Triangle button toggles sidebar collapse (global, works anywhere)
-    if (btn_pressed(SCE_CTRL_TRIANGLE)) {
-        // When expanding, sync icon to current screen and move focus to nav bar
-        if (nav_collapse.state == NAV_STATE_COLLAPSED) {
-            selected_nav_icon = ui_nav_icon_for_screen(current_screen);
-            ui_focus_move_to_nav_bar();
-        }
-        ui_nav_toggle();
-        // Don't return - let other input processing continue
+bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_screen,
+                             bool allow_dpad) {
+  // Triangle button toggles sidebar collapse (global, works anywhere)
+  if (btn_pressed(SCE_CTRL_TRIANGLE)) {
+    // When expanding, sync icon to current screen and move focus to nav bar
+    if (nav_collapse.state == NAV_STATE_COLLAPSED) {
+      selected_nav_icon = ui_nav_icon_for_screen(current_screen);
+      ui_focus_move_to_nav_bar();
+    }
+    ui_nav_toggle();
+    // Don't return - let other input processing continue
+  }
+
+  SceTouchData nav_touch = {};
+  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
+
+  // Get touch block state from ui_input module
+  bool *touch_block_active = ui_input_get_touch_block_active_ptr();
+  bool *touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
+
+  if (*touch_block_active) {
+    if (nav_touch.reportNum == 0) {
+      // Finger lifted - clear the block
+      *touch_block_active = false;
+      *touch_block_pending_clear = false;
+    } else {
+      return false;  // Still blocking while finger is down
+    }
+  }
+
+  if (nav_touch.reportNum > 0) {
+    float tx = (nav_touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * VITA_WIDTH;
+    float ty = (nav_touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * VITA_HEIGHT;
+
+    // Check pill touch first when collapsed
+    if (ui_nav_handle_pill_touch(tx, ty)) {
+      // Sync icon to current screen (same as Triangle button behavior)
+      selected_nav_icon = ui_nav_icon_for_screen(current_screen);
+      ui_focus_move_to_nav_bar();
+      ui_nav_request_expand();
+      *touch_block_active = true;  // Prevent immediate re-collapse
+      return false;
     }
 
-    SceTouchData nav_touch = {};
-    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &nav_touch, 1);
-
-    // Get touch block state from ui_input module
-    bool* touch_block_active = ui_input_get_touch_block_active_ptr();
-    bool* touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
-
-    if (*touch_block_active) {
-        if (nav_touch.reportNum == 0) {
-            // Finger lifted - clear the block
-            *touch_block_active = false;
-            *touch_block_pending_clear = false;
-        } else {
-            return false;  // Still blocking while finger is down
-        }
+    // If expanded, check nav icon touch
+    if (nav_collapse.state == NAV_STATE_EXPANDED) {
+      if (ui_nav_handle_touch(tx, ty, out_screen)) {
+        *touch_block_active = true;
+        return true;
+      }
     }
 
-    if (nav_touch.reportNum > 0) {
-        float tx = (nav_touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * VITA_WIDTH;
-        float ty = (nav_touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * VITA_HEIGHT;
-
-        // Check pill touch first when collapsed
-        if (ui_nav_handle_pill_touch(tx, ty)) {
-            // Sync icon to current screen (same as Triangle button behavior)
-            selected_nav_icon = ui_nav_icon_for_screen(current_screen);
-            ui_focus_move_to_nav_bar();
-            ui_nav_request_expand();
-            *touch_block_active = true;  // Prevent immediate re-collapse
-            return false;
-        }
-
-        // If expanded, check nav icon touch
-        if (nav_collapse.state == NAV_STATE_EXPANDED) {
-            if (ui_nav_handle_touch(tx, ty, out_screen)) {
-                *touch_block_active = true;
-                return true;
-            }
-        }
-
-        // Touch in content area triggers collapse
-        // Content area is to the right of the nav bar
-        if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !*touch_block_active) {
-            ui_nav_request_collapse();
-            *touch_block_active = true;   // Prevent double-processing of this touch
-        }
+    // Touch in content area triggers collapse
+    // Content area is to the right of the nav bar
+    if (nav_collapse.state == NAV_STATE_EXPANDED && tx > WAVE_NAV_WIDTH && !*touch_block_active) {
+      ui_nav_request_collapse();
+      *touch_block_active = true;  // Prevent double-processing of this touch
     }
+  }
 
-    if (!allow_dpad)
-        return false;
-
-    // LEFT/RIGHT zone-crossing is now handled by ui_focus_handle_zone_crossing() in ui.c
-    // This function only handles intra-zone navigation (UP/DOWN within nav bar)
-
-    // D-pad handling: UP/DOWN to navigate icons when focused on nav bar
-    if (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR) {
-        if (btn_pressed(SCE_CTRL_UP)) {
-            selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
-            if (out_screen) {
-                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
-                // Page changes but focus stays on nav bar for continued D-pad navigation
-            }
-            return true;
-        } else if (btn_pressed(SCE_CTRL_DOWN)) {
-            selected_nav_icon = (selected_nav_icon + 1) % 4;
-            if (out_screen) {
-                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
-                // Page changes but focus stays on nav bar for continued D-pad navigation
-            }
-            return true;
-        }
-
-        if (btn_pressed(SCE_CTRL_CROSS)) {
-            // Collapse menu when selecting a page
-            if (nav_collapse.state == NAV_STATE_EXPANDED) {
-                ui_nav_request_collapse();
-            }
-            if (out_screen) {
-                *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
-                // Reset focus to content area for the new screen
-                ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
-            }
-            return true;
-        }
-    }
-
+  if (!allow_dpad)
     return false;
+
+  // LEFT/RIGHT zone-crossing is now handled by ui_focus_handle_zone_crossing() in ui.c
+  // This function only handles intra-zone navigation (UP/DOWN within nav bar)
+
+  // D-pad handling: UP/DOWN to navigate icons when focused on nav bar
+  if (ui_focus_get_zone() == FOCUS_ZONE_NAV_BAR) {
+    if (btn_pressed(SCE_CTRL_UP)) {
+      selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
+      if (out_screen) {
+        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        // Page changes but focus stays on nav bar for continued D-pad navigation
+      }
+      return true;
+    } else if (btn_pressed(SCE_CTRL_DOWN)) {
+      selected_nav_icon = (selected_nav_icon + 1) % 4;
+      if (out_screen) {
+        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        // Page changes but focus stays on nav bar for continued D-pad navigation
+      }
+      return true;
+    }
+
+    if (btn_pressed(SCE_CTRL_CROSS)) {
+      // Collapse menu when selecting a page
+      if (nav_collapse.state == NAV_STATE_EXPANDED) {
+        ui_nav_request_collapse();
+      }
+      if (out_screen) {
+        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        // Reset focus to content area for the new screen
+        ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
+      }
+      return true;
+    }
+  }
+
+  return false;
 }

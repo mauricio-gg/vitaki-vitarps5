@@ -88,8 +88,10 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   // D4: Windowed bitrate
   context.stream.bitrate_prev_bytes = 0;
   context.stream.bitrate_prev_frames = 0;
-  memset(context.stream.bitrate_window_delta_bytes, 0, sizeof(context.stream.bitrate_window_delta_bytes));
-  memset(context.stream.bitrate_window_delta_frames, 0, sizeof(context.stream.bitrate_window_delta_frames));
+  memset(context.stream.bitrate_window_delta_bytes, 0,
+         sizeof(context.stream.bitrate_window_delta_bytes));
+  memset(context.stream.bitrate_window_delta_frames, 0,
+         sizeof(context.stream.bitrate_window_delta_frames));
   context.stream.bitrate_window_index = 0;
   context.stream.bitrate_window_filled = 0;
   context.stream.windowed_bitrate_mbps = 0.0f;
@@ -242,26 +244,22 @@ void host_metrics_update_latency(void) {
     if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
       float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
       float window_mbps = window_bps / 1000000.0f;
-      if (window_mbps > 100.0f) window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
+      if (window_mbps > 100.0f)
+        window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
       context.stream.windowed_bitrate_mbps = window_mbps;
     }
   }
 
   uint32_t effective_target_fps =
-      context.stream.target_fps ? context.stream.target_fps :
-      context.stream.negotiated_fps;
+      context.stream.target_fps ? context.stream.target_fps : context.stream.negotiated_fps;
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  bool low_fps_window = effective_target_fps > 0 && incoming_fps > 0 &&
-      incoming_fps + 5 < effective_target_fps;
+  bool low_fps_window =
+      effective_target_fps > 0 && incoming_fps > 0 && incoming_fps + 5 < effective_target_fps;
   bool av_diag_progressed =
-      av_diag_missing_ref_count >
-          context.stream.av_diag.logged_missing_ref_count ||
-      av_diag_corrupt_burst_count >
-          context.stream.av_diag.logged_corrupt_burst_count ||
-      av_diag_fec_fail_count >
-          context.stream.av_diag.logged_fec_fail_count ||
-      av_diag_sendbuf_overflow_count >
-          context.stream.av_diag.logged_sendbuf_overflow_count;
+      av_diag_missing_ref_count > context.stream.av_diag.logged_missing_ref_count ||
+      av_diag_corrupt_burst_count > context.stream.av_diag.logged_corrupt_burst_count ||
+      av_diag_fec_fail_count > context.stream.av_diag.logged_fec_fail_count ||
+      av_diag_sendbuf_overflow_count > context.stream.av_diag.logged_sendbuf_overflow_count;
   if (diag_snapshot_stale) {
     // Don't escalate based on stale snapshots when diagnostics couldn't be sampled.
     av_diag_progressed = false;
@@ -305,11 +303,8 @@ void host_metrics_update_latency(void) {
       }
     }
 
-    host_recovery_handle_post_reconnect_degraded_mode(av_diag_progressed,
-                                                      incoming_fps,
-                                                      effective_target_fps,
-                                                      low_fps_window,
-                                                      now_us);
+    host_recovery_handle_post_reconnect_degraded_mode(av_diag_progressed, incoming_fps,
+                                                      effective_target_fps, low_fps_window, now_us);
     // Keep diagnostics passive here; stability path avoids restart escalation.
   }
 
@@ -320,65 +315,54 @@ void host_metrics_update_latency(void) {
   static uint64_t last_log_us = 0;
   if (now_us - last_log_us >= LOG_INTERVAL_US) {
     float target_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
-    LOGD("Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms (base %u ms, jitter %llu us)",
-         target_mbps,
-         bitrate_mbps,
-         context.stream.measured_rtt_ms,
-         (uint32_t)(context.stream.session.rtt_us / 1000),
-         (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
-    LOGD("PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d cascade_streak=%u cascade_used=%d",
-         context.stream.session_generation,
-         context.stream.reconnect_generation,
-         incoming_fps,
-         effective_target_fps,
-         context.stream.fps_under_target_windows,
-         context.stream.post_reconnect_low_fps_windows,
-         context.stream.post_reconnect_window_until_us &&
-                 now_us < context.stream.post_reconnect_window_until_us
-             ? (unsigned long long)((context.stream.post_reconnect_window_until_us -
-                                     now_us) / 1000ULL)
-             : 0ULL,
-         context.stream.decode_avg_us / 1000.0f,
-         context.stream.decode_max_us / 1000.0f,
-         context.stream.windowed_bitrate_mbps,
-         context.stream.frame_overwrite_count,
-         context.stream.wifi_rssi,
-         context.stream.display_fps,
-         context.stream.stuck_bitrate_low_fps_streak,
-         (int)context.stream.stuck_bitrate_restart_used,
-         context.stream.cascade_alarm_streak,
-         (int)context.stream.cascade_alarm_restart_used);
+    LOGD(
+        "Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms (base %u ms, jitter "
+        "%llu us)",
+        target_mbps, bitrate_mbps, context.stream.measured_rtt_ms,
+        (uint32_t)(context.stream.session.rtt_us / 1000),
+        (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
+    LOGD(
+        "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
+        "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
+        "windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d "
+        "cascade_streak=%u cascade_used=%d",
+        context.stream.session_generation, context.stream.reconnect_generation, incoming_fps,
+        effective_target_fps, context.stream.fps_under_target_windows,
+        context.stream.post_reconnect_low_fps_windows,
+        context.stream.post_reconnect_window_until_us &&
+                now_us < context.stream.post_reconnect_window_until_us
+            ? (unsigned long long)((context.stream.post_reconnect_window_until_us - now_us) /
+                                   1000ULL)
+            : 0ULL,
+        context.stream.decode_avg_us / 1000.0f, context.stream.decode_max_us / 1000.0f,
+        context.stream.windowed_bitrate_mbps, context.stream.frame_overwrite_count,
+        context.stream.wifi_rssi, context.stream.display_fps,
+        context.stream.stuck_bitrate_low_fps_streak, (int)context.stream.stuck_bitrate_restart_used,
+        context.stream.cascade_alarm_streak, (int)context.stream.cascade_alarm_restart_used);
     last_log_us = now_us;
   }
 
   if (context.stream.takion_drop_events != context.stream.logged_drop_events) {
     uint32_t delta = context.stream.takion_drop_events - context.stream.logged_drop_events;
-    LOGD("Packet loss — Takion dropped %u packet(s), total %u",
-         delta,
+    LOGD("Packet loss — Takion dropped %u packet(s), total %u", delta,
          context.stream.takion_drop_packets);
     context.stream.logged_drop_events = context.stream.takion_drop_events;
     host_handle_takion_overflow();
   }
 
   bool av_diag_changed = av_diag_progressed;
-  if (av_diag_changed ||
-      (context.stream.av_diag.last_log_us == 0 ||
-       now_us - context.stream.av_diag.last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
-    LOGD("AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, diag_trylock_failures=%u, stale_diag_streak=%u, last_corrupt=%u-%u",
-         context.stream.av_diag.missing_ref_count,
-         context.stream.av_diag.corrupt_burst_count,
-         context.stream.av_diag.fec_fail_count,
-         context.stream.av_diag.sendbuf_overflow_count,
-         av_diag_trylock_failures,
-         context.stream.av_diag_stale_snapshot_streak,
-         context.stream.av_diag.last_corrupt_start,
-         context.stream.av_diag.last_corrupt_end);
-    context.stream.av_diag.logged_missing_ref_count =
-        context.stream.av_diag.missing_ref_count;
-    context.stream.av_diag.logged_corrupt_burst_count =
-        context.stream.av_diag.corrupt_burst_count;
-    context.stream.av_diag.logged_fec_fail_count =
-        context.stream.av_diag.fec_fail_count;
+  if (av_diag_changed || (context.stream.av_diag.last_log_us == 0 ||
+                          now_us - context.stream.av_diag.last_log_us >= AV_DIAG_LOG_INTERVAL_US)) {
+    LOGD(
+        "AV diag — missing_ref=%u, corrupt_bursts=%u, fec_fail=%u, sendbuf_overflow=%u, "
+        "diag_trylock_failures=%u, stale_diag_streak=%u, last_corrupt=%u-%u",
+        context.stream.av_diag.missing_ref_count, context.stream.av_diag.corrupt_burst_count,
+        context.stream.av_diag.fec_fail_count, context.stream.av_diag.sendbuf_overflow_count,
+        av_diag_trylock_failures, context.stream.av_diag_stale_snapshot_streak,
+        context.stream.av_diag.last_corrupt_start, context.stream.av_diag.last_corrupt_end);
+    context.stream.av_diag.logged_missing_ref_count = context.stream.av_diag.missing_ref_count;
+    context.stream.av_diag.logged_corrupt_burst_count = context.stream.av_diag.corrupt_burst_count;
+    context.stream.av_diag.logged_fec_fail_count = context.stream.av_diag.fec_fail_count;
     context.stream.av_diag.logged_sendbuf_overflow_count =
         context.stream.av_diag.sendbuf_overflow_count;
     context.stream.av_diag.last_log_us = now_us;

@@ -117,16 +117,15 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
     if (!bytes_nonzero(host->server_mac, sizeof(host->server_mac)) ||
         !bytes_nonzero(rstate->rp_key, sizeof(rstate->rp_key)) ||
         rstate->rp_regist_key[0] == '\0') {
-      CHIAKI_LOGW(&(context.log), "Skipping invalid registered host entry %d (missing required fields)", i);
+      CHIAKI_LOGW(&(context.log),
+                  "Skipping invalid registered host entry %d (missing required fields)", i);
       host_free(host);
       continue;
     }
 
     cfg->registered_hosts[cfg->num_registered_hosts] = host;
-    LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x",
-         cfg->num_registered_hosts,
-         rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>",
-         host->target,
+    LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x", cfg->num_registered_hosts,
+         rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>", host->target,
          host->type);
     cfg->num_registered_hosts++;
   }

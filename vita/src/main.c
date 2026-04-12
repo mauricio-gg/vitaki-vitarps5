@@ -41,7 +41,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-//#include <debugnet.h>
+// #include <debugnet.h>
 
 #include "context.h"
 #include "discovery.h"
@@ -131,13 +131,13 @@ static int vita_init() {
   }
 
   // Initialize touch sampling
-	sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, 1);
+  sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, 1);
 }
 
 // set newlib heap size to 64mb, default is 32mb
 unsigned int _newlib_heap_size_user = 64 * 1024 * 1024;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   vita_init();
 
   // Note: Power management is configured in vita_init() (scePowerSet* calls)

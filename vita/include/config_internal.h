@@ -19,28 +19,17 @@ bool get_circle_btn_confirm_default(void);
 const char *serialize_resolution_preset(ChiakiVideoResolutionPreset preset);
 
 bool config_fix_legacy_queue_depth(void);
-bool parse_bool_setting_with_migration(toml_table_t *settings,
-                                       toml_table_t *parsed,
-                                       const char *key,
-                                       bool default_value,
-                                       bool *out_value,
+bool parse_bool_setting_with_migration(toml_table_t *settings, toml_table_t *parsed,
+                                       const char *key, bool default_value, bool *out_value,
                                        MigrationSource *out_source);
-void apply_migration_source(MigrationSource source,
-                            bool *migrated_legacy_settings,
+void apply_migration_source(MigrationSource source, bool *migrated_legacy_settings,
                             bool *migrated_root_settings);
-void parse_resolution_with_migration(VitaChiakiConfig *cfg,
-                                     toml_table_t *settings,
-                                     toml_table_t *parsed,
-                                     bool *migrated_legacy_settings,
+void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
+                                     toml_table_t *parsed, bool *migrated_legacy_settings,
                                      bool *migrated_root_settings,
                                      bool *migrated_resolution_policy);
-void parse_fps_with_migration(VitaChiakiConfig *cfg,
-                              toml_table_t *settings,
-                              toml_table_t *parsed,
-                              bool *migrated_legacy_settings,
-                              bool *migrated_root_settings);
-void parse_latency_mode_with_migration(VitaChiakiConfig *cfg,
-                                       toml_table_t *settings,
-                                       toml_table_t *parsed,
-                                       bool *migrated_legacy_settings,
+void parse_fps_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings, toml_table_t *parsed,
+                              bool *migrated_legacy_settings, bool *migrated_root_settings);
+void parse_latency_mode_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
+                                       toml_table_t *parsed, bool *migrated_legacy_settings,
                                        bool *migrated_root_settings);

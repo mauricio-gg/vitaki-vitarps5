@@ -3,9 +3,9 @@
 #include <inttypes.h>
 #include <sys/types.h>
 
-void parse_b64(const char* val, uint8_t* dest, size_t len);
+void parse_b64(const char *val, uint8_t *dest, size_t len);
 
-void parse_mac(const char* mac_str, uint8_t* mac_dest);
+void parse_mac(const char *mac_str, uint8_t *mac_dest);
 
 void utf16_to_utf8(const uint16_t *src, uint8_t *dst);
 

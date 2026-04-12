@@ -11,7 +11,7 @@
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 #define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
-#define LOSS_COUNTER_SATURATED_BURST_FRAMES  (1u << 1)
+#define LOSS_COUNTER_SATURATED_BURST_FRAMES (1u << 1)
 
 void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_t duration_us) {
   if (!host)
@@ -24,8 +24,8 @@ void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_
     host->status_hint_expire_us = duration_us ? (now_us + duration_us) : 0;
     if (is_error) {
       context.ui_state.error_popup_active = true;
-      sceClibSnprintf(context.ui_state.error_popup_text,
-                      sizeof(context.ui_state.error_popup_text), "%s", msg);
+      sceClibSnprintf(context.ui_state.error_popup_text, sizeof(context.ui_state.error_popup_text),
+                      "%s", msg);
     }
   } else {
     host->status_hint[0] = '\0';
@@ -41,15 +41,12 @@ void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_
 void host_request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
-  ChiakiStreamConnection *stream_connection =
-      &context.stream.session.stream_connection;
-  ChiakiErrorCode err =
-      chiaki_stream_connection_request_idr(stream_connection);
+  ChiakiStreamConnection *stream_connection = &context.stream.session.stream_connection;
+  ChiakiErrorCode err = chiaki_stream_connection_request_idr(stream_connection);
   if (err == CHIAKI_ERR_SUCCESS) {
     LOGD("Decoder resync requested (%s)", reason ? reason : "unspecified");
   } else {
-    LOGE("Failed to request decoder resync (%s): %s",
-         reason ? reason : "unspecified",
+    LOGE("Failed to request decoder resync (%s): %s", reason ? reason : "unspecified",
          chiaki_error_string(err));
   }
 }
@@ -82,8 +79,7 @@ void host_handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovere
 
 void host_handle_takion_overflow(void) {
   LOGD("Takion overflow reported (drop_events=%u, total_packets=%u) — no action taken",
-       context.stream.takion_drop_events,
-       context.stream.takion_drop_packets);
+       context.stream.takion_drop_events, context.stream.takion_drop_packets);
 }
 
 void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
@@ -99,14 +95,12 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
 
   if (context.config.show_latency &&
       context.stream.frame_loss_events != context.stream.logged_loss_events) {
-    LOGD("Frame loss — %d frame(s) dropped (recovered=%s)",
-         frames_lost,
+    LOGD("Frame loss — %d frame(s) dropped (recovered=%s)", frames_lost,
          frame_recovered ? "yes" : "no");
     context.stream.logged_loss_events = context.stream.frame_loss_events;
   }
 
-  LossDetectionProfile loss_profile =
-      host_loss_profile_for_mode(context.config.latency_mode);
+  LossDetectionProfile loss_profile = host_loss_profile_for_mode(context.config.latency_mode);
   host_adjust_loss_profile_with_metrics(&loss_profile);
 
   if (context.stream.loss_window_start_us == 0 ||
@@ -117,11 +111,9 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_counter_saturated_mask = 0;
   }
 
-  context.stream.loss_window_frame_accum =
-      host_saturating_add_u32_report(context.stream.loss_window_frame_accum,
-                                     (uint32_t)frames_lost,
-                                     "loss_window_frame_accum",
-                                     LOSS_COUNTER_SATURATED_WINDOW_FRAMES);
+  context.stream.loss_window_frame_accum = host_saturating_add_u32_report(
+      context.stream.loss_window_frame_accum, (uint32_t)frames_lost, "loss_window_frame_accum",
+      LOSS_COUNTER_SATURATED_WINDOW_FRAMES);
 
   if (frames_lost >= (int32_t)loss_profile.min_frames) {
     context.stream.loss_window_event_count++;
@@ -135,35 +127,26 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_counter_saturated_mask = 0;
   }
   context.stream.loss_burst_frame_accum =
-      host_saturating_add_u32_report(context.stream.loss_burst_frame_accum,
-                                     (uint32_t)frames_lost,
-                                     "loss_burst_frame_accum",
-                                     LOSS_COUNTER_SATURATED_BURST_FRAMES);
+      host_saturating_add_u32_report(context.stream.loss_burst_frame_accum, (uint32_t)frames_lost,
+                                     "loss_burst_frame_accum", LOSS_COUNTER_SATURATED_BURST_FRAMES);
   uint32_t burst_frames = context.stream.loss_burst_frame_accum;
   uint32_t window_frames = context.stream.loss_window_frame_accum;
   uint32_t window_events = context.stream.loss_window_event_count;
-  uint64_t burst_elapsed_us = context.stream.loss_burst_start_us ?
-      (now_us - context.stream.loss_burst_start_us) : 0;
+  uint64_t burst_elapsed_us =
+      context.stream.loss_burst_start_us ? (now_us - context.stream.loss_burst_start_us) : 0;
 
   if (context.config.show_latency) {
     float burst_ms = burst_elapsed_us ? ((float)burst_elapsed_us / 1000.0f) : 0.0f;
     LOGD("Loss accumulators — drop=%d, window_frames=%u, events=%u, burst_frames=%u (%.1f ms)",
-         frames_lost,
-         window_frames,
-         window_events,
-         burst_frames,
-         burst_ms);
+         frames_lost, window_frames, window_events, burst_frames, burst_ms);
   }
 
   bool hit_burst_threshold =
       context.stream.loss_burst_frame_accum >= loss_profile.burst_frame_threshold;
 
-  bool hit_frame_threshold =
-      context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
-  bool hit_event_threshold =
-      context.stream.loss_window_event_count >= loss_profile.event_threshold;
-  bool sustained_loss =
-      hit_burst_threshold || (hit_event_threshold && hit_frame_threshold);
+  bool hit_frame_threshold = context.stream.loss_window_frame_accum >= loss_profile.frame_threshold;
+  bool hit_event_threshold = context.stream.loss_window_event_count >= loss_profile.event_threshold;
+  bool sustained_loss = hit_burst_threshold || (hit_event_threshold && hit_frame_threshold);
 
   if (!sustained_loss) {
     return;
@@ -176,15 +159,13 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   context.stream.loss_counter_saturated_mask = 0;
   context.stream.loss_burst_start_us = 0;
 
-  const char *trigger = hit_burst_threshold ? "burst threshold" :
-      (hit_frame_threshold ? "frame threshold" : "event threshold");
+  const char *trigger = hit_burst_threshold
+                            ? "burst threshold"
+                            : (hit_frame_threshold ? "frame threshold" : "event threshold");
   if (context.config.show_latency) {
     float window_s = (float)loss_profile.window_us / 1000000.0f;
-    LOGD("Loss gate reached (%s, %u events / %u frames in %.1fs)",
-         trigger,
-         window_events,
-         window_frames,
-         window_s);
+    LOGD("Loss gate reached (%s, %u events / %u frames in %.1fs)", trigger, window_events,
+         window_frames, window_s);
   }
 
   if (context.stream.stop_requested || context.stream.fast_restart_active)
@@ -199,8 +180,7 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   context.stream.loss_recovery_gate_hits++;
   if (context.config.show_latency) {
     LOGD("Loss recovery gate stage=%u trigger=%s action=inspect",
-         context.stream.loss_recovery_gate_hits,
-         trigger);
+         context.stream.loss_recovery_gate_hits, trigger);
   }
   if (context.stream.loss_recovery_gate_hits == 1) {
     if (context.config.show_latency) {
@@ -208,9 +188,7 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     }
     host_request_decoder_resync("packet-loss gate");
     if (context.active_host) {
-      host_set_hint(context.active_host,
-                    "Packet loss burst — requesting keyframe",
-                    false,
+      host_set_hint(context.active_host, "Packet loss burst — requesting keyframe", false,
                     HINT_DURATION_KEYFRAME_US);
     }
     return;

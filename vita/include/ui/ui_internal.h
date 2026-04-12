@@ -32,8 +32,8 @@ typedef struct vita_chiaki_context_t VitaChiakiContext;
 // ============================================================================
 
 // Fonts
-extern vita2d_font* font;
-extern vita2d_font* font_mono;
+extern vita2d_font *font;
+extern vita2d_font *font_mono;
 
 // Console icons
 extern vita2d_texture *img_ps4, *img_ps4_off, *img_ps4_rest;
@@ -65,8 +65,8 @@ extern vita2d_texture *vita_front, *ps5_logo;
 // Button configuration (set during init)
 extern int SCE_CTRL_CONFIRM;
 extern int SCE_CTRL_CANCEL;
-extern char* confirm_btn_str;
-extern char* cancel_btn_str;
+extern char *confirm_btn_str;
+extern char *cancel_btn_str;
 
 // Tooltip buffer
 extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
@@ -106,8 +106,7 @@ extern VitaChiakiContext context;
 /**
  * Calculate elapsed milliseconds from start time
  */
-#define UI_ELAPSED_MS(start_us) \
-    ((float)(UI_NOW_US() - (start_us)) / 1000.0f)
+#define UI_ELAPSED_MS(start_us) ((float)(UI_NOW_US() - (start_us)) / 1000.0f)
 
 // ============================================================================
 // Inline Utility Functions
@@ -117,36 +116,38 @@ extern VitaChiakiContext context;
  * Linear interpolation
  */
 static inline float ui_lerp(float a, float b, float t) {
-    return a + (b - a) * t;
+  return a + (b - a) * t;
 }
 
 /**
  * Clamp value between min and max
  */
 static inline float ui_clamp(float val, float min, float max) {
-    if (val < min) return min;
-    if (val > max) return max;
-    return val;
+  if (val < min)
+    return min;
+  if (val > max)
+    return max;
+  return val;
 }
 
 /**
  * Ease in-out cubic function for smooth animations
  */
 static inline float ui_ease_in_out_cubic(float t) {
-    if (t < 0.5f) {
-        return 4.0f * t * t * t;
-    } else {
-        float f = (2.0f * t - 2.0f);
-        return 0.5f * f * f * f + 1.0f;
-    }
+  if (t < 0.5f) {
+    return 4.0f * t * t * t;
+  } else {
+    float f = (2.0f * t - 2.0f);
+    return 0.5f * f * f * f + 1.0f;
+  }
 }
 
 /**
  * Calculate dynamic content center X accounting for nav width
  */
 static inline int ui_get_dynamic_content_center_x(void) {
-    // Menu is an overlay - content centers on FULL screen
-    return VITA_WIDTH / 2;  // 480px
+  // Menu is an overlay - content centers on FULL screen
+  return VITA_WIDTH / 2;  // 480px
 }
 
 // ============================================================================
@@ -160,9 +161,9 @@ bool btn_released(SceCtrlButtons btn);
 void block_inputs_for_transition(void);
 bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
 bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh);
-uint32_t* ui_input_get_button_block_mask_ptr(void);
-bool* ui_input_get_touch_block_active_ptr(void);
-bool* ui_input_get_touch_block_pending_clear_ptr(void);
+uint32_t *ui_input_get_button_block_mask_ptr(void);
+bool *ui_input_get_touch_block_active_ptr(void);
+bool *ui_input_get_touch_block_pending_clear_ptr(void);
 
 // Graphics primitives (ui_graphics.c)
 void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
@@ -217,7 +218,7 @@ bool stream_cooldown_active(void);
 uint64_t stream_cooldown_until_us(void);
 bool takion_cooldown_gate_active(void);
 bool start_connection_thread(VitaChiakiHost *host);
-int get_text_width_cached(const char* text, int font_size);
+int get_text_width_cached(const char *text, int font_size);
 bool ui_connection_overlay_active(void);
 UIConnectionStage ui_connection_stage(void);
 void ui_clear_waking_wait(void);
@@ -225,18 +226,18 @@ void ui_clear_waking_wait(void);
 // Components (ui_components.c)
 // Legacy compatibility wrappers - internal use only
 void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected);
-void draw_dropdown(int x, int y, int width, int height, const char* label,
-                   const char* value, bool expanded, bool selected);
-void draw_tab_bar(int x, int y, int width, int height,
-                  const char* tabs[], uint32_t colors[], int num_tabs, int selected);
+void draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
+                   bool expanded, bool selected);
+void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
+                  int num_tabs, int selected);
 void draw_status_dot(int x, int y, int radius, int status);
-void draw_section_header(int x, int y, int width, const char* title);
+void draw_section_header(int x, int y, int width, const char *title);
 void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
 void start_toggle_animation(int toggle_index, bool target_state);
 float get_toggle_animation_value(int toggle_index, bool current_state);
 void render_error_popup(void);
 void handle_error_popup_input(void);
-void trigger_hints_popup(const char* hint_text);
+void trigger_hints_popup(const char *hint_text);
 void render_hints_popup(void);
 void render_hints_indicator(void);
 void open_debug_menu(void);

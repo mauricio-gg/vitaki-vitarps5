@@ -58,8 +58,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   vita_logging_config_set_defaults(&cfg->logging);
 }
 
-static void load_custom_map_slot(toml_table_t *custom_map,
-                                 ControllerMapStorage *map,
+static void load_custom_map_slot(toml_table_t *custom_map, ControllerMapStorage *map,
                                  bool *valid_out) {
   toml_datum_t datum = toml_bool_in(custom_map, "valid");
   bool valid = datum.ok ? datum.u.b : false;
@@ -191,7 +190,8 @@ static bool config_validate_general_section(toml_table_t *parsed) {
 
   toml_datum_t datum = toml_int_in(general, "version");
   if (!datum.ok || datum.u.i != CFG_VERSION) {
-    CHIAKI_LOGE(&(context.log), "Failed to parse config due to bad general.version, expected %d.", CFG_VERSION);
+    CHIAKI_LOGE(&(context.log), "Failed to parse config due to bad general.version, expected %d.",
+                CFG_VERSION);
     return false;
   }
 
@@ -268,55 +268,48 @@ static void normalize_controller_map_id(VitaChiakiConfig *cfg) {
   cfg->controller_map_id = VITAKI_CONTROLLER_MAP_CUSTOM_1;
 }
 
-static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg,
-                                               toml_table_t *settings,
+static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
                                                toml_table_t *parsed,
                                                bool circle_btn_confirm_default,
                                                bool *migrated_legacy_settings,
                                                bool *migrated_root_settings) {
   BoolSettingSpec bool_settings[] = {
-    {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
-    {"show_latency", false, &cfg->show_latency},
-    {"show_network_indicator", true, &cfg->show_network_indicator},
-    {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
-    {"stretch_video", false, &cfg->stretch_video},
-    {"force_30fps", false, &cfg->force_30fps},
-    {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
-    {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
-    {"show_nav_labels", false, &cfg->show_nav_labels},
-    {"show_only_paired", false, &cfg->show_only_paired},
-    {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
-    {"enable_logging", false, &cfg->logging.enabled},
+      {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
+      {"show_latency", false, &cfg->show_latency},
+      {"show_network_indicator", true, &cfg->show_network_indicator},
+      {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
+      {"stretch_video", false, &cfg->stretch_video},
+      {"force_30fps", false, &cfg->force_30fps},
+      {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
+      {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
+      {"show_nav_labels", false, &cfg->show_nav_labels},
+      {"show_only_paired", false, &cfg->show_only_paired},
+      {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
+      {"enable_logging", false, &cfg->logging.enabled},
   };
 
   size_t bool_settings_count = sizeof(bool_settings) / sizeof(bool_settings[0]);
   for (size_t i = 0; i < bool_settings_count; i++) {
     MigrationSource source = MIGRATION_SOURCE_NONE;
-    parse_bool_setting_with_migration(settings,
-                                      parsed,
-                                      bool_settings[i].key,
-                                      bool_settings[i].default_value,
-                                      bool_settings[i].out_value,
+    parse_bool_setting_with_migration(settings, parsed, bool_settings[i].key,
+                                      bool_settings[i].default_value, bool_settings[i].out_value,
                                       &source);
     apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
   }
 }
 
-static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg,
-                                              bool migrated_legacy_settings,
+static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
                                               bool migrated_root_settings,
                                               bool migrated_resolution_policy) {
   if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy))
     return;
 
   if (migrated_root_settings) {
-    LOGD("Recovered settings via root-level fallback and rewriting %s",
-         CFG_FILENAME);
+    LOGD("Recovered settings via root-level fallback and rewriting %s", CFG_FILENAME);
   } else if (migrated_resolution_policy) {
     LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
   } else {
-    LOGD("Recovered misplaced settings from legacy config layout; rewriting %s",
-         CFG_FILENAME);
+    LOGD("Recovered misplaced settings from legacy config layout; rewriting %s", CFG_FILENAME);
   }
 
   if (!config_serialize(cfg)) {
@@ -325,7 +318,7 @@ static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg,
   }
 }
 
-void config_parse(VitaChiakiConfig* cfg) {
+void config_parse(VitaChiakiConfig *cfg) {
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
@@ -347,32 +340,18 @@ void config_parse(VitaChiakiConfig* cfg) {
   toml_table_t *settings = toml_table_in(parsed, "settings");
 
   parse_basic_settings(cfg, settings);
-  parse_resolution_with_migration(cfg,
-                                  settings,
-                                  parsed,
-                                  &migrated_legacy_settings,
-                                  &migrated_root_settings,
-                                  &migrated_resolution_policy);
-  parse_fps_with_migration(cfg,
-                           settings,
-                           parsed,
-                           &migrated_legacy_settings,
+  parse_resolution_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
+                                  &migrated_root_settings, &migrated_resolution_policy);
+  parse_fps_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                            &migrated_root_settings);
 
   parse_custom_map_slots(cfg, parsed);
   migrate_legacy_custom_map_if_needed(cfg, parsed);
   normalize_controller_map_id(cfg);
 
-  parse_bool_settings_with_migration(cfg,
-                                     settings,
-                                     parsed,
-                                     circle_btn_confirm_default,
-                                     &migrated_legacy_settings,
-                                     &migrated_root_settings);
-  parse_latency_mode_with_migration(cfg,
-                                    settings,
-                                    parsed,
-                                    &migrated_legacy_settings,
+  parse_bool_settings_with_migration(cfg, settings, parsed, circle_btn_confirm_default,
+                                     &migrated_legacy_settings, &migrated_root_settings);
+  parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
 
   // Security: runtime logging overrides are compile-time gated.
@@ -381,20 +360,19 @@ void config_parse(VitaChiakiConfig* cfg) {
   config_parse_registered_hosts(cfg, parsed);
   config_parse_manual_hosts(cfg, parsed);
   toml_free(parsed);
-  persist_migrated_config_if_needed(cfg,
-                                    migrated_legacy_settings,
-                                    migrated_root_settings,
+  persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
                                     migrated_resolution_policy);
 
 config_done:
-  LOGD("Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s clamp_soft_restart_bitrate=%s",
-       serialize_latency_mode(cfg->latency_mode),
-       cfg->force_30fps ? "true" : "false",
-       cfg->send_actual_start_bitrate ? "true" : "false",
-       cfg->clamp_soft_restart_bitrate ? "true" : "false");
+  LOGD(
+      "Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s "
+      "clamp_soft_restart_bitrate=%s",
+      serialize_latency_mode(cfg->latency_mode), cfg->force_30fps ? "true" : "false",
+      cfg->send_actual_start_bitrate ? "true" : "false",
+      cfg->clamp_soft_restart_bitrate ? "true" : "false");
 }
 
-void config_free(VitaChiakiConfig* cfg) {
+void config_free(VitaChiakiConfig *cfg) {
   if (cfg == NULL) {
     return;
   }
@@ -422,7 +400,7 @@ void config_free(VitaChiakiConfig* cfg) {
   free(cfg);
 }
 
-bool config_serialize(VitaChiakiConfig* cfg) {
+bool config_serialize(VitaChiakiConfig *cfg) {
   bool downgraded_resolution = false;
   cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
   if (downgraded_resolution) {
@@ -438,10 +416,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
 
   // Settings
   fprintf(fp, "[settings]\n");
-  fprintf(fp, "auto_discovery = %s\n",
-          cfg->auto_discovery ? "true" : "false");
-  fprintf(fp, "resolution = \"%s\"\n",
-          serialize_resolution_preset(cfg->resolution));
+  fprintf(fp, "auto_discovery = %s\n", cfg->auto_discovery ? "true" : "false");
+  fprintf(fp, "resolution = \"%s\"\n", serialize_resolution_preset(cfg->resolution));
   fprintf(fp, "fps = %d\n", cfg->fps);
   if (cfg->psn_account_id) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
@@ -457,12 +433,10 @@ bool config_serialize(VitaChiakiConfig* cfg) {
             (unsigned long long)cfg->psn_oauth_expires_at_unix);
   }
   if (cfg->psn_oauth_device_code_url) {
-    fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n",
-            cfg->psn_oauth_device_code_url);
+    fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n", cfg->psn_oauth_device_code_url);
   }
   if (cfg->psn_oauth_authorize_url) {
-    fprintf(fp, "psn_oauth_authorize_url = \"%s\"\n",
-            cfg->psn_oauth_authorize_url);
+    fprintf(fp, "psn_oauth_authorize_url = \"%s\"\n", cfg->psn_oauth_authorize_url);
   }
   if (cfg->psn_oauth_token_url) {
     fprintf(fp, "psn_oauth_token_url = \"%s\"\n", cfg->psn_oauth_token_url);
@@ -471,8 +445,7 @@ bool config_serialize(VitaChiakiConfig* cfg) {
     fprintf(fp, "psn_oauth_client_id = \"%s\"\n", cfg->psn_oauth_client_id);
   }
   if (cfg->psn_oauth_client_secret) {
-    fprintf(fp, "psn_oauth_client_secret = \"%s\"\n",
-            cfg->psn_oauth_client_secret);
+    fprintf(fp, "psn_oauth_client_secret = \"%s\"\n", cfg->psn_oauth_client_secret);
   }
   if (cfg->psn_oauth_scope) {
     fprintf(fp, "psn_oauth_scope = \"%s\"\n", cfg->psn_oauth_scope);
@@ -485,18 +458,18 @@ bool config_serialize(VitaChiakiConfig* cfg) {
   }
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
   BoolSerializeSpec bool_settings[] = {
-    {"circle_btn_confirm", cfg->circle_btn_confirm},
-    {"show_latency", cfg->show_latency},
-    {"show_network_indicator", cfg->show_network_indicator},
-    {"show_stream_exit_hint", cfg->show_stream_exit_hint},
-    {"stretch_video", cfg->stretch_video},
-    {"force_30fps", cfg->force_30fps},
-    {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
-    {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
-    {"show_nav_labels", cfg->show_nav_labels},
-    {"show_only_paired", cfg->show_only_paired},
-    {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
-    {"enable_logging", cfg->logging.enabled},
+      {"circle_btn_confirm", cfg->circle_btn_confirm},
+      {"show_latency", cfg->show_latency},
+      {"show_network_indicator", cfg->show_network_indicator},
+      {"show_stream_exit_hint", cfg->show_stream_exit_hint},
+      {"stretch_video", cfg->stretch_video},
+      {"force_30fps", cfg->force_30fps},
+      {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
+      {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
+      {"show_nav_labels", cfg->show_nav_labels},
+      {"show_only_paired", cfg->show_only_paired},
+      {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
+      {"enable_logging", cfg->logging.enabled},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
@@ -515,10 +488,8 @@ bool config_serialize(VitaChiakiConfig* cfg) {
 #if defined(VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) && VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
   fprintf(fp, "\n[logging]\n");
   fprintf(fp, "enabled = %s\n", cfg->logging.enabled ? "true" : "false");
-  fprintf(fp, "force_error_logging = %s\n",
-          cfg->logging.force_error_logging ? "true" : "false");
-  fprintf(fp, "profile = \"%s\"\n",
-          vita_logging_profile_to_string(cfg->logging.profile));
+  fprintf(fp, "force_error_logging = %s\n", cfg->logging.force_error_logging ? "true" : "false");
+  fprintf(fp, "profile = \"%s\"\n", vita_logging_profile_to_string(cfg->logging.profile));
   fprintf(fp, "path = \"%s\"\n", cfg->logging.path);
   // SCE libc used on Vita ignores %zu, so cast explicitly for portability.
   fprintf(fp, "queue_depth = %lu\n", (unsigned long)cfg->logging.queue_depth);

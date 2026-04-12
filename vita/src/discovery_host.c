@@ -12,12 +12,12 @@ static char *duplicate_string(const char *src) {
 void destroy_discovery_host(ChiakiDiscoveryHost *host) {
   if (!host)
     return;
-#define FREE_FIELD(name)           \
-  do {                             \
-    if (host->name) {              \
-      free((void *)host->name);    \
-      host->name = NULL;           \
-    }                              \
+#define FREE_FIELD(name)        \
+  do {                          \
+    if (host->name) {           \
+      free((void *)host->name); \
+      host->name = NULL;        \
+    }                           \
   } while (0)
   CHIAKI_DISCOVERY_HOST_STRING_FOREACH(FREE_FIELD)
 #undef FREE_FIELD
@@ -37,13 +37,13 @@ ChiakiDiscoveryHost *copy_discovery_host(const ChiakiDiscoveryHost *src) {
   CHIAKI_DISCOVERY_HOST_STRING_FOREACH(RESET_FIELD)
 #undef RESET_FIELD
 
-#define DUP_FIELD(name)                                         \
-  do {                                                          \
-    dest->name = duplicate_string(src->name);                   \
-    if (src->name && !dest->name) {                             \
-      destroy_discovery_host(dest);                             \
-      return NULL;                                              \
-    }                                                           \
+#define DUP_FIELD(name)                       \
+  do {                                        \
+    dest->name = duplicate_string(src->name); \
+    if (src->name && !dest->name) {           \
+      destroy_discovery_host(dest);           \
+      return NULL;                            \
+    }                                         \
   } while (0)
   CHIAKI_DISCOVERY_HOST_STRING_FOREACH(DUP_FIELD)
 #undef DUP_FIELD

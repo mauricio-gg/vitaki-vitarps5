@@ -9,12 +9,12 @@
 
 // A hard-wrapped message log
 typedef struct vita_chiaki_message_log_t {
-  char log[MLOG_LINES+1][MLOG_LINE_LEN+1];
+  char log[MLOG_LINES + 1][MLOG_LINE_LEN + 1];
   uint8_t start_offset;
   uint8_t lines;
   uint64_t last_update;
 } VitaChiakiMessageLog;
 
-VitaChiakiMessageLog* message_log_create();
-void write_message_log(VitaChiakiMessageLog* ml, const char* text);
-char* get_message_log_line(VitaChiakiMessageLog* ml, size_t line);
+VitaChiakiMessageLog *message_log_create();
+void write_message_log(VitaChiakiMessageLog *ml, const char *text);
+char *get_message_log_line(VitaChiakiMessageLog *ml, size_t line);

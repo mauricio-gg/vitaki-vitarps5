@@ -16,20 +16,20 @@
 
 // Focus zones - each represents a distinct input handling region
 typedef enum {
-    FOCUS_ZONE_NAV_BAR,           // Wave navigation sidebar icons
-    FOCUS_ZONE_MAIN_CONTENT,      // Main menu console cards
-    FOCUS_ZONE_SETTINGS_ITEMS,    // Settings screen item list
-    FOCUS_ZONE_PROFILE_CARDS,     // Profile screen info/connection cards
-    FOCUS_ZONE_CONTROLLER_CONTENT, // Controller screen content (tabs + items)
-    FOCUS_ZONE_CONTROLLER_TOP_BAR, // Controller screen top bar (menu, preset, view toggle)
-    FOCUS_ZONE_CONTROLLER_LEGEND, // Controller screen mapping legend
-    FOCUS_ZONE_MODAL              // Modal overlay (registration, popups, etc.)
+  FOCUS_ZONE_NAV_BAR,             // Wave navigation sidebar icons
+  FOCUS_ZONE_MAIN_CONTENT,        // Main menu console cards
+  FOCUS_ZONE_SETTINGS_ITEMS,      // Settings screen item list
+  FOCUS_ZONE_PROFILE_CARDS,       // Profile screen info/connection cards
+  FOCUS_ZONE_CONTROLLER_CONTENT,  // Controller screen content (tabs + items)
+  FOCUS_ZONE_CONTROLLER_TOP_BAR,  // Controller screen top bar (menu, preset, view toggle)
+  FOCUS_ZONE_CONTROLLER_LEGEND,   // Controller screen mapping legend
+  FOCUS_ZONE_MODAL                // Modal overlay (registration, popups, etc.)
 } FocusZone;
 
 // Focus state for a single level in the stack
 typedef struct {
-    FocusZone zone;
-    int index;                    // Selected item within zone
+  FocusZone zone;
+  int index;  // Selected item within zone
 } FocusState;
 
 // ============================================================================
@@ -90,5 +90,5 @@ FocusZone ui_focus_zone_for_screen(UIScreenType screen);
 // ============================================================================
 
 // These map to the old FocusArea enum for backward compatibility
-#define FOCUS_COMPAT_NAV_BAR     FOCUS_ZONE_NAV_BAR
+#define FOCUS_COMPAT_NAV_BAR FOCUS_ZONE_NAV_BAR
 #define FOCUS_COMPAT_CONSOLE_CARDS FOCUS_ZONE_MAIN_CONTENT

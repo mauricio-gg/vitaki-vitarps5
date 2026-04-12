@@ -68,8 +68,7 @@ bool ui_input_btn_pressed(SceCtrlButtons btn) {
     return false;
 
   // Edge detection: button is down now but wasn't down last frame
-  return (context.ui_state.button_state & btn) &&
-         !(context.ui_state.old_button_state & btn);
+  return (context.ui_state.button_state & btn) && !(context.ui_state.old_button_state & btn);
 }
 
 void ui_input_block_for_transition(void) {
@@ -135,8 +134,7 @@ bool ui_input_point_in_circle(float px, float py, int cx, int cy, int radius) {
 }
 
 bool ui_input_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
-  return (px >= (float)rx && px <= (float)(rx + rw) &&
-          py >= (float)ry && py <= (float)(ry + rh));
+  return (px >= (float)rx && px <= (float)(rx + rw) && py >= (float)ry && py <= (float)(ry + rh));
 }
 
 // ============================================================================
@@ -166,8 +164,7 @@ bool btn_released(SceCtrlButtons btn) {
     return false;
   if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
     return false;
-  return !(context.ui_state.button_state & btn) &&
-         (context.ui_state.old_button_state & btn);
+  return !(context.ui_state.button_state & btn) && (context.ui_state.old_button_state & btn);
 }
 
 /**
@@ -206,7 +203,7 @@ bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
  * Some transition code directly manipulates button_block_mask.
  * This function provides controlled access for those cases.
  */
-uint32_t* ui_input_get_button_block_mask_ptr(void) {
+uint32_t *ui_input_get_button_block_mask_ptr(void) {
   return &button_block_mask;
 }
 
@@ -216,7 +213,7 @@ uint32_t* ui_input_get_button_block_mask_ptr(void) {
  * Touch handling code in ui.c needs to check and modify this flag.
  * This function provides controlled access.
  */
-bool* ui_input_get_touch_block_active_ptr(void) {
+bool *ui_input_get_touch_block_active_ptr(void) {
   return &touch_block_active;
 }
 
@@ -226,6 +223,6 @@ bool* ui_input_get_touch_block_active_ptr(void) {
  * Navigation collapse logic uses this flag for delayed clearing.
  * This function provides controlled access.
  */
-bool* ui_input_get_touch_block_pending_clear_ptr(void) {
+bool *ui_input_get_touch_block_pending_clear_ptr(void) {
   return &touch_block_pending_clear;
 }
