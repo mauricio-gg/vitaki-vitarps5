@@ -103,5 +103,7 @@ jobs:
             --error-exitcode=1 \
             -I vita/include \
             -I lib/include \
+            '-DLOGD(...)=' \
+            '-DLOGE(...)=' \
             vita/src/ \
             vita/include/
