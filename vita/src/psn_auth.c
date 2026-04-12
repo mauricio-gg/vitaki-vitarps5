@@ -514,6 +514,40 @@ static const char *json_find_key_value(const char *json, const char *key) {
   return p;
 }
 
+/* Returns the byte length (excluding null terminator) of the decoded JSON string
+ * value for `key`.  Mirrors the escape-handling logic of json_get_string so
+ * callers can size an exact-fit allocation before copying.
+ * Sets *out_len and returns true on success; returns false if the key is not
+ * found, the value is not a quoted string, or the closing quote is missing. */
+static bool json_get_string_len(const char *json, const char *key, size_t *out_len) {
+  if (!out_len)
+    return false;
+  *out_len = 0;
+  const char *p = json_find_key_value(json, key);
+  if (!p || *p != '"')
+    return false;
+
+  p++;
+  size_t len = 0;
+  while (*p && *p != '"') {
+    if (*p == '\\') {
+      p++;
+      if (!*p)
+        break;
+      /* Every recognised escape sequence decodes to exactly one byte. */
+      len++;
+      p++;
+      continue;
+    }
+    len++;
+    p++;
+  }
+  if (*p != '"')
+    return false;
+  *out_len = len;
+  return true;
+}
+
 static bool json_get_string(const char *json, const char *key, char *out, size_t out_size) {
   if (!out || out_size == 0)
     return false;
@@ -582,25 +616,65 @@ static void clear_device_flow_fields(void) {
 }
 
 static bool apply_token_response(const char *response, uint64_t now_unix) {
-  char access_token[1024];
-  char refresh_token[1024];
-  uint64_t expires_in = 0;
-  if (!json_get_string(response, "access_token", access_token, sizeof(access_token))) {
+  size_t access_len = 0;
+  size_t refresh_len = 0;
+  if (!json_get_string_len(response, "access_token", &access_len) || access_len == 0) {
+    LOGE("PSN auth: access_token missing from token response");
     return false;
   }
-  if (!json_get_string(response, "refresh_token", refresh_token, sizeof(refresh_token))) {
-    if (has_text(context.config.psn_oauth_refresh_token)) {
-      snprintf(refresh_token, sizeof(refresh_token), "%s", context.config.psn_oauth_refresh_token);
-    } else {
-      refresh_token[0] = '\0';
+  if (access_len >= 8192) {
+    LOGE("PSN auth: access_token length %zu exceeds 8192-byte cap", access_len);
+    return false;
+  }
+  char *access_token = malloc(access_len + 1);
+  if (!access_token)
+    return false;
+  if (!json_get_string(response, "access_token", access_token, access_len + 1)) {
+    free(access_token);
+    return false;
+  }
+
+  char *refresh_token = NULL;
+  if (json_get_string_len(response, "refresh_token", &refresh_len) && refresh_len > 0) {
+    if (refresh_len >= 8192) {
+      LOGE("PSN auth: refresh_token length %zu exceeds 8192-byte cap", refresh_len);
+      free(access_token);
+      return false;
+    }
+    refresh_token = malloc(refresh_len + 1);
+    if (!refresh_token) {
+      free(access_token);
+      return false;
+    }
+    if (!json_get_string(response, "refresh_token", refresh_token, refresh_len + 1)) {
+      free(access_token);
+      free(refresh_token);
+      return false;
+    }
+  } else if (has_text(context.config.psn_oauth_refresh_token)) {
+    refresh_token = strdup(context.config.psn_oauth_refresh_token);
+    if (!refresh_token) {
+      free(access_token);
+      return false;
+    }
+  } else {
+    refresh_token = strdup("");
+    if (!refresh_token) {
+      free(access_token);
+      return false;
     }
   }
+
+  uint64_t expires_in = 0;
   if (!json_get_uint64(response, "expires_in", &expires_in) || expires_in == 0) {
     expires_in = 3600;
   }
 
+  /* set_config_string calls strdup internally — safe to free our copies after. */
   set_config_string(&context.config.psn_oauth_access_token, access_token);
   set_config_string(&context.config.psn_oauth_refresh_token, refresh_token);
+  free(access_token);
+  free(refresh_token);
   context.config.psn_oauth_expires_at_unix = now_unix + expires_in;
   clear_device_flow_fields();
   g_psn_auth.state = PSN_AUTH_STATE_TOKEN_VALID;
