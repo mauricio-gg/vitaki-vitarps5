@@ -9,8 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <chiaki/base64.h>
-#include <chiaki/random.h>
+#include <chiaki/remote/holepunch.h>
 
 #include "config.h"
 #include "context.h"
@@ -27,10 +26,10 @@
 #define VITARPS5_PSN_OAUTH_TOKEN_URL "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_ID
-#define VITARPS5_PSN_OAUTH_CLIENT_ID "ba495a24-818c-472b-b12d-ff231c1b5745"
+#error "VITARPS5_PSN_OAUTH_CLIENT_ID must be provided via .env.prod/.env.testing -> CMake"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_CLIENT_SECRET
-#define VITARPS5_PSN_OAUTH_CLIENT_SECRET "mvaiZkRsAsI1IBkY"
+#error "VITARPS5_PSN_OAUTH_CLIENT_SECRET must be provided via .env.prod/.env.testing -> CMake"
 #endif
 #ifndef VITARPS5_PSN_OAUTH_SCOPE
 #define VITARPS5_PSN_OAUTH_SCOPE                           \
@@ -45,11 +44,7 @@
 #define TOKEN_EXPIRY_SKEW_SEC 90ULL
 #define RESPONSE_CAP_BYTES (16 * 1024)
 #define AUTH_VERIFICATION_URL_MAX 1536
-#define PSN_CLIENT_DUID_PREFIX "0000000700410080"
-#define PSN_CLIENT_DUID_RANDOM_BYTES 16
 #define PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
-#define PSN_CLIENT_DUID_SIZE \
-  (sizeof(PSN_CLIENT_DUID_PREFIX) - 1 + PSN_CLIENT_DUID_RANDOM_BYTES * 2 + 1)
 
 typedef struct {
   PsnAuthState state;
@@ -171,17 +166,11 @@ static bool ensure_client_duid(void) {
   if (has_text(context.config.psn_client_duid))
     return true;
 
-  uint8_t random_bytes[PSN_CLIENT_DUID_RANDOM_BYTES];
-  char duid[PSN_CLIENT_DUID_SIZE];
-  if (chiaki_random_bytes_crypt(random_bytes, sizeof(random_bytes)) != CHIAKI_ERR_SUCCESS) {
+  char duid[CHIAKI_DUID_STR_SIZE];
+  size_t duid_size = sizeof(duid);
+  if (chiaki_holepunch_generate_client_device_uid(duid, &duid_size) != CHIAKI_ERR_SUCCESS) {
     LOGE("PSN auth: failed to generate client DUID");
     return false;
-  }
-
-  snprintf(duid, sizeof(duid), "%s", PSN_CLIENT_DUID_PREFIX);
-  for (size_t i = 0; i < sizeof(random_bytes); i++) {
-    size_t used = strlen(duid);
-    snprintf(duid + used, sizeof(duid) - used, "%02x", random_bytes[i]);
   }
 
   set_config_string(&context.config.psn_client_duid, duid);
@@ -447,7 +436,6 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   LOGD("PSN auth HTTP POST url=%s cafile=%s basic_user=%s basic_pass_present=%s form_len=%u", url,
        PSN_CA_BUNDLE_PATH, has_text(basic_user) ? basic_user : "<none>",
        has_text(basic_pass) ? "true" : "false", (unsigned)strlen(form_data));
-  log_oauth_transport_probe(url);
   curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
   LOGD("PSN auth curl preflight url=%s ipresolve=v4 timeout=15 verify_peer_result=%ld", url,
        verify_peer);
@@ -459,6 +447,7 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   curl_easy_getinfo(curl, CURLINFO_LOCAL_IP, &local_ip);
   curl_easy_getinfo(curl, CURLINFO_LOCAL_PORT, &local_port);
   if (perform_res != CURLE_OK) {
+    log_oauth_transport_probe(url);
     curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_peer);
     curl_easy_getinfo(curl, CURLINFO_HTTPAUTH_AVAIL, &verify_host);
     LOGE(
@@ -523,6 +512,40 @@ static const char *json_find_key_value(const char *json, const char *key) {
   while (*p && isspace((unsigned char)*p))
     p++;
   return p;
+}
+
+/* Returns the byte length (excluding null terminator) of the decoded JSON string
+ * value for `key`.  Mirrors the escape-handling logic of json_get_string so
+ * callers can size an exact-fit allocation before copying.
+ * Sets *out_len and returns true on success; returns false if the key is not
+ * found, the value is not a quoted string, or the closing quote is missing. */
+static bool json_get_string_len(const char *json, const char *key, size_t *out_len) {
+  if (!out_len)
+    return false;
+  *out_len = 0;
+  const char *p = json_find_key_value(json, key);
+  if (!p || *p != '"')
+    return false;
+
+  p++;
+  size_t len = 0;
+  while (*p && *p != '"') {
+    if (*p == '\\') {
+      p++;
+      if (!*p)
+        break;
+      /* Every recognised escape sequence decodes to exactly one byte. */
+      len++;
+      p++;
+      continue;
+    }
+    len++;
+    p++;
+  }
+  if (*p != '"')
+    return false;
+  *out_len = len;
+  return true;
 }
 
 static bool json_get_string(const char *json, const char *key, char *out, size_t out_size) {
@@ -593,25 +616,65 @@ static void clear_device_flow_fields(void) {
 }
 
 static bool apply_token_response(const char *response, uint64_t now_unix) {
-  char access_token[1024];
-  char refresh_token[1024];
-  uint64_t expires_in = 0;
-  if (!json_get_string(response, "access_token", access_token, sizeof(access_token))) {
+  size_t access_len = 0;
+  size_t refresh_len = 0;
+  if (!json_get_string_len(response, "access_token", &access_len) || access_len == 0) {
+    LOGE("PSN auth: access_token missing from token response");
     return false;
   }
-  if (!json_get_string(response, "refresh_token", refresh_token, sizeof(refresh_token))) {
-    if (has_text(context.config.psn_oauth_refresh_token)) {
-      snprintf(refresh_token, sizeof(refresh_token), "%s", context.config.psn_oauth_refresh_token);
-    } else {
-      refresh_token[0] = '\0';
+  if (access_len >= 8192) {
+    LOGE("PSN auth: access_token length %zu exceeds 8192-byte cap", access_len);
+    return false;
+  }
+  char *access_token = malloc(access_len + 1);
+  if (!access_token)
+    return false;
+  if (!json_get_string(response, "access_token", access_token, access_len + 1)) {
+    free(access_token);
+    return false;
+  }
+
+  char *refresh_token = NULL;
+  if (json_get_string_len(response, "refresh_token", &refresh_len) && refresh_len > 0) {
+    if (refresh_len >= 8192) {
+      LOGE("PSN auth: refresh_token length %zu exceeds 8192-byte cap", refresh_len);
+      free(access_token);
+      return false;
+    }
+    refresh_token = malloc(refresh_len + 1);
+    if (!refresh_token) {
+      free(access_token);
+      return false;
+    }
+    if (!json_get_string(response, "refresh_token", refresh_token, refresh_len + 1)) {
+      free(access_token);
+      free(refresh_token);
+      return false;
+    }
+  } else if (has_text(context.config.psn_oauth_refresh_token)) {
+    refresh_token = strdup(context.config.psn_oauth_refresh_token);
+    if (!refresh_token) {
+      free(access_token);
+      return false;
+    }
+  } else {
+    refresh_token = strdup("");
+    if (!refresh_token) {
+      free(access_token);
+      return false;
     }
   }
+
+  uint64_t expires_in = 0;
   if (!json_get_uint64(response, "expires_in", &expires_in) || expires_in == 0) {
     expires_in = 3600;
   }
 
+  /* set_config_string calls strdup internally — safe to free our copies after. */
   set_config_string(&context.config.psn_oauth_access_token, access_token);
   set_config_string(&context.config.psn_oauth_refresh_token, refresh_token);
+  free(access_token);
+  free(refresh_token);
   context.config.psn_oauth_expires_at_unix = now_unix + expires_in;
   clear_device_flow_fields();
   g_psn_auth.state = PSN_AUTH_STATE_TOKEN_VALID;

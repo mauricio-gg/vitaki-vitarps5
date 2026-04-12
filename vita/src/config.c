@@ -422,16 +422,24 @@ bool config_serialize(VitaChiakiConfig *cfg) {
   if (cfg->psn_account_id) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
+#ifdef VITARPS5_PLAINTEXT_TOKEN_STORAGE
   if (cfg->psn_oauth_access_token) {
     fprintf(fp, "psn_oauth_access_token = \"%s\"\n", cfg->psn_oauth_access_token);
   }
   if (cfg->psn_oauth_refresh_token) {
     fprintf(fp, "psn_oauth_refresh_token = \"%s\"\n", cfg->psn_oauth_refresh_token);
   }
+  /* Persist expiry only alongside its tokens; without tokens a non-zero expiry
+   * on cold-start produces a broken auth state (stale expiry, no credentials).
+   * Encrypted storage will subsume all three fields — see #81. */
   if (cfg->psn_oauth_expires_at_unix > 0) {
     fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
             (unsigned long long)cfg->psn_oauth_expires_at_unix);
   }
+#else
+  /* Plaintext token storage disabled. Enable the VITARPS5_PLAINTEXT_TOKEN_STORAGE
+   * CMake option only for local debugging — see #81 for encrypted storage work. */
+#endif
   if (cfg->psn_oauth_device_code_url) {
     fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n", cfg->psn_oauth_device_code_url);
   }
