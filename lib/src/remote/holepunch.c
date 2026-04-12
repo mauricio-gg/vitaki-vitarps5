@@ -2239,17 +2239,27 @@ static void* websocket_thread_func(void *user) {
     ChiakiErrorCode err;
     char header_buf[128];
 
-/* Append a formatted WebSocket header to the curl slist, detecting truncation.
- * On truncation: logs an error, sets err = CHIAKI_ERR_UNKNOWN, and jumps to
- * cleanup_headers which frees the slist and the curl handle before returning. */
+/* Append a formatted WebSocket header to the curl slist, detecting truncation
+ * and OOM from curl_slist_append.
+ * On truncation: logs the (possibly partial) header_buf via %s to avoid
+ *   re-expanding fmt with wrong args, sets err = CHIAKI_ERR_UNKNOWN, and
+ *   jumps to cleanup_headers.
+ * On curl_slist_append OOM: logs an error, sets err = CHIAKI_ERR_MEMORY, and
+ *   jumps to cleanup_headers which frees the slist and the curl handle. */
 #define APPEND_WS_HEADER(fmt, ...) do { \
     int _n = snprintf(header_buf, sizeof(header_buf), fmt, __VA_ARGS__); \
     if (_n < 0 || (size_t)_n >= sizeof(header_buf)) { \
-        CHIAKI_LOGE(session->log, "WebSocket header truncated: " fmt, __VA_ARGS__); \
+        CHIAKI_LOGE(session->log, "WebSocket header truncated: %s", header_buf); \
         err = CHIAKI_ERR_UNKNOWN; \
         goto cleanup_headers; \
     } \
-    headers = curl_slist_append(headers, header_buf); \
+    struct curl_slist *_tmp = curl_slist_append(headers, header_buf); \
+    if (!_tmp) { \
+        CHIAKI_LOGE(session->log, "curl_slist_append OOM for header: %s", header_buf); \
+        err = CHIAKI_ERR_MEMORY; \
+        goto cleanup_headers; \
+    } \
+    headers = _tmp; \
 } while (0)
 
     char ws_url[128] = {0};
