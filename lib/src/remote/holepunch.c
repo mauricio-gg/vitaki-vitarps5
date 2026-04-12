@@ -2273,7 +2273,15 @@ static void* websocket_thread_func(void *user) {
     }
     curl_apply_platform_tls_defaults(curl);
     struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, session->oauth_header);
+    {
+        struct curl_slist *tmp = curl_slist_append(headers, session->oauth_header);
+        if (!tmp) {
+            CHIAKI_LOGE(session->log, "curl_slist_append OOM for oauth_header");
+            err = CHIAKI_ERR_MEMORY;
+            goto cleanup;
+        }
+        headers = tmp;
+    }
     APPEND_WS_HEADER("Sec-WebSocket-Protocol: %s",
                      psn_remote_client_profile.ws_protocol);
     APPEND_WS_HEADER("User-Agent: %s",
@@ -5905,7 +5913,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
      * The caller in get_client_addr_remote_stun() already tolerates this error
      * and logs the built-in pool size before proceeding. See VitaRPS5 issue #105. */
     CHIAKI_LOGI(session->log, "Skipping dynamic STUN list fetch on Vita (using built-in list)");
-    return CHIAKI_ERR_NETWORK; /* non-fatal — caller falls back to hardcoded STUN_SERVERS */
+    return CHIAKI_ERR_SUCCESS; /* intentional skip — num_stun_servers stays 0, caller uses built-in STUN_SERVERS */
 #endif
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
     const char STUN_HOSTS_URL[] = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt";
