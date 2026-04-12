@@ -80,6 +80,7 @@ For more help, open an [issue](https://github.com/mauricio-gg/vitaki-vitarps5/is
 - [Building from Source](docs/BUILDING.md) — Docker build system, debug builds, deployment
 - [Crash Dump Analysis](docs/CRASH_ANALYSIS.md) — Decoding `.psp2dmp` crash files
 - [Wi-Fi Optimization](docs/WIFI_OPTIMIZATION.md) — Network tips for best streaming performance
+- [PSN OAuth Credentials](docs/ai/PSN_OAUTH_CREDENTIALS.md) — Why the OAuth client ID/secret are committed (public PS-App values, not user secrets)
 
 ## Acknowledgements
 
