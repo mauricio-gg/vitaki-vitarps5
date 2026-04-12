@@ -53,7 +53,7 @@ bool config_fix_legacy_queue_depth(void) {
 
   char replacement[16];
   int replacement_len =
-      snprintf(replacement, sizeof(replacement), "%u", VITA_LOG_DEFAULT_QUEUE_DEPTH);
+      snprintf(replacement, sizeof(replacement), "%d", VITA_LOG_DEFAULT_QUEUE_DEPTH);
   if (replacement_len <= 0) {
     free(data);
     return false;

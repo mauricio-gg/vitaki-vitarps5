@@ -279,7 +279,7 @@ void config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
     fprintf(fp, "server_nickname = \"%s\"\n", rhost->server_nickname);
     serialize_target(fp, "target", rhost->target);
     serialize_b64(fp, "rp_key", rhost->rp_key, 0x10);
-    fprintf(fp, "rp_key_type = %d\n", rhost->rp_key_type);
+    fprintf(fp, "rp_key_type = %u\n", rhost->rp_key_type);
     fprintf(fp, "rp_regist_key = \"%s\"\n", rhost->rp_regist_key);
   }
 }

@@ -13,34 +13,32 @@
 #include "ui.h"
 // #include "debugnet.h"
 
-#define LOGD(fmt, ...)                                         \
-  do {                                                         \
-    uint64_t timestamp = sceKernelGetProcessTimeWide();        \
-    char msg[800];                                             \
-    sceClibSnprintf(msg, sizeof(msg), "[DEBUG] %ju " fmt "\n", \
-                    timestamp __VA_OPT__(, ) __VA_ARGS__);     \
-    sceClibPrintf("%s", msg);                                  \
-    vita_log_submit_line(CHIAKI_LOG_DEBUG, msg);               \
-    if (!context.stream.is_streaming) {                        \
-      if (context.mlog) {                                      \
-        write_message_log(context.mlog, msg);                  \
-      }                                                        \
-    }                                                          \
+#define LOGD(fmt, ...)                                                                    \
+  do {                                                                                    \
+    uint64_t timestamp = sceKernelGetProcessTimeWide();                                   \
+    char msg[800];                                                                        \
+    sceClibSnprintf(msg, sizeof(msg), "[DEBUG] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
+    sceClibPrintf("%s", msg);                                                             \
+    vita_log_submit_line(CHIAKI_LOG_DEBUG, msg);                                          \
+    if (!context.stream.is_streaming) {                                                   \
+      if (context.mlog) {                                                                 \
+        write_message_log(context.mlog, msg);                                             \
+      }                                                                                   \
+    }                                                                                     \
   } while (0)
 // debugNetPrintf(DEBUG, "%ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__);
-#define LOGE(fmt, ...)                                         \
-  do {                                                         \
-    uint64_t timestamp = sceKernelGetProcessTimeWide();        \
-    char msg[800];                                             \
-    sceClibSnprintf(msg, sizeof(msg), "[ERROR] %ju " fmt "\n", \
-                    timestamp __VA_OPT__(, ) __VA_ARGS__);     \
-    sceClibPrintf("%s", msg);                                  \
-    vita_log_submit_line(CHIAKI_LOG_ERROR, msg);               \
-    if (!context.stream.is_streaming) {                        \
-      if (context.mlog) {                                      \
-        write_message_log(context.mlog, msg);                  \
-      }                                                        \
-    }                                                          \
+#define LOGE(fmt, ...)                                                                    \
+  do {                                                                                    \
+    uint64_t timestamp = sceKernelGetProcessTimeWide();                                   \
+    char msg[800];                                                                        \
+    sceClibSnprintf(msg, sizeof(msg), "[ERROR] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
+    sceClibPrintf("%s", msg);                                                             \
+    vita_log_submit_line(CHIAKI_LOG_ERROR, msg);                                          \
+    if (!context.stream.is_streaming) {                                                   \
+      if (context.mlog) {                                                                 \
+        write_message_log(context.mlog, msg);                                             \
+      }                                                                                   \
+    }                                                                                     \
   } while (0)
 // debugNetPrintf(ERROR, "%ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__);
 

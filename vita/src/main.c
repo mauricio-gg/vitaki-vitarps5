@@ -61,13 +61,11 @@ static int vita_init() {
   OpenSSL_add_all_algorithms();
 
   LOGD("Vita Chiaki %s", CHIAKI_VERSION);
-  LOGD("Build capability: vita_holepunch=%s",
 #if CHIAKI_CAN_USE_HOLEPUNCH
-       "enabled"
+  LOGD("Build capability: vita_holepunch=%s", "enabled");
 #else
-       "disabled"
+  LOGD("Build capability: vita_holepunch=%s", "disabled");
 #endif
-  );
 
   sceAppUtilInit(&(SceAppUtilInitParam){}, &(SceAppUtilBootParam){});
   sceCommonDialogSetConfigParam(&(SceCommonDialogConfigParam){});
