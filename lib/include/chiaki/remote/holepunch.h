@@ -56,7 +56,10 @@ typedef struct holepunch_regist_info_t
 {
     uint8_t data1[16];
     uint8_t data2[16];
-    uint8_t custom_data1[16];
+    /* 32 bytes: matches Session.custom_data1 which is grown to accommodate the decoded size
+     * of a two-stage base64 customData1 value. Crypto consumers read only the first 16 bytes
+     * via CHIAKI_RPCRYPT_KEY_SIZE and are unaffected. */
+    uint8_t custom_data1[32];
     char regist_local_ip[INET6_ADDRSTRLEN];
 } ChiakiHolepunchRegistInfo;
 

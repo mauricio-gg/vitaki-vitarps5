@@ -58,6 +58,11 @@ add_executable(${VITA_APP_NAME}.elf
     third_party/qrcodegen/qrcodegen.c
 )
 
+if(CHIAKI_ENABLE_VITA_HOLEPUNCH)
+    target_sources(${VITA_APP_NAME}.elf PRIVATE
+        ../third-party/vita-stubs/posix_stubs.c)
+endif()
+
 # Logging configuration is controlled via environment files (.env.prod, .env.testing)
 # and passed to CMake via build.sh. No hardcoded defaults here to avoid redefinition warnings.
 

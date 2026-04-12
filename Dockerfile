@@ -76,6 +76,31 @@ RUN cd /tmp && \
     make install && \
     rm -rf /tmp/json-c-json-c-0.17-20230812*
 
+# Copy Vita compatibility stub headers for miniupnpc cross-compilation
+COPY third-party/vita-stubs/ /tmp/vita-stubs/
+
+# Install miniupnpc for Vita (required by UPnP NAT traversal in holepunch path)
+RUN cd /tmp && \
+    wget https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_3_3.tar.gz && \
+    tar -xzf miniupnpc_2_3_3.tar.gz && \
+    cd miniupnp-miniupnpc_2_3_3/miniupnpc && \
+    sed -i '/set(CMAKE_POSITION_INDEPENDENT_CODE ON)/d' CMakeLists.txt && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_INSTALL_PREFIX=/usr/local/vitasdk/arm-vita-eabi \
+        -DCMAKE_TOOLCHAIN_FILE=/usr/local/vitasdk/share/vita.toolchain.cmake \
+        -DUPNPC_BUILD_STATIC=ON \
+        -DUPNPC_BUILD_SHARED=OFF \
+        -DUPNPC_BUILD_TESTS=OFF \
+        -DUPNPC_BUILD_SAMPLE=OFF \
+        -DNO_GETADDRINFO=ON \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=OFF \
+        -DCMAKE_C_FLAGS="-fno-pic -I/tmp/vita-stubs -Wno-error -Dgai_strerror=strerror -DNEED_STRUCT_IP_MREQN" \
+        -DCMAKE_BUILD_TYPE=Release && \
+    make && \
+    make install && \
+    rm -rf /tmp/miniupnpc_2_3_3.tar.gz /tmp/miniupnp-miniupnpc_2_3_3*
+
 # Set working directory
 WORKDIR /build/git
 

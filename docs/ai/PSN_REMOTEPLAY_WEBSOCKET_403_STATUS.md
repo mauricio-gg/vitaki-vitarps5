@@ -213,6 +213,34 @@ Next useful actions:
 3. If the official app succeeds on another network but Vita fails there
 - resume Vita/`chiaki-ng` parity work using that known-good network
 
+## UPnP Enablement (April 2026)
+
+miniupnpc has been cross-compiled for Vita and integrated into the build. The
+`CHIAKI_CAN_USE_MINIUPNPC` guard in `lib/include/chiaki/common.h` now activates
+when `CHIAKI_ENABLE_VITA_HOLEPUNCH` is defined, which is set for all Vita
+holepunch builds.
+
+This means the existing UPnP code paths in `lib/src/remote/holepunch.c` —
+gateway discovery, external IP lookup, and port mapping creation — will now
+execute on Vita holepunch builds rather than being compiled out. UPnP asks the
+Vita's local router to create a temporary port mapping, which improves NAT
+traversal on home networks with UPnP-capable routers (the common case for
+residential broadband with a typical consumer gateway).
+
+The current test network (iPhone hotspot) does not have a UPnP-capable gateway,
+so this change cannot be validated on the present test setup. The hotspot NAT
+does not respond to UPnP/SSDP discovery and will silently skip the mapping step.
+
+Next validation step: test on a home Wi-Fi network where Sony's official Remote
+Play app succeeds. That environment is the minimum bar for confirming whether
+UPnP port mapping produces a reachable candidate.
+
+Files changed:
+
+- `Dockerfile` — miniupnpc cross-compile and install for the Vita toolchain
+- `lib/include/chiaki/common.h` — `CHIAKI_CAN_USE_MINIUPNPC` guard tied to `CHIAKI_ENABLE_VITA_HOLEPUNCH`
+- `lib/CMakeLists.txt` — link miniupnpc into the holepunch build target
+
 ## Recommended Next Action When Returning
 
 When returning to PSN internet remote-play work:

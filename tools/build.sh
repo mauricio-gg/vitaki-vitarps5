@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="612"
+VERSION_ITERATION="624"
 
 # Colors for output
 RED='\033[0;31m'
@@ -228,8 +228,8 @@ ensure_docker_image() {
             if ! docker run --rm \
                 --platform linux/amd64 \
                 "$DOCKER_IMAGE" \
-                bash -lc "test -f /usr/local/vitasdk/arm-vita-eabi/lib/libjson-c.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/json-c/json.h" > /dev/null 2>&1; then
-                log_warning "Custom Docker image is missing Vita json-c; rebuilding image for holepunch-enabled build support"
+                bash -lc "test -f /usr/local/vitasdk/arm-vita-eabi/lib/libjson-c.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/json-c/json.h && test -f /usr/local/vitasdk/arm-vita-eabi/lib/libminiupnpc.a && test -f /usr/local/vitasdk/arm-vita-eabi/include/miniupnpc/miniupnpc.h" > /dev/null 2>&1; then
+                log_warning "Custom Docker image is missing holepunch dependencies (json-c/miniupnpc); rebuilding image"
                 build_docker_image
             fi
         fi

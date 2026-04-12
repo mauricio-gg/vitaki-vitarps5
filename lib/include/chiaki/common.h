@@ -21,7 +21,9 @@
 #define CHIAKI_CAN_USE_HOLEPUNCH 1
 #endif
 
-#if defined(__SWITCH__) || defined(__PSVITA__)
+#if defined(__SWITCH__)
+#define CHIAKI_CAN_USE_MINIUPNPC 0
+#elif defined(__PSVITA__) && !defined(CHIAKI_ENABLE_VITA_HOLEPUNCH)
 #define CHIAKI_CAN_USE_MINIUPNPC 0
 #else
 #define CHIAKI_CAN_USE_MINIUPNPC 1
