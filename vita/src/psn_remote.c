@@ -276,7 +276,7 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     return 1;
   }
 
-  err = holepunch_session_create_offer(session);
+  err = chiaki_holepunch_session_create_offer(session);
   if (err != CHIAKI_ERR_SUCCESS) {
     LOGE("PSN remote prepare failed: create_offer: %s", chiaki_error_string(err));
     psn_remote_set_error("Failed to prepare PSN remote connection.");

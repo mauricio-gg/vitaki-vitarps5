@@ -2554,7 +2554,7 @@ static NotificationType parse_notification_type(
     }
 }
 
-CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create_offer(Session *session)
 {
     if(session->our_offer_msg)
     {
@@ -2572,7 +2572,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
     session->ipv4_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Creating ipv4 socket failed");
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Creating ipv4 socket failed");
         return CHIAKI_ERR_UNKNOWN;
     }
     struct sockaddr_in client_addr;
@@ -2586,20 +2586,20 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
 #if defined(SO_REUSEPORT)
         if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_REUSEPORT, (const void *)&enable, sizeof(int)) < 0)
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
             return CHIAKI_ERR_UNKNOWN;
         }
 #else
         if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_REUSEADDR, (const void *)&enable, sizeof(int)) < 0)
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv4 socket failed with error" CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv4 socket failed with error" CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup_socket;
         }
 #endif
     if (bind(session->ipv4_sock, (struct sockaddr*)&client_addr, client_addr_len) < 0)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Binding ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Binding ipv4 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
         {
             CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
@@ -2610,7 +2610,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
     }
     if(getsockname(session->ipv4_sock, (struct sockaddr*)&client_addr, &client_addr_len) < 0)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Getting ipv4 socket name failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Getting ipv4 socket name failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         if(!CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
         {
             CHIAKI_SOCKET_CLOSE(session->ipv4_sock);
@@ -2626,7 +2626,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
     session->ipv6_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
     if (CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Creating ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Creating ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_socket;
     }
@@ -2639,21 +2639,21 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
 #if defined(SO_REUSEPORT)
     if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_REUSEPORT, (const void *)&enable, sizeof(int)) < 0)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: setsockopt(SO_REUSEPORT) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_socket;
     }
 #else
     if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_REUSEADDR, (const void *)&enable, sizeof(int)) < 0)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: setsockopt(SO_REUSEADDR) for ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_socket;
     }
 #endif
     if (bind(session->ipv6_sock, (struct sockaddr*)&client_addr_ipv6, client_addr_ipv6_len) < 0)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Binding ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Binding ipv6 socket failed with error " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
         {
             CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
@@ -2724,7 +2724,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
 #if CHIAKI_CAN_USE_MINIUPNPC
             if(upnp_add_udp_port_mapping(session->log, &session->gw, local_port, local_port))
             {
-                CHIAKI_LOGI(session->log, "holepunch_session_create_offer: Added local UPNP port mapping to port %u", local_port);
+                CHIAKI_LOGI(session->log, "chiaki_holepunch_session_create_offer: Added local UPNP port mapping to port %u", local_port);
                 CHIAKI_LOGI(session->log, "[NAT] UPnP: port mapping added external port %u -> local %s:%u", local_port, session->gw.lan_ip, local_port);
                 have_addr = get_client_addr_remote_upnp(session->log, &session->gw, candidate_remote->addr);
                 if(have_addr)
@@ -2734,7 +2734,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
             }
             else
             {
-                CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Adding upnp port mapping failed");
+                CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Adding upnp port mapping failed");
                 CHIAKI_LOGI(session->log, "[NAT] UPnP: port mapping FAILED; will rely on STUN");
             }
 #endif
@@ -2851,11 +2851,11 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
         }
         else
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Could not get remote address from STUN");
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Could not get remote address from STUN");
         }
         if(CHIAKI_SOCKET_IS_INVALID(session->ipv4_sock))
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: STUN caused socket to close due to error");
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: STUN caused socket to close due to error");
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup;
         }
@@ -2868,7 +2868,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
 #endif
         if (setsockopt(session->ipv4_sock, SOL_SOCKET, SO_RCVTIMEO, (const CHIAKI_SOCKET_BUF_TYPE)&timeout, sizeof(timeout)) < 0)
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup;
         }
@@ -2883,7 +2883,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
             {
                 if (setsockopt(session->ipv6_sock, SOL_SOCKET, SO_RCVTIMEO, (const CHIAKI_SOCKET_BUF_TYPE)&timeout, sizeof(timeout)) < 0)
                 {
-                    CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+                    CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Failed to unset socket timeout, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
                     if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
                     {
                         CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
@@ -2895,7 +2895,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
             }
             else
             {
-                CHIAKI_LOGW(session->log, "holepunch_session_create_offer: IPV6 NOT supported by device. Couldn't get IPV6 STUN address.");
+                CHIAKI_LOGW(session->log, "chiaki_holepunch_session_create_offer: IPV6 NOT supported by device. Couldn't get IPV6 STUN address.");
                 if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
                 {
                     CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
@@ -2905,7 +2905,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
         }
         else
         {
-            CHIAKI_LOGI(session->log, "holepunch_session_create_offer: IPV6 NOT supported by your PlayStation console. Skipping IPV6 connection");
+            CHIAKI_LOGI(session->log, "chiaki_holepunch_session_create_offer: IPV6 NOT supported by your PlayStation console. Skipping IPV6 connection");
             if(!CHIAKI_SOCKET_IS_INVALID(session->ipv6_sock))
             {
                 CHIAKI_SOCKET_CLOSE(session->ipv6_sock);
@@ -2923,7 +2923,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
     }
     if(!have_addr)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Could not get remote address");
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Could not get remote address");
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup;
     }
@@ -2931,7 +2931,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
     err = chiaki_socket_set_nonblock(session->ipv4_sock, true);
     if(err != CHIAKI_ERR_SUCCESS)
     {
-        CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to set ipv4 socket to non-blocking: %s", chiaki_error_string(err));
+        CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Failed to set ipv4 socket to non-blocking: %s", chiaki_error_string(err));
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup;
     }
@@ -2940,7 +2940,7 @@ CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(Session *session)
         err = chiaki_socket_set_nonblock(session->ipv6_sock, true);
         if(err != CHIAKI_ERR_SUCCESS)
         {
-            CHIAKI_LOGE(session->log, "holepunch_session_create_offer: Failed to set ipv6 socket to non-blocking: %s", chiaki_error_string(err));
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create_offer: Failed to set ipv6 socket to non-blocking: %s", chiaki_error_string(err));
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup;
         }

@@ -506,7 +506,7 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
     if (received < 0) {
         CHIAKI_LOGE(log, "remote/stun.h: Failed to receive STUN response, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         /* Timeout or transient receive error: leave the socket open. The socket is owned
-         * by the caller (holepunch_session_create_offer) and is reused for the actual NAT
+         * by the caller (chiaki_holepunch_session_create_offer) and is reused for the actual NAT
          * hole-punch after STUN completes. Closing it here kills the entire session.
          * The outer retry loop in stun_get_external_address / stun_port_allocation_test
          * will simply try the next server using the same socket. */

@@ -226,7 +226,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_upnp_discover(
  * @param[in] session Handle to the holepunching session
  * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
  */
-CHIAKI_EXPORT ChiakiErrorCode holepunch_session_create_offer(
+CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create_offer(
     ChiakiHolepunchSession session);
 
 /**
