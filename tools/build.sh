@@ -382,7 +382,7 @@ format_code() {
         -w /build/git \
         "$DOCKER_IMAGE" \
         bash -c "
-            find src/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
+            find vita/src/ vita/include/ -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' | \
             xargs -r clang-format -i -style=Google
         "
     
@@ -400,11 +400,11 @@ lint_code() {
         "$DOCKER_IMAGE" \
         bash -c "
             if command -v cppcheck >/dev/null 2>&1; then
-                cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppressions-list=.cppcheck-suppressions src/ || true
+                cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppressions-list=.cppcheck-suppressions vita/src/ vita/include/ || true
             else
                 echo 'cppcheck not available in this image'
                 # Use basic gcc checks instead
-                find src/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra || true
+                find vita/src/ vita/include/ -name '*.c' | xargs -r gcc -fsyntax-only -Wall -Wextra || true
             fi
         "
     
