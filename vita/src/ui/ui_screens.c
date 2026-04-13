@@ -109,6 +109,11 @@ static bool s_logout_btn_visible = false;  ///< false while device-login flow is
 #define LOGOUT_BTN_BOTTOM_OFFSET 28  ///< strip_y = card_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET.
 #define LOGOUT_BTN_LEFT_PAD 15       ///< btn_x = card_content_x + LOGOUT_BTN_LEFT_PAD.
 
+// Anchor offsets for connection-card sections — keep stream and PSN rows at
+// predictable Y positions regardless of how many Network rows are rendered.
+#define CONN_CARD_STREAM_ANCHOR_Y 130  ///< Minimum cy offset for the Stream section header.
+#define CONN_CARD_PSN_ANCHOR_Y    187  ///< Minimum cy offset for the PSN section header.
+
 // ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
@@ -1243,6 +1248,10 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   cy += 30; /* cy = y+55 */
 
   /* ── Gather data ────────────────────────────────────────────────────── */
+  /* Capture now_us once so all time comparisons within this frame are
+   * consistent and the syscall is issued only once per draw call. */
+  uint64_t now_us = (uint64_t)sceKernelGetProcessTimeWide();
+
   VitaChiakiHost *host = profile_get_reference_host();
   bool has_host = (host != NULL);
   bool has_discovery = has_host && host->discovery_state;
@@ -1294,7 +1303,6 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* ── Section: Stream ────────────────────────────────────────────────── */
   /* Ensure we land at the planned CONN_CARD_STREAM_ANCHOR_Y regardless of IP row */
-  static const int CONN_CARD_STREAM_ANCHOR_Y = 130;
   if (cy < y + CONN_CARD_STREAM_ANCHOR_Y) {
     cy = y + CONN_CARD_STREAM_ANCHOR_Y;
   }
@@ -1303,7 +1311,6 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   if (is_streaming && context.config.show_latency) {
     /* While streaming with latency overlay: show live metrics */
-    uint64_t now_us = sceKernelGetProcessTimeWide();
 
     char latency_text[32] = "N/A";
     uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
@@ -1381,15 +1388,12 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* ── Section: PSN ───────────────────────────────────────────────────── */
   /* Ensure PSN section lands at planned CONN_CARD_PSN_ANCHOR_Y */
-  static const int CONN_CARD_PSN_ANCHOR_Y = 187;
   if (cy < y + CONN_CARD_PSN_ANCHOR_Y) {
     cy = y + CONN_CARD_PSN_ANCHOR_Y;
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
   cy += sec_line_h; /* cy ≈ y+205 */
 
-  /* Cache psn_valid once — avoids repeated calls to psn_auth_token_is_valid()
-   * across auth-color, btn_enabled, and hint logic within this draw frame. */
   uint64_t now_unix = (uint64_t)time(NULL);
   bool psn_valid = psn_auth_token_is_valid(now_unix);
   s_logout_psn_valid = psn_valid; /* expose to input handler for the same frame */
@@ -1438,7 +1442,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     } else if (device_login) {
       hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
     } else if (btn_focused && s_logout_confirm_until_us != 0 &&
-               (uint64_t)sceKernelGetProcessTimeWide() < s_logout_confirm_until_us) {
+               now_us < s_logout_confirm_until_us) {
       hint = "Press X again to confirm log out";
     } else if (btn_focused) {
       hint = "X: Log out of PSN";
@@ -1448,7 +1452,6 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
       hint = "X: Start Browser Login";
     }
     int hint_x = device_login ? content_x : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
-    // TODO: ellipsize if hint exceeds strip width
     vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5, UI_COLOR_TEXT_TERTIARY,
                           FONT_SIZE_SMALL, hint);
   }
@@ -1522,6 +1525,8 @@ UIScreenType ui_screen_draw_profile(void) {
   if (!profile_screen_initialized) {
     profile_state.connection_focus = CONN_FOCUS_CARD;
     s_logout_confirm_until_us = 0;
+    s_logout_touch_down_prev = false;
+    s_logout_touch_hit = false;
     profile_screen_initialized = true;
   }
 
@@ -1775,7 +1780,6 @@ UIScreenType ui_screen_draw_profile(void) {
             s_logout_confirm_until_us = 0;
           } else {
             s_logout_confirm_until_us = now_us_touch + 3000000ULL;
-            trigger_hints_popup("Tap again to confirm log out");
           }
         }
       }
