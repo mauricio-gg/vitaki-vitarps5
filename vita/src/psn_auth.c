@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <curl/curl.h>
 #include <errno.h>
@@ -546,8 +547,11 @@ static bool json_parse_hex4(const char **pp, unsigned int *out_val) {
 
 /* Returns the number of UTF-8 bytes needed to encode Unicode codepoint cp.
  * cp must be a valid Unicode scalar value (U+0000..U+10FFFF, excluding
- * surrogates); the caller is responsible for that precondition. */
+ * surrogates); the caller is responsible for that precondition.  Violations
+ * are caught by assert() in debug builds (stripped under NDEBUG). */
 static int json_utf8_len(unsigned long cp) {
+  assert(cp <= 0x10FFFFu);
+  assert(cp < 0xD800u || cp > 0xDFFFu);
   if (cp <= 0x7FUL)
     return 1;
   if (cp <= 0x7FFUL)
@@ -560,6 +564,8 @@ static int json_utf8_len(unsigned long cp) {
 /* Encodes Unicode codepoint cp into buf (which must have at least 4 bytes).
  * Returns the number of bytes written.  Same precondition as json_utf8_len. */
 static int json_utf8_encode(unsigned long cp, unsigned char *buf) {
+  assert(cp <= 0x10FFFFu);
+  assert(cp < 0xD800u || cp > 0xDFFFu);
   if (cp <= 0x7FUL) {
     buf[0] = (unsigned char)cp;
     return 1;
