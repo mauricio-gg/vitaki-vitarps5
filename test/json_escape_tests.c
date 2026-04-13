@@ -217,6 +217,12 @@ static bool test_json_get_string(const char *json, const char *key, char *out, s
         case '/':
           out[o++] = *p;
           break;
+        case 'b':
+          out[o++] = '\b';
+          break;
+        case 'f':
+          out[o++] = '\f';
+          break;
         case 'n':
           out[o++] = '\n';
           break;
@@ -402,6 +408,20 @@ static void test_null_codepoint_edge_case(void) {
   assert(buf[3] == '\0'); /* terminator */
 }
 
+/* \b decodes to 0x08 (BACKSPACE), length 1. */
+static void test_backspace_escape(void) {
+  const char *json = "{\"v\":\"\\b\"}";
+  const unsigned char expected[] = { 0x08 };
+  check_roundtrip(json, "v", (const char *)expected, 1);
+}
+
+/* \f decodes to 0x0C (FORM FEED), length 1. */
+static void test_form_feed_escape(void) {
+  const char *json = "{\"v\":\"\\f\"}";
+  const unsigned char expected[] = { 0x0C };
+  check_roundtrip(json, "v", (const char *)expected, 1);
+}
+
 /* =========================================================================
  * Entry point called from config_vita_tests.c main()
  * ========================================================================= */
@@ -420,4 +440,6 @@ void run_json_escape_tests(void) {
   test_truncated_unicode_escape_fails();
   test_len_plus_one_is_exact_buffer_size();
   test_null_codepoint_edge_case();
+  test_backspace_escape();
+  test_form_feed_escape();
 }

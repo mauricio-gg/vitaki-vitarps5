@@ -713,6 +713,12 @@ static bool json_get_string(const char *json, const char *key, char *out, size_t
         case '/':
           out[o++] = *p;
           break;
+        case 'b':
+          out[o++] = '\b';
+          break;
+        case 'f':
+          out[o++] = '\f';
+          break;
         case 'n':
           out[o++] = '\n';
           break;
