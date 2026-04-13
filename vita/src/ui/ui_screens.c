@@ -1096,9 +1096,16 @@ typedef enum {
   PROFILE_SECTION_COUNT = 2
 } ProfileSection;
 
+/// Intra-card focus positions on the Connection card.
+typedef enum {
+  CONN_FOCUS_CARD = 0,       ///< Focus is on the card body (default).
+  CONN_FOCUS_LOGOUT_BTN = 1  ///< Focus is on the Log out button in the bottom strip.
+} ConnFocus;
+
 typedef struct {
   ProfileSection current_section;
   bool editing_psn_id;
+  int connection_focus;  ///< ConnFocus value; reset to CONN_FOCUS_CARD on LEFT navigation.
 } ProfileState;
 
 static ProfileState profile_state = {0};
@@ -1178,7 +1185,14 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
   }
 }
 
-/// Draw connection info card (right side) - two-column layout
+/// Draw connection info card (right side) - sectioned two-column layout.
+///
+/// Sections: Network / Stream / PSN.  Latency, Bitrate, and Packet Loss are
+/// only rendered while actively streaming so they don't crowd the idle card.
+/// The standalone "Remote Play" row is dropped; availability is folded into
+/// the Stream Status value ("Ready · Not Registered" when applicable).
+/// Bottom strip holds the focusable "Log out" button and a dynamic hint line.
+/// Focus state is read from profile_state.connection_focus (ConnFocus enum).
 static void draw_connection_info_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
   ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
@@ -1189,22 +1203,27 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   int content_x = x + 15;
-  int content_y = y + 25;
-  int line_h = 20;
-  int col2_x = content_x + 120;  // Value column
+  int col2_x    = content_x + 120;  /* Value column */
+  int body_line_h = 18;             /* Compressed body line height */
+  int sec_line_h  = 20;             /* Section header height */
 
-  // Title
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+  /* ── Title ──────────────────────────────────────────────────────────── */
+  int cy = y + 25;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
                         "Connection Information");
-  content_y += 30;
+  cy += 30;  /* cy = y+55 */
 
-  VitaChiakiHost *host = profile_get_reference_host();
-  bool has_host = (host != NULL);
-  bool has_discovery = has_host && host->discovery_state;
-  bool has_registered = has_host && host->registered_state;
-  bool is_streaming = context.stream.is_streaming && context.stream.session_init;
+  /* ── Gather data ────────────────────────────────────────────────────── */
+  VitaChiakiHost *host         = profile_get_reference_host();
+  bool            has_host     = (host != NULL);
+  bool            has_discovery  = has_host && host->discovery_state;
+  bool            has_registered = has_host && host->registered_state;
+  bool            is_streaming   = context.stream.is_streaming && context.stream.session_init;
 
-  // Network Type
+  /* ── Section: Network ───────────────────────────────────────────────── */
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
+  cy += sec_line_h;  /* cy ≈ y+73 */
+
   const char *network_text = "Unavailable";
   if (has_discovery) {
     network_text = "Local Wi-Fi";
@@ -1213,13 +1232,11 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && (host->type & MANUALLY_ADDED)) {
     network_text = "Manual Host";
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Network Type");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        network_text);
-  content_y += line_h;
+  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
+  cy += body_line_h;  /* cy ≈ y+91 */
 
-  // Console Name
   const char *console_name = "Not selected";
   if (has_discovery && host->discovery_state->host_name) {
     console_name = host->discovery_state->host_name;
@@ -1228,76 +1245,78 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && host->hostname) {
     console_name = host->hostname;
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Console");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        console_name);
-  content_y += line_h;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
+  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
+  cy += body_line_h;  /* cy ≈ y+109 */
 
-  // Console IP
-  const char *console_ip = "N/A";
+  /* Console IP — only when a meaningful address is available */
+  const char *console_ip = NULL;
   if (has_discovery && host->discovery_state->host_addr) {
     console_ip = host->discovery_state->host_addr;
   } else if (has_host && host->hostname) {
     console_ip = host->hostname;
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Console IP");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        console_ip);
-  content_y += line_h;
+  if (console_ip) {
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                          "Console IP");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
+    cy += body_line_h;
+  }
 
-  // Latency (if enabled)
-  if (context.config.show_latency) {
+  /* ── Section: Stream ────────────────────────────────────────────────── */
+  /* Ensure we land at the planned y+130 anchor regardless of IP row */
+  if (cy < y + 130) {
+    cy = y + 130;
+  }
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
+  cy += sec_line_h;  /* cy ≈ y+148 */
+
+  if (is_streaming && context.config.show_latency) {
+    /* While streaming with latency overlay: show live metrics */
+    uint64_t now_us_s = sceKernelGetProcessTimeWide();
+
     char latency_text[32] = "N/A";
     uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
-
-    if (context.stream.session_init && context.stream.session.rtt_us > 0) {
+    if (context.stream.session.rtt_us > 0) {
       uint32_t latency_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
       snprintf(latency_text, sizeof(latency_text), "%u ms", latency_ms);
-
-      // Color code
       if (latency_ms < 30) {
-        latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);  // Green
+        latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);
       } else if (latency_ms < 60) {
-        latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);  // Yellow
+        latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
       } else {
-        latency_color = RGBA8(0xF4, 0x43, 0x36, 255);  // Red
+        latency_color = RGBA8(0xF4, 0x43, 0x36, 255);
       }
     }
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Latency");
+    vita2d_font_draw_text(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
+    cy += body_line_h;
 
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Latency");
-    vita2d_font_draw_text(font, col2_x, content_y, latency_color, FONT_SIZE_SMALL, latency_text);
-    content_y += line_h;
-
-    // Bitrate (measured)
     char bitrate_text[32] = "N/A";
     uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
-    uint64_t now_us = sceKernelGetProcessTimeWide();
-    bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
-                          (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
+    bool metrics_recent =
+        context.stream.metrics_last_update_us != 0 &&
+        (now_us_s - context.stream.metrics_last_update_us) <= 3000000ULL;
     if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
       snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
                context.stream.measured_bitrate_mbps);
       if (context.stream.measured_bitrate_mbps <= 2.5f) {
-        bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);  // Green for safe range
+        bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);
       } else if (context.stream.measured_bitrate_mbps <= 3.5f) {
-        bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);  // Yellow warning
+        bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
       } else {
-        bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);  // Red: likely too high
+        bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);
       }
     }
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Bitrate");
-    vita2d_font_draw_text(font, col2_x, content_y, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
-    content_y += line_h;
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Bitrate");
+    vita2d_font_draw_text(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
+    cy += body_line_h;
 
-    // Packet Loss
     char loss_text[48] = "Stable";
     uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
     bool loss_recent =
-        context.stream.loss_alert_until_us && now_us < context.stream.loss_alert_until_us;
+        context.stream.loss_alert_until_us != 0 &&
+        now_us_s < context.stream.loss_alert_until_us;
     if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
       snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
                context.stream.takion_drop_events, context.stream.total_frames_lost);
@@ -1305,31 +1324,45 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
         loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
       }
     }
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                           "Packet Loss");
-    vita2d_font_draw_text(font, col2_x, content_y, loss_color, FONT_SIZE_SMALL, loss_text);
-    content_y += line_h;
+    vita2d_font_draw_text(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
+    cy += body_line_h;
+  } else {
+    /* Idle: Status + Quality only */
+    const char *status_text;
+    if (is_streaming) {
+      status_text = "Streaming";
+    } else if (has_host && !has_registered) {
+      status_text = "Ready \xb7 Not Registered";
+    } else if (has_host) {
+      status_text = "Ready";
+    } else {
+      status_text = "None";
+    }
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, status_text);
+    cy += body_line_h;  /* cy ≈ y+166 */
+
+    const char *quality_text =
+        (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) ? "360p" : "540p";
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Quality");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, quality_text);
+    cy += body_line_h;
   }
 
-  // Connection status
-  const char *connection_text = is_streaming ? "Streaming" : (has_host ? "Ready" : "None");
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Connection");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        connection_text);
-  content_y += line_h;
-
-  // Remote Play status
-  const char *remote_play = has_registered ? "Available" : "Unavailable";
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Remote Play");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        remote_play);
-  content_y += line_h;
+  /* ── Section: PSN ───────────────────────────────────────────────────── */
+  /* Ensure PSN section lands at planned y+187 */
+  if (cy < y + 187) {
+    cy = y + 187;
+  }
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
+  cy += sec_line_h;  /* cy ≈ y+205 */
 
   const char *auth_status = psn_auth_state_label();
   uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
-  if (psn_auth_token_is_valid((uint64_t)time(NULL))) {
+  uint64_t now_unix = (uint64_t)time(NULL);
+  if (psn_auth_token_is_valid(now_unix)) {
     auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
   } else if (psn_auth_device_login_active()) {
     auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
@@ -1338,31 +1371,41 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else {
     auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "PSN Auth");
-  vita2d_font_draw_text(font, col2_x, content_y, auth_color, FONT_SIZE_SMALL, auth_status);
-  content_y += line_h;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
+  vita2d_font_draw_text(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
 
-  // Quality Setting
-  const char *quality_text = "540p";
-  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
-    quality_text = "360p";
-  }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Quality Setting");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        quality_text);
-
+  /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
-    const char *hint = psn_auth_token_is_valid((uint64_t)time(NULL))
-                           ? "X: Refresh Hosts | Triangle: Logout"
-                           : "X: Start Browser Login | Triangle: Logout";
-    if (psn_auth_device_login_active())
-      hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
-    if (!psn_auth_enabled())
+    int strip_y = y + height - 28;
+    int btn_w   = 80;
+    int btn_h   = 22;
+
+    /* Button is enabled when authenticated and PSN is on */
+    bool btn_enabled = psn_auth_enabled() && psn_auth_token_is_valid(now_unix);
+    bool btn_focused = (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN);
+
+    ui_draw_text_button(content_x, strip_y, btn_w, btn_h, "Log out", btn_focused, btn_enabled);
+
+    /* Dynamic hint text in the strip — right of the button */
+    const char *hint;
+    if (!psn_auth_enabled()) {
       hint = "Enable PSN internet mode in Settings";
-    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          hint);
+    } else if (psn_auth_device_login_active()) {
+      hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
+    } else if (btn_focused) {
+      hint = "X: Log out of PSN";
+    } else if (psn_auth_token_is_valid(now_unix)) {
+      hint = "X: Refresh Hosts | Down: Log out";
+    } else {
+      hint = "X: Start Browser Login";
+    }
+    int hint_x = content_x + btn_w + 10;
+    int hint_w = (x + width - 15) - hint_x;
+    if (hint_w > 0) {
+      vita2d_font_draw_text(font, hint_x, strip_y + btn_h / 2 + 5, UI_COLOR_TEXT_TERTIARY,
+                            FONT_SIZE_SMALL, hint);
+      (void)hint_w;  /* reserved for future ellipsis clipping */
+    }
   }
 }
 
@@ -1492,7 +1535,7 @@ UIScreenType ui_screen_draw_profile(void) {
       }
     } else {
       trigger_hints_popup(
-          "Left/Right: Switch Card | X: Action | Start: QR | Triangle: Logout | Circle: Back");
+          "Left/Right: Switch Card | Up/Down: Focus | X: Action | Start: QR | Circle: Back");
     }
   }
 
@@ -1500,13 +1543,36 @@ UIScreenType ui_screen_draw_profile(void) {
 
   // === INPUT HANDLING ===
 
-  // Left/Right: Navigate between Profile and Connection cards
+  /* Persistent confirm-window for the Log out button (microsecond deadline). */
+  static uint64_t logout_confirm_until_us = 0;
+
+  /* Left/Right: Navigate between cards.
+   * LEFT also resets the intra-card focus so re-entry always starts on the
+   * card body rather than the Log out button. */
   if (btn_pressed(SCE_CTRL_LEFT)) {
     profile_state.current_section = PROFILE_SECTION_INFO;
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    logout_confirm_until_us = 0;
   } else if (btn_pressed(SCE_CTRL_RIGHT)) {
     profile_state.current_section = PROFILE_SECTION_CONNECTION;
   }
 
+  /* Down/Up: Move focus within the Connection card. */
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    bool btn_enabled =
+        psn_auth_enabled() && psn_auth_token_is_valid((uint64_t)time(NULL));
+
+    if (btn_pressed(SCE_CTRL_DOWN) &&
+        profile_state.connection_focus == CONN_FOCUS_CARD && btn_enabled) {
+      profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
+    } else if (btn_pressed(SCE_CTRL_UP) &&
+               profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+      profile_state.connection_focus = CONN_FOCUS_CARD;
+      logout_confirm_until_us = 0;
+    }
+  }
+
+  /* Cross: action depends on which card and which focus position. */
   if (btn_pressed(SCE_CTRL_CROSS) && profile_state.current_section == PROFILE_SECTION_INFO) {
     if (ui_reload_psn_account_id()) {
       persist_config_or_warn();
@@ -1516,31 +1582,52 @@ UIScreenType ui_screen_draw_profile(void) {
     }
   } else if (btn_pressed(SCE_CTRL_CROSS) &&
              profile_state.current_section == PROFILE_SECTION_CONNECTION) {
-    if (!psn_auth_enabled()) {
-      trigger_hints_popup("PSN internet mode is disabled in Settings");
-    } else if (psn_auth_device_login_active()) {
-      open_psn_auth_code_ime();
-    } else if (!psn_auth_token_is_valid(now_unix) &&
-               !psn_auth_refresh_token_if_needed(now_unix, false)) {
-      if (psn_auth_begin_device_login(now_unix)) {
-        profile_login_qr_visible = true;
-        profile_refresh_login_qr(psn_auth_device_verification_url());
-        trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
-      } else if (psn_auth_last_error()[0]) {
-        trigger_hints_popup(psn_auth_last_error());
+    if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+      /* Log out button: two-press confirm to guard against accidental logout. */
+      uint64_t now_us_cross = sceKernelGetProcessTimeWide();
+      if (logout_confirm_until_us != 0 && now_us_cross < logout_confirm_until_us) {
+        /* Second press within the confirm window — execute logout. */
+        psn_auth_clear_tokens();
+        psn_remote_clear_cached_hosts();
+        persist_config_or_warn();
+        ui_cards_update_cache(true);
+        trigger_hints_popup("PSN login removed");
+        profile_state.connection_focus = CONN_FOCUS_CARD;
+        logout_confirm_until_us = 0;
       } else {
-        trigger_hints_popup("PSN login could not start");
+        /* First press — arm the confirm window. */
+        logout_confirm_until_us = now_us_cross + 3000000ULL;
+        trigger_hints_popup("Press X again to confirm log out");
       }
-    } else if (psn_remote_refresh_hosts() == 0) {
-      trigger_hints_popup("PSN internet host list refreshed");
-      ui_cards_update_cache(true);
     } else {
-      trigger_hints_popup("PSN internet host refresh failed");
+      /* Card body focus: existing login/refresh flow. */
+      if (!psn_auth_enabled()) {
+        trigger_hints_popup("PSN internet mode is disabled in Settings");
+      } else if (psn_auth_device_login_active()) {
+        open_psn_auth_code_ime();
+      } else if (!psn_auth_token_is_valid(now_unix) &&
+                 !psn_auth_refresh_token_if_needed(now_unix, false)) {
+        if (psn_auth_begin_device_login(now_unix)) {
+          profile_login_qr_visible = true;
+          profile_refresh_login_qr(psn_auth_device_verification_url());
+          trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
+        } else if (psn_auth_last_error()[0]) {
+          trigger_hints_popup(psn_auth_last_error());
+        } else {
+          trigger_hints_popup("PSN login could not start");
+        }
+      } else if (psn_remote_refresh_hosts() == 0) {
+        trigger_hints_popup("PSN internet host list refreshed");
+        ui_cards_update_cache(true);
+      } else {
+        trigger_hints_popup("PSN internet host refresh failed");
+      }
     }
   }
 
-  if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_SQUARE) &&
-      psn_auth_device_login_active()) {
+  /* Square: cancel active device login. */
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
+      btn_pressed(SCE_CTRL_SQUARE) && psn_auth_device_login_active()) {
     psn_auth_cancel_device_login();
     profile_login_qr_visible = false;
     profile_login_qr.valid = false;
@@ -1548,21 +1635,54 @@ UIScreenType ui_screen_draw_profile(void) {
     trigger_hints_popup("PSN login canceled");
   }
 
+  /* Start: toggle QR visibility during device login. */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
-      btn_pressed(SCE_CTRL_TRIANGLE) && psn_auth_enabled()) {
-    psn_auth_clear_tokens();
-    psn_remote_clear_cached_hosts();
-    persist_config_or_warn();
-    ui_cards_update_cache(true);
-    trigger_hints_popup("PSN login removed");
-  }
-
-  if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_START) &&
-      psn_auth_device_login_active()) {
+      btn_pressed(SCE_CTRL_START) && psn_auth_device_login_active()) {
     profile_login_qr_visible = !profile_login_qr_visible;
     trigger_hints_popup(profile_login_qr_visible
                             ? "QR shown. Scan with phone, then press X to paste code."
                             : "QR hidden. Press Start again to show.");
+  }
+
+  /* Touch: hit-test the Log out button rect on the Connection card.
+   * A tap enters button focus and feeds through the same confirm flow. */
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    SceTouchData touch_profile;
+    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_profile, 1);
+    if (touch_profile.reportNum > 0) {
+      float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+      float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+
+      /* Reconstruct button rect coordinates (must match draw_connection_info_card). */
+      int card_x  = content_x + card_w + card_spacing;
+      int btn_x_t = card_x + 15;
+      int btn_y_t = content_y + card_h - 28;
+      int btn_w_t = 80;
+      int btn_h_t = 22;
+
+      bool in_btn = (tx >= (float)btn_x_t && tx <= (float)(btn_x_t + btn_w_t) &&
+                     ty >= (float)btn_y_t && ty <= (float)(btn_y_t + btn_h_t));
+      bool btn_enabled_t =
+          psn_auth_enabled() && psn_auth_token_is_valid((uint64_t)time(NULL));
+
+      if (in_btn && btn_enabled_t) {
+        /* Enter button focus, then feed the same X confirm flow. */
+        profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
+        uint64_t now_us_touch = sceKernelGetProcessTimeWide();
+        if (logout_confirm_until_us != 0 && now_us_touch < logout_confirm_until_us) {
+          psn_auth_clear_tokens();
+          psn_remote_clear_cached_hosts();
+          persist_config_or_warn();
+          ui_cards_update_cache(true);
+          trigger_hints_popup("PSN login removed");
+          profile_state.connection_focus = CONN_FOCUS_CARD;
+          logout_confirm_until_us = 0;
+        } else {
+          logout_confirm_until_us = now_us_touch + 3000000ULL;
+          trigger_hints_popup("Press X again to confirm log out");
+        }
+      }
+    }
   }
 
   // Circle: Back to main menu
