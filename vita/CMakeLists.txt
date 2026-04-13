@@ -30,6 +30,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_storage.c
     src/psn_auth.c
     src/psn_remote.c
+    src/token_crypto.c
     src/controller.c
     src/controller_metadata.c
     src/video.c
@@ -193,6 +194,7 @@ target_link_libraries(${VITA_APP_NAME}.elf
   SceIme_stub
   SceSsl_stub
   ScePower_stub
+  SceLibKernel_stub
 )
 
 
