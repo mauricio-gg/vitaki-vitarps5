@@ -97,10 +97,10 @@ static bool s_logout_touch_hit = false;         ///< Down-edge landed inside the
 /* Absolute screen-space button rect, populated each frame by
  * draw_connection_info_card().  The touch hit-test reads these instead of
  * reconstructing from outer locals, so the two can never silently drift. */
-static int s_logout_btn_abs_x = 0;    ///< Button left edge in screen pixels.
-static int s_logout_btn_abs_y = 0;    ///< Button top edge in screen pixels.
-static int s_logout_btn_abs_w = 0;    ///< Button width in screen pixels.
-static int s_logout_btn_abs_h = 0;    ///< Button height in screen pixels.
+static int s_logout_btn_abs_x = 0;         ///< Button left edge in screen pixels.
+static int s_logout_btn_abs_y = 0;         ///< Button top edge in screen pixels.
+static int s_logout_btn_abs_w = 0;         ///< Button width in screen pixels.
+static int s_logout_btn_abs_h = 0;         ///< Button height in screen pixels.
 static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
 
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
@@ -1747,8 +1747,7 @@ UIScreenType ui_screen_draw_profile(void) {
       float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
       float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
       bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
-      bool in_btn = s_logout_btn_visible &&
-                    tx >= (float)s_logout_btn_abs_x &&
+      bool in_btn = s_logout_btn_visible && tx >= (float)s_logout_btn_abs_x &&
                     tx <= (float)(s_logout_btn_abs_x + s_logout_btn_abs_w) &&
                     ty >= (float)s_logout_btn_abs_y &&
                     ty <= (float)(s_logout_btn_abs_y + s_logout_btn_abs_h);
