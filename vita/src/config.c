@@ -211,11 +211,7 @@ static bool config_validate_general_section(toml_table_t *parsed) {
  *                      been cleared.  The caller MUST NOT fall back to
  *                      the legacy plaintext key — re-auth is required.
  */
-typedef enum {
-  TOKEN_LOAD_ABSENT = 0,
-  TOKEN_LOAD_OK     = 1,
-  TOKEN_LOAD_FAILED = 2
-} TokenLoadResult;
+typedef enum { TOKEN_LOAD_ABSENT = 0, TOKEN_LOAD_OK = 1, TOKEN_LOAD_FAILED = 2 } TokenLoadResult;
 
 /*
  * load_token_from_encrypted — Decrypt and store one token from a TOML key.
@@ -231,7 +227,7 @@ typedef enum {
  *   a warning has already been logged — caller must not fall back to plaintext.
  */
 static TokenLoadResult load_token_from_encrypted(toml_table_t *settings, const char *toml_key,
-                                                  char **out_field, const char *kind) {
+                                                 char **out_field, const char *kind) {
   toml_datum_t datum = toml_string_in(settings, toml_key);
   if (!datum.ok)
     return TOKEN_LOAD_ABSENT;
@@ -260,7 +256,7 @@ static TokenLoadResult load_token_from_encrypted(toml_table_t *settings, const c
  *   drop the legacy plaintext keys from disk.
  */
 static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
-                                  bool *migrated_plaintext_tokens) {
+                                 bool *migrated_plaintext_tokens) {
   toml_datum_t datum;
   if (!settings)
     return;
@@ -283,12 +279,10 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
    *
    * Both encrypted and plaintext may coexist during migration — encrypted wins.
    */
-  TokenLoadResult access_enc_result =
-      load_token_from_encrypted(settings, "psn_oauth_access_token_enc",
-                                &cfg->psn_oauth_access_token, "access");
-  TokenLoadResult refresh_enc_result =
-      load_token_from_encrypted(settings, "psn_oauth_refresh_token_enc",
-                                &cfg->psn_oauth_refresh_token, "refresh");
+  TokenLoadResult access_enc_result = load_token_from_encrypted(
+      settings, "psn_oauth_access_token_enc", &cfg->psn_oauth_access_token, "access");
+  TokenLoadResult refresh_enc_result = load_token_from_encrypted(
+      settings, "psn_oauth_refresh_token_enc", &cfg->psn_oauth_refresh_token, "refresh");
 
   if (access_enc_result == TOKEN_LOAD_ABSENT) {
     /* _enc key not present — fall back to legacy plaintext key for migration. */

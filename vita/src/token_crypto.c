@@ -54,8 +54,7 @@
  * derived key unique to this application even if the OpenPsID were ever
  * used by another app with a similar scheme.  Not a secret.
  */
-static const char TOKEN_CRYPTO_SALT[] =
-    "VitaRPS5-PSNToken-v1-salt-8fd29e1a";
+static const char TOKEN_CRYPTO_SALT[] = "VitaRPS5-PSNToken-v1-salt-8fd29e1a";
 
 /* --------------------------------------------------------------------- */
 /* Device ID — hardware or test override                                  */
@@ -66,8 +65,8 @@ static uint8_t g_test_device_id[16];
 static int g_test_device_id_set = 0;
 
 void token_crypto_set_test_device_id(const uint8_t id[16]) {
-    memcpy(g_test_device_id, id, 16);
-    g_test_device_id_set = 1;
+  memcpy(g_test_device_id, id, 16);
+  g_test_device_id_set = 1;
 }
 
 /*
@@ -75,10 +74,10 @@ void token_crypto_set_test_device_id(const uint8_t id[16]) {
  * Returns 1 on success, 0 if not yet configured.
  */
 static int get_device_id(uint8_t buf[16]) {
-    if (!g_test_device_id_set)
-        return 0;
-    memcpy(buf, g_test_device_id, 16);
-    return 1;
+  if (!g_test_device_id_set)
+    return 0;
+  memcpy(buf, g_test_device_id, 16);
+  return 1;
 }
 #else
 /*
@@ -86,13 +85,13 @@ static int get_device_id(uint8_t buf[16]) {
  * Returns 1 on success, 0 on failure (should never fail on real hardware).
  */
 static int get_device_id(uint8_t buf[16]) {
-    SceKernelOpenPsId psid;
-    memset(&psid, 0, sizeof(psid));
-    int rc = sceKernelGetOpenPsId(&psid);
-    if (rc < 0)
-        return 0;
-    memcpy(buf, psid.id, 16);
-    return 1;
+  SceKernelOpenPsId psid;
+  memset(&psid, 0, sizeof(psid));
+  int rc = sceKernelGetOpenPsId(&psid);
+  if (rc < 0)
+    return 0;
+  memcpy(buf, psid.id, 16);
+  return 1;
 }
 #endif /* VITARPS5_TEST_BUILD */
 
@@ -112,40 +111,40 @@ static int get_device_id(uint8_t buf[16]) {
  * Returns 1 on success, 0 on failure (device ID unavailable or SHA error).
  */
 static int derive_key(const char *kind, uint8_t key_out[TOKEN_CRYPTO_KEY_LEN]) {
-    uint8_t device_id[16];
-    if (!get_device_id(device_id))
-        return 0;
+  uint8_t device_id[16];
+  if (!get_device_id(device_id))
+    return 0;
 
-    /*
-     * Use EVP_MD_CTX_create / EVP_MD_CTX_destroy (OpenSSL 1.0.x naming) for
-     * compatibility with the VitaSDK mbedtls-backed OpenSSL shim, which does
-     * not expose the 1.1.x EVP_MD_CTX_new / EVP_MD_CTX_free aliases.
-     */
-    EVP_MD_CTX *md_ctx = EVP_MD_CTX_create();
-    if (!md_ctx)
-        return 0;
+  /*
+   * Use EVP_MD_CTX_create / EVP_MD_CTX_destroy (OpenSSL 1.0.x naming) for
+   * compatibility with the VitaSDK mbedtls-backed OpenSSL shim, which does
+   * not expose the 1.1.x EVP_MD_CTX_new / EVP_MD_CTX_free aliases.
+   */
+  EVP_MD_CTX *md_ctx = EVP_MD_CTX_create();
+  if (!md_ctx)
+    return 0;
 
-    int ok = 0;
-    unsigned int digest_len = 0;
+  int ok = 0;
+  unsigned int digest_len = 0;
 
-    if (EVP_DigestInit_ex(md_ctx, EVP_sha256(), NULL) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(md_ctx, TOKEN_CRYPTO_SALT, strlen(TOKEN_CRYPTO_SALT)) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(md_ctx, device_id, sizeof(device_id)) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(md_ctx, kind, strlen(kind)) != 1)
-        goto cleanup;
-    if (EVP_DigestFinal_ex(md_ctx, key_out, &digest_len) != 1)
-        goto cleanup;
-    /* SHA-256 always outputs exactly 32 bytes — equal to KEY_LEN. */
-    ok = (digest_len == TOKEN_CRYPTO_KEY_LEN);
+  if (EVP_DigestInit_ex(md_ctx, EVP_sha256(), NULL) != 1)
+    goto cleanup;
+  if (EVP_DigestUpdate(md_ctx, TOKEN_CRYPTO_SALT, strlen(TOKEN_CRYPTO_SALT)) != 1)
+    goto cleanup;
+  if (EVP_DigestUpdate(md_ctx, device_id, sizeof(device_id)) != 1)
+    goto cleanup;
+  if (EVP_DigestUpdate(md_ctx, kind, strlen(kind)) != 1)
+    goto cleanup;
+  if (EVP_DigestFinal_ex(md_ctx, key_out, &digest_len) != 1)
+    goto cleanup;
+  /* SHA-256 always outputs exactly 32 bytes — equal to KEY_LEN. */
+  ok = (digest_len == TOKEN_CRYPTO_KEY_LEN);
 
 cleanup:
-    EVP_MD_CTX_destroy(md_ctx);
-    /* Scrub device ID from stack. */
-    memset(device_id, 0, sizeof(device_id));
-    return ok;
+  EVP_MD_CTX_destroy(md_ctx);
+  /* Scrub device ID from stack. */
+  memset(device_id, 0, sizeof(device_id));
+  return ok;
 }
 
 /* --------------------------------------------------------------------- */
@@ -157,17 +156,17 @@ cleanup:
  * Returns a heap-allocated string on success, NULL on OOM or encode error.
  */
 static char *b64_encode_alloc(const uint8_t *data, size_t len) {
-    /* Base64 output size: ceil(len / 3) * 4 + NUL */
-    size_t out_size = ((len + 2) / 3) * 4 + 1;
-    char *out = malloc(out_size);
-    if (!out)
-        return NULL;
-    ChiakiErrorCode rc = chiaki_base64_encode(data, len, out, out_size);
-    if (rc != CHIAKI_ERR_SUCCESS) {
-        free(out);
-        return NULL;
-    }
-    return out;
+  /* Base64 output size: ceil(len / 3) * 4 + NUL */
+  size_t out_size = ((len + 2) / 3) * 4 + 1;
+  char *out = malloc(out_size);
+  if (!out)
+    return NULL;
+  ChiakiErrorCode rc = chiaki_base64_encode(data, len, out, out_size);
+  if (rc != CHIAKI_ERR_SUCCESS) {
+    free(out);
+    return NULL;
+  }
+  return out;
 }
 
 /*
@@ -176,19 +175,19 @@ static char *b64_encode_alloc(const uint8_t *data, size_t len) {
  * Sets *out_len to the number of decoded bytes.
  */
 static uint8_t *b64_decode_alloc(const char *b64, size_t *out_len) {
-    size_t in_len = strlen(b64);
-    /* Maximum decoded size: (in_len / 4) * 3 */
-    size_t max_out = (in_len / 4) * 3 + 3;
-    uint8_t *out = malloc(max_out);
-    if (!out)
-        return NULL;
-    *out_len = max_out;
-    ChiakiErrorCode rc = chiaki_base64_decode(b64, in_len, out, out_len);
-    if (rc != CHIAKI_ERR_SUCCESS) {
-        free(out);
-        return NULL;
-    }
-    return out;
+  size_t in_len = strlen(b64);
+  /* Maximum decoded size: (in_len / 4) * 3 */
+  size_t max_out = (in_len / 4) * 3 + 3;
+  uint8_t *out = malloc(max_out);
+  if (!out)
+    return NULL;
+  *out_len = max_out;
+  ChiakiErrorCode rc = chiaki_base64_decode(b64, in_len, out, out_len);
+  if (rc != CHIAKI_ERR_SUCCESS) {
+    free(out);
+    return NULL;
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------------- */
@@ -202,85 +201,85 @@ static uint8_t *b64_decode_alloc(const char *b64, size_t *out_len) {
  * The GCM AAD is: version_byte || kind_string.
  */
 char *token_crypto_encrypt(const char *plaintext, const char *kind) {
-    if (!plaintext || !kind)
-        return NULL;
+  if (!plaintext || !kind)
+    return NULL;
 
-    size_t pt_len = strlen(plaintext);
-    if (pt_len == 0 || pt_len > TOKEN_CRYPTO_MAX_PLAINTEXT)
-        return NULL;
+  size_t pt_len = strlen(plaintext);
+  if (pt_len == 0 || pt_len > TOKEN_CRYPTO_MAX_PLAINTEXT)
+    return NULL;
 
-    /* Derive the encryption key. */
-    uint8_t key[TOKEN_CRYPTO_KEY_LEN];
-    if (!derive_key(kind, key))
-        return NULL;
+  /* Derive the encryption key. */
+  uint8_t key[TOKEN_CRYPTO_KEY_LEN];
+  if (!derive_key(kind, key))
+    return NULL;
 
-    /* Generate a random 12-byte nonce. */
-    uint8_t nonce[TOKEN_CRYPTO_NONCE_LEN];
-    if (RAND_bytes(nonce, TOKEN_CRYPTO_NONCE_LEN) != 1) {
-        memset(key, 0, sizeof(key));
-        return NULL;
-    }
+  /* Generate a random 12-byte nonce. */
+  uint8_t nonce[TOKEN_CRYPTO_NONCE_LEN];
+  if (RAND_bytes(nonce, TOKEN_CRYPTO_NONCE_LEN) != 1) {
+    memset(key, 0, sizeof(key));
+    return NULL;
+  }
 
-    /*
-     * Binary blob: version(1) || nonce(12) || ciphertext(pt_len) || tag(16)
-     * GCM produces ciphertext of exactly the same length as plaintext.
-     */
-    size_t blob_len = 1 + TOKEN_CRYPTO_NONCE_LEN + pt_len + TOKEN_CRYPTO_TAG_LEN;
-    uint8_t *blob = malloc(blob_len);
-    if (!blob) {
-        memset(key, 0, sizeof(key));
-        return NULL;
-    }
+  /*
+   * Binary blob: version(1) || nonce(12) || ciphertext(pt_len) || tag(16)
+   * GCM produces ciphertext of exactly the same length as plaintext.
+   */
+  size_t blob_len = 1 + TOKEN_CRYPTO_NONCE_LEN + pt_len + TOKEN_CRYPTO_TAG_LEN;
+  uint8_t *blob = malloc(blob_len);
+  if (!blob) {
+    memset(key, 0, sizeof(key));
+    return NULL;
+  }
 
-    blob[0] = TOKEN_CRYPTO_VERSION;
-    memcpy(blob + 1, nonce, TOKEN_CRYPTO_NONCE_LEN);
+  blob[0] = TOKEN_CRYPTO_VERSION;
+  memcpy(blob + 1, nonce, TOKEN_CRYPTO_NONCE_LEN);
 
-    uint8_t *ct_dst = blob + 1 + TOKEN_CRYPTO_NONCE_LEN;
-    uint8_t *tag_dst = ct_dst + pt_len;
+  uint8_t *ct_dst = blob + 1 + TOKEN_CRYPTO_NONCE_LEN;
+  uint8_t *tag_dst = ct_dst + pt_len;
 
-    /* Build the AAD: version_byte || kind_string (no NUL). */
-    size_t kind_len = strlen(kind);
-    size_t aad_len = 1 + kind_len;
-    uint8_t *aad = malloc(aad_len);
-    if (!aad) {
-        free(blob);
-        memset(key, 0, sizeof(key));
-        return NULL;
-    }
-    aad[0] = TOKEN_CRYPTO_VERSION;
-    memcpy(aad + 1, kind, kind_len);
-
-    /* AES-256-GCM encryption via EVP. */
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    char *result = NULL;
-
-    if (!ctx)
-        goto done;
-
-    int ok = 1;
-    int out_len = 0;
-
-    ok &= EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-    ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
-    ok &= EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce);
-    /* Feed AAD — no ciphertext output at this stage. */
-    ok &= EVP_EncryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
-    /* Encrypt the plaintext. */
-    ok &= EVP_EncryptUpdate(ctx, ct_dst, &out_len, (const uint8_t *)plaintext, (int)pt_len);
-    ok &= EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len);
-    /* Extract the 16-byte GCM tag. */
-    ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, tag_dst);
-
-    if (ok)
-        result = b64_encode_alloc(blob, blob_len);
-
-done:
-    if (ctx)
-        EVP_CIPHER_CTX_free(ctx);
-    free(aad);
+  /* Build the AAD: version_byte || kind_string (no NUL). */
+  size_t kind_len = strlen(kind);
+  size_t aad_len = 1 + kind_len;
+  uint8_t *aad = malloc(aad_len);
+  if (!aad) {
     free(blob);
     memset(key, 0, sizeof(key));
-    return result;
+    return NULL;
+  }
+  aad[0] = TOKEN_CRYPTO_VERSION;
+  memcpy(aad + 1, kind, kind_len);
+
+  /* AES-256-GCM encryption via EVP. */
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+  char *result = NULL;
+
+  if (!ctx)
+    goto done;
+
+  int ok = 1;
+  int out_len = 0;
+
+  ok &= EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
+  ok &= EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce);
+  /* Feed AAD — no ciphertext output at this stage. */
+  ok &= EVP_EncryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
+  /* Encrypt the plaintext. */
+  ok &= EVP_EncryptUpdate(ctx, ct_dst, &out_len, (const uint8_t *)plaintext, (int)pt_len);
+  ok &= EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len);
+  /* Extract the 16-byte GCM tag. */
+  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, tag_dst);
+
+  if (ok)
+    result = b64_encode_alloc(blob, blob_len);
+
+done:
+  if (ctx)
+    EVP_CIPHER_CTX_free(ctx);
+  free(aad);
+  free(blob);
+  memset(key, 0, sizeof(key));
+  return result;
 }
 
 /*
@@ -291,108 +290,108 @@ done:
  * truncated blob, malformed base64) results in NULL.
  */
 char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
-    if (!b64_blob || !kind)
-        return NULL;
+  if (!b64_blob || !kind)
+    return NULL;
 
-    /* Decode the base64 envelope. */
-    size_t raw_len = 0;
-    uint8_t *raw = b64_decode_alloc(b64_blob, &raw_len);
-    if (!raw)
-        return NULL;
+  /* Decode the base64 envelope. */
+  size_t raw_len = 0;
+  uint8_t *raw = b64_decode_alloc(b64_blob, &raw_len);
+  if (!raw)
+    return NULL;
 
-    /*
-     * Minimum blob: version(1) + nonce(12) + ciphertext(1) + tag(16) = 30
-     * A zero-length plaintext is rejected — tokens are never empty.
-     */
-    size_t header_len = 1 + TOKEN_CRYPTO_NONCE_LEN;
-    size_t min_blob = header_len + 1 + TOKEN_CRYPTO_TAG_LEN;
-    if (raw_len < min_blob) {
-        free(raw);
-        return NULL;
-    }
+  /*
+   * Minimum blob: version(1) + nonce(12) + ciphertext(1) + tag(16) = 30
+   * A zero-length plaintext is rejected — tokens are never empty.
+   */
+  size_t header_len = 1 + TOKEN_CRYPTO_NONCE_LEN;
+  size_t min_blob = header_len + 1 + TOKEN_CRYPTO_TAG_LEN;
+  if (raw_len < min_blob) {
+    free(raw);
+    return NULL;
+  }
 
-    uint8_t version = raw[0];
-    if (version != TOKEN_CRYPTO_VERSION) {
-        free(raw);
-        return NULL;
-    }
+  uint8_t version = raw[0];
+  if (version != TOKEN_CRYPTO_VERSION) {
+    free(raw);
+    return NULL;
+  }
 
-    const uint8_t *nonce = raw + 1;
-    size_t ct_len = raw_len - header_len - TOKEN_CRYPTO_TAG_LEN;
-    const uint8_t *ct = raw + header_len;
-    uint8_t tag[TOKEN_CRYPTO_TAG_LEN];
-    memcpy(tag, raw + header_len + ct_len, TOKEN_CRYPTO_TAG_LEN);
+  const uint8_t *nonce = raw + 1;
+  size_t ct_len = raw_len - header_len - TOKEN_CRYPTO_TAG_LEN;
+  const uint8_t *ct = raw + header_len;
+  uint8_t tag[TOKEN_CRYPTO_TAG_LEN];
+  memcpy(tag, raw + header_len + ct_len, TOKEN_CRYPTO_TAG_LEN);
 
-    if (ct_len > TOKEN_CRYPTO_MAX_PLAINTEXT) {
-        free(raw);
-        return NULL;
-    }
+  if (ct_len > TOKEN_CRYPTO_MAX_PLAINTEXT) {
+    free(raw);
+    return NULL;
+  }
 
-    /* Derive the decryption key. */
-    uint8_t key[TOKEN_CRYPTO_KEY_LEN];
-    if (!derive_key(kind, key)) {
-        free(raw);
-        return NULL;
-    }
+  /* Derive the decryption key. */
+  uint8_t key[TOKEN_CRYPTO_KEY_LEN];
+  if (!derive_key(kind, key)) {
+    free(raw);
+    return NULL;
+  }
 
-    /* Reconstruct AAD: version_byte || kind_string. */
-    size_t kind_len = strlen(kind);
-    size_t aad_len = 1 + kind_len;
-    uint8_t *aad = malloc(aad_len);
-    if (!aad) {
-        free(raw);
-        memset(key, 0, sizeof(key));
-        return NULL;
-    }
-    aad[0] = version;
-    memcpy(aad + 1, kind, kind_len);
+  /* Reconstruct AAD: version_byte || kind_string. */
+  size_t kind_len = strlen(kind);
+  size_t aad_len = 1 + kind_len;
+  uint8_t *aad = malloc(aad_len);
+  if (!aad) {
+    free(raw);
+    memset(key, 0, sizeof(key));
+    return NULL;
+  }
+  aad[0] = version;
+  memcpy(aad + 1, kind, kind_len);
 
-    /* Allocate plaintext output buffer (same size as ciphertext in GCM). */
-    char *plaintext = malloc(ct_len + 1);
-    if (!plaintext) {
-        free(aad);
-        free(raw);
-        memset(key, 0, sizeof(key));
-        return NULL;
-    }
-
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    char *result = NULL;
-
-    if (!ctx)
-        goto done;
-
-    int ok = 1;
-    int out_len = 0;
-
-    ok &= EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-    ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
-    ok &= EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce);
-    /* Feed AAD. */
-    ok &= EVP_DecryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
-    /* Decrypt ciphertext. */
-    ok &= EVP_DecryptUpdate(ctx, (uint8_t *)plaintext, &out_len, ct, (int)ct_len);
-
-    /* Set the expected tag before calling Final. */
-    ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, tag);
-
-    /* Final verifies the tag — returns <= 0 if the tag does not match. */
-    if (!ok || EVP_DecryptFinal_ex(ctx, (uint8_t *)plaintext + out_len, &out_len) <= 0) {
-        /* Tag mismatch: do not expose partial plaintext. */
-        memset(plaintext, 0, ct_len + 1);
-        goto done;
-    }
-
-    plaintext[ct_len] = '\0';
-    result = plaintext;
-    plaintext = NULL; /* Transferred to caller. */
-
-done:
-    if (ctx)
-        EVP_CIPHER_CTX_free(ctx);
-    free(plaintext);
+  /* Allocate plaintext output buffer (same size as ciphertext in GCM). */
+  char *plaintext = malloc(ct_len + 1);
+  if (!plaintext) {
     free(aad);
     free(raw);
     memset(key, 0, sizeof(key));
-    return result;
+    return NULL;
+  }
+
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+  char *result = NULL;
+
+  if (!ctx)
+    goto done;
+
+  int ok = 1;
+  int out_len = 0;
+
+  ok &= EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
+  ok &= EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce);
+  /* Feed AAD. */
+  ok &= EVP_DecryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
+  /* Decrypt ciphertext. */
+  ok &= EVP_DecryptUpdate(ctx, (uint8_t *)plaintext, &out_len, ct, (int)ct_len);
+
+  /* Set the expected tag before calling Final. */
+  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, tag);
+
+  /* Final verifies the tag — returns <= 0 if the tag does not match. */
+  if (!ok || EVP_DecryptFinal_ex(ctx, (uint8_t *)plaintext + out_len, &out_len) <= 0) {
+    /* Tag mismatch: do not expose partial plaintext. */
+    memset(plaintext, 0, ct_len + 1);
+    goto done;
+  }
+
+  plaintext[ct_len] = '\0';
+  result = plaintext;
+  plaintext = NULL; /* Transferred to caller. */
+
+done:
+  if (ctx)
+    EVP_CIPHER_CTX_free(ctx);
+  free(plaintext);
+  free(aad);
+  free(raw);
+  memset(key, 0, sizeof(key));
+  return result;
 }
