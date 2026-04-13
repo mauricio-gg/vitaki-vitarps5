@@ -200,17 +200,41 @@ static bool config_validate_general_section(toml_table_t *parsed) {
 }
 
 /*
+ * TokenLoadResult — three-way outcome for load_token_from_encrypted.
+ *
+ * TOKEN_LOAD_ABSENT  : the _enc key is not present in the TOML table.
+ *                      The caller may fall back to a legacy plaintext key.
+ * TOKEN_LOAD_OK      : the _enc key was present and decryption succeeded.
+ *                      The output field has been set; no fallback needed.
+ * TOKEN_LOAD_FAILED  : the _enc key was present but decryption failed
+ *                      (wrong device / tampering).  The output field has
+ *                      been cleared.  The caller MUST NOT fall back to
+ *                      the legacy plaintext key — re-auth is required.
+ */
+typedef enum {
+  TOKEN_LOAD_ABSENT = 0,
+  TOKEN_LOAD_OK     = 1,
+  TOKEN_LOAD_FAILED = 2
+} TokenLoadResult;
+
+/*
  * load_token_from_encrypted — Decrypt and store one token from a TOML key.
  *
- * Returns true if the encrypted key was present and decrypted successfully.
- * Returns false if the key is absent or decryption fails; in the latter case
- * the output field is cleared and a generic warning is logged (no token data).
+ * @param settings   TOML table to read from.
+ * @param toml_key   Key name for the encrypted blob (e.g. "psn_oauth_access_token_enc").
+ * @param out_field  Pointer to the config field to populate; cleared on failure.
+ * @param kind       Human-readable label used only for log messages (no token data).
+ *
+ * Returns TOKEN_LOAD_ABSENT  if the key is not present (benign).
+ * Returns TOKEN_LOAD_OK      if the key was present and decryption succeeded.
+ * Returns TOKEN_LOAD_FAILED  if the key was present but decryption failed;
+ *   a warning has already been logged — caller must not fall back to plaintext.
  */
-static bool load_token_from_encrypted(toml_table_t *settings, const char *toml_key,
-                                      char **out_field, const char *kind) {
+static TokenLoadResult load_token_from_encrypted(toml_table_t *settings, const char *toml_key,
+                                                  char **out_field, const char *kind) {
   toml_datum_t datum = toml_string_in(settings, toml_key);
   if (!datum.ok)
-    return false;
+    return TOKEN_LOAD_ABSENT;
 
   char *decrypted = token_crypto_decrypt(datum.u.s, kind);
   free(datum.u.s);
@@ -219,12 +243,12 @@ static bool load_token_from_encrypted(toml_table_t *settings, const char *toml_k
     CHIAKI_LOGW(&(context.log), "PSN token blob decrypt failed; clearing (re-auth required)");
     free(*out_field);
     *out_field = NULL;
-    return false;
+    return TOKEN_LOAD_FAILED;
   }
 
   free(*out_field);
   *out_field = decrypted;
-  return true;
+  return TOKEN_LOAD_OK;
 }
 
 /*
@@ -259,15 +283,15 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
    *
    * Both encrypted and plaintext may coexist during migration — encrypted wins.
    */
-  bool access_loaded_enc =
+  TokenLoadResult access_enc_result =
       load_token_from_encrypted(settings, "psn_oauth_access_token_enc",
                                 &cfg->psn_oauth_access_token, "access");
-  bool refresh_loaded_enc =
+  TokenLoadResult refresh_enc_result =
       load_token_from_encrypted(settings, "psn_oauth_refresh_token_enc",
                                 &cfg->psn_oauth_refresh_token, "refresh");
 
-  if (!access_loaded_enc) {
-    /* Fall back to legacy plaintext access token for migration. */
+  if (access_enc_result == TOKEN_LOAD_ABSENT) {
+    /* _enc key not present — fall back to legacy plaintext key for migration. */
     datum = toml_string_in(settings, "psn_oauth_access_token");
     if (datum.ok) {
       free(cfg->psn_oauth_access_token);
@@ -275,8 +299,13 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
       *migrated_plaintext_tokens = true;
     }
   }
-  if (!refresh_loaded_enc) {
-    /* Fall back to legacy plaintext refresh token for migration. */
+  /* TOKEN_LOAD_FAILED: _enc key was present but decrypt failed.
+   * Do NOT fall back to plaintext — the field has been cleared and the user
+   * must re-authenticate.  Falling back would silently contradict the warning
+   * already logged by load_token_from_encrypted. */
+
+  if (refresh_enc_result == TOKEN_LOAD_ABSENT) {
+    /* _enc key not present — fall back to legacy plaintext key for migration. */
     datum = toml_string_in(settings, "psn_oauth_refresh_token");
     if (datum.ok) {
       free(cfg->psn_oauth_refresh_token);
@@ -284,6 +313,7 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
       *migrated_plaintext_tokens = true;
     }
   }
+  /* TOKEN_LOAD_FAILED: same reasoning as access token above — no plaintext fallback. */
 
   datum = toml_int_in(settings, "psn_oauth_expires_at_unix");
   if (datum.ok && datum.u.i > 0)
@@ -542,6 +572,7 @@ bool config_serialize(VitaChiakiConfig *cfg) {
     if (enc) {
       fprintf(fp, "psn_oauth_refresh_token_enc = \"%s\"\n", enc);
       free(enc);
+      tokens_persisted = true;
     } else {
       CHIAKI_LOGW(&(context.log),
                   "PSN refresh token encryption failed; token not persisted this session");
