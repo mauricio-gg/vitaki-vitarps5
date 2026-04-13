@@ -1397,7 +1397,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else {
     /* Idle: Status + Quality only.
      * Quality is intentionally rendered here and not in the streaming branches
-     * above — the in-stream view is deliberately compact.  Do not mirror it. */
+     * above — the in-stream view is deliberately compact. Do not mirror it. */
     const char *status_text;
     if (has_host && !has_registered) {
       status_text = "Ready / Not Registered";
@@ -1717,9 +1717,10 @@ UIScreenType ui_screen_draw_profile(void) {
       }
     } else {
       /* Card body focus: existing login/refresh flow.
-       * Invariant: connection_focus == CONN_FOCUS_CARD here — the safety snap
-       * above clears LOGOUT_BTN focus whenever the button is disabled, which
-       * matches the precondition of this else branch. */
+       * Invariant: connection_focus == CONN_FOCUS_CARD here — earlier safety
+       * logic snaps focus away from LOGOUT_BTN whenever the logout button
+       * becomes disabled, so reaching this path never requires logout-button
+       * focus to remain active. */
       if (!psn_auth_enabled()) {
         trigger_hints_popup("PSN internet mode is disabled in Settings");
       } else if (psn_auth_device_login_active()) {
