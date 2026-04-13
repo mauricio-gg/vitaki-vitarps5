@@ -90,15 +90,15 @@ static UIQrCode profile_login_qr = {0};
 
 // Profile Connection-card Log out button state (shared between draw and input)
 static uint64_t s_logout_confirm_until_us = 0;  ///< Confirm-window deadline (0 = inactive).
-static bool     s_logout_psn_valid        = false; ///< psn_auth_token_is_valid() cached per frame.
-static bool     s_logout_touch_down_prev  = false; ///< True while a finger is down this frame.
-static bool     s_logout_touch_hit        = false; ///< Down-edge landed inside the button rect.
+static bool s_logout_psn_valid = false;         ///< psn_auth_token_is_valid() cached per frame.
+static bool s_logout_touch_down_prev = false;   ///< True while a finger is down this frame.
+static bool s_logout_touch_hit = false;         ///< Down-edge landed inside the button rect.
 
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
-#define LOGOUT_BTN_W             80   ///< Button pixel width.
-#define LOGOUT_BTN_H             22   ///< Button pixel height.
-#define LOGOUT_BTN_BOTTOM_OFFSET 28   ///< strip_y = card_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET.
-#define LOGOUT_BTN_LEFT_PAD      15   ///< btn_x = card_content_x + LOGOUT_BTN_LEFT_PAD.
+#define LOGOUT_BTN_W 80              ///< Button pixel width.
+#define LOGOUT_BTN_H 22              ///< Button pixel height.
+#define LOGOUT_BTN_BOTTOM_OFFSET 28  ///< strip_y = card_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET.
+#define LOGOUT_BTN_LEFT_PAD 15       ///< btn_x = card_content_x + LOGOUT_BTN_LEFT_PAD.
 
 // ============================================================================
 // Forward declarations for helper functions
@@ -1215,26 +1215,26 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   int content_x = x + 15;
-  int col2_x    = content_x + 120;  /* Value column */
-  int body_line_h = 18;             /* Compressed body line height */
-  int sec_line_h  = 20;             /* Section header height */
+  int col2_x = content_x + 120; /* Value column */
+  int body_line_h = 18;         /* Compressed body line height */
+  int sec_line_h = 20;          /* Section header height */
 
   /* ── Title ──────────────────────────────────────────────────────────── */
   int cy = y + 25;
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
                         "Connection Information");
-  cy += 30;  /* cy = y+55 */
+  cy += 30; /* cy = y+55 */
 
   /* ── Gather data ────────────────────────────────────────────────────── */
-  VitaChiakiHost *host         = profile_get_reference_host();
-  bool            has_host     = (host != NULL);
-  bool            has_discovery  = has_host && host->discovery_state;
-  bool            has_registered = has_host && host->registered_state;
-  bool            is_streaming   = context.stream.is_streaming && context.stream.session_init;
+  VitaChiakiHost *host = profile_get_reference_host();
+  bool has_host = (host != NULL);
+  bool has_discovery = has_host && host->discovery_state;
+  bool has_registered = has_host && host->registered_state;
+  bool is_streaming = context.stream.is_streaming && context.stream.session_init;
 
   /* ── Section: Network ───────────────────────────────────────────────── */
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
-  cy += sec_line_h;  /* cy ≈ y+73 */
+  cy += sec_line_h; /* cy ≈ y+73 */
 
   const char *network_text = "Unavailable";
   if (has_discovery) {
@@ -1247,7 +1247,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Network Type");
   vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
-  cy += body_line_h;  /* cy ≈ y+91 */
+  cy += body_line_h; /* cy ≈ y+91 */
 
   const char *console_name = "Not selected";
   if (has_discovery && host->discovery_state->host_name) {
@@ -1259,7 +1259,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
   vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
-  cy += body_line_h;  /* cy ≈ y+109 */
+  cy += body_line_h; /* cy ≈ y+109 */
 
   /* Console IP — only when a meaningful address is available */
   const char *console_ip = NULL;
@@ -1281,7 +1281,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     cy = y + 130;
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
-  cy += sec_line_h;  /* cy ≈ y+148 */
+  cy += sec_line_h; /* cy ≈ y+148 */
 
   if (is_streaming && context.config.show_latency) {
     /* While streaming with latency overlay: show live metrics */
@@ -1306,9 +1306,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
     char bitrate_text[32] = "N/A";
     uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
-    bool metrics_recent =
-        context.stream.metrics_last_update_us != 0 &&
-        (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
+    bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
+                          (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
     if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
       snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
                context.stream.measured_bitrate_mbps);
@@ -1327,8 +1326,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     char loss_text[48] = "Stable";
     uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
     bool loss_recent =
-        context.stream.loss_alert_until_us != 0 &&
-        now_us < context.stream.loss_alert_until_us;
+        context.stream.loss_alert_until_us != 0 && now_us < context.stream.loss_alert_until_us;
     if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
       snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
                context.stream.takion_drop_events, context.stream.total_frames_lost);
@@ -1354,7 +1352,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     }
     vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
     vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, status_text);
-    cy += body_line_h;  /* cy ≈ y+166 */
+    cy += body_line_h; /* cy ≈ y+166 */
 
     const char *quality_text =
         (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) ? "360p" : "540p";
@@ -1369,13 +1367,13 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     cy = y + 187;
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
-  cy += sec_line_h;  /* cy ≈ y+205 */
+  cy += sec_line_h; /* cy ≈ y+205 */
 
   /* Cache psn_valid once — avoids repeated calls to psn_auth_token_is_valid()
    * across auth-color, btn_enabled, and hint logic within this draw frame. */
   uint64_t now_unix = (uint64_t)time(NULL);
   bool psn_valid = psn_auth_token_is_valid(now_unix);
-  s_logout_psn_valid = psn_valid;  /* expose to input handler for the same frame */
+  s_logout_psn_valid = psn_valid; /* expose to input handler for the same frame */
 
   const char *auth_status = psn_auth_state_label();
   uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
@@ -1393,7 +1391,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
-    int strip_y  = y + height - LOGOUT_BTN_BOTTOM_OFFSET;
+    int strip_y = y + height - LOGOUT_BTN_BOTTOM_OFFSET;
     bool btn_enabled = psn_auth_enabled() && psn_valid;
     bool btn_focused = (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN);
     bool device_login = psn_auth_device_login_active();
@@ -1401,8 +1399,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     /* Hide the button entirely while a device-login flow is active; the
      * bottom strip carries only the action hint in that state. */
     if (!device_login) {
-      ui_draw_text_button(content_x + LOGOUT_BTN_LEFT_PAD, strip_y,
-                          LOGOUT_BTN_W, LOGOUT_BTN_H,
+      ui_draw_text_button(content_x + LOGOUT_BTN_LEFT_PAD, strip_y, LOGOUT_BTN_W, LOGOUT_BTN_H,
                           "Log out", btn_focused, btn_enabled);
     }
 
@@ -1423,11 +1420,10 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     } else {
       hint = "X: Start Browser Login";
     }
-    int hint_x = device_login ? content_x
-                               : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
+    int hint_x = device_login ? content_x : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
     // TODO: ellipsize if hint exceeds strip width
-    vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5,
-                          UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
+    vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, hint);
   }
 }
 
@@ -1595,8 +1591,8 @@ UIScreenType ui_screen_draw_profile(void) {
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
     bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
 
-    if (btn_pressed(SCE_CTRL_DOWN) &&
-        profile_state.connection_focus == CONN_FOCUS_CARD && btn_enabled) {
+    if (btn_pressed(SCE_CTRL_DOWN) && profile_state.connection_focus == CONN_FOCUS_CARD &&
+        btn_enabled) {
       profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
     } else if (btn_pressed(SCE_CTRL_UP) &&
                profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
@@ -1668,8 +1664,8 @@ UIScreenType ui_screen_draw_profile(void) {
   }
 
   /* Square: cancel active device login. */
-  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
-      btn_pressed(SCE_CTRL_SQUARE) && psn_auth_device_login_active()) {
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_SQUARE) &&
+      psn_auth_device_login_active()) {
     psn_auth_cancel_device_login();
     profile_login_qr_visible = false;
     profile_login_qr.valid = false;
@@ -1678,8 +1674,8 @@ UIScreenType ui_screen_draw_profile(void) {
   }
 
   /* Start: toggle QR visibility during device login. */
-  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
-      btn_pressed(SCE_CTRL_START) && psn_auth_device_login_active()) {
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_START) &&
+      psn_auth_device_login_active()) {
     profile_login_qr_visible = !profile_login_qr_visible;
     trigger_hints_popup(profile_login_qr_visible
                             ? "QR shown. Scan with phone, then press X to paste code."
@@ -1708,8 +1704,8 @@ UIScreenType ui_screen_draw_profile(void) {
       float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
       float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
       int card_x = content_x + card_w + card_spacing;
-      int btn_x  = card_x + LOGOUT_BTN_LEFT_PAD;
-      int btn_y  = content_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET;
+      int btn_x = card_x + LOGOUT_BTN_LEFT_PAD;
+      int btn_y = content_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET;
       bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
       bool in_btn = (tx >= (float)btn_x && tx <= (float)(btn_x + LOGOUT_BTN_W) &&
                      ty >= (float)btn_y && ty <= (float)(btn_y + LOGOUT_BTN_H));
@@ -1742,14 +1738,14 @@ UIScreenType ui_screen_draw_profile(void) {
         }
       }
       s_logout_touch_down_prev = false;
-      s_logout_touch_hit       = false;
+      s_logout_touch_hit = false;
     }
     /* Phase B (hold): touch_down_now && s_logout_touch_down_prev — do nothing. */
 
   } else {
     /* Navigated away from Connection card — reset touch tracking. */
     s_logout_touch_down_prev = false;
-    s_logout_touch_hit       = false;
+    s_logout_touch_hit = false;
   }
 
   // Circle: Back to main menu
