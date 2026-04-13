@@ -132,6 +132,7 @@ static void open_psn_auth_code_ime(void);
 static void poll_psn_auth_code_ime(uint64_t now_unix);
 static void draw_profile_login_assist_panel(int x, int y, int width, int height, bool selected);
 static void profile_refresh_login_qr(const char *url);
+static void execute_psn_logout(void);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -1140,6 +1141,24 @@ static ProfileState profile_state = {0};
 /// next entry performs a fresh reset of profile_state and confirm state.
 static bool profile_screen_initialized = false;
 
+/**
+ * @brief Execute the confirmed PSN logout sequence.
+ *
+ * Clears tokens and cached remote hosts, persists config, refreshes the card
+ * cache, shows a confirmation popup, and resets logout UI state.  Both the
+ * CROSS-button and touch up-edge confirm paths call this; the logic must not
+ * be duplicated between them.
+ */
+static void execute_psn_logout(void) {
+  psn_auth_clear_tokens();
+  psn_remote_clear_cached_hosts();
+  persist_config_or_warn();
+  ui_cards_update_cache(true);
+  trigger_hints_popup("PSN login removed");
+  s_logout_confirm_until_us = 0;
+  profile_state.connection_focus = CONN_FOCUS_CARD;
+}
+
 static VitaChiakiHost *profile_get_reference_host(void) {
   if (context.active_host) {
     return context.active_host;
@@ -1611,7 +1630,8 @@ UIScreenType ui_screen_draw_profile(void) {
   /* If the button has become disabled while focus still lingers on it (e.g.
    * token expired, PSN mode turned off), snap focus back and clear the
    * confirm window so the stale arm can't fire. */
-  if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN && !s_logout_psn_valid) {
+  if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN &&
+      !(psn_auth_enabled() && s_logout_psn_valid)) {
     profile_state.connection_focus = CONN_FOCUS_CARD;
     s_logout_confirm_until_us = 0;
   }
@@ -1664,13 +1684,7 @@ UIScreenType ui_screen_draw_profile(void) {
       uint64_t now_us_cross = sceKernelGetProcessTimeWide();
       if (s_logout_confirm_until_us != 0 && now_us_cross < s_logout_confirm_until_us) {
         /* Second press within the confirm window — execute logout. */
-        psn_auth_clear_tokens();
-        psn_remote_clear_cached_hosts();
-        persist_config_or_warn();
-        ui_cards_update_cache(true);
-        trigger_hints_popup("PSN login removed");
-        profile_state.connection_focus = CONN_FOCUS_CARD;
-        s_logout_confirm_until_us = 0;
+        execute_psn_logout();
       } else {
         /* First press — arm the confirm window.  The strip hint text already
          * transitions to "Press X again to confirm log out" while armed, so
@@ -1771,13 +1785,7 @@ UIScreenType ui_screen_draw_profile(void) {
         if (btn_enabled) {
           uint64_t now_us_touch = sceKernelGetProcessTimeWide();
           if (s_logout_confirm_until_us != 0 && now_us_touch < s_logout_confirm_until_us) {
-            psn_auth_clear_tokens();
-            psn_remote_clear_cached_hosts();
-            persist_config_or_warn();
-            ui_cards_update_cache(true);
-            trigger_hints_popup("PSN login removed");
-            profile_state.connection_focus = CONN_FOCUS_CARD;
-            s_logout_confirm_until_us = 0;
+            execute_psn_logout();
           } else {
             s_logout_confirm_until_us = now_us_touch + 3000000ULL;
           }
