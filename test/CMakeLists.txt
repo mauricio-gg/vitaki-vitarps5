@@ -1,14 +1,17 @@
 add_executable(vitarps5_tests
     config_vita_tests.c
+    token_crypto_tests.c
     packet_path_tests.c
     json_escape_tests.c
     ../vita/src/config.c
     ../vita/src/config_migration.c
     ../vita/src/config_values.c
     ../vita/src/config_hosts.c
+    ../vita/src/token_crypto.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
     ../lib/src/videoreceiver_gap.c
+    ../lib/src/base64.c
 )
 
 target_include_directories(vitarps5_tests PRIVATE
@@ -21,6 +24,12 @@ target_include_directories(vitarps5_tests PRIVATE
 
 target_compile_definitions(vitarps5_tests PRIVATE
     CFG_FILENAME="${CMAKE_CURRENT_BINARY_DIR}/config_test.toml"
+    VITARPS5_TEST_BUILD=1
 )
+
+# token_crypto.c uses OpenSSL EVP (AES-256-GCM, SHA-256, RAND_bytes).
+# On the host build OpenSSL is always available through chiaki-lib's dependency.
+find_package(OpenSSL REQUIRED)
+target_link_libraries(vitarps5_tests OpenSSL::Crypto)
 
 add_test(NAME vitarps5_config_tests COMMAND vitarps5_tests)
