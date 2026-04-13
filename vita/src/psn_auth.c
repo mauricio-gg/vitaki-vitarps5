@@ -695,10 +695,15 @@ static bool json_get_string(const char *json, const char *key, char *out, size_t
         unsigned char utf8[4];
         int nb = json_utf8_encode(cp, utf8);
         int i;
-        /* Emit UTF-8 bytes; stop if they would not fit (preserve existing
-         * behaviour of other escapes which also stop at out_size - 1). */
+        /* Emit UTF-8 bytes; fail if they would not fit.  Unlike the
+         * single-char and plain-ASCII overflow paths (which break with p
+         * still pointing at the unwritten character so *p != '"'), here p
+         * has already been advanced past the full \uXXXX sequence by
+         * json_decode_unicode_escape.  A break would leave p after the
+         * escape, causing *p == '"' to report success despite silent
+         * truncation — so return false instead. */
         if (o + (size_t)nb + 1 > out_size)
-          break;
+          return false;
         for (i = 0; i < nb; i++)
           out[o++] = (char)utf8[i];
         continue;

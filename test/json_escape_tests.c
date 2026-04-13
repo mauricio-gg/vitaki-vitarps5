@@ -203,8 +203,15 @@ static bool test_json_get_string(const char *json, const char *key, char *out, s
         unsigned char utf8[4];
         int nb = json_utf8_encode(cp, utf8);
         int i;
+        /* Emit UTF-8 bytes; fail if they would not fit.  Unlike the
+         * single-char and plain-ASCII overflow paths (which break with p
+         * still pointing at the unwritten character so *p != '"'), here p
+         * has already been advanced past the full \uXXXX sequence by
+         * json_decode_unicode_escape.  A break would leave p after the
+         * escape, causing *p == '"' to report success despite silent
+         * truncation — so return false instead. */
         if (o + (size_t)nb + 1 > out_size)
-          break;
+          return false;
         for (i = 0; i < nb; i++)
           out[o++] = (char)utf8[i];
         continue;
@@ -408,6 +415,29 @@ static void test_null_codepoint_edge_case(void) {
   assert(buf[3] == '\0'); /* terminator */
 }
 
+/* Regression: \uXXXX overflow at end-of-string must return false, not true.
+ *
+ * When the buffer is too small to hold the decoded UTF-8 bytes of a \uXXXX
+ * escape that appears just before the closing '"', the post-loop check
+ * '*p == '"'' would have incorrectly returned true under the old break path
+ * because json_decode_unicode_escape had already advanced p past the escape.
+ * The fix changes that path to return false. */
+static void test_unicode_escape_overflow_returns_false(void) {
+  /* \u00E9 = U+00E9 LATIN SMALL LETTER E WITH ACUTE → 2-byte UTF-8.
+   * A buffer of size 1 (only room for the NUL terminator) cannot hold even a
+   * single byte of output, so the overflow guard must fire and return false. */
+  const char *json = "{\"v\":\"\\u00E9\"}";
+  char buf[1];
+  bool ok = test_json_get_string(json, "v", buf, sizeof(buf));
+  assert(!ok);
+
+  /* Also verify with a buffer of exactly 2 bytes: room for one byte + NUL,
+   * but the codepoint encodes to 2 UTF-8 bytes, so it still must not fit. */
+  char buf2[2];
+  ok = test_json_get_string(json, "v", buf2, sizeof(buf2));
+  assert(!ok);
+}
+
 /* \b decodes to 0x08 (BACKSPACE), length 1. */
 static void test_backspace_escape(void) {
   const char *json = "{\"v\":\"\\b\"}";
@@ -440,6 +470,7 @@ void run_json_escape_tests(void) {
   test_truncated_unicode_escape_fails();
   test_len_plus_one_is_exact_buffer_size();
   test_null_codepoint_edge_case();
+  test_unicode_escape_overflow_returns_false();
   test_backspace_escape();
   test_form_feed_escape();
 }
