@@ -88,6 +88,18 @@ static bool profile_login_was_active = false;
 static char profile_login_qr_url[1536] = {0};
 static UIQrCode profile_login_qr = {0};
 
+// Profile Connection-card Log out button state (shared between draw and input)
+static uint64_t s_logout_confirm_until_us = 0;  ///< Confirm-window deadline (0 = inactive).
+static bool     s_logout_psn_valid        = false; ///< psn_auth_token_is_valid() cached per frame.
+static bool     s_logout_touch_down_prev  = false; ///< True while a finger is down this frame.
+static bool     s_logout_touch_hit        = false; ///< Down-edge landed inside the button rect.
+
+// Geometry constants for the Log out button — shared between draw and touch hit-test.
+#define LOGOUT_BTN_W             80   ///< Button pixel width.
+#define LOGOUT_BTN_H             22   ///< Button pixel height.
+#define LOGOUT_BTN_BOTTOM_OFFSET 28   ///< strip_y = card_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET.
+#define LOGOUT_BTN_LEFT_PAD      15   ///< btn_x = card_content_x + LOGOUT_BTN_LEFT_PAD.
+
 // ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
@@ -1105,7 +1117,7 @@ typedef enum {
 typedef struct {
   ProfileSection current_section;
   bool editing_psn_id;
-  int connection_focus;  ///< ConnFocus value; reset to CONN_FOCUS_CARD on LEFT navigation.
+  ConnFocus connection_focus;  ///< Reset to CONN_FOCUS_CARD on LEFT navigation or screen entry.
 } ProfileState;
 
 static ProfileState profile_state = {0};
@@ -1273,7 +1285,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   if (is_streaming && context.config.show_latency) {
     /* While streaming with latency overlay: show live metrics */
-    uint64_t now_us_s = sceKernelGetProcessTimeWide();
+    uint64_t now_us = sceKernelGetProcessTimeWide();
 
     char latency_text[32] = "N/A";
     uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
@@ -1296,7 +1308,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
     bool metrics_recent =
         context.stream.metrics_last_update_us != 0 &&
-        (now_us_s - context.stream.metrics_last_update_us) <= 3000000ULL;
+        (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
     if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
       snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
                context.stream.measured_bitrate_mbps);
@@ -1316,7 +1328,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
     bool loss_recent =
         context.stream.loss_alert_until_us != 0 &&
-        now_us_s < context.stream.loss_alert_until_us;
+        now_us < context.stream.loss_alert_until_us;
     if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
       snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
                context.stream.takion_drop_events, context.stream.total_frames_lost);
@@ -1334,7 +1346,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     if (is_streaming) {
       status_text = "Streaming";
     } else if (has_host && !has_registered) {
-      status_text = "Ready \xb7 Not Registered";
+      status_text = "Ready / Not Registered";
     } else if (has_host) {
       status_text = "Ready";
     } else {
@@ -1359,10 +1371,15 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
   cy += sec_line_h;  /* cy ≈ y+205 */
 
+  /* Cache psn_valid once — avoids repeated calls to psn_auth_token_is_valid()
+   * across auth-color, btn_enabled, and hint logic within this draw frame. */
+  uint64_t now_unix = (uint64_t)time(NULL);
+  bool psn_valid = psn_auth_token_is_valid(now_unix);
+  s_logout_psn_valid = psn_valid;  /* expose to input handler for the same frame */
+
   const char *auth_status = psn_auth_state_label();
   uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
-  uint64_t now_unix = (uint64_t)time(NULL);
-  if (psn_auth_token_is_valid(now_unix)) {
+  if (psn_valid) {
     auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
   } else if (psn_auth_device_login_active()) {
     auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
@@ -1376,36 +1393,41 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
-    int strip_y = y + height - 28;
-    int btn_w   = 80;
-    int btn_h   = 22;
-
-    /* Button is enabled when authenticated and PSN is on */
-    bool btn_enabled = psn_auth_enabled() && psn_auth_token_is_valid(now_unix);
+    int strip_y  = y + height - LOGOUT_BTN_BOTTOM_OFFSET;
+    bool btn_enabled = psn_auth_enabled() && psn_valid;
     bool btn_focused = (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN);
+    bool device_login = psn_auth_device_login_active();
 
-    ui_draw_text_button(content_x, strip_y, btn_w, btn_h, "Log out", btn_focused, btn_enabled);
+    /* Hide the button entirely while a device-login flow is active; the
+     * bottom strip carries only the action hint in that state. */
+    if (!device_login) {
+      ui_draw_text_button(content_x + LOGOUT_BTN_LEFT_PAD, strip_y,
+                          LOGOUT_BTN_W, LOGOUT_BTN_H,
+                          "Log out", btn_focused, btn_enabled);
+    }
 
-    /* Dynamic hint text in the strip — right of the button */
+    /* Dynamic hint — placed right of the button (or at content_x when button
+     * is hidden).  When the confirm window is open show the second-press cue. */
     const char *hint;
     if (!psn_auth_enabled()) {
       hint = "Enable PSN internet mode in Settings";
-    } else if (psn_auth_device_login_active()) {
+    } else if (device_login) {
       hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
+    } else if (btn_focused && s_logout_confirm_until_us != 0 &&
+               (uint64_t)sceKernelGetProcessTimeWide() < s_logout_confirm_until_us) {
+      hint = "Press X again to confirm log out";
     } else if (btn_focused) {
       hint = "X: Log out of PSN";
-    } else if (psn_auth_token_is_valid(now_unix)) {
+    } else if (psn_valid) {
       hint = "X: Refresh Hosts | Down: Log out";
     } else {
       hint = "X: Start Browser Login";
     }
-    int hint_x = content_x + btn_w + 10;
-    int hint_w = (x + width - 15) - hint_x;
-    if (hint_w > 0) {
-      vita2d_font_draw_text(font, hint_x, strip_y + btn_h / 2 + 5, UI_COLOR_TEXT_TERTIARY,
-                            FONT_SIZE_SMALL, hint);
-      (void)hint_w;  /* reserved for future ellipsis clipping */
-    }
+    int hint_x = device_login ? content_x
+                               : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
+    // TODO: ellipsize if hint exceeds strip width
+    vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5,
+                          UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
   }
 }
 
@@ -1543,24 +1565,35 @@ UIScreenType ui_screen_draw_profile(void) {
 
   // === INPUT HANDLING ===
 
-  /* Persistent confirm-window for the Log out button (microsecond deadline). */
-  static uint64_t logout_confirm_until_us = 0;
+  /* s_logout_confirm_until_us and s_logout_psn_valid are file-scope statics
+   * updated by draw_connection_info_card() earlier this frame. */
+
+  /* If the button has become disabled while focus still lingers on it (e.g.
+   * token expired, PSN mode turned off), snap focus back and clear the
+   * confirm window so the stale arm can't fire. */
+  if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN && !s_logout_psn_valid) {
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+  }
 
   /* Left/Right: Navigate between cards.
-   * LEFT also resets the intra-card focus so re-entry always starts on the
-   * card body rather than the Log out button. */
+   * LEFT resets intra-card focus.  RIGHT resets it too so re-entry from the
+   * Profile card always starts on the card body, not the Log out button. */
   if (btn_pressed(SCE_CTRL_LEFT)) {
     profile_state.current_section = PROFILE_SECTION_INFO;
     profile_state.connection_focus = CONN_FOCUS_CARD;
-    logout_confirm_until_us = 0;
+    s_logout_confirm_until_us = 0;
   } else if (btn_pressed(SCE_CTRL_RIGHT)) {
     profile_state.current_section = PROFILE_SECTION_CONNECTION;
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
   }
 
-  /* Down/Up: Move focus within the Connection card. */
+  /* Down/Up: Move focus within the Connection card.
+   * s_logout_psn_valid is the cached result from this frame's draw call —
+   * no additional call to psn_auth_token_is_valid() is needed here. */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
-    bool btn_enabled =
-        psn_auth_enabled() && psn_auth_token_is_valid((uint64_t)time(NULL));
+    bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
 
     if (btn_pressed(SCE_CTRL_DOWN) &&
         profile_state.connection_focus == CONN_FOCUS_CARD && btn_enabled) {
@@ -1568,11 +1601,14 @@ UIScreenType ui_screen_draw_profile(void) {
     } else if (btn_pressed(SCE_CTRL_UP) &&
                profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
       profile_state.connection_focus = CONN_FOCUS_CARD;
-      logout_confirm_until_us = 0;
+      s_logout_confirm_until_us = 0;
     }
   }
 
-  /* Cross: action depends on which card and which focus position. */
+  /* Cross: action depends on which card and which focus position.
+   * The CONN_FOCUS_LOGOUT_BTN branch is gated on btn_enabled: if the token
+   * expires while focus lingers on the button, X falls through to the card
+   * body flow rather than attempting a logout with invalid state. */
   if (btn_pressed(SCE_CTRL_CROSS) && profile_state.current_section == PROFILE_SECTION_INFO) {
     if (ui_reload_psn_account_id()) {
       persist_config_or_warn();
@@ -1582,10 +1618,11 @@ UIScreenType ui_screen_draw_profile(void) {
     }
   } else if (btn_pressed(SCE_CTRL_CROSS) &&
              profile_state.current_section == PROFILE_SECTION_CONNECTION) {
-    if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+    bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+    if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN && btn_enabled) {
       /* Log out button: two-press confirm to guard against accidental logout. */
       uint64_t now_us_cross = sceKernelGetProcessTimeWide();
-      if (logout_confirm_until_us != 0 && now_us_cross < logout_confirm_until_us) {
+      if (s_logout_confirm_until_us != 0 && now_us_cross < s_logout_confirm_until_us) {
         /* Second press within the confirm window — execute logout. */
         psn_auth_clear_tokens();
         psn_remote_clear_cached_hosts();
@@ -1593,14 +1630,19 @@ UIScreenType ui_screen_draw_profile(void) {
         ui_cards_update_cache(true);
         trigger_hints_popup("PSN login removed");
         profile_state.connection_focus = CONN_FOCUS_CARD;
-        logout_confirm_until_us = 0;
+        s_logout_confirm_until_us = 0;
       } else {
         /* First press — arm the confirm window. */
-        logout_confirm_until_us = now_us_cross + 3000000ULL;
+        s_logout_confirm_until_us = now_us_cross + 3000000ULL;
         trigger_hints_popup("Press X again to confirm log out");
       }
     } else {
-      /* Card body focus: existing login/refresh flow. */
+      /* Card body focus (or disabled button): existing login/refresh flow. */
+      if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+        /* Button focused but disabled — clear stale confirm and return focus */
+        profile_state.connection_focus = CONN_FOCUS_CARD;
+        s_logout_confirm_until_us = 0;
+      }
       if (!psn_auth_enabled()) {
         trigger_hints_popup("PSN internet mode is disabled in Settings");
       } else if (psn_auth_device_login_active()) {
@@ -1644,45 +1686,70 @@ UIScreenType ui_screen_draw_profile(void) {
                             : "QR hidden. Press Start again to show.");
   }
 
-  /* Touch: hit-test the Log out button rect on the Connection card.
-   * A tap enters button focus and feeds through the same confirm flow. */
+  /* Touch: hit-test the Log out button on the Connection card.
+   *
+   * Three-phase edge detection (mirrors handle_vitarps5_touch_input):
+   *   Phase A — down-edge: record whether the tap landed in the button rect
+   *             and immediately set focus for visual feedback.
+   *   Phase B — hold: do nothing; waiting for release.
+   *   Phase C — up-edge: fire the confirm flow only if Phase A recorded a hit.
+   *
+   * Uses LOGOUT_BTN_* constants shared with draw_connection_info_card() so
+   * the hit-box can never silently drift from the visual.
+   * s_logout_psn_valid is the cached per-frame token check from the draw call.
+   */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
     SceTouchData touch_profile;
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_profile, 1);
-    if (touch_profile.reportNum > 0) {
+    bool touch_down_now = (touch_profile.reportNum > 0);
+
+    if (touch_down_now && !s_logout_touch_down_prev) {
+      /* Phase A: new finger-down this frame. */
       float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
       float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+      int card_x = content_x + card_w + card_spacing;
+      int btn_x  = card_x + LOGOUT_BTN_LEFT_PAD;
+      int btn_y  = content_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET;
+      bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+      bool in_btn = (tx >= (float)btn_x && tx <= (float)(btn_x + LOGOUT_BTN_W) &&
+                     ty >= (float)btn_y && ty <= (float)(btn_y + LOGOUT_BTN_H));
 
-      /* Reconstruct button rect coordinates (must match draw_connection_info_card). */
-      int card_x  = content_x + card_w + card_spacing;
-      int btn_x_t = card_x + 15;
-      int btn_y_t = content_y + card_h - 28;
-      int btn_w_t = 80;
-      int btn_h_t = 22;
-
-      bool in_btn = (tx >= (float)btn_x_t && tx <= (float)(btn_x_t + btn_w_t) &&
-                     ty >= (float)btn_y_t && ty <= (float)(btn_y_t + btn_h_t));
-      bool btn_enabled_t =
-          psn_auth_enabled() && psn_auth_token_is_valid((uint64_t)time(NULL));
-
-      if (in_btn && btn_enabled_t) {
-        /* Enter button focus, then feed the same X confirm flow. */
+      s_logout_touch_hit = in_btn && btn_enabled && !psn_auth_device_login_active();
+      if (s_logout_touch_hit) {
+        /* Instant visual feedback: move focus to the button on contact. */
         profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
-        uint64_t now_us_touch = sceKernelGetProcessTimeWide();
-        if (logout_confirm_until_us != 0 && now_us_touch < logout_confirm_until_us) {
-          psn_auth_clear_tokens();
-          psn_remote_clear_cached_hosts();
-          persist_config_or_warn();
-          ui_cards_update_cache(true);
-          trigger_hints_popup("PSN login removed");
-          profile_state.connection_focus = CONN_FOCUS_CARD;
-          logout_confirm_until_us = 0;
-        } else {
-          logout_confirm_until_us = now_us_touch + 3000000ULL;
-          trigger_hints_popup("Press X again to confirm log out");
+      }
+      s_logout_touch_down_prev = true;
+
+    } else if (!touch_down_now && s_logout_touch_down_prev) {
+      /* Phase C: finger lifted — fire if the down-edge was a valid hit. */
+      if (s_logout_touch_hit) {
+        bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+        if (btn_enabled) {
+          uint64_t now_us_touch = sceKernelGetProcessTimeWide();
+          if (s_logout_confirm_until_us != 0 && now_us_touch < s_logout_confirm_until_us) {
+            psn_auth_clear_tokens();
+            psn_remote_clear_cached_hosts();
+            persist_config_or_warn();
+            ui_cards_update_cache(true);
+            trigger_hints_popup("PSN login removed");
+            profile_state.connection_focus = CONN_FOCUS_CARD;
+            s_logout_confirm_until_us = 0;
+          } else {
+            s_logout_confirm_until_us = now_us_touch + 3000000ULL;
+            trigger_hints_popup("Tap again to confirm log out");
+          }
         }
       }
+      s_logout_touch_down_prev = false;
+      s_logout_touch_hit       = false;
     }
+    /* Phase B (hold): touch_down_now && s_logout_touch_down_prev — do nothing. */
+
+  } else {
+    /* Navigated away from Connection card — reset touch tracking. */
+    s_logout_touch_down_prev = false;
+    s_logout_touch_hit       = false;
   }
 
   // Circle: Back to main menu
