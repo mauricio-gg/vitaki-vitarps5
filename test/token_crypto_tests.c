@@ -20,6 +20,8 @@
  *      blobs, confirming RAND_bytes generates a fresh nonce each time.
  *  12. Tampered version byte: flipping byte[0] to an unknown version → NULL,
  *      confirming the explicit version check in decrypt.
+ *  13. Empty string blob: passing "" (empty C string, not NULL) to decrypt →
+ *      NULL, confirming the minimum-blob-length guard rejects zero decoded bytes.
  *
  * GitHub issue #81.
  */
@@ -295,6 +297,19 @@ static void test_nonce_uniqueness(void) {
 }
 
 /*
+ * test_empty_string_blob — Passing an empty C string ("") to token_crypto_decrypt
+ * must return NULL.  An empty string base64-decodes to zero bytes, which is
+ * shorter than the minimum blob length (version + nonce + 1 byte ciphertext +
+ * tag = 30 bytes), so the minimum-length guard must fire before any OpenSSL
+ * call is made.
+ */
+static void test_empty_string_blob(void) {
+    char *result = token_crypto_decrypt("", "access");
+    assert(result == NULL);
+    puts("  [PASS] test_empty_string_blob");
+}
+
+/*
  * test_tampered_version_byte — Encrypt a token, base64-decode the blob, flip
  * byte[0] (the version field) to 0x02, base64-re-encode, then assert that
  * token_crypto_decrypt returns NULL.  This exercises the explicit
@@ -343,6 +358,7 @@ void run_token_crypto_tests(void) {
     test_wrong_kind();
     test_malformed_base64();
     test_truncated_blob();
+    test_empty_string_blob();
     test_empty_plaintext();
     test_null_inputs();
     test_nonce_uniqueness();

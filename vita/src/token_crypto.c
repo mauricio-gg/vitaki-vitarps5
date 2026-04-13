@@ -24,8 +24,6 @@
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 
-#include <assert.h>
-
 #include <chiaki/base64.h>
 
 #include <string.h>
@@ -275,12 +273,14 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
   if (EVP_EncryptUpdate(ctx, ct_dst, &out_len, (const uint8_t *)plaintext, (int)pt_len) != 1)
     goto done;
   /* GCM is a stream mode: ciphertext length always equals plaintext length.
-   * Final produces zero additional bytes, so tag_dst = ct_dst + pt_len is correct. */
-  assert(out_len == (int)pt_len);
+   * If a future EVP backend ever violates this, fail closed rather than
+   * write the tag at a wrong offset. */
+  if (out_len != (int)pt_len)
+    goto done;
   if (EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len) != 1)
     goto done;
   /* Extract the 16-byte GCM tag. */
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, tag_dst) != 1)
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, (void *)tag_dst) != 1)
     goto done;
 
   result = b64_encode_alloc(blob, blob_len);
@@ -388,7 +388,7 @@ char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
     goto done;
 
   /* Set the expected tag before calling Final. */
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, tag) != 1)
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, (void *)tag) != 1)
     goto done;
 
   /* Final verifies the tag — returns <= 0 if the tag does not match. */
