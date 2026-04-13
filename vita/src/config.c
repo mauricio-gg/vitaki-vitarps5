@@ -290,7 +290,12 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     if (datum.ok) {
       free(cfg->psn_oauth_access_token);
       cfg->psn_oauth_access_token = datum.u.s;
+#ifndef VITARPS5_PLAINTEXT_TOKEN_STORAGE
+      /* In debug plaintext-storage builds the plaintext key IS the persisted
+       * format, so there is nothing to migrate — skip the flag to prevent a
+       * redundant config_serialize() rewrite on every boot. */
       *migrated_plaintext_tokens = true;
+#endif
     }
   }
   /* TOKEN_LOAD_FAILED: _enc key was present but decrypt failed.
@@ -304,7 +309,12 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     if (datum.ok) {
       free(cfg->psn_oauth_refresh_token);
       cfg->psn_oauth_refresh_token = datum.u.s;
+#ifndef VITARPS5_PLAINTEXT_TOKEN_STORAGE
+      /* Same reasoning as the access token block above: in debug plaintext-
+       * storage builds the plaintext key is the canonical format, not a
+       * legacy artifact requiring migration. */
       *migrated_plaintext_tokens = true;
+#endif
     }
   }
   /* TOKEN_LOAD_FAILED: same reasoning as access token above — no plaintext fallback. */

@@ -1,4 +1,3 @@
-#pragma once
 /*
  * token_crypto.h — AES-256-GCM encryption for persisted PSN OAuth tokens.
  *
@@ -13,6 +12,7 @@
  *
  * GitHub issue #81.
  */
+#pragma once
 
 #include <stdint.h>
 

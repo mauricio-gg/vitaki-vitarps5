@@ -407,12 +407,12 @@ void run_token_crypto_tests(void) {
     test_wrong_kind();
     test_malformed_base64();
     test_truncated_blob();
-    test_empty_string_blob();
-    test_max_plaintext_boundary();
     test_empty_plaintext();
     test_null_inputs();
     test_nonce_uniqueness();
     test_tampered_version_byte();
+    test_empty_string_blob();
+    test_max_plaintext_boundary();
 
     puts("  token_crypto_tests: all passed");
 }

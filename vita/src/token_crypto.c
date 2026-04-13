@@ -217,8 +217,10 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
 
   /* Derive the encryption key. */
   uint8_t key[TOKEN_CRYPTO_KEY_LEN];
-  if (!derive_key(kind, key))
+  if (!derive_key(kind, key)) {
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
+  }
 
   /* Generate a random 12-byte nonce. */
   uint8_t nonce[TOKEN_CRYPTO_NONCE_LEN];
@@ -350,6 +352,7 @@ char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
   /* Derive the decryption key. */
   uint8_t key[TOKEN_CRYPTO_KEY_LEN];
   if (!derive_key(kind, key)) {
+    OPENSSL_cleanse(key, sizeof(key));
     free(raw);
     return NULL;
   }
