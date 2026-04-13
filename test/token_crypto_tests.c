@@ -6,15 +6,20 @@
  * only when VITARPS5_TEST_BUILD is defined).
  *
  * Test coverage:
- *  1. Round-trip: encrypt then decrypt returns the original plaintext.
- *  2. Tampered ciphertext byte → decrypt returns NULL.
- *  3. Tampered tag byte → decrypt returns NULL.
- *  4. Tampered nonce byte → decrypt returns NULL (different key stream → tag fail).
- *  5. Wrong kind ("access" encrypted, "refresh" decrypted) → NULL (AAD mismatch).
- *  6. Malformed base64 input → NULL.
- *  7. Truncated blob (too short) → NULL.
- *  8. Empty / NULL plaintext input → NULL (no blob produced).
- *  9. NULL kind → NULL.
+ *  1.  Round-trip (access): encrypt then decrypt returns the original plaintext.
+ *  2.  Round-trip (refresh): same for the "refresh" kind.
+ *  3.  Tampered ciphertext byte → decrypt returns NULL.
+ *  4.  Tampered tag byte → decrypt returns NULL.
+ *  5.  Tampered nonce byte → decrypt returns NULL (different key stream → tag fail).
+ *  6.  Wrong kind ("access" encrypted, "refresh" decrypted) → NULL (AAD mismatch).
+ *  7.  Malformed base64 input → NULL.
+ *  8.  Truncated blob (too short) → NULL.
+ *  9.  Empty / NULL plaintext input → NULL (no blob produced).
+ *  10. NULL kind → NULL.
+ *  11. Nonce uniqueness: two encryptions of the same plaintext produce different
+ *      blobs, confirming RAND_bytes generates a fresh nonce each time.
+ *  12. Tampered version byte: flipping byte[0] to an unknown version → NULL,
+ *      confirming the explicit version check in decrypt.
  *
  * GitHub issue #81.
  */
@@ -267,6 +272,59 @@ static void test_null_inputs(void) {
     puts("  [PASS] test_null_inputs");
 }
 
+/*
+ * test_nonce_uniqueness — Encrypt the same plaintext+kind twice and verify that
+ * both calls succeed but produce distinct base64 blobs.  Because AES-256-GCM
+ * uses a randomly generated 12-byte nonce, identical inputs must produce
+ * different ciphertext+tag bytes with overwhelming probability.  This confirms
+ * that RAND_bytes is exercised on every call.
+ */
+static void test_nonce_uniqueness(void) {
+    const char *plaintext = "nonce_uniqueness_test_token";
+    char *blob1 = token_crypto_encrypt(plaintext, "access");
+    char *blob2 = token_crypto_encrypt(plaintext, "access");
+
+    assert(blob1 != NULL);
+    assert(blob2 != NULL);
+    /* Two independent encryptions must yield distinct blobs. */
+    assert(strcmp(blob1, blob2) != 0);
+
+    free(blob1);
+    free(blob2);
+    puts("  [PASS] test_nonce_uniqueness");
+}
+
+/*
+ * test_tampered_version_byte — Encrypt a token, base64-decode the blob, flip
+ * byte[0] (the version field) to 0x02, base64-re-encode, then assert that
+ * token_crypto_decrypt returns NULL.  This exercises the explicit
+ * `version != TOKEN_CRYPTO_VERSION` guard at the top of the decrypt path.
+ *
+ * Blob layout: version(1) || nonce(12) || ciphertext(N) || tag(16).
+ */
+static void test_tampered_version_byte(void) {
+    const char *plaintext = "version_check_test_token";
+    char *blob = token_crypto_encrypt(plaintext, "access");
+    assert(blob != NULL);
+
+    size_t raw_len = 0;
+    uint8_t *raw = b64_decode_blob(blob, &raw_len);
+    assert(raw != NULL);
+    free(blob);
+
+    /* Overwrite the version byte (offset 0) with an unknown version value. */
+    raw[0] = 0x02;
+
+    char *tampered_b64 = b64_encode_blob(raw, raw_len);
+    assert(tampered_b64 != NULL);
+    free(raw);
+
+    char *result = token_crypto_decrypt(tampered_b64, "access");
+    assert(result == NULL);
+    free(tampered_b64);
+    puts("  [PASS] test_tampered_version_byte");
+}
+
 /* ------------------------------------------------------------------ */
 /* Entry point called by the main test runner                           */
 /* ------------------------------------------------------------------ */
@@ -287,6 +345,8 @@ void run_token_crypto_tests(void) {
     test_truncated_blob();
     test_empty_plaintext();
     test_null_inputs();
+    test_nonce_uniqueness();
+    test_tampered_version_byte();
 
     puts("  token_crypto_tests: all passed");
 }

@@ -19,9 +19,12 @@
 
 #include "token_crypto.h"
 
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+
+#include <assert.h>
 
 #include <chiaki/base64.h>
 
@@ -112,8 +115,10 @@ static int get_device_id(uint8_t buf[16]) {
  */
 static int derive_key(const char *kind, uint8_t key_out[TOKEN_CRYPTO_KEY_LEN]) {
   uint8_t device_id[16];
-  if (!get_device_id(device_id))
+  if (!get_device_id(device_id)) {
+    OPENSSL_cleanse(device_id, sizeof(device_id));
     return 0;
+  }
 
   /*
    * Use EVP_MD_CTX_create / EVP_MD_CTX_destroy (OpenSSL 1.0.x naming) for
@@ -143,7 +148,7 @@ static int derive_key(const char *kind, uint8_t key_out[TOKEN_CRYPTO_KEY_LEN]) {
 cleanup:
   EVP_MD_CTX_destroy(md_ctx);
   /* Scrub device ID from stack. */
-  memset(device_id, 0, sizeof(device_id));
+  OPENSSL_cleanse(device_id, sizeof(device_id));
   return ok;
 }
 
@@ -216,7 +221,7 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
   /* Generate a random 12-byte nonce. */
   uint8_t nonce[TOKEN_CRYPTO_NONCE_LEN];
   if (RAND_bytes(nonce, TOKEN_CRYPTO_NONCE_LEN) != 1) {
-    memset(key, 0, sizeof(key));
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
   }
 
@@ -227,7 +232,7 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
   size_t blob_len = 1 + TOKEN_CRYPTO_NONCE_LEN + pt_len + TOKEN_CRYPTO_TAG_LEN;
   uint8_t *blob = malloc(blob_len);
   if (!blob) {
-    memset(key, 0, sizeof(key));
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
   }
 
@@ -243,7 +248,7 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
   uint8_t *aad = malloc(aad_len);
   if (!aad) {
     free(blob);
-    memset(key, 0, sizeof(key));
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
   }
   aad[0] = TOKEN_CRYPTO_VERSION;
@@ -252,33 +257,40 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
   /* AES-256-GCM encryption via EVP. */
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
   char *result = NULL;
+  int out_len = 0;
 
   if (!ctx)
     goto done;
 
-  int ok = 1;
-  int out_len = 0;
-
-  ok &= EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
-  ok &= EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce);
+  if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1)
+    goto done;
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL) != 1)
+    goto done;
+  if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) != 1)
+    goto done;
   /* Feed AAD — no ciphertext output at this stage. */
-  ok &= EVP_EncryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
+  if (EVP_EncryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len) != 1)
+    goto done;
   /* Encrypt the plaintext. */
-  ok &= EVP_EncryptUpdate(ctx, ct_dst, &out_len, (const uint8_t *)plaintext, (int)pt_len);
-  ok &= EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len);
+  if (EVP_EncryptUpdate(ctx, ct_dst, &out_len, (const uint8_t *)plaintext, (int)pt_len) != 1)
+    goto done;
+  /* GCM is a stream mode: ciphertext length always equals plaintext length.
+   * Final produces zero additional bytes, so tag_dst = ct_dst + pt_len is correct. */
+  assert(out_len == (int)pt_len);
+  if (EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len) != 1)
+    goto done;
   /* Extract the 16-byte GCM tag. */
-  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, tag_dst);
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, tag_dst) != 1)
+    goto done;
 
-  if (ok)
-    result = b64_encode_alloc(blob, blob_len);
+  result = b64_encode_alloc(blob, blob_len);
 
 done:
   if (ctx)
     EVP_CIPHER_CTX_free(ctx);
   free(aad);
   free(blob);
-  memset(key, 0, sizeof(key));
+  OPENSSL_cleanse(key, sizeof(key));
   return result;
 }
 
@@ -340,7 +352,7 @@ char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
   uint8_t *aad = malloc(aad_len);
   if (!aad) {
     free(raw);
-    memset(key, 0, sizeof(key));
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
   }
   aad[0] = version;
@@ -351,32 +363,36 @@ char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
   if (!plaintext) {
     free(aad);
     free(raw);
-    memset(key, 0, sizeof(key));
+    OPENSSL_cleanse(key, sizeof(key));
     return NULL;
   }
 
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
   char *result = NULL;
+  int out_len = 0;
 
   if (!ctx)
     goto done;
 
-  int ok = 1;
-  int out_len = 0;
-
-  ok &= EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL);
-  ok &= EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce);
+  if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1)
+    goto done;
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, TOKEN_CRYPTO_NONCE_LEN, NULL) != 1)
+    goto done;
+  if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) != 1)
+    goto done;
   /* Feed AAD. */
-  ok &= EVP_DecryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len);
+  if (EVP_DecryptUpdate(ctx, NULL, &out_len, aad, (int)aad_len) != 1)
+    goto done;
   /* Decrypt ciphertext. */
-  ok &= EVP_DecryptUpdate(ctx, (uint8_t *)plaintext, &out_len, ct, (int)ct_len);
+  if (EVP_DecryptUpdate(ctx, (uint8_t *)plaintext, &out_len, ct, (int)ct_len) != 1)
+    goto done;
 
   /* Set the expected tag before calling Final. */
-  ok &= EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, tag);
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TOKEN_CRYPTO_TAG_LEN, tag) != 1)
+    goto done;
 
   /* Final verifies the tag — returns <= 0 if the tag does not match. */
-  if (!ok || EVP_DecryptFinal_ex(ctx, (uint8_t *)plaintext + out_len, &out_len) <= 0) {
+  if (EVP_DecryptFinal_ex(ctx, (uint8_t *)plaintext + out_len, &out_len) <= 0) {
     /* Tag mismatch: do not expose partial plaintext. */
     memset(plaintext, 0, ct_len + 1);
     goto done;
@@ -392,6 +408,7 @@ done:
   free(plaintext);
   free(aad);
   free(raw);
-  memset(key, 0, sizeof(key));
+  OPENSSL_cleanse(key, sizeof(key));
+  OPENSSL_cleanse(tag, sizeof(tag));
   return result;
 }
