@@ -111,6 +111,8 @@ static bool s_logout_btn_visible = false;  ///< false while device-login flow is
 
 // Anchor offsets for connection-card sections — keep stream and PSN rows at
 // predictable Y positions regardless of how many Network rows are rendered.
+// If Network rows are added (e.g. NAT type, local IP), raise these anchors
+// accordingly — the clamp is a safety net, not a layout engine.
 #define CONN_CARD_STREAM_ANCHOR_Y 130  ///< Minimum cy offset for the Stream section header.
 #define CONN_CARD_PSN_ANCHOR_Y 187     ///< Minimum cy offset for the PSN section header.
 
@@ -1328,66 +1330,74 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
   cy += sec_line_h; /* cy ≈ y+148 */
 
-  if (is_streaming && context.config.show_latency) {
-    /* While streaming with latency overlay: show live metrics */
+  if (is_streaming) {
+    if (context.config.show_latency) {
+      /* While streaming with latency overlay: show live metrics */
 
-    char latency_text[32] = "N/A";
-    uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
-    if (context.stream.session.rtt_us > 0) {
-      uint32_t latency_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
-      snprintf(latency_text, sizeof(latency_text), "%u ms", latency_ms);
-      if (latency_ms < 30) {
-        latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);
-      } else if (latency_ms < 60) {
-        latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
-      } else {
-        latency_color = RGBA8(0xF4, 0x43, 0x36, 255);
+      char latency_text[32] = "N/A";
+      uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
+      if (context.stream.session.rtt_us > 0) {
+        uint32_t latency_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
+        snprintf(latency_text, sizeof(latency_text), "%u ms", latency_ms);
+        if (latency_ms < 30) {
+          latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+        } else if (latency_ms < 60) {
+          latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+        } else {
+          latency_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
       }
-    }
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Latency");
-    vita2d_font_draw_text(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
-    cy += body_line_h;
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Latency");
+      vita2d_font_draw_text(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
+      cy += body_line_h;
 
-    char bitrate_text[32] = "N/A";
-    uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
-    bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
-                          (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
-    if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
-      snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
-               context.stream.measured_bitrate_mbps);
-      if (context.stream.measured_bitrate_mbps <= 2.5f) {
-        bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);
-      } else if (context.stream.measured_bitrate_mbps <= 3.5f) {
-        bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
-      } else {
-        bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);
+      char bitrate_text[32] = "N/A";
+      uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
+      bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
+                            (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
+      if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
+        snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
+                 context.stream.measured_bitrate_mbps);
+        if (context.stream.measured_bitrate_mbps <= 2.5f) {
+          bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+        } else if (context.stream.measured_bitrate_mbps <= 3.5f) {
+          bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+        } else {
+          bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
       }
-    }
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Bitrate");
-    vita2d_font_draw_text(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
-    cy += body_line_h;
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Bitrate");
+      vita2d_font_draw_text(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
+      cy += body_line_h;
 
-    char loss_text[48] = "Stable";
-    uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
-    bool loss_recent =
-        context.stream.loss_alert_until_us != 0 && now_us < context.stream.loss_alert_until_us;
-    if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
-      snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
-               context.stream.takion_drop_events, context.stream.total_frames_lost);
-      if (loss_recent) {
-        loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
+      char loss_text[48] = "Stable";
+      uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
+      bool loss_recent =
+          context.stream.loss_alert_until_us != 0 && now_us < context.stream.loss_alert_until_us;
+      if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
+        snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
+                 context.stream.takion_drop_events, context.stream.total_frames_lost);
+        if (loss_recent) {
+          loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
       }
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Packet Loss");
+      vita2d_font_draw_text(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
+      cy += body_line_h;
+    } else {
+      /* Streaming with latency overlay disabled: single status row. */
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Status");
+      vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, "Streaming");
+      cy += body_line_h;
     }
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Packet Loss");
-    vita2d_font_draw_text(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
-    cy += body_line_h;
   } else {
     /* Idle: Status + Quality only */
     const char *status_text;
-    if (is_streaming) {
-      status_text = "Streaming";
-    } else if (has_host && !has_registered) {
+    if (has_host && !has_registered) {
       status_text = "Ready / Not Registered";
     } else if (has_host) {
       status_text = "Ready";
@@ -1627,6 +1637,17 @@ UIScreenType ui_screen_draw_profile(void) {
   /* s_logout_confirm_until_us and s_logout_psn_valid are file-scope statics
    * updated by draw_connection_info_card() earlier this frame. */
 
+  /* Input fires after draw in the same frame; sample a fresh monotonic time
+     here so confirm-window math reflects the input event, not the draw tick. */
+  uint64_t now_us_cross = sceKernelGetProcessTimeWide();
+
+  /* Short-circuit: if the 3-second confirm window has elapsed without a second
+   * press, zero the deadline now so the variable is semantically "inactive"
+   * for the rest of this input pass. */
+  if (s_logout_confirm_until_us != 0 && now_us_cross >= s_logout_confirm_until_us) {
+    s_logout_confirm_until_us = 0;
+  }
+
   /* If the button has become disabled while focus still lingers on it (e.g.
    * token expired, PSN mode turned off), snap focus back and clear the
    * confirm window so the stale arm can't fire. */
@@ -1680,8 +1701,9 @@ UIScreenType ui_screen_draw_profile(void) {
              profile_state.current_section == PROFILE_SECTION_CONNECTION) {
     bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
     if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN && btn_enabled) {
-      /* Log out button: two-press confirm to guard against accidental logout. */
-      uint64_t now_us_cross = sceKernelGetProcessTimeWide();
+      /* Log out button: two-press confirm to guard against accidental logout.
+       * now_us_cross was sampled (and the window short-circuited if expired)
+       * at the top of the input block. */
       if (s_logout_confirm_until_us != 0 && now_us_cross < s_logout_confirm_until_us) {
         /* Second press within the confirm window — execute logout. */
         execute_psn_logout();
