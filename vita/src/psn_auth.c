@@ -606,8 +606,7 @@ static bool json_decode_unicode_escape(const char **pp, unsigned long *out_cp) {
     if (lo < 0xDC00u || lo > 0xDFFFu)
       return false; /* second escape is not a valid low surrogate */
     /* RFC 2781 surrogate-pair reassembly → supplementary codepoint */
-    *out_cp = 0x10000UL + (((unsigned long)(hi - 0xD800u)) << 10)
-              + (unsigned long)(lo - 0xDC00u);
+    *out_cp = 0x10000UL + (((unsigned long)(hi - 0xD800u)) << 10) + (unsigned long)(lo - 0xDC00u);
     return true;
   }
 
