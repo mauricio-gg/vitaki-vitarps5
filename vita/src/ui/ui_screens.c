@@ -112,7 +112,7 @@ static bool s_logout_btn_visible = false;  ///< false while device-login flow is
 // Anchor offsets for connection-card sections — keep stream and PSN rows at
 // predictable Y positions regardless of how many Network rows are rendered.
 #define CONN_CARD_STREAM_ANCHOR_Y 130  ///< Minimum cy offset for the Stream section header.
-#define CONN_CARD_PSN_ANCHOR_Y    187  ///< Minimum cy offset for the PSN section header.
+#define CONN_CARD_PSN_ANCHOR_Y 187     ///< Minimum cy offset for the PSN section header.
 
 // ============================================================================
 // Forward declarations for helper functions
