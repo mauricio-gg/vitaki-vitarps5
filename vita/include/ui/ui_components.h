@@ -113,9 +113,8 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
  * @param label   Null-terminated label string, centered horizontally.
  * @param selected true if this button currently has focus/selection.
  * @param enabled  true if the button is interactive; false renders it greyed out.
- * @return true if the button was rendered as enabled/interactive.
  */
-bool ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
+void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
                          bool enabled);
 
 // ============================================================================

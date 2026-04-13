@@ -271,7 +271,7 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
  *   enabled+unselected → RGBA8(0x50,0x70,0xA0,255)
  *   disabled          → RGBA8(0x40,0x44,0x4A,255)
  */
-bool ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
+void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
                          bool enabled) {
   uint32_t bg_color;
   uint32_t text_color;
@@ -291,10 +291,8 @@ bool ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
 
   int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
   int text_x = x + (w - text_w) / 2;
-  int text_y = y + h / 2 + 5;
+  int text_y = y + h / 2 + 5; /* font baseline offset for FONT_SIZE_SMALL */
   vita2d_font_draw_text(font, text_x, text_y, text_color, FONT_SIZE_SMALL, label);
-
-  return enabled;
 }
 
 // ============================================================================

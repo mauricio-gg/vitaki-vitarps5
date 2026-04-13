@@ -94,6 +94,15 @@ static bool s_logout_psn_valid = false;         ///< psn_auth_token_is_valid() c
 static bool s_logout_touch_down_prev = false;   ///< True while a finger is down this frame.
 static bool s_logout_touch_hit = false;         ///< Down-edge landed inside the button rect.
 
+/* Absolute screen-space button rect, populated each frame by
+ * draw_connection_info_card().  The touch hit-test reads these instead of
+ * reconstructing from outer locals, so the two can never silently drift. */
+static int s_logout_btn_abs_x = 0;    ///< Button left edge in screen pixels.
+static int s_logout_btn_abs_y = 0;    ///< Button top edge in screen pixels.
+static int s_logout_btn_abs_w = 0;    ///< Button width in screen pixels.
+static int s_logout_btn_abs_h = 0;    ///< Button height in screen pixels.
+static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
+
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
 #define LOGOUT_BTN_W 80              ///< Button pixel width.
 #define LOGOUT_BTN_H 22              ///< Button pixel height.
@@ -1122,6 +1131,10 @@ typedef struct {
 
 static ProfileState profile_state = {0};
 
+/// True once per screen-entry; cleared whenever the screen is exited so the
+/// next entry performs a fresh reset of profile_state and confirm state.
+static bool profile_screen_initialized = false;
+
 static VitaChiakiHost *profile_get_reference_host(void) {
   if (context.active_host) {
     return context.active_host;
@@ -1206,6 +1219,10 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
 /// Bottom strip holds the focusable "Log out" button and a dynamic hint line.
 /// Focus state is read from profile_state.connection_focus (ConnFocus enum).
 static void draw_connection_info_card(int x, int y, int width, int height, bool selected) {
+  /* Reset button visibility each frame; the bottom-strip block below sets it
+   * to true only when the card is selected and no device-login is active. */
+  s_logout_btn_visible = false;
+
   uint32_t card_color = UI_COLOR_CARD_BG;
   ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
 
@@ -1276,9 +1293,10 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   /* ── Section: Stream ────────────────────────────────────────────────── */
-  /* Ensure we land at the planned y+130 anchor regardless of IP row */
-  if (cy < y + 130) {
-    cy = y + 130;
+  /* Ensure we land at the planned CONN_CARD_STREAM_ANCHOR_Y regardless of IP row */
+  static const int CONN_CARD_STREAM_ANCHOR_Y = 130;
+  if (cy < y + CONN_CARD_STREAM_ANCHOR_Y) {
+    cy = y + CONN_CARD_STREAM_ANCHOR_Y;
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
   cy += sec_line_h; /* cy ≈ y+148 */
@@ -1362,9 +1380,10 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   /* ── Section: PSN ───────────────────────────────────────────────────── */
-  /* Ensure PSN section lands at planned y+187 */
-  if (cy < y + 187) {
-    cy = y + 187;
+  /* Ensure PSN section lands at planned CONN_CARD_PSN_ANCHOR_Y */
+  static const int CONN_CARD_PSN_ANCHOR_Y = 187;
+  if (cy < y + CONN_CARD_PSN_ANCHOR_Y) {
+    cy = y + CONN_CARD_PSN_ANCHOR_Y;
   }
   vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
   cy += sec_line_h; /* cy ≈ y+205 */
@@ -1395,6 +1414,14 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     bool btn_enabled = psn_auth_enabled() && psn_valid;
     bool btn_focused = (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN);
     bool device_login = psn_auth_device_login_active();
+
+    /* Publish absolute button rect so the touch hit-test never reconstructs
+     * it from independent outer-function locals that could drift. */
+    s_logout_btn_abs_x = content_x + LOGOUT_BTN_LEFT_PAD;
+    s_logout_btn_abs_y = strip_y;
+    s_logout_btn_abs_w = LOGOUT_BTN_W;
+    s_logout_btn_abs_h = LOGOUT_BTN_H;
+    s_logout_btn_visible = !device_login;
 
     /* Hide the button entirely while a device-login flow is active; the
      * bottom strip carries only the action hint in that state. */
@@ -1488,9 +1515,21 @@ UIScreenType ui_screen_draw_profile(void) {
   ui_particles_update();
   ui_particles_render();
 
+  /* Reset focus and confirm state on screen-enter so a previous visit cannot
+   * leave CONN_FOCUS_LOGOUT_BTN or an armed confirm window across Circle-back
+   * + re-entry.  The flag is cleared whenever the screen returns a non-PROFILE
+   * next_screen value at the bottom of this function. */
+  if (!profile_screen_initialized) {
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+    profile_screen_initialized = true;
+  }
+
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_PROFILE, &nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_PROFILE, &nav_screen, true)) {
+    profile_screen_initialized = false; /* will re-init on next entry */
     return nav_screen;
+  }
 
   // Main content area (nav is overlay - content centered on full screen)
   int content_w = 800;                           // Fixed width for content
@@ -1628,9 +1667,10 @@ UIScreenType ui_screen_draw_profile(void) {
         profile_state.connection_focus = CONN_FOCUS_CARD;
         s_logout_confirm_until_us = 0;
       } else {
-        /* First press — arm the confirm window. */
+        /* First press — arm the confirm window.  The strip hint text already
+         * transitions to "Press X again to confirm log out" while armed, so
+         * no popup is needed here. */
         s_logout_confirm_until_us = now_us_cross + 3000000ULL;
-        trigger_hints_popup("Press X again to confirm log out");
       }
     } else {
       /* Card body focus (or disabled button): existing login/refresh flow. */
@@ -1690,8 +1730,9 @@ UIScreenType ui_screen_draw_profile(void) {
    *   Phase B — hold: do nothing; waiting for release.
    *   Phase C — up-edge: fire the confirm flow only if Phase A recorded a hit.
    *
-   * Uses LOGOUT_BTN_* constants shared with draw_connection_info_card() so
-   * the hit-box can never silently drift from the visual.
+   * Reads s_logout_btn_abs_* published by draw_connection_info_card() this
+   * frame so the hit-box is always identical to the visual — no independent
+   * local reconstruction that could silently drift.
    * s_logout_psn_valid is the cached per-frame token check from the draw call.
    */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
@@ -1700,17 +1741,19 @@ UIScreenType ui_screen_draw_profile(void) {
     bool touch_down_now = (touch_profile.reportNum > 0);
 
     if (touch_down_now && !s_logout_touch_down_prev) {
-      /* Phase A: new finger-down this frame. */
+      /* Phase A: new finger-down this frame.
+       * Use the absolute rect published by draw_connection_info_card() this
+       * frame so the hit-box cannot silently drift from the visual. */
       float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
       float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
-      int card_x = content_x + card_w + card_spacing;
-      int btn_x = card_x + LOGOUT_BTN_LEFT_PAD;
-      int btn_y = content_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET;
       bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
-      bool in_btn = (tx >= (float)btn_x && tx <= (float)(btn_x + LOGOUT_BTN_W) &&
-                     ty >= (float)btn_y && ty <= (float)(btn_y + LOGOUT_BTN_H));
+      bool in_btn = s_logout_btn_visible &&
+                    tx >= (float)s_logout_btn_abs_x &&
+                    tx <= (float)(s_logout_btn_abs_x + s_logout_btn_abs_w) &&
+                    ty >= (float)s_logout_btn_abs_y &&
+                    ty <= (float)(s_logout_btn_abs_y + s_logout_btn_abs_h);
 
-      s_logout_touch_hit = in_btn && btn_enabled && !psn_auth_device_login_active();
+      s_logout_touch_hit = in_btn && btn_enabled;
       if (s_logout_touch_hit) {
         /* Instant visual feedback: move focus to the button on contact. */
         profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
@@ -1751,6 +1794,11 @@ UIScreenType ui_screen_draw_profile(void) {
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
     next_screen = UI_SCREEN_TYPE_MAIN;
+  }
+
+  /* Clear the init flag on exit so the next entry performs a clean reset. */
+  if (next_screen != UI_SCREEN_TYPE_PROFILE) {
+    profile_screen_initialized = false;
   }
 
   return next_screen;
