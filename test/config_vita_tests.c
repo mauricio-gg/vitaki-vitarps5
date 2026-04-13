@@ -183,23 +183,6 @@ void controller_map_storage_set_defaults(ControllerMapStorage *storage) {
   memset(storage, 0, sizeof(*storage));
 }
 
-ChiakiErrorCode chiaki_base64_encode(const uint8_t *in, size_t in_size, char *out, size_t out_size) {
-  (void)in;
-  (void)in_size;
-  if (!out || out_size == 0)
-    return CHIAKI_ERR_BUF_TOO_SMALL;
-  out[0] = '\0';
-  return CHIAKI_ERR_SUCCESS;
-}
-
-ChiakiErrorCode chiaki_base64_decode(const char *in, size_t in_size, uint8_t *out, size_t *out_size) {
-  (void)in;
-  (void)in_size;
-  if (out && out_size)
-    memset(out, 0, *out_size);
-  return CHIAKI_ERR_SUCCESS;
-}
-
 int sceRegMgrGetKeyInt(const char *category, const char *name, int *out_value) {
   (void)category;
   (void)name;
@@ -470,6 +453,7 @@ static void test_registered_hosts_require_required_fields(void) {
 }
 
 void run_packet_path_tests(void);
+void run_token_crypto_tests(void);
 
 int main(void) {
   test_legacy_section_migration();
@@ -481,6 +465,7 @@ int main(void) {
   test_settings_streaming_item_invariants();
   test_registered_hosts_require_required_fields();
   run_packet_path_tests();
+  run_token_crypto_tests();
   reset_config_file();
   puts("vitarps5 config tests passed");
   return 0;

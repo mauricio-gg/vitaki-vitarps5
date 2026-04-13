@@ -9,6 +9,7 @@
 #include "config_hosts.h"
 #include "context.h"
 #include "host.h"
+#include "token_crypto.h"
 #include "util.h"
 
 typedef struct bool_setting_spec_t {
@@ -198,7 +199,44 @@ static bool config_validate_general_section(toml_table_t *parsed) {
   return true;
 }
 
-static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) {
+/*
+ * load_token_from_encrypted — Decrypt and store one token from a TOML key.
+ *
+ * Returns true if the encrypted key was present and decrypted successfully.
+ * Returns false if the key is absent or decryption fails; in the latter case
+ * the output field is cleared and a generic warning is logged (no token data).
+ */
+static bool load_token_from_encrypted(toml_table_t *settings, const char *toml_key,
+                                      char **out_field, const char *kind) {
+  toml_datum_t datum = toml_string_in(settings, toml_key);
+  if (!datum.ok)
+    return false;
+
+  char *decrypted = token_crypto_decrypt(datum.u.s, kind);
+  free(datum.u.s);
+
+  if (!decrypted) {
+    CHIAKI_LOGW(&(context.log), "PSN token blob decrypt failed; clearing (re-auth required)");
+    free(*out_field);
+    *out_field = NULL;
+    return false;
+  }
+
+  free(*out_field);
+  *out_field = decrypted;
+  return true;
+}
+
+/*
+ * parse_basic_settings — Load scalar settings and PSN OAuth tokens from TOML.
+ *
+ * @param migrated_plaintext_tokens  Set to true if at least one legacy
+ *   plaintext token key was consumed (no _enc key was present), signalling that
+ *   the caller should re-serialize the config to persist the encrypted form and
+ *   drop the legacy plaintext keys from disk.
+ */
+static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
+                                  bool *migrated_plaintext_tokens) {
   toml_datum_t datum;
   if (!settings)
     return;
@@ -210,13 +248,42 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings) 
   if (datum.ok)
     cfg->psn_account_id = datum.u.s;
 
-  datum = toml_string_in(settings, "psn_oauth_access_token");
-  if (datum.ok)
-    cfg->psn_oauth_access_token = datum.u.s;
+  /*
+   * Token loading strategy (per design in #81):
+   *  1. If encrypted keys (*_enc) are present, decrypt them and use the result.
+   *     A failed decryption clears the field and forces re-authentication.
+   *  2. If encrypted keys are absent but legacy plaintext keys exist, load the
+   *     plaintext into memory.  The next config_serialize() will migrate these
+   *     to encrypted form and omit the plaintext keys from disk.
+   *  3. If neither is present, the fields remain NULL (user must authenticate).
+   *
+   * Both encrypted and plaintext may coexist during migration — encrypted wins.
+   */
+  bool access_loaded_enc =
+      load_token_from_encrypted(settings, "psn_oauth_access_token_enc",
+                                &cfg->psn_oauth_access_token, "access");
+  bool refresh_loaded_enc =
+      load_token_from_encrypted(settings, "psn_oauth_refresh_token_enc",
+                                &cfg->psn_oauth_refresh_token, "refresh");
 
-  datum = toml_string_in(settings, "psn_oauth_refresh_token");
-  if (datum.ok)
-    cfg->psn_oauth_refresh_token = datum.u.s;
+  if (!access_loaded_enc) {
+    /* Fall back to legacy plaintext access token for migration. */
+    datum = toml_string_in(settings, "psn_oauth_access_token");
+    if (datum.ok) {
+      free(cfg->psn_oauth_access_token);
+      cfg->psn_oauth_access_token = datum.u.s;
+      *migrated_plaintext_tokens = true;
+    }
+  }
+  if (!refresh_loaded_enc) {
+    /* Fall back to legacy plaintext refresh token for migration. */
+    datum = toml_string_in(settings, "psn_oauth_refresh_token");
+    if (datum.ok) {
+      free(cfg->psn_oauth_refresh_token);
+      cfg->psn_oauth_refresh_token = datum.u.s;
+      *migrated_plaintext_tokens = true;
+    }
+  }
 
   datum = toml_int_in(settings, "psn_oauth_expires_at_unix");
   if (datum.ok && datum.u.i > 0)
@@ -300,11 +367,15 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
 
 static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
                                               bool migrated_root_settings,
-                                              bool migrated_resolution_policy) {
-  if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy))
+                                              bool migrated_resolution_policy,
+                                              bool migrated_plaintext_tokens) {
+  if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy ||
+        migrated_plaintext_tokens))
     return;
 
-  if (migrated_root_settings) {
+  if (migrated_plaintext_tokens) {
+    LOGD("Migrating legacy plaintext PSN tokens to encrypted storage; rewriting %s", CFG_FILENAME);
+  } else if (migrated_root_settings) {
     LOGD("Recovered settings via root-level fallback and rewriting %s", CFG_FILENAME);
   } else if (migrated_resolution_policy) {
     LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
@@ -337,9 +408,10 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool migrated_legacy_settings = false;
   bool migrated_root_settings = false;
   bool migrated_resolution_policy = false;
+  bool migrated_plaintext_tokens = false;
   toml_table_t *settings = toml_table_in(parsed, "settings");
 
-  parse_basic_settings(cfg, settings);
+  parse_basic_settings(cfg, settings, &migrated_plaintext_tokens);
   parse_resolution_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                   &migrated_root_settings, &migrated_resolution_policy);
   parse_fps_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
@@ -361,7 +433,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   config_parse_manual_hosts(cfg, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
-                                    migrated_resolution_policy);
+                                    migrated_resolution_policy, migrated_plaintext_tokens);
 
 config_done:
   LOGD(
@@ -422,24 +494,67 @@ bool config_serialize(VitaChiakiConfig *cfg) {
   if (cfg->psn_account_id) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
+
 #ifdef VITARPS5_PLAINTEXT_TOKEN_STORAGE
+  /*
+   * Debug escape hatch: VITARPS5_PLAINTEXT_TOKEN_STORAGE=1 writes legacy
+   * plaintext keys INSTEAD OF encrypted ones.  Never set this in production.
+   * Encrypted keys are intentionally omitted here so the debug output is clean.
+   */
   if (cfg->psn_oauth_access_token) {
     fprintf(fp, "psn_oauth_access_token = \"%s\"\n", cfg->psn_oauth_access_token);
   }
   if (cfg->psn_oauth_refresh_token) {
     fprintf(fp, "psn_oauth_refresh_token = \"%s\"\n", cfg->psn_oauth_refresh_token);
   }
-  /* Persist expiry only alongside its tokens; without tokens a non-zero expiry
-   * on cold-start produces a broken auth state (stale expiry, no credentials).
-   * Encrypted storage will subsume all three fields — see #81. */
+  /* Persist expiry alongside plaintext tokens. */
   if (cfg->psn_oauth_expires_at_unix > 0) {
     fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
             (unsigned long long)cfg->psn_oauth_expires_at_unix);
   }
 #else
-  /* Plaintext token storage disabled. Enable the VITARPS5_PLAINTEXT_TOKEN_STORAGE
-   * CMake option only for local debugging — see #81 for encrypted storage work. */
-#endif
+  /*
+   * Production path: persist tokens encrypted-at-rest.
+   *
+   * Only write encrypted keys when a non-empty token is present.  If a field
+   * is NULL or empty (e.g. after logout), the corresponding *_enc key is
+   * omitted entirely so no stale ciphertext remains on disk.
+   *
+   * Expiry is non-sensitive and stored in plaintext alongside the tokens so
+   * the auth state can be evaluated without decryption.
+   */
+  bool tokens_persisted = false;
+
+  if (cfg->psn_oauth_access_token && cfg->psn_oauth_access_token[0] != '\0') {
+    char *enc = token_crypto_encrypt(cfg->psn_oauth_access_token, "access");
+    if (enc) {
+      fprintf(fp, "psn_oauth_access_token_enc = \"%s\"\n", enc);
+      free(enc);
+      tokens_persisted = true;
+    } else {
+      CHIAKI_LOGW(&(context.log),
+                  "PSN access token encryption failed; token not persisted this session");
+    }
+  }
+
+  if (cfg->psn_oauth_refresh_token && cfg->psn_oauth_refresh_token[0] != '\0') {
+    char *enc = token_crypto_encrypt(cfg->psn_oauth_refresh_token, "refresh");
+    if (enc) {
+      fprintf(fp, "psn_oauth_refresh_token_enc = \"%s\"\n", enc);
+      free(enc);
+    } else {
+      CHIAKI_LOGW(&(context.log),
+                  "PSN refresh token encryption failed; token not persisted this session");
+    }
+  }
+
+  /* Expiry is persisted only when at least one token was successfully written.
+   * A stale expiry with no ciphertext would produce a broken auth state. */
+  if (tokens_persisted && cfg->psn_oauth_expires_at_unix > 0) {
+    fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
+            (unsigned long long)cfg->psn_oauth_expires_at_unix);
+  }
+#endif /* VITARPS5_PLAINTEXT_TOKEN_STORAGE */
   if (cfg->psn_oauth_device_code_url) {
     fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n", cfg->psn_oauth_device_code_url);
   }
