@@ -97,6 +97,26 @@ void ui_draw_section_header(int x, int y, int width, const char *title);
  */
 void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
 
+/**
+ * Draw a rounded rectangular text button with selected/disabled states.
+ *
+ * Styling matches the existing ad-hoc "Add New" button pattern:
+ *   - Enabled + selected:   UI_COLOR_PRIMARY_BLUE background, white label.
+ *   - Enabled + unselected: RGBA8(0x50,0x70,0xA0,255) background, white label.
+ *   - Disabled:             RGBA8(0x40,0x44,0x4A,255) background, tertiary label.
+ *                           The `selected` parameter is ignored when disabled.
+ *
+ * @param x       X position of button top-left corner.
+ * @param y       Y position of button top-left corner.
+ * @param w       Button width in pixels.
+ * @param h       Button height in pixels.
+ * @param label   Null-terminated label string, centered horizontally.
+ * @param selected true if this button currently has focus/selection.
+ * @param enabled  true if the button is interactive; false renders it greyed out.
+ */
+void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
+                         bool enabled);
+
 // ============================================================================
 // Toggle Switch Animation
 // ============================================================================

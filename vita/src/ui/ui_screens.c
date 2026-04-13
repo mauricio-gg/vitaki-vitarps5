@@ -88,6 +88,34 @@ static bool profile_login_was_active = false;
 static char profile_login_qr_url[1536] = {0};
 static UIQrCode profile_login_qr = {0};
 
+// Profile Connection-card Log out button state (shared between draw and input)
+static uint64_t s_logout_confirm_until_us = 0;  ///< Confirm-window deadline (0 = inactive).
+static bool s_logout_psn_valid = false;         ///< psn_auth_token_is_valid() cached per frame.
+static bool s_logout_touch_down_prev = false;   ///< True while a finger is down this frame.
+static bool s_logout_touch_hit = false;         ///< Down-edge landed inside the button rect.
+
+/* Absolute screen-space button rect, populated each frame by
+ * draw_connection_info_card().  The touch hit-test reads these instead of
+ * reconstructing from outer locals, so the two can never silently drift. */
+static int s_logout_btn_abs_x = 0;         ///< Button left edge in screen pixels.
+static int s_logout_btn_abs_y = 0;         ///< Button top edge in screen pixels.
+static int s_logout_btn_abs_w = 0;         ///< Button width in screen pixels.
+static int s_logout_btn_abs_h = 0;         ///< Button height in screen pixels.
+static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
+
+// Geometry constants for the Log out button — shared between draw and touch hit-test.
+#define LOGOUT_BTN_W 80              ///< Button pixel width.
+#define LOGOUT_BTN_H 22              ///< Button pixel height.
+#define LOGOUT_BTN_BOTTOM_OFFSET 28  ///< strip_y = card_y + card_h - LOGOUT_BTN_BOTTOM_OFFSET.
+#define LOGOUT_BTN_LEFT_PAD 15       ///< btn_x = card_content_x + LOGOUT_BTN_LEFT_PAD.
+
+// Anchor offsets for connection-card sections — keep stream and PSN rows at
+// predictable Y positions regardless of how many Network rows are rendered.
+// If Network rows are added (e.g. NAT type, local IP), raise these anchors
+// accordingly — the clamp is a safety net, not a layout engine.
+#define CONN_CARD_STREAM_ANCHOR_Y 130  ///< Minimum cy offset for the Stream section header.
+#define CONN_CARD_PSN_ANCHOR_Y 187     ///< Minimum cy offset for the PSN section header.
+
 // ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
@@ -106,6 +134,7 @@ static void open_psn_auth_code_ime(void);
 static void poll_psn_auth_code_ime(uint64_t now_unix);
 static void draw_profile_login_assist_panel(int x, int y, int width, int height, bool selected);
 static void profile_refresh_login_qr(const char *url);
+static void execute_psn_logout(void);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -1096,12 +1125,41 @@ typedef enum {
   PROFILE_SECTION_COUNT = 2
 } ProfileSection;
 
+/// Intra-card focus positions on the Connection card.
+typedef enum {
+  CONN_FOCUS_CARD = 0,       ///< Focus is on the card body (default).
+  CONN_FOCUS_LOGOUT_BTN = 1  ///< Focus is on the Log out button in the bottom strip.
+} ConnFocus;
+
 typedef struct {
   ProfileSection current_section;
   bool editing_psn_id;
+  ConnFocus connection_focus;  ///< Reset to CONN_FOCUS_CARD on LEFT navigation or screen entry.
 } ProfileState;
 
 static ProfileState profile_state = {0};
+
+/// True once per screen-entry; cleared whenever the screen is exited so the
+/// next entry performs a fresh reset of profile_state and confirm state.
+static bool profile_screen_initialized = false;
+
+/**
+ * @brief Execute the confirmed PSN logout sequence.
+ *
+ * Clears tokens and cached remote hosts, persists config, refreshes the card
+ * cache, shows a confirmation popup, and resets logout UI state.  Both the
+ * CROSS-button and touch up-edge confirm paths call this; the logic must not
+ * be duplicated between them.
+ */
+static void execute_psn_logout(void) {
+  psn_auth_clear_tokens();
+  psn_remote_clear_cached_hosts();
+  persist_config_or_warn();
+  ui_cards_update_cache(true);
+  trigger_hints_popup("PSN login removed");
+  s_logout_confirm_until_us = 0;
+  profile_state.connection_focus = CONN_FOCUS_CARD;
+}
 
 static VitaChiakiHost *profile_get_reference_host(void) {
   if (context.active_host) {
@@ -1178,8 +1236,19 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
   }
 }
 
-/// Draw connection info card (right side) - two-column layout
+/// Draw connection info card (right side) - sectioned two-column layout.
+///
+/// Sections: Network / Stream / PSN.  Latency, Bitrate, and Packet Loss are
+/// only rendered while actively streaming so they don't crowd the idle card.
+/// The standalone "Remote Play" row is dropped; availability is folded into
+/// the Stream Status value ("Ready · Not Registered" when applicable).
+/// Bottom strip holds the focusable "Log out" button and a dynamic hint line.
+/// Focus state is read from profile_state.connection_focus (ConnFocus enum).
 static void draw_connection_info_card(int x, int y, int width, int height, bool selected) {
+  /* Reset button visibility each frame; the bottom-strip block below sets it
+   * to true only when the card is selected and no device-login is active. */
+  s_logout_btn_visible = false;
+
   uint32_t card_color = UI_COLOR_CARD_BG;
   ui_draw_card_with_shadow(x, y, width, height, 12, card_color);
 
@@ -1189,14 +1258,20 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
 
   int content_x = x + 15;
-  int content_y = y + 25;
-  int line_h = 20;
-  int col2_x = content_x + 120;  // Value column
+  int col2_x = content_x + 120; /* Value column */
+  int body_line_h = 18;         /* Compressed body line height */
+  int sec_line_h = 20;          /* Section header height */
 
-  // Title
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+  /* ── Title ──────────────────────────────────────────────────────────── */
+  int cy = y + 25;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
                         "Connection Information");
-  content_y += 30;
+  cy += 30; /* cy = y+55 */
+
+  /* ── Gather data ────────────────────────────────────────────────────── */
+  /* Capture now_us once so all time comparisons within this frame are
+   * consistent and the syscall is issued only once per draw call. */
+  uint64_t now_us = (uint64_t)sceKernelGetProcessTimeWide();
 
   VitaChiakiHost *host = profile_get_reference_host();
   bool has_host = (host != NULL);
@@ -1204,7 +1279,10 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   bool has_registered = has_host && host->registered_state;
   bool is_streaming = context.stream.is_streaming && context.stream.session_init;
 
-  // Network Type
+  /* ── Section: Network ───────────────────────────────────────────────── */
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
+  cy += sec_line_h; /* cy ≈ y+73 */
+
   const char *network_text = "Unavailable";
   if (has_discovery) {
     network_text = "Local Wi-Fi";
@@ -1213,13 +1291,11 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && (host->type & MANUALLY_ADDED)) {
     network_text = "Manual Host";
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                         "Network Type");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        network_text);
-  content_y += line_h;
+  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
+  cy += body_line_h; /* cy ≈ y+91 */
 
-  // Console Name
   const char *console_name = "Not selected";
   if (has_discovery && host->discovery_state->host_name) {
     console_name = host->discovery_state->host_name;
@@ -1228,108 +1304,132 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && host->hostname) {
     console_name = host->hostname;
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Console");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        console_name);
-  content_y += line_h;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
+  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
+  cy += body_line_h; /* cy ≈ y+109 */
 
-  // Console IP
-  const char *console_ip = "N/A";
+  /* Console IP — only when a meaningful address is available */
+  const char *console_ip = NULL;
   if (has_discovery && host->discovery_state->host_addr) {
     console_ip = host->discovery_state->host_addr;
   } else if (has_host && host->hostname) {
     console_ip = host->hostname;
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Console IP");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        console_ip);
-  content_y += line_h;
-
-  // Latency (if enabled)
-  if (context.config.show_latency) {
-    char latency_text[32] = "N/A";
-    uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
-
-    if (context.stream.session_init && context.stream.session.rtt_us > 0) {
-      uint32_t latency_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
-      snprintf(latency_text, sizeof(latency_text), "%u ms", latency_ms);
-
-      // Color code
-      if (latency_ms < 30) {
-        latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);  // Green
-      } else if (latency_ms < 60) {
-        latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);  // Yellow
-      } else {
-        latency_color = RGBA8(0xF4, 0x43, 0x36, 255);  // Red
-      }
-    }
-
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Latency");
-    vita2d_font_draw_text(font, col2_x, content_y, latency_color, FONT_SIZE_SMALL, latency_text);
-    content_y += line_h;
-
-    // Bitrate (measured)
-    char bitrate_text[32] = "N/A";
-    uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
-    uint64_t now_us = sceKernelGetProcessTimeWide();
-    bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
-                          (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
-    if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
-      snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
-               context.stream.measured_bitrate_mbps);
-      if (context.stream.measured_bitrate_mbps <= 2.5f) {
-        bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);  // Green for safe range
-      } else if (context.stream.measured_bitrate_mbps <= 3.5f) {
-        bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);  // Yellow warning
-      } else {
-        bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);  // Red: likely too high
-      }
-    }
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Bitrate");
-    vita2d_font_draw_text(font, col2_x, content_y, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
-    content_y += line_h;
-
-    // Packet Loss
-    char loss_text[48] = "Stable";
-    uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
-    bool loss_recent =
-        context.stream.loss_alert_until_us && now_us < context.stream.loss_alert_until_us;
-    if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
-      snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
-               context.stream.takion_drop_events, context.stream.total_frames_lost);
-      if (loss_recent) {
-        loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
-      }
-    }
-    vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Packet Loss");
-    vita2d_font_draw_text(font, col2_x, content_y, loss_color, FONT_SIZE_SMALL, loss_text);
-    content_y += line_h;
+  if (console_ip) {
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                          "Console IP");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
+    cy += body_line_h;
   }
 
-  // Connection status
-  const char *connection_text = is_streaming ? "Streaming" : (has_host ? "Ready" : "None");
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Connection");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        connection_text);
-  content_y += line_h;
+  /* ── Section: Stream ────────────────────────────────────────────────── */
+  /* Ensure we land at the planned CONN_CARD_STREAM_ANCHOR_Y regardless of IP row */
+  if (cy < y + CONN_CARD_STREAM_ANCHOR_Y) {
+    cy = y + CONN_CARD_STREAM_ANCHOR_Y;
+  }
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
+  cy += sec_line_h; /* cy ≈ y+148 */
 
-  // Remote Play status
-  const char *remote_play = has_registered ? "Available" : "Unavailable";
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Remote Play");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        remote_play);
-  content_y += line_h;
+  if (is_streaming) {
+    if (context.config.show_latency) {
+      /* While streaming with latency overlay: show live metrics */
+
+      char latency_text[32] = "N/A";
+      uint32_t latency_color = UI_COLOR_TEXT_PRIMARY;
+      if (context.stream.session.rtt_us > 0) {
+        uint32_t latency_ms = (uint32_t)(context.stream.session.rtt_us / 1000);
+        snprintf(latency_text, sizeof(latency_text), "%u ms", latency_ms);
+        if (latency_ms < 30) {
+          latency_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+        } else if (latency_ms < 60) {
+          latency_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+        } else {
+          latency_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
+      }
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Latency");
+      vita2d_font_draw_text(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
+      cy += body_line_h;
+
+      char bitrate_text[32] = "N/A";
+      uint32_t bitrate_color = UI_COLOR_TEXT_PRIMARY;
+      bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
+                            (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
+      if (metrics_recent && context.stream.measured_bitrate_mbps > 0.01f) {
+        snprintf(bitrate_text, sizeof(bitrate_text), "%.2f Mbps",
+                 context.stream.measured_bitrate_mbps);
+        if (context.stream.measured_bitrate_mbps <= 2.5f) {
+          bitrate_color = RGBA8(0x4C, 0xAF, 0x50, 255);
+        } else if (context.stream.measured_bitrate_mbps <= 3.5f) {
+          bitrate_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
+        } else {
+          bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
+      }
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Bitrate");
+      vita2d_font_draw_text(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
+      cy += body_line_h;
+
+      char loss_text[48] = "Stable";
+      uint32_t loss_color = UI_COLOR_TEXT_PRIMARY;
+      bool loss_recent =
+          context.stream.loss_alert_until_us != 0 && now_us < context.stream.loss_alert_until_us;
+      if (context.stream.frame_loss_events > 0 || context.stream.takion_drop_events > 0) {
+        snprintf(loss_text, sizeof(loss_text), "%u events / %u frames",
+                 context.stream.takion_drop_events, context.stream.total_frames_lost);
+        if (loss_recent) {
+          loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
+        }
+      }
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Packet Loss");
+      vita2d_font_draw_text(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
+      cy += body_line_h;
+    } else {
+      /* Streaming with latency overlay disabled: single status row. */
+      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                            "Status");
+      vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, "Streaming");
+      cy += body_line_h;
+    }
+  } else {
+    /* Idle: Status + Quality only */
+    const char *status_text;
+    if (has_host && !has_registered) {
+      status_text = "Ready / Not Registered";
+    } else if (has_host) {
+      status_text = "Ready";
+    } else {
+      status_text = "None";
+    }
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, status_text);
+    cy += body_line_h; /* cy ≈ y+166 */
+
+    const char *quality_text =
+        (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) ? "360p" : "540p";
+    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Quality");
+    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, quality_text);
+    cy += body_line_h;
+  }
+
+  /* ── Section: PSN ───────────────────────────────────────────────────── */
+  /* Ensure PSN section lands at planned CONN_CARD_PSN_ANCHOR_Y */
+  if (cy < y + CONN_CARD_PSN_ANCHOR_Y) {
+    cy = y + CONN_CARD_PSN_ANCHOR_Y;
+  }
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
+  cy += sec_line_h; /* cy ≈ y+205 */
+
+  uint64_t now_unix = (uint64_t)time(NULL);
+  bool psn_valid = psn_auth_token_is_valid(now_unix);
+  s_logout_psn_valid = psn_valid; /* expose to input handler for the same frame */
 
   const char *auth_status = psn_auth_state_label();
   uint32_t auth_color = UI_COLOR_TEXT_PRIMARY;
-  if (psn_auth_token_is_valid((uint64_t)time(NULL))) {
+  if (psn_valid) {
     auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
   } else if (psn_auth_device_login_active()) {
     auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
@@ -1338,31 +1438,51 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else {
     auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
   }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "PSN Auth");
-  vita2d_font_draw_text(font, col2_x, content_y, auth_color, FONT_SIZE_SMALL, auth_status);
-  content_y += line_h;
+  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
+  vita2d_font_draw_text(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
 
-  // Quality Setting
-  const char *quality_text = "540p";
-  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) {
-    quality_text = "360p";
-  }
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Quality Setting");
-  vita2d_font_draw_text(font, col2_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                        quality_text);
-
+  /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
-    const char *hint = psn_auth_token_is_valid((uint64_t)time(NULL))
-                           ? "X: Refresh Hosts | Triangle: Logout"
-                           : "X: Start Browser Login | Triangle: Logout";
-    if (psn_auth_device_login_active())
-      hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
-    if (!psn_auth_enabled())
+    int strip_y = y + height - LOGOUT_BTN_BOTTOM_OFFSET;
+    bool btn_enabled = psn_auth_enabled() && psn_valid;
+    bool btn_focused = (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN);
+    bool device_login = psn_auth_device_login_active();
+
+    /* Publish absolute button rect so the touch hit-test never reconstructs
+     * it from independent outer-function locals that could drift. */
+    s_logout_btn_abs_x = content_x + LOGOUT_BTN_LEFT_PAD;
+    s_logout_btn_abs_y = strip_y;
+    s_logout_btn_abs_w = LOGOUT_BTN_W;
+    s_logout_btn_abs_h = LOGOUT_BTN_H;
+    s_logout_btn_visible = !device_login;
+
+    /* Hide the button entirely while a device-login flow is active; the
+     * bottom strip carries only the action hint in that state. */
+    if (!device_login) {
+      ui_draw_text_button(content_x + LOGOUT_BTN_LEFT_PAD, strip_y, LOGOUT_BTN_W, LOGOUT_BTN_H,
+                          "Log out", btn_focused, btn_enabled);
+    }
+
+    /* Dynamic hint — placed right of the button (or at content_x when button
+     * is hidden).  When the confirm window is open show the second-press cue. */
+    const char *hint;
+    if (!psn_auth_enabled()) {
       hint = "Enable PSN internet mode in Settings";
-    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          hint);
+    } else if (device_login) {
+      hint = "X: Enter code | Start: QR | Select: Browser | Square: Cancel";
+    } else if (btn_focused && s_logout_confirm_until_us != 0 &&
+               now_us < s_logout_confirm_until_us) {
+      hint = "Press X again to confirm log out";
+    } else if (btn_focused) {
+      hint = "X: Log out of PSN";
+    } else if (psn_valid) {
+      hint = "X: Refresh Hosts | Down: Log out";
+    } else {
+      hint = "X: Start Browser Login";
+    }
+    int hint_x = device_login ? content_x : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
+    vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5, UI_COLOR_TEXT_TERTIARY,
+                          FONT_SIZE_SMALL, hint);
   }
 }
 
@@ -1427,9 +1547,23 @@ UIScreenType ui_screen_draw_profile(void) {
   ui_particles_update();
   ui_particles_render();
 
+  /* Reset focus and confirm state on screen-enter so a previous visit cannot
+   * leave CONN_FOCUS_LOGOUT_BTN or an armed confirm window across Circle-back
+   * + re-entry.  The flag is cleared whenever the screen returns a non-PROFILE
+   * next_screen value at the bottom of this function. */
+  if (!profile_screen_initialized) {
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+    s_logout_touch_down_prev = false;
+    s_logout_touch_hit = false;
+    profile_screen_initialized = true;
+  }
+
   UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_PROFILE, &nav_screen, true))
+  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_PROFILE, &nav_screen, true)) {
+    profile_screen_initialized = false; /* will re-init on next entry */
     return nav_screen;
+  }
 
   // Main content area (nav is overlay - content centered on full screen)
   int content_w = 800;                           // Fixed width for content
@@ -1492,7 +1626,7 @@ UIScreenType ui_screen_draw_profile(void) {
       }
     } else {
       trigger_hints_popup(
-          "Left/Right: Switch Card | X: Action | Start: QR | Triangle: Logout | Circle: Back");
+          "Left/Right: Switch Card | Up/Down: Focus | X: Action | Start: QR | Circle: Back");
     }
   }
 
@@ -1500,13 +1634,62 @@ UIScreenType ui_screen_draw_profile(void) {
 
   // === INPUT HANDLING ===
 
-  // Left/Right: Navigate between Profile and Connection cards
-  if (btn_pressed(SCE_CTRL_LEFT)) {
-    profile_state.current_section = PROFILE_SECTION_INFO;
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    profile_state.current_section = PROFILE_SECTION_CONNECTION;
+  /* s_logout_confirm_until_us and s_logout_psn_valid are file-scope statics
+   * updated by draw_connection_info_card() earlier this frame. */
+
+  /* Input fires after draw in the same frame; sample a fresh monotonic time
+     here so confirm-window math reflects the input event, not the draw tick. */
+  uint64_t now_us_cross = sceKernelGetProcessTimeWide();
+
+  /* Short-circuit: if the 3-second confirm window has elapsed without a second
+   * press, zero the deadline now so the variable is semantically "inactive"
+   * for the rest of this input pass. */
+  if (s_logout_confirm_until_us != 0 && now_us_cross >= s_logout_confirm_until_us) {
+    s_logout_confirm_until_us = 0;
   }
 
+  /* If the button has become disabled while focus still lingers on it (e.g.
+   * token expired, PSN mode turned off), snap focus back and clear the
+   * confirm window so the stale arm can't fire. */
+  if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN &&
+      !(psn_auth_enabled() && s_logout_psn_valid)) {
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+  }
+
+  /* Left/Right: Navigate between cards.
+   * LEFT resets intra-card focus.  RIGHT resets it too so re-entry from the
+   * Profile card always starts on the card body, not the Log out button. */
+  if (btn_pressed(SCE_CTRL_LEFT)) {
+    profile_state.current_section = PROFILE_SECTION_INFO;
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
+    profile_state.current_section = PROFILE_SECTION_CONNECTION;
+    profile_state.connection_focus = CONN_FOCUS_CARD;
+    s_logout_confirm_until_us = 0;
+  }
+
+  /* Down/Up: Move focus within the Connection card.
+   * s_logout_psn_valid is the cached result from this frame's draw call —
+   * no additional call to psn_auth_token_is_valid() is needed here. */
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+
+    if (btn_pressed(SCE_CTRL_DOWN) && profile_state.connection_focus == CONN_FOCUS_CARD &&
+        btn_enabled) {
+      profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
+    } else if (btn_pressed(SCE_CTRL_UP) &&
+               profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+      profile_state.connection_focus = CONN_FOCUS_CARD;
+      s_logout_confirm_until_us = 0;
+    }
+  }
+
+  /* Cross: action depends on which card and which focus position.
+   * The CONN_FOCUS_LOGOUT_BTN branch is gated on btn_enabled: if the token
+   * expires while focus lingers on the button, X falls through to the card
+   * body flow rather than attempting a logout with invalid state. */
   if (btn_pressed(SCE_CTRL_CROSS) && profile_state.current_section == PROFILE_SECTION_INFO) {
     if (ui_reload_psn_account_id()) {
       persist_config_or_warn();
@@ -1516,29 +1699,52 @@ UIScreenType ui_screen_draw_profile(void) {
     }
   } else if (btn_pressed(SCE_CTRL_CROSS) &&
              profile_state.current_section == PROFILE_SECTION_CONNECTION) {
-    if (!psn_auth_enabled()) {
-      trigger_hints_popup("PSN internet mode is disabled in Settings");
-    } else if (psn_auth_device_login_active()) {
-      open_psn_auth_code_ime();
-    } else if (!psn_auth_token_is_valid(now_unix) &&
-               !psn_auth_refresh_token_if_needed(now_unix, false)) {
-      if (psn_auth_begin_device_login(now_unix)) {
-        profile_login_qr_visible = true;
-        profile_refresh_login_qr(psn_auth_device_verification_url());
-        trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
-      } else if (psn_auth_last_error()[0]) {
-        trigger_hints_popup(psn_auth_last_error());
+    bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+    if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN && btn_enabled) {
+      /* Log out button: two-press confirm to guard against accidental logout.
+       * now_us_cross was sampled (and the window short-circuited if expired)
+       * at the top of the input block. */
+      if (s_logout_confirm_until_us != 0 && now_us_cross < s_logout_confirm_until_us) {
+        /* Second press within the confirm window — execute logout. */
+        execute_psn_logout();
       } else {
-        trigger_hints_popup("PSN login could not start");
+        /* First press — arm the confirm window.  The strip hint text already
+         * transitions to "Press X again to confirm log out" while armed, so
+         * no popup is needed here. */
+        s_logout_confirm_until_us = now_us_cross + 3000000ULL;
       }
-    } else if (psn_remote_refresh_hosts() == 0) {
-      trigger_hints_popup("PSN internet host list refreshed");
-      ui_cards_update_cache(true);
     } else {
-      trigger_hints_popup("PSN internet host refresh failed");
+      /* Card body focus (or disabled button): existing login/refresh flow. */
+      if (profile_state.connection_focus == CONN_FOCUS_LOGOUT_BTN) {
+        /* Button focused but disabled — clear stale confirm and return focus */
+        profile_state.connection_focus = CONN_FOCUS_CARD;
+        s_logout_confirm_until_us = 0;
+      }
+      if (!psn_auth_enabled()) {
+        trigger_hints_popup("PSN internet mode is disabled in Settings");
+      } else if (psn_auth_device_login_active()) {
+        open_psn_auth_code_ime();
+      } else if (!psn_auth_token_is_valid(now_unix) &&
+                 !psn_auth_refresh_token_if_needed(now_unix, false)) {
+        if (psn_auth_begin_device_login(now_unix)) {
+          profile_login_qr_visible = true;
+          profile_refresh_login_qr(psn_auth_device_verification_url());
+          trigger_hints_popup("Scan QR on phone, then press X to paste the full redirect URL");
+        } else if (psn_auth_last_error()[0]) {
+          trigger_hints_popup(psn_auth_last_error());
+        } else {
+          trigger_hints_popup("PSN login could not start");
+        }
+      } else if (psn_remote_refresh_hosts() == 0) {
+        trigger_hints_popup("PSN internet host list refreshed");
+        ui_cards_update_cache(true);
+      } else {
+        trigger_hints_popup("PSN internet host refresh failed");
+      }
     }
   }
 
+  /* Square: cancel active device login. */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_SQUARE) &&
       psn_auth_device_login_active()) {
     psn_auth_cancel_device_login();
@@ -1548,15 +1754,7 @@ UIScreenType ui_screen_draw_profile(void) {
     trigger_hints_popup("PSN login canceled");
   }
 
-  if (profile_state.current_section == PROFILE_SECTION_CONNECTION &&
-      btn_pressed(SCE_CTRL_TRIANGLE) && psn_auth_enabled()) {
-    psn_auth_clear_tokens();
-    psn_remote_clear_cached_hosts();
-    persist_config_or_warn();
-    ui_cards_update_cache(true);
-    trigger_hints_popup("PSN login removed");
-  }
-
+  /* Start: toggle QR visibility during device login. */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_START) &&
       psn_auth_device_login_active()) {
     profile_login_qr_visible = !profile_login_qr_visible;
@@ -1565,9 +1763,75 @@ UIScreenType ui_screen_draw_profile(void) {
                             : "QR hidden. Press Start again to show.");
   }
 
+  /* Touch: hit-test the Log out button on the Connection card.
+   *
+   * Three-phase edge detection (mirrors handle_vitarps5_touch_input):
+   *   Phase A — down-edge: record whether the tap landed in the button rect
+   *             and immediately set focus for visual feedback.
+   *   Phase B — hold: do nothing; waiting for release.
+   *   Phase C — up-edge: fire the confirm flow only if Phase A recorded a hit.
+   *
+   * Reads s_logout_btn_abs_* published by draw_connection_info_card() this
+   * frame so the hit-box is always identical to the visual — no independent
+   * local reconstruction that could silently drift.
+   * s_logout_psn_valid is the cached per-frame token check from the draw call.
+   */
+  if (profile_state.current_section == PROFILE_SECTION_CONNECTION) {
+    SceTouchData touch_profile;
+    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch_profile, 1);
+    bool touch_down_now = (touch_profile.reportNum > 0);
+
+    if (touch_down_now && !s_logout_touch_down_prev) {
+      /* Phase A: new finger-down this frame.
+       * Use the absolute rect published by draw_connection_info_card() this
+       * frame so the hit-box cannot silently drift from the visual. */
+      float tx = (touch_profile.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+      float ty = (touch_profile.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+      bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+      bool in_btn = s_logout_btn_visible && tx >= (float)s_logout_btn_abs_x &&
+                    tx <= (float)(s_logout_btn_abs_x + s_logout_btn_abs_w) &&
+                    ty >= (float)s_logout_btn_abs_y &&
+                    ty <= (float)(s_logout_btn_abs_y + s_logout_btn_abs_h);
+
+      s_logout_touch_hit = in_btn && btn_enabled;
+      if (s_logout_touch_hit) {
+        /* Instant visual feedback: move focus to the button on contact. */
+        profile_state.connection_focus = CONN_FOCUS_LOGOUT_BTN;
+      }
+      s_logout_touch_down_prev = true;
+
+    } else if (!touch_down_now && s_logout_touch_down_prev) {
+      /* Phase C: finger lifted — fire if the down-edge was a valid hit. */
+      if (s_logout_touch_hit) {
+        bool btn_enabled = psn_auth_enabled() && s_logout_psn_valid;
+        if (btn_enabled) {
+          uint64_t now_us_touch = sceKernelGetProcessTimeWide();
+          if (s_logout_confirm_until_us != 0 && now_us_touch < s_logout_confirm_until_us) {
+            execute_psn_logout();
+          } else {
+            s_logout_confirm_until_us = now_us_touch + 3000000ULL;
+          }
+        }
+      }
+      s_logout_touch_down_prev = false;
+      s_logout_touch_hit = false;
+    }
+    /* Phase B (hold): touch_down_now && s_logout_touch_down_prev — do nothing. */
+
+  } else {
+    /* Navigated away from Connection card — reset touch tracking. */
+    s_logout_touch_down_prev = false;
+    s_logout_touch_hit = false;
+  }
+
   // Circle: Back to main menu
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
     next_screen = UI_SCREEN_TYPE_MAIN;
+  }
+
+  /* Clear the init flag on exit so the next entry performs a clean reset. */
+  if (next_screen != UI_SCREEN_TYPE_PROFILE) {
+    profile_screen_initialized = false;
   }
 
   return next_screen;

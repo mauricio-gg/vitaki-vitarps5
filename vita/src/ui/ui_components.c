@@ -263,6 +263,38 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
   }
 }
 
+/**
+ * Draw a rounded rectangular text button with selected/disabled states.
+ *
+ * Background colors mirror the ad-hoc "Add New" button in ui_screens.c:
+ *   enabled+selected  → UI_COLOR_PRIMARY_BLUE
+ *   enabled+unselected → RGBA8(0x50,0x70,0xA0,255)
+ *   disabled          → RGBA8(0x40,0x44,0x4A,255)
+ */
+void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
+                         bool enabled) {
+  uint32_t bg_color;
+  uint32_t text_color;
+
+  if (!enabled) {
+    bg_color = RGBA8(0x40, 0x44, 0x4A, 255);
+    text_color = UI_COLOR_TEXT_TERTIARY;
+  } else if (selected) {
+    bg_color = UI_COLOR_PRIMARY_BLUE;
+    text_color = UI_COLOR_TEXT_PRIMARY;
+  } else {
+    bg_color = RGBA8(0x50, 0x70, 0xA0, 255);
+    text_color = UI_COLOR_TEXT_PRIMARY;
+  }
+
+  ui_draw_rounded_rect(x, y, w, h, 6, bg_color);
+
+  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+  int text_x = x + (w - text_w) / 2;
+  int text_y = y + h / 2 + 5; /* font baseline offset for FONT_SIZE_SMALL */
+  vita2d_font_draw_text(font, text_x, text_y, text_color, FONT_SIZE_SMALL, label);
+}
+
 // ============================================================================
 // Toggle Switch Animation
 // ============================================================================
