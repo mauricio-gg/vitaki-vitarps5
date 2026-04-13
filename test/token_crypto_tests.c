@@ -22,6 +22,10 @@
  *      confirming the explicit version check in decrypt.
  *  13. Empty string blob: passing "" (empty C string, not NULL) to decrypt →
  *      NULL, confirming the minimum-blob-length guard rejects zero decoded bytes.
+ *  14. Max-plaintext boundary: pt_len == 8192 (TOKEN_CRYPTO_MAX_PLAINTEXT, the
+ *      internal limit defined in token_crypto.c) must encrypt and round-trip
+ *      successfully; pt_len == 8193 must be rejected by encrypt (guard is
+ *      `pt_len > TOKEN_CRYPTO_MAX_PLAINTEXT`, so == 8192 is the exact edge).
  *
  * GitHub issue #81.
  */
@@ -340,6 +344,51 @@ static void test_tampered_version_byte(void) {
     puts("  [PASS] test_tampered_version_byte");
 }
 
+/*
+ * test_max_plaintext_boundary — Verify the TOKEN_CRYPTO_MAX_PLAINTEXT boundary.
+ *
+ * TOKEN_CRYPTO_MAX_PLAINTEXT is 8192, defined internally in token_crypto.c.
+ * The size guard is `pt_len > TOKEN_CRYPTO_MAX_PLAINTEXT`, which means:
+ *   - pt_len == 8192  → accepted (encrypt + decrypt must succeed)
+ *   - pt_len == 8193  → rejected (encrypt must return NULL)
+ *
+ * Buffer sizing:
+ *   - At-limit buffer:  8192 'A' chars + NUL at index 8192 → strlen == 8192.
+ *   - Over-limit buffer: 8193 'A' chars + NUL at index 8193 → strlen == 8193.
+ */
+static void test_max_plaintext_boundary(void) {
+    /* --- at-limit: exactly 8192 characters (== TOKEN_CRYPTO_MAX_PLAINTEXT) --- */
+    /* Allocate 8192 + 1 bytes to hold the 8192 'A' chars plus the terminating NUL. */
+    char *at_limit = malloc(8192 + 1);
+    assert(at_limit != NULL);
+    memset(at_limit, 'A', 8192);
+    at_limit[8192] = '\0'; /* strlen(at_limit) == 8192 */
+
+    char *blob = token_crypto_encrypt(at_limit, "access");
+    assert(blob != NULL); /* pt_len == 8192 must be accepted */
+
+    char *recovered = token_crypto_decrypt(blob, "access");
+    assert(recovered != NULL);
+    assert(strcmp(recovered, at_limit) == 0); /* full round-trip */
+
+    free(recovered);
+    free(blob);
+    free(at_limit);
+
+    /* --- over-limit: 8193 characters (> TOKEN_CRYPTO_MAX_PLAINTEXT) --- */
+    /* Allocate 8193 + 1 bytes to hold the 8193 'A' chars plus the terminating NUL. */
+    char *over_limit = malloc(8193 + 1);
+    assert(over_limit != NULL);
+    memset(over_limit, 'A', 8193);
+    over_limit[8193] = '\0'; /* strlen(over_limit) == 8193 */
+
+    char *rejected = token_crypto_encrypt(over_limit, "access");
+    assert(rejected == NULL); /* pt_len == 8193 must be rejected */
+
+    free(over_limit);
+    puts("  [PASS] test_max_plaintext_boundary");
+}
+
 /* ------------------------------------------------------------------ */
 /* Entry point called by the main test runner                           */
 /* ------------------------------------------------------------------ */
@@ -359,6 +408,7 @@ void run_token_crypto_tests(void) {
     test_malformed_base64();
     test_truncated_blob();
     test_empty_string_blob();
+    test_max_plaintext_boundary();
     test_empty_plaintext();
     test_null_inputs();
     test_nonce_uniqueness();

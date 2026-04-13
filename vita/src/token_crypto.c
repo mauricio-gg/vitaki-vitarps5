@@ -106,6 +106,10 @@ static int get_device_id(uint8_t buf[16]) {
  * Uses SHA-256(salt || device_id[16] || kind) as a simple, dependency-free
  * KDF.  The resulting key is unique per device and per token kind.
  *
+ * Single-pass SHA-256 is sufficient here because device_id is a 128-bit
+ * hardware identifier with high entropy (not a user passphrase), so no
+ * PBKDF2-style stretching is needed.
+ *
  * @param kind      NUL-terminated token kind string ("access" or "refresh").
  * @param key_out   Output buffer of exactly TOKEN_CRYPTO_KEY_LEN bytes.
  *
@@ -277,7 +281,11 @@ char *token_crypto_encrypt(const char *plaintext, const char *kind) {
    * write the tag at a wrong offset. */
   if (out_len != (int)pt_len)
     goto done;
-  if (EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &out_len) != 1)
+  /* GCM produces zero output bytes on Final; final_len is expected to be 0. */
+  int final_len = 0;
+  if (EVP_EncryptFinal_ex(ctx, ct_dst + out_len, &final_len) != 1)
+    goto done;
+  if (final_len != 0)
     goto done;
   /* Extract the 16-byte GCM tag. */
   if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TOKEN_CRYPTO_TAG_LEN, (void *)tag_dst) != 1)
@@ -393,8 +401,11 @@ char *token_crypto_decrypt(const char *b64_blob, const char *kind) {
 
   /* Final verifies the tag — returns <= 0 if the tag does not match. */
   if (EVP_DecryptFinal_ex(ctx, (uint8_t *)plaintext + out_len, &out_len) <= 0) {
-    /* Tag mismatch: do not expose partial plaintext. */
-    memset(plaintext, 0, ct_len + 1);
+    /* Tag mismatch: do not expose partial plaintext.
+     * OPENSSL_cleanse is used instead of memset because the compiler is
+     * permitted to elide a memset of a buffer that is freed immediately
+     * afterward; OPENSSL_cleanse resists that optimisation. */
+    OPENSSL_cleanse(plaintext, ct_len + 1);
     goto done;
   }
 

@@ -547,6 +547,11 @@ bool config_serialize(VitaChiakiConfig *cfg) {
    * Expiry is non-sensitive and stored in plaintext alongside the tokens so
    * the auth state can be evaluated without decryption.
    */
+  /* Partial-persistence note: if access encrypts but refresh fails to encrypt,
+   * tokens_persisted is still true and the expiry is written. On next boot the
+   * user retains a valid access token but no refresh, so they will re-auth at
+   * expiry. This is safe (no broken state, no token leak) but documented here
+   * because it is a non-obvious consequence of the per-token encrypt loop. */
   bool tokens_persisted = false;
 
   if (cfg->psn_oauth_access_token && cfg->psn_oauth_access_token[0] != '\0') {
