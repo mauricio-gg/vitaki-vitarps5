@@ -2,6 +2,7 @@ add_executable(vitarps5_tests
     config_vita_tests.c
     token_crypto_tests.c
     packet_path_tests.c
+    json_escape_tests.c
     ../vita/src/config.c
     ../vita/src/config_migration.c
     ../vita/src/config_values.c

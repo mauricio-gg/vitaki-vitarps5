@@ -453,6 +453,7 @@ static void test_registered_hosts_require_required_fields(void) {
 }
 
 void run_packet_path_tests(void);
+void run_json_escape_tests(void);
 void run_token_crypto_tests(void);
 
 int main(void) {
@@ -465,6 +466,7 @@ int main(void) {
   test_settings_streaming_item_invariants();
   test_registered_hosts_require_required_fields();
   run_packet_path_tests();
+  run_json_escape_tests();
   run_token_crypto_tests();
   reset_config_file();
   puts("vitarps5 config tests passed");
