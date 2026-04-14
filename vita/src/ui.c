@@ -384,9 +384,11 @@ bool ui_reload_psn_account_id(void) {
  * Must be called before draw_ui() main loop.
  */
 void init_ui() {
-  int vita2d_init_ret = vita2d_init_advanced_with_msaa(SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE, SCE_GXM_MULTISAMPLE_4X);
+  int vita2d_init_ret =
+      vita2d_init_advanced_with_msaa(SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE, SCE_GXM_MULTISAMPLE_4X);
   if (vita2d_init_ret < 0) {
-    sceClibPrintf("[WARN] MSAA init failed (0x%08x), falling back to default init\n", vita2d_init_ret);
+    sceClibPrintf("[WARN] MSAA init failed (0x%08x), falling back to default init\n",
+                  vita2d_init_ret);
     vita2d_init();
   }
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
