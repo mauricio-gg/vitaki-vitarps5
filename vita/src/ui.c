@@ -460,20 +460,30 @@ void draw_ui() {
 
   load_psn_id_if_needed();
 
-  /* One-shot glyph atlas warm-up: rasterize all (codepoint, pt_size) pairs
-   * before the first visible frame to prevent cold-atlas hitches and atlas-row
-   * variance.  Runs inside a dedicated vita2d drawing pair so the GPU texture
-   * uploads are committed.  The screen is cleared to black and immediately
-   * replaced by the normal render loop on the next iteration. */
-  if (ui_text_needs_prewarm()) {
-    vita2d_start_drawing();
-    vita2d_clear_screen();
-    ui_text_prewarm();
-    vita2d_end_drawing();
-    vita2d_swap_buffers();
-  }
+  /*
+   * Glyph atlas warm-up flag: set once here so the first main-loop iteration
+   * can run the prewarm pass inside the same drawing pair that will produce
+   * the first real UI frame.  This avoids presenting a standalone cleared
+   * frame before any UI is visible.
+   */
+  bool ui_text_prewarm_pending = (bool)ui_text_needs_prewarm();
 
   while (true) {
+    /*
+     * One-shot atlas prewarm: rasterize all (codepoint, pt_size) pairs before
+     * the first visible frame to prevent cold-atlas hitches and atlas-row
+     * variance.  Runs inside the main-loop's own drawing pair; swap_buffers is
+     * NOT called separately here, so the first real UI frame is what gets
+     * presented on screen.
+     */
+    if (ui_text_prewarm_pending) {
+      vita2d_start_drawing();
+      vita2d_clear_screen();
+      ui_text_prewarm();
+      vita2d_end_drawing();
+      ui_text_prewarm_pending = false;
+    }
+
     // --- Deferred session finalization (join + fini on UI thread) ---
     // Must run BEFORE input processing to prevent reconnect races
     if (context.stream.session_finalize_pending) {

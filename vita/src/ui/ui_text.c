@@ -220,22 +220,27 @@ static void warn_unknown_size(const char *caller, int pt_size) {
  * ============================================================================ */
 
 /**
- * ui_text_init() - Store font pointers; metric computation is deferred to
- *                  ui_text_prewarm().
- * @regular: Proportional font, or NULL (prewarm will be skipped if NULL).
- * @mono:    Monospace font, or NULL (prewarm will be skipped if NULL).
+ * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
+ * @regular: Proportional font, or NULL (both metric computation and atlas
+ *           prewarm are skipped if either pointer is NULL).
+ * @mono:    Monospace font, or NULL (see above).
  *
  * Must be called after fonts are loaded and before ui_text_prewarm().
- * Metric computation is intentionally deferred: some FreeType/GXM paths
- * need an active render pass, which is guaranteed by the caller wrapping
- * ui_text_prewarm() in vita2d_start_drawing / vita2d_end_drawing.
+ * This function does NOT compute metrics — that is intentionally deferred to
+ * ui_text_prewarm() because some FreeType/GXM paths require an active render
+ * pass, which is guaranteed by the caller wrapping ui_text_prewarm() in
+ * vita2d_start_drawing / vita2d_end_drawing.
+ *
+ * Both pointers are borrowed — ownership remains with the caller.
  */
 void ui_text_init(vita2d_font *regular, vita2d_font *mono) {
   s_font_regular = regular;
   s_font_mono = mono;
 
   if (!regular || !mono) {
-    sceClibPrintf("[WARN] ui_text_init: NULL font, skipping metric compute\n");
+    sceClibPrintf(
+        "[WARN] ui_text_init: NULL font pointer — "
+        "skipping metrics and atlas prewarm\n");
     s_prewarm_needed = 0;
     return;
   }
@@ -251,59 +256,28 @@ int ui_text_needs_prewarm(void) {
 }
 
 /**
- * ui_text_prewarm() - Rasterize all (codepoint, pt_size) pairs into the atlas.
+ * prewarm_one_font() - Bake all charset glyphs for one font across a set of sizes.
+ * @f:          Font to draw with.
+ * @sizes:      Array of point sizes to iterate.
+ * @size_count: Number of entries in @sizes.
  *
- * Must be called from within an active vita2d_start_drawing() /
- * vita2d_end_drawing() pair on the render thread.  Draws each character
- * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
- * FreeType rasterization and GPU atlas upload without visible output.
+ * Walks UI_FONT_PREWARM_CHARSET byte-by-byte, extracts each UTF-8 sequence
+ * into a small stack buffer, and issues a vita2d_font_draw_text call at fully
+ * transparent, off-screen coordinates.  This forces FreeType rasterization and
+ * the GXM atlas upload without producing any visible output.
  *
- * Iterates:
- *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (4 sizes)
- *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
- *
- * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
- * UTF-8 decoder sees the full codepoint.
+ * UTF-8 continuation bytes are validated before copying: if a required
+ * continuation byte is NUL (truncated sequence), the leading byte is skipped
+ * and iteration continues.  This prevents an OOB read if UI_FONT_PREWARM_CHARSET
+ * ever gains a malformed tail.
  */
-void ui_text_prewarm(void) {
-  /*
-   * Glyph-by-glyph iteration: walk the charset byte-by-byte and extract
-   * each UTF-8 sequence into a small NUL-terminated buffer for drawing.
-   *
-   * UTF-8 sequence lengths:
-   *   1-byte: 0x00–0x7F
-   *   2-byte: 0xC0–0xDF start
-   *   3-byte: 0xE0–0xEF start
-   *   4-byte: 0xF0–0xF7 start (not in our charset, included for safety)
-   */
-  int i;
+static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
   int size_idx;
   const char *p;
-  char glyph_buf[8]; /* Largest UTF-8 sequence is 4 bytes + NUL + padding. */
+  char glyph_buf[8]; /* Largest UTF-8 sequence is 4 bytes + NUL + 3 bytes padding. */
 
-  if (!s_font_regular || !s_font_mono) {
-    sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
-    return;
-  }
-
-  /*
-   * Measure ascent and line-height here rather than in ui_text_init() because
-   * some FreeType/GXM code paths rasterize internally and require an active
-   * render pass; callers wrap this function in vita2d_start_drawing /
-   * vita2d_end_drawing, guaranteeing that context is present.
-   */
-  for (i = 0; i < UI_FONT_PREWARM_SIZE_COUNT; i++) {
-    compute_metrics_for_size(s_font_regular, UI_FONT_PREWARM_SIZES[i], i);
-  }
-  for (i = 0; i < UI_FONT_PREWARM_MONO_SIZE_COUNT; i++) {
-    int slot = size_index(UI_FONT_PREWARM_MONO_SIZES[i]);
-    if (slot >= 0)
-      compute_metrics_for_size(s_font_mono, UI_FONT_PREWARM_MONO_SIZES[i], slot);
-  }
-
-  /* --- Bake regular font: all four prewarm sizes --- */
-  for (size_idx = 0; size_idx < UI_FONT_PREWARM_SIZE_COUNT; size_idx++) {
-    int pt = UI_FONT_PREWARM_SIZES[size_idx];
+  for (size_idx = 0; size_idx < size_count; size_idx++) {
+    int pt = sizes[size_idx];
 
     for (p = UI_FONT_PREWARM_CHARSET; *p != '\0';) {
       unsigned char lead = (unsigned char)*p;
@@ -329,45 +303,26 @@ void ui_text_prewarm(void) {
         seq_len = 4;
       }
 
-      /* Copy the sequence into the local buffer and NUL-terminate. */
-      glyph_buf[0] = p[0];
-      if (seq_len > 1)
-        glyph_buf[1] = p[1];
-      if (seq_len > 2)
-        glyph_buf[2] = p[2];
-      if (seq_len > 3)
-        glyph_buf[3] = p[3];
-      glyph_buf[seq_len] = '\0';
-
-      vita2d_font_draw_text(s_font_regular, UI_FONT_PREWARM_OFFSCREEN_X,
-                            UI_FONT_PREWARM_OFFSCREEN_Y, UI_FONT_PREWARM_COLOR, (unsigned int)pt,
-                            glyph_buf);
-
-      p += seq_len;
-    }
-  }
-
-  /* --- Bake mono font: body and small sizes only --- */
-  for (size_idx = 0; size_idx < UI_FONT_PREWARM_MONO_SIZE_COUNT; size_idx++) {
-    int pt = UI_FONT_PREWARM_MONO_SIZES[size_idx];
-
-    for (p = UI_FONT_PREWARM_CHARSET; *p != '\0';) {
-      unsigned char lead = (unsigned char)*p;
-      int seq_len;
-
-      if (lead < 0x80u) {
-        seq_len = 1;
-      } else if (lead < 0xC0u) {
+      /*
+       * Bounds-check: verify that each required continuation byte is non-NUL
+       * before copying.  A NUL at p[1..3] means the charset string is
+       * truncated (malformed tail); skip the leading byte and re-sync rather
+       * than reading past the string terminator.
+       */
+      if (seq_len > 1 && p[1] == '\0') {
         p++;
         continue;
-      } else if (lead < 0xE0u) {
-        seq_len = 2;
-      } else if (lead < 0xF0u) {
-        seq_len = 3;
-      } else {
-        seq_len = 4;
+      }
+      if (seq_len > 2 && p[2] == '\0') {
+        p++;
+        continue;
+      }
+      if (seq_len > 3 && p[3] == '\0') {
+        p++;
+        continue;
       }
 
+      /* Copy the validated sequence into the local buffer and NUL-terminate. */
       glyph_buf[0] = p[0];
       if (seq_len > 1)
         glyph_buf[1] = p[1];
@@ -377,12 +332,61 @@ void ui_text_prewarm(void) {
         glyph_buf[3] = p[3];
       glyph_buf[seq_len] = '\0';
 
-      vita2d_font_draw_text(s_font_mono, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
+      vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
                             UI_FONT_PREWARM_COLOR, (unsigned int)pt, glyph_buf);
 
       p += seq_len;
     }
   }
+}
+
+/**
+ * ui_text_prewarm() - Rasterize all (codepoint, pt_size) pairs into the atlas.
+ *
+ * Must be called from within an active vita2d_start_drawing() /
+ * vita2d_end_drawing() pair on the render thread.  Draws each character
+ * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
+ * FreeType rasterization and GPU atlas upload without visible output.
+ *
+ * Iterates:
+ *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (4 sizes)
+ *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
+ *
+ * Metrics (ascent, line-height) are derived from s_font_regular only.
+ * Roboto Regular and RobotoMono share the same UPM and ascender, so a single
+ * canonical measurement per pt_size is sufficient for all font faces.
+ *
+ * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
+ * UTF-8 decoder sees the full codepoint.
+ */
+void ui_text_prewarm(void) {
+  int i;
+
+  if (!s_font_regular || !s_font_mono) {
+    sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
+    return;
+  }
+
+  /*
+   * Measure ascent and line-height here rather than in ui_text_init() because
+   * some FreeType/GXM code paths rasterize internally and require an active
+   * render pass; callers wrap this function in vita2d_start_drawing /
+   * vita2d_end_drawing, guaranteeing that context is present.
+   *
+   * Regular font is the single canonical source for metrics — Roboto Regular
+   * and RobotoMono share the same UPM/ascender, so there is no need to
+   * re-measure with the mono face (which would clobber the same s_metrics[]
+   * slots and risk writing stale values over freshly computed ones).
+   */
+  for (i = 0; i < UI_FONT_PREWARM_SIZE_COUNT; i++) {
+    compute_metrics_for_size(s_font_regular, UI_FONT_PREWARM_SIZES[i], i);
+  }
+
+  /* --- Bake regular font: all four prewarm sizes --- */
+  prewarm_one_font(s_font_regular, UI_FONT_PREWARM_SIZES, UI_FONT_PREWARM_SIZE_COUNT);
+
+  /* --- Bake mono font: body and small sizes only --- */
+  prewarm_one_font(s_font_mono, UI_FONT_PREWARM_MONO_SIZES, UI_FONT_PREWARM_MONO_SIZE_COUNT);
 
   s_prewarm_needed = 0;
 }
@@ -392,6 +396,8 @@ void ui_text_prewarm(void) {
  */
 void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
                   const char *s) {
+  if (!s)
+    return;
   if (size_index(pt_size) < 0) {
     warn_unknown_size("ui_text_draw", pt_size);
     return;
@@ -403,6 +409,8 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
  * ui_text_width() - Return the pixel width of a UTF-8 string.
  */
 int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
+  if (!s)
+    return 0;
   if (size_index(pt_size) < 0) {
     warn_unknown_size("ui_text_width", pt_size);
     return 0;
@@ -446,8 +454,12 @@ void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsign
                              int pt_size, const char *s) {
   int ascent;
   int baseline_y;
-  int idx = size_index(pt_size);
+  int idx;
 
+  if (!s)
+    return;
+
+  idx = size_index(pt_size);
   if (idx < 0) {
     warn_unknown_size("ui_text_draw_centered_v", pt_size);
     return;

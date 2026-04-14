@@ -25,12 +25,17 @@
  * ============================================================================ */
 
 /**
- * ui_text_init() - Store font pointers and pre-compute per-size metrics.
+ * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font loaded by init_ui() (Roboto-Regular.ttf).
  * @mono:    Monospace font loaded by init_ui() (RobotoMono-Regular.ttf).
  *
  * Must be called after fonts are loaded and before ui_text_prewarm().
  * Both pointers are borrowed — ownership remains with the caller.
+ *
+ * This function does NOT compute metrics or pre-warm the atlas — that is
+ * intentionally deferred to ui_text_prewarm() because some FreeType/GXM
+ * paths require an active render pass.  If either font pointer is NULL,
+ * both metric computation and atlas prewarm are skipped.
  */
 void ui_text_init(vita2d_font *regular, vita2d_font *mono);
 
