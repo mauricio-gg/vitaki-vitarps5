@@ -25,6 +25,7 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_input.h"
 #include "ui/ui_focus.h"
+#include "ui/ui_text.h"
 #include "context.h"
 
 // ============================================================================
@@ -423,7 +424,7 @@ void ui_nav_render_pill(void) {
   // Triangle button icon + "Menu" text (centered together as a single unit)
   if (w > 50) {
     int icon_target_size = NAV_PILL_ICON_SIZE;
-    int menu_text_width = vita2d_font_text_width(font, FONT_SIZE_BODY, "Menu");
+    int menu_text_width = ui_text_width(font, FONT_SIZE_BODY, "Menu");
     int gap = NAV_PILL_ICON_GAP;
     int total_content_width = icon_target_size + gap + menu_text_width;
     int content_start_x = x + (w - total_content_width) / 2;
@@ -443,8 +444,8 @@ void ui_nav_render_pill(void) {
     if (w >= NAV_PILL_WIDTH - 10) {
       uint8_t text_alpha = (uint8_t)(nav_collapse.pill_opacity * 255);
       int text_x = content_start_x + icon_target_size + gap;
-      vita2d_font_draw_text(font, text_x, y + h / 2 + 5, RGBA8(250, 250, 250, text_alpha),
-                            FONT_SIZE_BODY, "Menu");
+      ui_text_draw_centered_v(font, text_x, y, h, RGBA8(250, 250, 250, text_alpha), FONT_SIZE_BODY,
+                              "Menu");
     }
   }
 }
@@ -474,7 +475,7 @@ void ui_nav_render_toast(void) {
   }
 
   const char *text = "Menu hidden - tap pill or press Triangle to reopen";
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
 
   int toast_x = NAV_PILL_X;
   int toast_y = NAV_PILL_Y + NAV_PILL_HEIGHT + 8;
@@ -486,8 +487,7 @@ void ui_nav_render_toast(void) {
   uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
 
   ui_draw_rounded_rect(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
-  vita2d_font_draw_text(font, toast_x + 12, toast_y + toast_h / 2 + 4, text_color, FONT_SIZE_SMALL,
-                        text);
+  ui_text_draw_centered_v(font, toast_x + 12, toast_y, toast_h, text_color, FONT_SIZE_SMALL, text);
 }
 
 void ui_nav_render_content_overlay(void) {
@@ -682,11 +682,10 @@ void ui_nav_render(void) {
           break;
       }
       if (label) {
-        int label_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+        int label_width = ui_text_width(font, FONT_SIZE_SMALL, label);
         int label_x = WAVE_NAV_ICON_X - label_width / 2;
         int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
-        vita2d_font_draw_text(font, label_x, label_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL,
-                              label);
+        ui_text_draw(font, label_x, label_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, label);
       }
     }
   }

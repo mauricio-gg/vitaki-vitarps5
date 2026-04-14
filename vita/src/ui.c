@@ -175,7 +175,7 @@ static void render_loss_indicator_preview(void) {
   const int padding_x = 18;
   const int padding_y = 6;
   const char *headline = "Network Unstable";
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
+  int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
   int box_w = padding_x * 2 + dot_radius * 2 + 10 + text_width;
   int box_h = padding_y * 2 + FONT_SIZE_SMALL + 4;
   int box_x = VITA_WIDTH - box_w - margin;
@@ -191,9 +191,8 @@ static void render_loss_indicator_preview(void) {
   vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
 
   int text_x = dot_x + dot_radius + 10;
-  int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
-                        headline);
+  ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
+                          FONT_SIZE_SMALL, headline);
 }
 
 // Debug menu render and input functions moved to ui_components.c
