@@ -724,12 +724,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   }
 
   if (state_text) {
-    int state_text_width = ui_text_width(font, 18, state_text);
+    int state_text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, state_text);
     int state_x = draw_x + (card_w / 2) - (state_text_width / 2);
     // Baseline is 15 px gap below the name bar bottom + 18 pt ascent — anchored to the bar edge,
     // not centered in any box, so ui_text_draw is correct here.
     int state_y = name_bar_y + name_bar_h + 15 + 18;  // 15px gap + font size for baseline
-    ui_text_draw(font, state_x, state_y, state_color, 18, state_text);
+    ui_text_draw(font, state_x, state_y, state_color, FONT_SIZE_SUBHEADER, state_text);
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -739,12 +739,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
         now_us <= console->host->status_hint_expire_us) {
       uint32_t hint_color =
           console->host->status_hint_is_error ? RGBA8(255, 128, 128, 255) : UI_COLOR_TEXT_SECONDARY;
-      int hint_width = ui_text_width(font, 16, console->host->status_hint);
+      int hint_width = ui_text_width(font, FONT_SIZE_BODY, console->host->status_hint);
       int hint_x = draw_x + (card_w / 2) - (hint_width / 2);
       // Baseline is chained from state_y (name_bar_y + name_bar_h + 15 + 18) + 8 px gap + 16 pt
       // ascent — explicit chain anchor, not a box center, so ui_text_draw is correct here.
       int hint_y = name_bar_y + name_bar_h + 15 + 18 + 8 + 16;  // status_y + 8px gap + font size
-      ui_text_draw(font, hint_x, hint_y, hint_color, 16, console->host->status_hint);
+      ui_text_draw(font, hint_x, hint_y, hint_color, FONT_SIZE_BODY, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
       console->host->status_hint_is_error = false;
