@@ -31,7 +31,15 @@ static const int UI_FONT_PREWARM_SIZES[] = {
     FONT_SIZE_SMALL,     /* 14 pt */
     FONT_SIZE_BODY,      /* 16 pt */
     FONT_SIZE_SUBHEADER, /* 18 pt */
-    FONT_SIZE_HEADER,    /* 28 pt */
+    /*
+     * 20 pt and 24 pt are used by hot-path screens (console cards + home-screen
+     * header) but do not yet have a semantic FONT_SIZE_* constant — they serve
+     * a single context each and haven't earned a shared name.  Using bare
+     * integer literals here matches the style of the per-entry comments above.
+     */
+    20,               /* 20 pt */
+    24,               /* 24 pt */
+    FONT_SIZE_HEADER, /* 28 pt */
 };
 
 /* Number of entries in the regular-font prewarm size table. */
@@ -39,11 +47,11 @@ static const int UI_FONT_PREWARM_SIZES[] = {
   ((int)(sizeof(UI_FONT_PREWARM_SIZES) / sizeof(UI_FONT_PREWARM_SIZES[0])))
 
 /*
- * Compile-time guard: the size_index() switch has exactly 4 cases (one per
+ * Compile-time guard: the size_index() switch has exactly 6 cases (one per
  * entry in UI_FONT_PREWARM_SIZES).  If a new size is added to the table this
  * assertion fires immediately, reminding the author to extend size_index().
  */
-_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 4,
+_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 6,
                "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
 
 /*
@@ -164,11 +172,19 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
 
 /**
  * size_index() - Map a pt_size to its slot in s_metrics[].
- * @pt_size: One of the FONT_SIZE_* constants.
+ * @pt_size: One of the FONT_SIZE_* constants, or 20/24 (hot-path sizes).
  *
- * Returns the table index (0–3), or -1 if pt_size is not a known size.
+ * Returns the table index (0–5), or -1 if pt_size is not a known size.
  * Using an explicit switch rather than a loop keeps the mapping O(1) and
  * makes compiler exhaustiveness warnings possible in the future.
+ *
+ * Index assignment must mirror UI_FONT_PREWARM_SIZES[] order exactly:
+ *   0 = 14 pt (FONT_SIZE_SMALL)
+ *   1 = 16 pt (FONT_SIZE_BODY)
+ *   2 = 18 pt (FONT_SIZE_SUBHEADER)
+ *   3 = 20 pt
+ *   4 = 24 pt
+ *   5 = 28 pt (FONT_SIZE_HEADER)
  */
 static int size_index(int pt_size) {
   switch (pt_size) {
@@ -178,8 +194,12 @@ static int size_index(int pt_size) {
       return 1;
     case FONT_SIZE_SUBHEADER:
       return 2;
-    case FONT_SIZE_HEADER:
+    case 20:
       return 3;
+    case 24:
+      return 4;
+    case FONT_SIZE_HEADER:
+      return 5;
     default:
       return -1;
   }
@@ -232,7 +252,7 @@ static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
 static void warn_unknown_size(const char *caller, int pt_size) {
   sceClibPrintf(
       "[WARN] ui_text: %s received unknown pt_size=%d "
-      "(expected FONT_SIZE_SMALL/BODY/SUBHEADER/HEADER)\n",
+      "(expected FONT_SIZE_SMALL/BODY/SUBHEADER/20/24/HEADER)\n",
       caller, pt_size);
 }
 
@@ -372,7 +392,7 @@ static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
  * FreeType rasterization and GPU atlas upload without visible output.
  *
  * Iterates:
- *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (4 sizes)
+ *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (6 sizes)
  *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
  *
  * Metrics (ascent, line-height) are derived from s_font_regular only.
@@ -405,7 +425,7 @@ void ui_text_prewarm(void) {
     compute_metrics_for_size(s_font_regular, UI_FONT_PREWARM_SIZES[i], i);
   }
 
-  /* --- Bake regular font: all four prewarm sizes --- */
+  /* --- Bake regular font: all six prewarm sizes --- */
   prewarm_one_font(s_font_regular, UI_FONT_PREWARM_SIZES, UI_FONT_PREWARM_SIZE_COUNT);
 
   /* --- Bake mono font: body and small sizes only --- */
