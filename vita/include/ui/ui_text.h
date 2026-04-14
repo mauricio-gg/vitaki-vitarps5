@@ -19,6 +19,7 @@
 #pragma once
 
 #include <vita2d.h>
+#include "ui/ui_constants.h"
 
 /* ============================================================================
  * Initialization & Warm-up

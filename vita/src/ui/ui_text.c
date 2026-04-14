@@ -211,6 +211,8 @@ static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
   }
   s_metrics[slot].line_height = h;
   s_metrics[slot].ascent = (h * UI_FONT_ASCENT_NUMERATOR) / UI_FONT_ASCENT_DENOMINATOR;
+  sceClibPrintf("[ui_text] size=%d h=%d ascent=%d line=%d (font=%p)\n", pt_size, h,
+                s_metrics[slot].ascent, s_metrics[slot].line_height, (const void *)f);
 }
 
 /**
