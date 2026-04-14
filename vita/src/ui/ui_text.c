@@ -408,6 +408,10 @@ void ui_text_prewarm(void) {
  */
 void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
                   const char *s) {
+  if (!f) {
+    sceClibPrintf("[WARN] ui_text_draw: NULL font pointer\n");
+    return;
+  }
   if (!s)
     return;
   if (size_index(pt_size) < 0) {
@@ -421,6 +425,10 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
  * ui_text_width() - Return the pixel width of a UTF-8 string.
  */
 int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
+  if (!f) {
+    sceClibPrintf("[WARN] ui_text_width: NULL font pointer\n");
+    return 0;
+  }
   if (!s)
     return 0;
   if (size_index(pt_size) < 0) {
@@ -468,6 +476,10 @@ void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsign
   int baseline_y;
   int idx;
 
+  if (!f) {
+    sceClibPrintf("[WARN] ui_text_draw_centered_v: NULL font pointer\n");
+    return;
+  }
   if (!s)
     return;
 
