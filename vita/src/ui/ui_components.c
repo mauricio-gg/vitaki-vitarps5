@@ -15,6 +15,7 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_text.h"
 #include "video.h"
 
 #include <math.h>
@@ -140,14 +141,13 @@ void ui_draw_dropdown(int x, int y, int width, int height, const char *label, co
   // Background
   ui_draw_rounded_rect(x, y, width, height, 8, bg_color);
 
-  // Label text (left)
-  vita2d_font_draw_text(font, x + 15, y + height / 2 + 6, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
-                        label);
+  // Label text (left) — centered vertically in the row box.
+  ui_text_draw_centered_v(font, x + 15, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
 
-  // Value text (right)
-  int value_width = vita2d_font_text_width(font, FONT_SIZE_BODY, value);
-  vita2d_font_draw_text(font, x + width - value_width - 30, y + height / 2 + 6,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, value);
+  // Value text (right) — same row box, right-aligned by pre-computing x from width.
+  int value_width = ui_text_width(font, FONT_SIZE_BODY, value);
+  ui_text_draw_centered_v(font, x + width - value_width - 30, y, height, UI_COLOR_TEXT_PRIMARY,
+                          FONT_SIZE_BODY, value);
 
   // Down arrow indicator - enhanced with PlayStation Blue when selected
   int arrow_x = x + width - 18;
@@ -174,13 +174,13 @@ void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], ui
     // Tab background - flat color, no dimming
     ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
 
-    // Tab text (centered)
-    int text_width = vita2d_font_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
+    // Tab text (centered horizontally and vertically in the tab box).
+    int text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
     int text_x = tab_x + (tab_width - text_width) / 2;
-    int text_y = y + height / 2 + 6;
 
-    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                          tabs[i]);
+    // Vertically centered in the tab height box; _centered_v eliminates the +6 magic offset.
+    ui_text_draw_centered_v(font, text_x, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+                            tabs[i]);
 
     // Selection indicator (bottom bar) - only visual difference
     if (i == selected) {
@@ -222,9 +222,9 @@ void ui_draw_section_header(int x, int y, int width, const char *title) {
   // Bottom accent line (PlayStation Blue)
   vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
 
-  // Title text (centered vertically in header)
-  vita2d_font_draw_text(font, x + 15, y + (header_h / 2) + 8, UI_COLOR_TEXT_PRIMARY,
-                        FONT_SIZE_HEADER, title);
+  // Title text (centered vertically in header).
+  ui_text_draw_centered_v(font, x + 15, y, header_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
+                          title);
 }
 
 /**
@@ -249,6 +249,11 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
   // Digit text or cursor
   if (has_value && digit <= 9) {
     char digit_text[2] = {'0' + digit, '\0'};
+    // 40 pt is outside the prewarm set (14/16/18/20/24/28); these PIN-entry
+    // digits are a rare, transient flow so the cost of a per-frame FreeType
+    // glyph lookup is acceptable. Do not migrate to ui_text_* helpers —
+    // ui_text_width would emit warn_unknown_size and ui_text_draw would miss
+    // the atlas.
     int text_w = vita2d_font_text_width(font, 40, digit_text);
     int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
     int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
@@ -289,10 +294,10 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
 
   ui_draw_rounded_rect(x, y, w, h, 6, bg_color);
 
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, label);
+  // Label centered horizontally and vertically in the button box.
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
   int text_x = x + (w - text_w) / 2;
-  int text_y = y + h / 2 + 5; /* font baseline offset for FONT_SIZE_SMALL */
-  vita2d_font_draw_text(font, text_x, text_y, text_color, FONT_SIZE_SMALL, label);
+  ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
 }
 
 // ============================================================================
@@ -392,21 +397,19 @@ void ui_error_render(void) {
   int popup_y = (VITA_HEIGHT - popup_h) / 2;
   ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16, RGBA8(0x14, 0x16, 0x1C, 240));
 
-  // Error message text
+  // Error message text — centered horizontally and vertically in the popup box.
   const char *message =
       context.ui_state.error_popup_text[0] ? context.ui_state.error_popup_text : "Connection error";
-  int message_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, message);
+  int message_w = ui_text_width(font, FONT_SIZE_HEADER, message);
   int message_x = popup_x + (popup_w - message_w) / 2;
-  int message_y = popup_y + popup_h / 2;
-  vita2d_font_draw_text(font, message_x, message_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-                        message);
+  ui_text_draw_centered_v(font, message_x, popup_y, popup_h, UI_COLOR_TEXT_PRIMARY,
+                          FONT_SIZE_HEADER, message);
 
-  // Hint text
+  // Hint text — baseline sits 40 px above popup bottom (below the message, near the edge).
   const char *hint = "Tap anywhere to dismiss";
-  int hint_w = vita2d_font_text_width(font, FONT_SIZE_BODY, hint);
+  int hint_w = ui_text_width(font, FONT_SIZE_BODY, hint);
   int hint_x = popup_x + (popup_w - hint_w) / 2;
-  int hint_y = popup_y + popup_h - 40;
-  vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
+  ui_text_draw(font, hint_x, popup_y + popup_h - 40, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
 }
 
 /**
@@ -480,7 +483,7 @@ void ui_hints_render(void) {
   }
 
   // Render hint pill at bottom of screen
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
+  int text_width = ui_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
   int pill_w = text_width + 40;
   int pill_h = 36;
   int pill_x = (VITA_WIDTH - pill_w) / 2;
@@ -489,10 +492,10 @@ void ui_hints_render(void) {
   uint8_t alpha = (uint8_t)(opacity * 200);
   ui_draw_rounded_rect(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
 
+  // Text centered vertically in the pill box; +20 inset from left edge.
   int text_x = pill_x + 20;
-  int text_y = pill_y + pill_h / 2 + 5;
-  vita2d_font_draw_text(font, text_x, text_y, RGBA8(255, 255, 255, alpha), FONT_SIZE_SMALL,
-                        hints_popup.current_hint);
+  ui_text_draw_centered_v(font, text_x, pill_y, pill_h, RGBA8(255, 255, 255, alpha),
+                          FONT_SIZE_SMALL, hints_popup.current_hint);
 }
 
 /**
@@ -500,10 +503,10 @@ void ui_hints_render(void) {
  */
 void ui_hints_render_indicator(void) {
   const char *indicator = "(Select) Hints";
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, indicator);
+  int text_width = ui_text_width(font, FONT_SIZE_SMALL, indicator);
   int text_x = VITA_WIDTH - text_width - 100;  // Left of logo
-  int text_y = 35;
-  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
+  // Baseline at y=35 is a fixed screen-top anchor, not a box center.
+  ui_text_draw(font, text_x, 35, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
 }
 
 // ============================================================================
@@ -742,11 +745,11 @@ void ui_debug_render(void) {
   int panel_y = (VITA_HEIGHT - panel_h) / 2;
   ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18, RGBA8(0x14, 0x16, 0x1C, 240));
 
-  // Title
+  // Title — baseline sits 40 px below panel top, leaving room for the panel's title-bar area.
   const char *title = "Debug Actions";
-  int title_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
-  vita2d_font_draw_text(font, panel_x + (panel_w - title_w) / 2, panel_y + 40,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
+  int title_w = ui_text_width(font, FONT_SIZE_HEADER, title);
+  ui_text_draw(font, panel_x + (panel_w - title_w) / 2, panel_y + 40, UI_COLOR_TEXT_PRIMARY,
+               FONT_SIZE_HEADER, title);
 
   // Option list
   int list_y = panel_y + 70;
@@ -759,15 +762,16 @@ void ui_debug_render(void) {
     int row_margin = 6;
     ui_draw_rounded_rect(panel_x + 30, list_y + i * (row_h + row_margin), panel_w - 60, row_h, 10,
                          row_color);
-    vita2d_font_draw_text(font, panel_x + 50, list_y + i * (row_h + row_margin) + row_h / 2 + 6,
-                          UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, debug_menu_options[i]);
+    // Row label centered vertically in the row box; box top is list_y + i*(row_h+row_margin).
+    ui_text_draw_centered_v(font, panel_x + 50, list_y + i * (row_h + row_margin), row_h,
+                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, debug_menu_options[i]);
   }
 
-  // Hint text
+  // Hint text — baseline sits 20 px above panel bottom.
   const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
-  int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
-  vita2d_font_draw_text(font, panel_x + (panel_w - hint_w) / 2, panel_y + panel_h - 20,
-                        UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
+  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
+  ui_text_draw(font, panel_x + (panel_w - hint_w) / 2, panel_y + panel_h - 20,
+               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
 }
 
 /**
