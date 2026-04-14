@@ -15,6 +15,7 @@
 
 #include "ui/ui_internal.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_text.h"
 #include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
@@ -57,6 +58,9 @@ static int drag_base_scroll = 0;
 // ============================================================================
 // Filter State
 // ============================================================================
+
+/** Vertical gap (px) from the home-screen header baseline to the filter/hint sub-line baseline. */
+#define CARDS_HEADER_SUBTEXT_GAP 28
 
 #define FILTER_MAX_LEN 31
 static char filter_text[FILTER_MAX_LEN + 1] = {0};
@@ -650,11 +654,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
                        name_bar_h, (int)(8 * scale), RGBA8(70, 75, 80, 255));
 
   // Console name text (centered in bar)
-  int text_width = vita2d_font_text_width(font, CARD_TITLE_FONT_SIZE, console->name);
+  int text_width = ui_text_width(font, CARD_TITLE_FONT_SIZE, console->name);
   int text_x = draw_x + (card_w / 2) - (text_width / 2);
-  int text_y = name_bar_y + (name_bar_h / 2) + CARD_TEXT_BASELINE_OFFSET;
-  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, CARD_TITLE_FONT_SIZE,
-                        console->name);
+  // Console name centered vertically in the name bar (20 pt is in the prewarm atlas; see #127 prep
+  // commit).
+  ui_text_draw_centered_v(font, text_x, name_bar_y, name_bar_h, UI_COLOR_TEXT_PRIMARY,
+                          CARD_TITLE_FONT_SIZE, console->name);
 
   // Status indicator (top-right)
   vita2d_texture *status_tex = NULL;
@@ -679,10 +684,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
       uint8_t channel = (uint8_t)(190 + pulse * 50.0f);
       uint32_t wait_color = RGBA8(channel, channel, channel, 255);
       const char *wait_text = "Please wait...";
-      int wait_w = vita2d_font_text_width(font, FONT_SIZE_BODY, wait_text);
+      int wait_w = ui_text_width(font, FONT_SIZE_BODY, wait_text);
       int text_x = draw_x + (card_w - wait_w) / 2;
+      // Baseline positioned roughly one line height below the indicator top — kept as ui_text_draw
+      // because there's no enclosing box rect to center over.
       int text_y = indicator_y + FONT_SIZE_BODY;
-      vita2d_font_draw_text(font, text_x, text_y, wait_color, FONT_SIZE_BODY, wait_text);
+      ui_text_draw(font, text_x, text_y, wait_color, FONT_SIZE_BODY, wait_text);
       vita2d_draw_texture_scale(status_tex, indicator_x, indicator_y, scale, scale);
     } else {
       // Batch 4: Status dot breathing animation (0.7-1.0 alpha over 1.5s cycle)
@@ -718,11 +725,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   }
 
   if (state_text) {
-    int state_text_width = vita2d_font_text_width(font, 18, state_text);
+    int state_text_width = ui_text_width(font, 18, state_text);
     int state_x = draw_x + (card_w / 2) - (state_text_width / 2);
-    // Position status text 15px below name bar (name_bar_y + name_bar_h + 15px gap + text baseline)
+    // Baseline is 15 px gap below the name bar bottom + 18 pt ascent — anchored to the bar edge,
+    // not centered in any box, so ui_text_draw is correct here.
     int state_y = name_bar_y + name_bar_h + 15 + 18;  // 15px gap + font size for baseline
-    vita2d_font_draw_text(font, state_x, state_y, state_color, 18, state_text);
+    ui_text_draw(font, state_x, state_y, state_color, 18, state_text);
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -732,11 +740,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
         now_us <= console->host->status_hint_expire_us) {
       uint32_t hint_color =
           console->host->status_hint_is_error ? RGBA8(255, 128, 128, 255) : UI_COLOR_TEXT_SECONDARY;
-      int hint_width = vita2d_font_text_width(font, 16, console->host->status_hint);
+      int hint_width = ui_text_width(font, 16, console->host->status_hint);
       int hint_x = draw_x + (card_w / 2) - (hint_width / 2);
-      // Position hint text 8px below status text
+      // Baseline is chained from state_y (name_bar_y + name_bar_h + 15 + 18) + 8 px gap + 16 pt
+      // ascent — explicit chain anchor, not a box center, so ui_text_draw is correct here.
       int hint_y = name_bar_y + name_bar_h + 15 + 18 + 8 + 16;  // status_y + 8px gap + font size
-      vita2d_font_draw_text(font, hint_x, hint_y, hint_color, 16, console->host->status_hint);
+      ui_text_draw(font, hint_x, hint_y, hint_color, 16, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
       console->host->status_hint_is_error = false;
@@ -776,11 +785,10 @@ void ui_cards_render_grid(void) {
     int banner_w = VITA_WIDTH;
     int banner_h = 44;
     vita2d_draw_rectangle(0, 0, banner_w, banner_h, RGBA8(0x05, 0x05, 0x07, 235));
-    int banner_text_w = vita2d_font_text_width(font, FONT_SIZE_BODY, banner_text);
+    int banner_text_w = ui_text_width(font, FONT_SIZE_BODY, banner_text);
     int banner_text_x = (banner_w - banner_text_w) / 2;
-    int banner_text_y = banner_h / 2 + (FONT_SIZE_BODY / 2) - 4;
-    vita2d_font_draw_text(font, banner_text_x, banner_text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
-                          banner_text);
+    ui_text_draw_centered_v(font, banner_text_x, 0, banner_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY,
+                            banner_text);
   }
 
   /* --- Horizontal layout math --- */
@@ -796,10 +804,12 @@ void ui_cards_render_grid(void) {
 
   /* Header text */
   const char *header_text = "Which do you want to connect?";
-  int text_width = vita2d_font_text_width(font, 24, header_text);
+  int text_width = ui_text_width(font, 24, header_text);
   int text_x = content_center_x - (text_width / 2);
+  // Header baseline sits 50 px above the card row — anchors the prompt above the horizontal
+  // console-card strip. Not a box-center, so ui_text_draw is correct here.
   int text_y = card_y - 50;
-  vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
+  ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
 
   /* --- Poll IME dialog if running --- */
   ui_cards_poll_filter_ime();
@@ -809,26 +819,30 @@ void ui_cards_render_grid(void) {
     char filter_bar[80];
     sceClibSnprintf(filter_bar, sizeof(filter_bar), "Filter: \"%s\" (%d found)", filter_text,
                     num_cards);
-    int fb_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, filter_bar);
+    int fb_w = ui_text_width(font, FONT_SIZE_SMALL, filter_bar);
     int fb_x = content_center_x - fb_w / 2;
-    int fb_y = text_y + 28;
-    vita2d_font_draw_text(font, fb_x, fb_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL, filter_bar);
+    // Sub-line baseline is CARDS_HEADER_SUBTEXT_GAP px below the header baseline — explicit anchor.
+    int fb_y = text_y + CARDS_HEADER_SUBTEXT_GAP;
+    ui_text_draw(font, fb_x, fb_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL, filter_bar);
   } else if (num_cards > CARDS_VISIBLE_MAX) {
     const char *hint = "Start: Filter";
-    int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+    int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
     int hint_x = content_center_x - hint_w / 2;
-    int hint_y = text_y + 28;
-    vita2d_font_draw_text(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
+    // Symmetric sub-line baseline: same CARDS_HEADER_SUBTEXT_GAP below the header baseline.
+    int hint_y = text_y + CARDS_HEADER_SUBTEXT_GAP;
+    ui_text_draw(font, hint_x, hint_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
   }
 
   /* Show empty state message if no cards */
   if (num_cards == 0) {
     const char *empty_msg =
         filter_active ? "No consoles match filter" : "Searching for consoles...";
-    int em_w = vita2d_font_text_width(font, FONT_SIZE_BODY, empty_msg);
+    int em_w = ui_text_width(font, FONT_SIZE_BODY, empty_msg);
     int em_x = content_center_x - em_w / 2;
+    // Baseline is screen vertical center + 10 px — a fixed anchor below mid-screen, not a box
+    // center, so ui_text_draw is correct here.
     int em_y = (VITA_HEIGHT / 2) + 10;
-    vita2d_font_draw_text(font, em_x, em_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, empty_msg);
+    ui_text_draw(font, em_x, em_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, empty_msg);
     return;
   }
 

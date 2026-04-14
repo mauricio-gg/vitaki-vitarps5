@@ -16,6 +16,7 @@
 #include "ui/ui_constants.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_text.h"
 #include "controller.h"
 #include "context.h"
 
@@ -49,6 +50,12 @@
 #define CALLOUT_PILL_HEIGHT 26
 #define CALLOUT_PILL_PADDING 10
 #define CALLOUT_ARROW_LENGTH 12
+
+// Zone/mapping label baseline offsets (relative to control-dot center)
+/* Pixels above the control-dot center where the zone label baseline sits. */
+#define DIAGRAM_ZONE_LABEL_BASELINE_OFFSET 6
+/* Pixels below the control-dot center where the mapping label baseline sits. */
+#define DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET 10
 
 #define CONTROLLER_FRONT_TEXTURE_PATH TEXTURE_PATH "controller_front.png"
 #define CONTROLLER_BACK_TEXTURE_PATH TEXTURE_PATH "controller_back.png"
@@ -337,12 +344,13 @@ static void draw_callout_arrow(int x1, int y1, int x2, int y2, uint32_t color) {
  */
 static void draw_callout_pill(int x, int y, const char *text, uint32_t bg_color,
                               uint32_t text_color) {
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
   int pill_w = text_w + CALLOUT_PILL_PADDING * 2;
 
   ui_draw_rounded_rect(x, y, pill_w, CALLOUT_PILL_HEIGHT, CALLOUT_PILL_HEIGHT / 2, bg_color);
-  vita2d_font_draw_text(font, x + CALLOUT_PILL_PADDING, y + CALLOUT_PILL_HEIGHT - 7, text_color,
-                        FONT_SIZE_SMALL, text);
+  // Centered vertically in the callout pill (was: y + PILL_HEIGHT - 7 empirical ascent offset).
+  ui_text_draw_centered_v(font, x + CALLOUT_PILL_PADDING, y, CALLOUT_PILL_HEIGHT, text_color,
+                          FONT_SIZE_SMALL, text);
 }
 
 bool ui_diagram_front_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y,
@@ -711,10 +719,15 @@ bool ui_diagram_anchor_for_input(DiagramRenderCtx *ctx, VitakiCtrlIn input, int 
 static void draw_anchor_label(const char *text, int x, int y, uint32_t color) {
   if (!text)
     return;
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, text);
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
   int text_x = x - text_w / 2;
+  // The `6` here is NOT the same concept as DIAGRAM_ZONE_LABEL_BASELINE_OFFSET;
+  // anchor labels and zone labels serve different layout contexts and the shared
+  // value is coincidental — do not merge them into one constant.
+  // text_y is a pre-computed true baseline (anchor y minus a fixed 6 px offset), not a
+  // box-centre — use ui_text_draw directly rather than ui_text_draw_centered_v.
   int text_y = y - 6;
-  vita2d_font_draw_text(font, text_x, text_y, color, FONT_SIZE_SMALL, text);
+  ui_text_draw(font, text_x, text_y, color, FONT_SIZE_SMALL, text);
 }
 
 static void draw_zone_mapping_text(int cx, int cy, const char *zone_label,
@@ -724,16 +737,18 @@ static void draw_zone_mapping_text(int cx, int cy, const char *zone_label,
   }
   uint32_t label_color = UI_COLOR_TEXT_TERTIARY;
   uint32_t mapping_color = UI_COLOR_TEXT_PRIMARY;
-  int zone_w = zone_label ? vita2d_font_text_width(font, FONT_SIZE_SMALL, zone_label) : 0;
-  int map_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, mapping_text);
+  int zone_w = zone_label ? ui_text_width(font, FONT_SIZE_SMALL, zone_label) : 0;
+  int map_w = ui_text_width(font, FONT_SIZE_SMALL, mapping_text);
 
   if (zone_label && zone_label[0] != '\0') {
     int zone_x = cx - zone_w / 2;
-    vita2d_font_draw_text(font, zone_x, cy - 6, label_color, FONT_SIZE_SMALL, zone_label);
+    ui_text_draw(font, zone_x, cy - DIAGRAM_ZONE_LABEL_BASELINE_OFFSET, label_color,
+                 FONT_SIZE_SMALL, zone_label);
   }
 
   int map_x = cx - map_w / 2;
-  vita2d_font_draw_text(font, map_x, cy + 10, mapping_color, FONT_SIZE_SMALL, mapping_text);
+  ui_text_draw(font, map_x, cy + DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET, mapping_color,
+               FONT_SIZE_SMALL, mapping_text);
 }
 
 static void draw_front_touch_overlay(DiagramRenderCtx *ctx, const VitakiCtrlMapInfo *map,
@@ -1777,10 +1792,10 @@ static void draw_summary_callouts(DiagramState *state, DiagramRenderCtx *ctx,
   char page_text[48];
   snprintf(page_text, sizeof(page_text), "Page %d/%d · %s", state->callout_page + 1,
            state->callout_page_count, page->title);
-  int label_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, page_text);
+  int label_w = ui_text_width(font, FONT_SIZE_SMALL, page_text);
   int label_x = ctx->base_x + (ctx->width - label_w) / 2;
-  vita2d_font_draw_text(font, label_x, ctx->base_y - 12, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                        page_text);
+  // Baseline sits 12 px above ctx->base_y — leaves a thin margin above the page indicator row.
+  ui_text_draw(font, label_x, ctx->base_y - 12, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, page_text);
 
   for (int i = 0; i < page->count; i++) {
     const DiagramCalloutDef *def = &g_callouts[page->start + i];
