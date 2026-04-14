@@ -247,7 +247,7 @@ int ui_text_width_cached(const char *text, int font_size) {
   }
 
   // Not in cache - calculate and store
-  int width = ui_text_width(font, font_size, text);
+  int width = vita2d_font_text_width(font, font_size, text);
 
   // Store in cache using simple FIFO replacement
   text_width_cache[next_cache_slot].text = text;

@@ -96,8 +96,8 @@ Only move a task to "Done" after the reviewer signs off.
    - *Epic:* Issue #127 Phase 2 - Complete migration of all `vita2d_font_draw_text` / `vita2d_font_text_width` call sites to new `ui_text` module helpers
    - *Goal:* Replace ad-hoc baseline offset math (`+5`/`+6` pixel adjustments) with metric-derived layout helpers (`ui_text_draw_centered_v()`, etc.)
    - *Scope:* 7 files with ~114 call sites: `vita/src/ui/ui_screens.c`, `vita/src/ui/ui_components.c`, `vita/src/ui/ui_console_cards.c`, `vita/src/ui/ui_navigation.c`, `vita/src/ui/ui_state.c`, `vita/src/ui.c:176-193`, `vita/src/video_overlay.c:93`
-   - *Example Target:* Replace `vita2d_font_draw_text(..., y+5)` with `ui_text_draw_centered_v(..., &metric)` using FreeType metrics from Phase 1 prewarm
-   - *Plan:* `/Users/mauriciogaldos/.claude/plans/prancy-sprouting-sunset.md`
+   - *Example Target:* Replace `vita2d_font_draw_text(f, x, y + h/2 + 5, col, sz, s)` with `ui_text_draw_centered_v(f, x, y, h, col, sz, s)` — baseline derived from cached ascent instead of literal offsets.
+   - *Plan:* tracked in internal planning notes (see PR #135 and #136 for in-repo context)
    - *Blocking:* On-device smoke test of Phase 1 prewarm (first-frame glyph pop-in check) must pass before Phase 2 starts
    - *Parent Epic:* #122 UI text rendering modernization
    - *Related Subtasks:* #125 (mipmaps for downscaled icons), #126 (icons at target sizes), #128 (pre-rendered antialiased shapes)

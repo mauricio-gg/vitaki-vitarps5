@@ -52,7 +52,7 @@ A living reference for larger initiatives. Update this document when we start or
      - Replace `vita2d_font_draw_text(..., y+5)` with `ui_text_draw_centered_v()` + metric-derived math
      - Scope: 7 files (`ui_screens.c`, `ui_components.c`, `ui_console_cards.c`, `ui_navigation.c`, `ui_state.c`, `ui.c`, `video_overlay.c`)
      - Blocking condition: Phase 1 on-device prewarm validation must pass first
-     - Plan: `/Users/mauriciogaldos/.claude/plans/prancy-sprouting-sunset.md`
+     - Plan: tracked in internal planning notes (see PR #135 and #136 for in-repo context)
 - **Related Subtasks (Parent Epic #122):**
   - #125 Mipmaps for downscaled icons
   - #126 Icons shipped at target sizes
