@@ -176,7 +176,7 @@ static void render_loss_indicator_preview(void) {
   const int padding_y = 6;
   const char *headline = "Network Unstable";
   int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = padding_x * 2 + dot_radius * 2 + 10 + text_width;
+  int box_w = padding_x * 2 + dot_radius * 2 + UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
   int box_h = padding_y * 2 + FONT_SIZE_SMALL + 4;
   int box_x = VITA_WIDTH - box_w - margin;
   int box_y = VITA_HEIGHT - box_h - margin;
@@ -190,7 +190,7 @@ static void render_loss_indicator_preview(void) {
   int dot_y = box_y + box_h / 2;
   vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
 
-  int text_x = dot_x + dot_radius + 10;
+  int text_x = dot_x + dot_radius + UI_LOSS_INDICATOR_DOT_TEXT_GAP;
   ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
                           FONT_SIZE_SMALL, headline);
 }
