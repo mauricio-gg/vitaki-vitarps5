@@ -1221,19 +1221,19 @@ static void draw_profile_card(int x, int y, int width, int height, bool selected
 
   // PSN Account ID
   const char *psn_id = context.config.psn_account_id ? context.config.psn_account_id : "Not Set";
-  vita2d_font_draw_text(font, content_x + icon_size + 20, content_y + 20, UI_COLOR_TEXT_PRIMARY,
-                        FONT_SIZE_SUBHEADER, psn_id);
+  ui_text_draw(font, content_x + icon_size + 20, content_y + 20, UI_COLOR_TEXT_PRIMARY,
+               FONT_SIZE_SUBHEADER, psn_id);
 
   // PlayStation Network label
-  vita2d_font_draw_text(font, content_x + icon_size + 20, content_y + 42, UI_COLOR_TEXT_SECONDARY,
-                        FONT_SIZE_SMALL, "PlayStation Network");
+  ui_text_draw(font, content_x + icon_size + 20, content_y + 42, UI_COLOR_TEXT_SECONDARY,
+               FONT_SIZE_SMALL, "PlayStation Network");
 
   // Divider line
   vita2d_draw_rectangle(content_x, content_y + 70, width - 40, 1, RGBA8(0x50, 0x50, 0x50, 255));
 
   if (selected) {
-    vita2d_font_draw_text(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          "Press X to refresh Account ID");
+    ui_text_draw(font, content_x, y + height - 16, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                 "Press X to refresh Account ID");
   }
 }
 
@@ -1265,8 +1265,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* ── Title ──────────────────────────────────────────────────────────── */
   int cy = y + 25;
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                        "Connection Information");
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+               "Connection Information");
   cy += 30; /* cy = y+55 */
 
   /* ── Gather data ────────────────────────────────────────────────────── */
@@ -1281,7 +1281,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   bool is_streaming = context.stream.is_streaming && context.stream.session_init;
 
   /* ── Section: Network ───────────────────────────────────────────────── */
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
   cy += sec_line_h; /* cy ≈ y+73 */
 
   const char *network_text = "Unavailable";
@@ -1292,9 +1292,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && (host->type & MANUALLY_ADDED)) {
     network_text = "Manual Host";
   }
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Network Type");
-  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Network Type");
+  ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
   cy += body_line_h; /* cy ≈ y+91 */
 
   const char *console_name = "Not selected";
@@ -1305,8 +1304,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else if (has_host && host->hostname) {
     console_name = host->hostname;
   }
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
-  vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
+  ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
   cy += body_line_h; /* cy ≈ y+109 */
 
   /* Console IP — only when a meaningful address is available */
@@ -1317,9 +1316,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     console_ip = host->hostname;
   }
   if (console_ip) {
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Console IP");
-    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
+    ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console IP");
+    ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
     cy += body_line_h;
   }
 
@@ -1328,7 +1326,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   if (cy < y + CONN_CARD_STREAM_ANCHOR_Y) {
     cy = y + CONN_CARD_STREAM_ANCHOR_Y;
   }
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Stream");
   cy += sec_line_h; /* cy ≈ y+148 */
 
   if (is_streaming) {
@@ -1348,9 +1346,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
           latency_color = RGBA8(0xF4, 0x43, 0x36, 255);
         }
       }
-      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                            "Latency");
-      vita2d_font_draw_text(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
+      ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Latency");
+      ui_text_draw(font, col2_x, cy, latency_color, FONT_SIZE_SMALL, latency_text);
       cy += body_line_h;
 
       char bitrate_text[32] = "N/A";
@@ -1368,9 +1365,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
           bitrate_color = RGBA8(0xF4, 0x43, 0x36, 255);
         }
       }
-      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                            "Bitrate");
-      vita2d_font_draw_text(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
+      ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Bitrate");
+      ui_text_draw(font, col2_x, cy, bitrate_color, FONT_SIZE_SMALL, bitrate_text);
       cy += body_line_h;
 
       char loss_text[48] = "Stable";
@@ -1384,15 +1380,13 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
           loss_color = RGBA8(0xF4, 0x43, 0x36, 255);
         }
       }
-      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                            "Packet Loss");
-      vita2d_font_draw_text(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
+      ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Packet Loss");
+      ui_text_draw(font, col2_x, cy, loss_color, FONT_SIZE_SMALL, loss_text);
       cy += body_line_h;
     } else {
       /* Streaming with latency overlay disabled: single status row. */
-      vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                            "Status");
-      vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, "Streaming");
+      ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
+      ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, "Streaming");
       cy += body_line_h;
     }
   } else {
@@ -1407,14 +1401,14 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     } else {
       status_text = "None";
     }
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
-    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, status_text);
+    ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Status");
+    ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, status_text);
     cy += body_line_h; /* cy ≈ y+166 */
 
     const char *quality_text =
         (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_360p) ? "360p" : "540p";
-    vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Quality");
-    vita2d_font_draw_text(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, quality_text);
+    ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Quality");
+    ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, quality_text);
     cy += body_line_h;
   }
 
@@ -1423,7 +1417,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   if (cy < y + CONN_CARD_PSN_ANCHOR_Y) {
     cy = y + CONN_CARD_PSN_ANCHOR_Y;
   }
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "PSN");
   cy += sec_line_h; /* cy ≈ y+205 */
 
   uint64_t now_unix = (uint64_t)time(NULL);
@@ -1441,8 +1435,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   } else {
     auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
   }
-  vita2d_font_draw_text(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
-  vita2d_font_draw_text(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
+  ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
+  ui_text_draw(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
 
   /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
@@ -1484,8 +1478,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
       hint = "X: Start Browser Login";
     }
     int hint_x = device_login ? content_x : (content_x + LOGOUT_BTN_LEFT_PAD + LOGOUT_BTN_W + 10);
-    vita2d_font_draw_text(font, hint_x, strip_y + LOGOUT_BTN_H / 2 + 5, UI_COLOR_TEXT_TERTIARY,
-                          FONT_SIZE_SMALL, hint);
+    ui_text_draw_centered_v(font, hint_x, strip_y, LOGOUT_BTN_H, UI_COLOR_TEXT_TERTIARY,
+                            FONT_SIZE_SMALL, hint);
   }
 }
 
