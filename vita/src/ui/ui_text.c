@@ -158,7 +158,7 @@ static FontSizeMetrics s_metrics[UI_FONT_METRIC_SLOTS];
 
 static vita2d_font *s_font_regular = NULL;
 static vita2d_font *s_font_mono = NULL;
-static int s_prewarm_needed = 1; /* 1 until ui_text_prewarm() runs */
+static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_init() */
 
 /* ============================================================================
  * Internal Helpers

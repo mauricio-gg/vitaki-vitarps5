@@ -18,6 +18,10 @@
  * Thread-safety: all functions must be called from the render thread. The
  * module is not thread-safe and shares state with vita2d_font, which itself
  * is render-thread-only.
+ *
+ * Lifecycle: there is no explicit deinit. Reloading fonts at runtime requires
+ * calling ui_text_init() again followed by ui_text_prewarm() on the next
+ * render pass.
  */
 
 #pragma once
@@ -107,6 +111,10 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s);
  * Returns an approximation (~80% of the vita2d text-height bounding box,
  * chosen empirically for Roboto). Revisit if the font face changes.
  *
+ * Metrics are derived from the regular font; valid for any face sharing the
+ * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
+ * to a different family requires re-measuring.
+ *
  * Returns 0 and logs a warning for unknown sizes.
  */
 int ui_text_ascent(int pt_size);
@@ -114,6 +122,10 @@ int ui_text_ascent(int pt_size);
 /**
  * ui_text_line_height() - Return the full line height in pixels for pt_size.
  * @pt_size: Must be one of the four FONT_SIZE_* constants.
+ *
+ * Metrics are derived from the regular font; valid for any face sharing the
+ * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
+ * to a different family requires re-measuring.
  *
  * Returns 0 and logs a warning for unknown sizes.
  */
