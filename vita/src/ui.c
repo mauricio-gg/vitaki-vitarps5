@@ -27,6 +27,7 @@
  */
 
 #include <sys/param.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -54,6 +55,7 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
+#include "ui/ui_text.h"
 
 vita2d_font *font;
 vita2d_font *font_mono;
@@ -397,6 +399,11 @@ void init_ui() {
   ui_cards_init();      // Initialize console card system
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
+
+  /* Initialize text helper: measures per-size metrics from the loaded fonts.
+   * Must happen after font load and before the first draw_ui() frame. */
+  ui_text_init(font, font_mono);
+
   vita2d_set_vblank_wait(true);
 
   // Initialize touch screen
@@ -453,6 +460,15 @@ void draw_ui() {
   context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
+
+  /*
+   * Glyph atlas warm-up flag: set once here so the first main-loop iteration
+   * runs the prewarm pass inside the main drawing pair (after
+   * vita2d_start_drawing / vita2d_clear_screen, before the background draw).
+   * Keeping it inside the main pair avoids opening a second GXM scene in the
+   * same frame, which would risk a GXM assertion or scene corruption.
+   */
+  int ui_text_prewarm_pending = ui_text_needs_prewarm();
 
   while (true) {
     // --- Deferred session finalization (join + fini on UI thread) ---
@@ -520,6 +536,17 @@ void draw_ui() {
 
       vita2d_start_drawing();
       vita2d_clear_screen();
+
+      /*
+       * One-shot atlas prewarm: runs inside the main drawing pair so there is
+       * only ever one vita2d_start_drawing / vita2d_end_drawing open at a time.
+       * Prewarm draws are at alpha=0 and off-screen (UI_FONT_PREWARM_OFFSCREEN_X/Y)
+       * so they produce no visible output even on the first rendered frame.
+       */
+      if (ui_text_prewarm_pending) {
+        ui_text_prewarm();
+        ui_text_prewarm_pending = 0;
+      }
 
       // Draw full-screen background - nav is a pure overlay
       if (background_gradient) {
