@@ -2173,9 +2173,9 @@ void ui_diagram_init(DiagramState *state) {
   state->animation_start_us = 0;
   state->flip_in_progress = false;
   state->color_tween_active = false;
-  state->texture_front = vita2d_load_PNG_file(CONTROLLER_FRONT_TEXTURE_PATH);
+  state->texture_front = ui_load_png_linear(CONTROLLER_FRONT_TEXTURE_PATH);
   sanitize_outline_texture(state->texture_front, FRONT_TEXTURE_ALPHA_THRESHOLD);
-  state->texture_back = vita2d_load_PNG_file(CONTROLLER_BACK_TEXTURE_PATH);
+  state->texture_back = ui_load_png_linear(CONTROLLER_BACK_TEXTURE_PATH);
   sanitize_outline_texture(state->texture_back, BACK_TEXTURE_ALPHA_THRESHOLD);
 }
 
