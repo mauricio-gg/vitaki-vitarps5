@@ -45,6 +45,7 @@
 #include "ui/ui_state.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_qr.h"
+#include "ui/ui_text.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -219,12 +220,12 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   const char *code_line =
       psn_auth_device_user_code()[0] ? psn_auth_device_user_code() : "Paste redirect URL/code";
 
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                        "Phone Login Assist");
+  ui_text_draw(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+               "Phone Login Assist");
 
   if (!psn_auth_device_login_active()) {
-    vita2d_font_draw_text(font, content_x, content_y + 24, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          "Press X on Connection card to start login");
+    ui_text_draw(font, content_x, content_y + 24, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                 "Press X on Connection card to start login");
     return;
   }
 
@@ -256,30 +257,30 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
                RGBA8(250, 250, 250, 255));
   } else {
     const char *qr_hint = "QR hidden";
-    int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, qr_hint);
-    vita2d_font_draw_text(font, qr_x + (qr_box - hint_w) / 2, qr_y + qr_box / 2,
-                          UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, qr_hint);
+    int hint_w = ui_text_width(font, FONT_SIZE_SMALL, qr_hint);
+    ui_text_draw(font, qr_x + (qr_box - hint_w) / 2, qr_y + qr_box / 2, UI_COLOR_TEXT_SECONDARY,
+                 FONT_SIZE_SMALL, qr_hint);
   }
 
   int text_x = qr_x + qr_box + 14;
   int line_y = content_y + 2;
   int text_line_h = 18;
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "1) Press Start to show/hide QR");
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               "1) Press Start to show/hide QR");
   line_y += text_line_h;
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "2) Scan QR with phone and sign in");
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               "2) Scan QR with phone and sign in");
   line_y += text_line_h;
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "3) Press X and paste redirect URL/code");
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               "3) Press X and paste redirect URL/code");
   line_y += text_line_h;
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "4) Select opens Vita browser fallback");
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               "4) Select opens Vita browser fallback");
   line_y += text_line_h;
 
   char code_buf[96];
   snprintf(code_buf, sizeof(code_buf), "Code: %s", code_line);
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, code_buf);
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, code_buf);
   line_y += text_line_h;
 
   char url_preview[140];
@@ -292,7 +293,7 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   } else {
     snprintf(url_preview, sizeof(url_preview), "URL: unavailable");
   }
-  vita2d_font_draw_text(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, url_preview);
+  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, url_preview);
 }
 
 static bool profile_auth_ime_running = false;
@@ -920,7 +921,7 @@ static void draw_settings_toggle_item(int x, int y, int w, int h, const char *la
   draw_toggle_switch(x + w - SETTINGS_TOGGLE_X_OFFSET, y + (h - SETTINGS_TOGGLE_HEIGHT) / 2,
                      SETTINGS_TOGGLE_WIDTH, SETTINGS_TOGGLE_HEIGHT,
                      get_toggle_animation_value(anim_index, value), selected);
-  vita2d_font_draw_text(font, x + 15, y + h / 2 + 6, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
+  ui_text_draw_centered_v(font, x + 15, y, h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
 }
 
 /// Draw Streaming Quality tab content with scrolling
@@ -1002,8 +1003,8 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                            get_toggle_animation_value(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
                                                       context.config.circle_btn_confirm),
                            selected);
-        vita2d_font_draw_text(font, content_x + 15, y + item_h / 2 + 6, UI_COLOR_TEXT_PRIMARY,
-                              FONT_SIZE_BODY, "Circle Button Confirm");
+        ui_text_draw_centered_v(font, content_x + 15, y, item_h, UI_COLOR_TEXT_PRIMARY,
+                                FONT_SIZE_BODY, "Circle Button Confirm");
         break;
       case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
         draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Only Paired",
@@ -1069,12 +1070,12 @@ UIScreenType ui_screen_draw_settings(void) {
 
   // Settings title (centered on full screen width)
   const char *title = "Streaming Settings";
-  int title_width = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_width = ui_text_width(font, FONT_SIZE_HEADER, title);
   int title_x = (VITA_WIDTH - title_width) / 2;
   int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
   if (title_x < min_title_x)
     title_x = min_title_x;
-  vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
+  ui_text_draw(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   // Content area (no tabs needed - only one section)
   int tab_content_y = 90;
@@ -1502,13 +1503,13 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
   int content_y = y + 25;
 
   // Title
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                        "PSN Authentication");
+  ui_text_draw(font, content_x, content_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
+               "PSN Authentication");
   content_y += 30;
 
   // Description text
-  vita2d_font_draw_text(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        "Required for remote play on PS5 over local net.");
+  ui_text_draw(font, content_x, content_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               "Required for remote play on PS5 over local net.");
   content_y += 25;
 
   // Authentication status indicators
@@ -1517,9 +1518,9 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 
   // Status indicator 1: Not authenticated (red X) or authenticated (green checkmark)
   draw_status_dot(content_x, content_y - 3, 6, authenticated ? UI_STATUS_ACTIVE : UI_STATUS_ERROR);
-  vita2d_font_draw_text(font, content_x + 15, content_y,
-                        authenticated ? RGBA8(0x4C, 0xAF, 0x50, 255) : RGBA8(0xF4, 0x43, 0x36, 255),
-                        FONT_SIZE_SMALL, authenticated ? "Authenticated" : "Not authenticated");
+  ui_text_draw(font, content_x + 15, content_y,
+               authenticated ? RGBA8(0x4C, 0xAF, 0x50, 255) : RGBA8(0xF4, 0x43, 0x36, 255),
+               FONT_SIZE_SMALL, authenticated ? "Authenticated" : "Not authenticated");
   content_y += 22;
 
   // "Add New" button
@@ -1531,14 +1532,14 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
   uint32_t btn_color = selected ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x50, 0x70, 0xA0, 255);
   ui_draw_rounded_rect(btn_x, btn_y, btn_w, btn_h, 6, btn_color);
 
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, "Add New");
-  vita2d_font_draw_text(font, btn_x + (btn_w - text_w) / 2, btn_y + btn_h / 2 + 5,
-                        UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, "Add New");
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, "Add New");
+  ui_text_draw_centered_v(font, btn_x + (btn_w - text_w) / 2, btn_y, btn_h, UI_COLOR_TEXT_PRIMARY,
+                          FONT_SIZE_SMALL, "Add New");
 
   // Hint if selected
   if (selected) {
-    vita2d_font_draw_text(font, btn_x + btn_w + 15, btn_y + btn_h / 2 + 5, UI_COLOR_TEXT_TERTIARY,
-                          FONT_SIZE_SMALL, "Press X to register");
+    ui_text_draw_centered_v(font, btn_x + btn_w + 15, btn_y, btn_h, UI_COLOR_TEXT_TERTIARY,
+                            FONT_SIZE_SMALL, "Press X to register");
   }
 }
 
@@ -1574,12 +1575,12 @@ UIScreenType ui_screen_draw_profile(void) {
 
   // Title (centered on full screen width)
   const char *title = "Profile & Connection";
-  int title_width = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_width = ui_text_width(font, FONT_SIZE_HEADER, title);
   int title_x = (VITA_WIDTH - title_width) / 2;
   int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
   if (title_x < min_title_x)
     title_x = min_title_x;
-  vita2d_font_draw_text(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
+  ui_text_draw(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   // Layout: Profile card (left), Connection info (right), login assist panel (bottom)
   int card_spacing = 15;
