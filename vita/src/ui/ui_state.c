@@ -20,7 +20,6 @@
 #include "ui/ui_state.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_focus.h"
-#include "ui/ui_text.h"
 #include "host.h"
 #include "logging.h"
 

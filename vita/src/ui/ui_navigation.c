@@ -487,6 +487,7 @@ void ui_nav_render_toast(void) {
   uint32_t text_color = RGBA8(250, 250, 250, (uint8_t)(opacity * 255));
 
   ui_draw_rounded_rect(toast_x, toast_y, toast_w, toast_h, 8, bg_color);
+  // Vertical center only; +12 is left-padding inside the toast box.
   ui_text_draw_centered_v(font, toast_x + 12, toast_y, toast_h, text_color, FONT_SIZE_SMALL, text);
 }
 
@@ -684,6 +685,8 @@ void ui_nav_render(void) {
       if (label) {
         int label_width = ui_text_width(font, FONT_SIZE_SMALL, label);
         int label_x = WAVE_NAV_ICON_X - label_width / 2;
+        // label_y is a true baseline (icon_center + half_icon + gap), not a
+        // box-center, so use ui_text_draw, not ui_text_draw_centered_v.
         int label_y = y + (WAVE_NAV_ICON_SIZE / 2) + 20;  // Below icon
         ui_text_draw(font, label_x, label_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, label);
       }
