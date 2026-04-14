@@ -54,6 +54,7 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
+#include "ui/ui_text.h"
 
 vita2d_font *font;
 vita2d_font *font_mono;
@@ -397,6 +398,11 @@ void init_ui() {
   ui_cards_init();      // Initialize console card system
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
+
+  /* Initialize text helper: measures per-size metrics from the loaded fonts.
+   * Must happen after font load and before the first draw_ui() frame. */
+  ui_text_init(font, font_mono);
+
   vita2d_set_vblank_wait(true);
 
   // Initialize touch screen
@@ -453,6 +459,19 @@ void draw_ui() {
   context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
+
+  /* One-shot glyph atlas warm-up: rasterize all (codepoint, pt_size) pairs
+   * before the first visible frame to prevent cold-atlas hitches and atlas-row
+   * variance.  Runs inside a dedicated vita2d drawing pair so the GPU texture
+   * uploads are committed.  The screen is cleared to black and immediately
+   * replaced by the normal render loop on the next iteration. */
+  if (ui_text_needs_prewarm()) {
+    vita2d_start_drawing();
+    vita2d_clear_screen();
+    ui_text_prewarm();
+    vita2d_end_drawing();
+    vita2d_swap_buffers();
+  }
 
   while (true) {
     // --- Deferred session finalization (join + fini on UI thread) ---
