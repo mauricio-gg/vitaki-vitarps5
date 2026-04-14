@@ -16,6 +16,7 @@
 
 #include <vita2d.h>
 #include <psp2/ctrl.h>
+#include <psp2/kernel/clib.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 
@@ -128,10 +129,8 @@ extern VitaChiakiContext context;
  */
 static inline vita2d_texture *ui_load_png_linear(const char *path) {
   vita2d_texture *tex = vita2d_load_PNG_file(path);
-  if (tex) {
-    vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR,
-                               SCE_GXM_TEXTURE_FILTER_LINEAR);
-  }
+  if (!tex) { sceClibPrintf("[ERROR] ui_load_png_linear: failed to load '%s'\n", path); return NULL; }
+  vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
   return tex;
 }
 

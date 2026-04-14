@@ -264,7 +264,8 @@ void load_textures() {
   vita_front = ui_load_png_linear("app0:/assets/Vita_Front.png");
   ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
-  // Controller diagram now uses procedural rendering - no PNGs to load
+  // Controller diagram textures are managed separately by the controller
+  // diagram module, so load_textures() does not load them here.
 }
 
 // ============================================================================
