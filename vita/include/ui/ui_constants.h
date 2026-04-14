@@ -229,9 +229,11 @@
 #define UI_OFFSCREEN_MARGIN 100  // Margin for offscreen culling
 
 // Loss indicator badge
-#define UI_LOSS_INDICATOR_MARGIN 18     // Margin from screen edge
-#define UI_LOSS_INDICATOR_PADDING_X 18  // Horizontal padding
-#define UI_LOSS_INDICATOR_PADDING_Y 6   // Vertical padding
+#define UI_LOSS_INDICATOR_MARGIN 18        // Margin from screen edge
+#define UI_LOSS_INDICATOR_PADDING_X 18     // Horizontal padding
+#define UI_LOSS_INDICATOR_PADDING_Y 6      // Vertical padding
+#define UI_LOSS_INDICATOR_DOT_RADIUS 6     // Status dot radius in pixels
+#define UI_LOSS_INDICATOR_DOT_TEXT_GAP 10  // Gap between status dot and text label
 
 // ============================================================================
 // Controller Layout (Standard Wave Nav)

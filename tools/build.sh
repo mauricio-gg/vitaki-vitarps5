@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="684"
+VERSION_ITERATION="687"
 
 # Colors for output
 RED='\033[0;31m'
@@ -280,7 +280,7 @@ generate_version_header() {
 #define VITAKI_FORK_VERSION_PATCH ${VERSION_ITERATION}
 #define VITAKI_FORK_VERSION_STRING "0.1.${VERSION_ITERATION}"
 
-#endif // VITAKI_FORK_VERSION_H
+#endif  // VITAKI_FORK_VERSION_H
 EOF
 
     log_info "Version header generated: v0.1.${VERSION_ITERATION}"

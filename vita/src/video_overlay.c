@@ -3,6 +3,7 @@
 #include "context.h"
 #include "ui.h"
 #include "ui/ui_graphics.h"
+#include "ui/ui_text.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -85,31 +86,28 @@ static void draw_indicators(void) {
     alpha_ratio = 0.0f;
   uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
 
-  const int margin = 18;
-  const int dot_radius = 6;
-  const int padding_x = 18;
-  const int padding_y = 6;
   const char *headline = "Network Unstable";
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = padding_x * 2 + dot_radius * 2 + 10 + text_width;
-  int box_h = padding_y * 2 + FONT_SIZE_SMALL + 4;
-  int box_x = SCREEN_WIDTH - box_w - margin;
-  int box_y = SCREEN_HEIGHT - box_h - margin;
+  int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
+  int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
+              UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
+  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
+  int box_x = SCREEN_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
+  int box_y = SCREEN_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
 
   uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
-  if (bg_alpha < 30)
-    bg_alpha = 30;
+  if (bg_alpha < 40)
+    bg_alpha = 40;
   uint32_t bg_color = RGBA8(0, 0, 0, bg_alpha);
   draw_pill(box_x, box_y, box_w, box_h, bg_color);
 
-  int dot_x = box_x + padding_x;
+  int dot_x = box_x + UI_LOSS_INDICATOR_PADDING_X;
   int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
+  vita2d_draw_fill_circle(dot_x, dot_y, UI_LOSS_INDICATOR_DOT_RADIUS,
+                          RGBA8(0xF4, 0x43, 0x36, alpha));
 
-  int text_x = dot_x + dot_radius + 10;
-  int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
-                        headline);
+  int text_x = dot_x + UI_LOSS_INDICATOR_DOT_RADIUS + UI_LOSS_INDICATOR_DOT_TEXT_GAP;
+  ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
+                          FONT_SIZE_SMALL, headline);
 }
 
 static void draw_stream_exit_hint(void) {
@@ -146,7 +144,7 @@ static void draw_stream_exit_hint(void) {
   const int padding_x = 14;
   const int padding_y = 7;
   const char *hint = "Back to menu: Hold L + R + Start";
-  int text_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+  int text_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
   int box_w = text_w + (padding_x * 2);
   int box_h = FONT_SIZE_SMALL + (padding_y * 2) + 4;
   int box_x = SCREEN_WIDTH - box_w - margin;
@@ -155,8 +153,8 @@ static void draw_stream_exit_hint(void) {
   uint8_t bg_alpha = (uint8_t)(180.0f * alpha_ratio);
   uint8_t text_alpha = (uint8_t)(240.0f * alpha_ratio);
   draw_pill(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, bg_alpha));
-  vita2d_font_draw_text(font, box_x + padding_x, box_y + box_h - padding_y - 2,
-                        RGBA8(0xFF, 0xFF, 0xFF, text_alpha), FONT_SIZE_SMALL, hint);
+  ui_text_draw_centered_v(font, box_x + padding_x, box_y, box_h,
+                          RGBA8(0xFF, 0xFF, 0xFF, text_alpha), FONT_SIZE_SMALL, hint);
   stream_exit_hint_visible_this_frame = true;
 }
 
@@ -199,14 +197,14 @@ static void draw_stream_stats_panel(void) {
   int label_col_w = 0;
   int value_col_w = 0;
   for (int i = 0; i < row_count; i++) {
-    int label_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, labels[i]);
-    int value_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, values[i]);
+    int label_w = ui_text_width(font, FONT_SIZE_SMALL, labels[i]);
+    int value_w = ui_text_width(font, FONT_SIZE_SMALL, values[i]);
     if (label_w > label_col_w)
       label_col_w = label_w;
     if (value_w > value_col_w)
       value_col_w = value_w;
   }
-  int title_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, title);
+  int title_w = ui_text_width(font, FONT_SIZE_SMALL, title);
 
   int content_w = label_col_w + col_gap + value_col_w;
   if (title_w > content_w)
@@ -218,17 +216,16 @@ static void draw_stream_stats_panel(void) {
   int box_y = margin + top_offset;
 
   ui_draw_card_with_shadow(box_x, box_y, box_w, box_h, 10, RGBA8(20, 20, 24, 220));
-  vita2d_font_draw_text(font, box_x + padding_x, box_y + padding_y + FONT_SIZE_SMALL,
-                        RGBA8(0xD8, 0xE8, 0xFF, 255), FONT_SIZE_SMALL, title);
+  ui_text_draw(font, box_x + padding_x, box_y + padding_y + FONT_SIZE_SMALL,
+               RGBA8(0xD8, 0xE8, 0xFF, 255), FONT_SIZE_SMALL, title);
 
   int row_y = box_y + padding_y + title_h + FONT_SIZE_SMALL;
   for (int i = 0; i < row_count; i++) {
-    int value_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, values[i]);
+    int value_w = ui_text_width(font, FONT_SIZE_SMALL, values[i]);
     int value_x = box_x + box_w - padding_x - value_w;
-    vita2d_font_draw_text(font, box_x + padding_x, row_y, RGBA8(0xB8, 0xC1, 0xCC, 255),
-                          FONT_SIZE_SMALL, labels[i]);
-    vita2d_font_draw_text(font, value_x, row_y, RGBA8(0xFF, 0xFF, 0xFF, 255), FONT_SIZE_SMALL,
-                          values[i]);
+    ui_text_draw(font, box_x + padding_x, row_y, RGBA8(0xB8, 0xC1, 0xCC, 255), FONT_SIZE_SMALL,
+                 labels[i]);
+    ui_text_draw(font, value_x, row_y, RGBA8(0xFF, 0xFF, 0xFF, 255), FONT_SIZE_SMALL, values[i]);
     row_y += line_h;
   }
 }

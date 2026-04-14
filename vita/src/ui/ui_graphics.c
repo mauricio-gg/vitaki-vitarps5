@@ -293,11 +293,11 @@ void ui_draw_loss_indicator(void) {
   uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
 
   // Badge dimensions using constants
-  const int dot_radius = 6;
   const char *headline = "Network Unstable";
   int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + dot_radius * 2 + 10 + text_width;
-  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;
+  int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
+              UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
+  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
   int box_x = VITA_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
   int box_y = VITA_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
 
@@ -310,10 +310,11 @@ void ui_draw_loss_indicator(void) {
   // Draw red status dot
   int dot_x = box_x + UI_LOSS_INDICATOR_PADDING_X;
   int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, dot_radius, RGBA8(0xF4, 0x43, 0x36, alpha));
+  vita2d_draw_fill_circle(dot_x, dot_y, UI_LOSS_INDICATOR_DOT_RADIUS,
+                          RGBA8(0xF4, 0x43, 0x36, alpha));
 
   // Draw text label
-  int text_x = dot_x + dot_radius + 10;
+  int text_x = dot_x + UI_LOSS_INDICATOR_DOT_RADIUS + UI_LOSS_INDICATOR_DOT_TEXT_GAP;
   ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
                           FONT_SIZE_SMALL, headline);
 }
