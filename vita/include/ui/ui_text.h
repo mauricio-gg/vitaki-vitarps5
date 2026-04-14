@@ -14,6 +14,10 @@
  *    than a literal offset.
  *
  * Phase 1 of issue #127.  Call sites are migrated in phase 2.
+ *
+ * Thread-safety: all functions must be called from the render thread. The
+ * module is not thread-safe and shares state with vita2d_font, which itself
+ * is render-thread-only.
  */
 
 #pragma once

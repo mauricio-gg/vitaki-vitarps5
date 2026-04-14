@@ -44,7 +44,7 @@ static const int UI_FONT_PREWARM_SIZES[] = {
  * assertion fires immediately, reminding the author to extend size_index().
  */
 _Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 4,
-               "size_index() switch must be updated to match UI_FONT_PREWARM_SIZES");
+               "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
 
 /*
  * Monospace font is only used at body and small sizes.  Keeping the prewarm
@@ -124,6 +124,17 @@ static const char UI_FONT_METRIC_PROBE[] = "Ag|";
  */
 #define UI_FONT_PREWARM_COLOR 0x00000000u
 
+/*
+ * Ascent approximation ratio: ascent = (line_height * NUMERATOR) / DENOMINATOR.
+ *
+ * Chosen empirically for Roboto where the cap-height plus a small internal
+ * leading is roughly 80% (4/5) of the bounding-box height returned by
+ * vita2d_font_text_height().  This is a fixed constant; if the font face
+ * changes, re-measure and update both macros together.
+ */
+#define UI_FONT_ASCENT_NUMERATOR 4
+#define UI_FONT_ASCENT_DENOMINATOR 5
+
 /* ============================================================================
  * Per-size metric cache
  * ============================================================================ */
@@ -189,12 +200,10 @@ static int size_index(int pt_size) {
  * bounding box).  This ratio is chosen empirically for Roboto; it is a fixed
  * constant that does not adapt automatically if a different font is substituted.
  *
- * The factor 4/5 (integer arithmetic) is stored as a named constant to avoid
- * a bare magic literal.
+ * The factor 4/5 (integer arithmetic) is expressed via the named constants
+ * UI_FONT_ASCENT_NUMERATOR / UI_FONT_ASCENT_DENOMINATOR defined in the
+ * constants section above.
  */
-#define UI_FONT_ASCENT_NUMERATOR 4
-#define UI_FONT_ASCENT_DENOMINATOR 5
-
 static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
   int h = (int)vita2d_font_text_height(f, (unsigned int)pt_size, UI_FONT_METRIC_PROBE);
   if (h <= 0) {
@@ -211,8 +220,10 @@ static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
   }
   s_metrics[slot].line_height = h;
   s_metrics[slot].ascent = (h * UI_FONT_ASCENT_NUMERATOR) / UI_FONT_ASCENT_DENOMINATOR;
+#ifndef NDEBUG
   sceClibPrintf("[ui_text] size=%d h=%d ascent=%d line=%d (font=%p)\n", pt_size, h,
                 s_metrics[slot].ascent, s_metrics[slot].line_height, (const void *)f);
+#endif
 }
 
 /**

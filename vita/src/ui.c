@@ -468,7 +468,7 @@ void draw_ui() {
    * Keeping it inside the main pair avoids opening a second GXM scene in the
    * same frame, which would risk a GXM assertion or scene corruption.
    */
-  bool ui_text_prewarm_pending = ui_text_needs_prewarm();
+  int ui_text_prewarm_pending = ui_text_needs_prewarm();
 
   while (true) {
     // --- Deferred session finalization (join + fini on UI thread) ---
@@ -545,7 +545,7 @@ void draw_ui() {
        */
       if (ui_text_prewarm_pending) {
         ui_text_prewarm();
-        ui_text_prewarm_pending = false;
+        ui_text_prewarm_pending = 0;
       }
 
       // Draw full-screen background - nav is a pure overlay
