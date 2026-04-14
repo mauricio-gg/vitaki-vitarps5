@@ -62,6 +62,10 @@
 #define FONT_SIZE_BODY 16       // Paragraph/body text
 #define FONT_SIZE_SMALL 14      // Secondary text, hints, status badges
 
+// Context-scoped sizes (used on specific hot-path surfaces):
+#define FONT_SIZE_CARD_TITLE 20   // Console card name text (home screen card name-bar)
+#define FONT_SIZE_HOME_HEADER 24  // Home-screen section prompt ("Which do you want to connect?")
+
 // ============================================================================
 // Navigation Layout (per UI spec)
 // ============================================================================
@@ -149,7 +153,6 @@
 #define CARD_SCROLL_ANIM_MS 200  // Scroll animation duration (ms)
 
 // Card typography
-#define CARD_TITLE_FONT_SIZE 20         // Card name text
 #define CARD_LOGO_MAX_WIDTH 120         // PS5 logo max width
 #define CARD_LOGO_TOP_PADDING 20        // 20px from top of card
 #define CARD_NAME_BAR_BOTTOM_OFFSET 80  // Distance from bottom
