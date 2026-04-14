@@ -140,17 +140,15 @@ static const char UI_FONT_METRIC_PROBE[] = "Ag|";
  * ============================================================================ */
 
 /*
- * Slot count matches UI_FONT_PREWARM_SIZE_COUNT.  Access is always through
+ * Array length is UI_FONT_PREWARM_SIZE_COUNT.  Access is always through
  * size_index() so the layout is an implementation detail.
  */
-#define UI_FONT_METRIC_SLOTS UI_FONT_PREWARM_SIZE_COUNT
-
 typedef struct {
   int ascent;      /* Pixels above baseline for this pt size. */
   int line_height; /* Total line height (ascent + descent + leading). */
 } FontSizeMetrics;
 
-static FontSizeMetrics s_metrics[UI_FONT_METRIC_SLOTS];
+static FontSizeMetrics s_metrics[UI_FONT_PREWARM_SIZE_COUNT];
 
 /* ============================================================================
  * Module State
