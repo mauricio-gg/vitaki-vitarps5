@@ -231,40 +231,41 @@ static void render_loss_indicator_preview(void) {
  * be checked before rendering.
  */
 void load_textures() {
-  img_ps4 = vita2d_load_PNG_file(IMG_PS4_PATH);
-  img_ps4_off = vita2d_load_PNG_file(IMG_PS4_OFF_PATH);
-  img_ps4_rest = vita2d_load_PNG_file(IMG_PS4_REST_PATH);
-  img_ps5 = vita2d_load_PNG_file(IMG_PS5_PATH);
-  img_ps5_off = vita2d_load_PNG_file(IMG_PS5_OFF_PATH);
-  img_ps5_rest = vita2d_load_PNG_file(IMG_PS5_REST_PATH);
-  img_discovery_host = vita2d_load_PNG_file(IMG_DISCOVERY_HOST);
+  img_ps4 = ui_load_png_linear(IMG_PS4_PATH);
+  img_ps4_off = ui_load_png_linear(IMG_PS4_OFF_PATH);
+  img_ps4_rest = ui_load_png_linear(IMG_PS4_REST_PATH);
+  img_ps5 = ui_load_png_linear(IMG_PS5_PATH);
+  img_ps5_off = ui_load_png_linear(IMG_PS5_OFF_PATH);
+  img_ps5_rest = ui_load_png_linear(IMG_PS5_REST_PATH);
+  img_discovery_host = ui_load_png_linear(IMG_DISCOVERY_HOST);
 
   // Load VitaRPS5 UI assets
-  symbol_triangle = vita2d_load_PNG_file("app0:/assets/symbol_triangle.png");
-  symbol_circle = vita2d_load_PNG_file("app0:/assets/symbol_circle.png");
-  symbol_ex = vita2d_load_PNG_file("app0:/assets/symbol_ex.png");
-  symbol_square = vita2d_load_PNG_file("app0:/assets/symbol_square.png");
-  wave_top = vita2d_load_PNG_file("app0:/assets/wave_top.png");
-  wave_bottom = vita2d_load_PNG_file("app0:/assets/wave_bottom.png");
-  ellipse_green = vita2d_load_PNG_file("app0:/assets/ellipse_green.png");
-  ellipse_yellow = vita2d_load_PNG_file("app0:/assets/ellipse_yellow.png");
-  ellipse_red = vita2d_load_PNG_file("app0:/assets/ellipse_red.png");
-  button_add_new = vita2d_load_PNG_file("app0:/assets/button_add_new.png");
+  symbol_triangle = ui_load_png_linear("app0:/assets/symbol_triangle.png");
+  symbol_circle = ui_load_png_linear("app0:/assets/symbol_circle.png");
+  symbol_ex = ui_load_png_linear("app0:/assets/symbol_ex.png");
+  symbol_square = ui_load_png_linear("app0:/assets/symbol_square.png");
+  wave_top = ui_load_png_linear("app0:/assets/wave_top.png");
+  wave_bottom = ui_load_png_linear("app0:/assets/wave_bottom.png");
+  ellipse_green = ui_load_png_linear("app0:/assets/ellipse_green.png");
+  ellipse_yellow = ui_load_png_linear("app0:/assets/ellipse_yellow.png");
+  ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
+  button_add_new = ui_load_png_linear("app0:/assets/button_add_new.png");
 
   // Load navigation icons
-  icon_play = vita2d_load_PNG_file("app0:/assets/icon_play.png");
-  icon_settings = vita2d_load_PNG_file("app0:/assets/icon_settings.png");
-  icon_controller = vita2d_load_PNG_file("app0:/assets/icon_controller.png");
-  icon_profile = vita2d_load_PNG_file("app0:/assets/icon_profile.png");
-  icon_button_triangle = vita2d_load_PNG_file("app0:/assets/icon_button_triangle.png");
+  icon_play = ui_load_png_linear("app0:/assets/icon_play.png");
+  icon_settings = ui_load_png_linear("app0:/assets/icon_settings.png");
+  icon_controller = ui_load_png_linear("app0:/assets/icon_controller.png");
+  icon_profile = ui_load_png_linear("app0:/assets/icon_profile.png");
+  icon_button_triangle = ui_load_png_linear("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
-  background_gradient = vita2d_load_PNG_file("app0:/assets/background.png");
-  vita_rps5_logo = vita2d_load_PNG_file("app0:/assets/Vita_RPS5_Logo.png");
-  vita_front = vita2d_load_PNG_file("app0:/assets/Vita_Front.png");
-  ps5_logo = vita2d_load_PNG_file("app0:/assets/PS5_logo.png");
+  background_gradient = ui_load_png_linear("app0:/assets/background.png");
+  vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
+  vita_front = ui_load_png_linear("app0:/assets/Vita_Front.png");
+  ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
-  // Controller diagram now uses procedural rendering - no PNGs to load
+  // Controller diagram textures are managed separately by the controller
+  // diagram module, so load_textures() does not load them here.
 }
 
 // ============================================================================
@@ -383,7 +384,13 @@ bool ui_reload_psn_account_id(void) {
  * Must be called before draw_ui() main loop.
  */
 void init_ui() {
-  vita2d_init();
+  int vita2d_init_ret =
+      vita2d_init_advanced_with_msaa(SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE, SCE_GXM_MULTISAMPLE_4X);
+  if (vita2d_init_ret < 0) {
+    sceClibPrintf("[WARN] MSAA init failed (0x%08x), falling back to default init\n",
+                  vita2d_init_ret);
+    vita2d_init();
+  }
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
   load_textures();
   ui_particles_init();  // Initialize VitaRPS5 particle background

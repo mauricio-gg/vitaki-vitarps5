@@ -16,6 +16,7 @@
 
 #include <vita2d.h>
 #include <psp2/ctrl.h>
+#include <psp2/kernel/clib.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 
@@ -111,6 +112,30 @@ extern VitaChiakiContext context;
 // ============================================================================
 // Inline Utility Functions
 // ============================================================================
+
+/**
+ * ui_load_png_linear() - Load a PNG file and enable bilinear filtering
+ * @param path: Filesystem path to the PNG (e.g. "app0:/assets/foo.png")
+ *
+ * Wraps vita2d_load_PNG_file() and immediately sets SCE_GXM_TEXTURE_FILTER_LINEAR
+ * on both the minification and magnification samplers. This ensures all UI
+ * textures scale smoothly, especially when rendered at non-native sizes.
+ *
+ * Returns the loaded texture pointer, or NULL if the load failed. Callers
+ * must check for NULL before rendering (consistent with vita2d_load_PNG_file).
+ *
+ * Do NOT use this for streaming frame textures in video.c; those have their
+ * own upload path and filter requirements.
+ */
+static inline vita2d_texture *ui_load_png_linear(const char *path) {
+  vita2d_texture *tex = vita2d_load_PNG_file(path);
+  if (!tex) {
+    sceClibPrintf("[ERROR] ui_load_png_linear: failed to load '%s'\n", path);
+    return NULL;
+  }
+  vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+  return tex;
+}
 
 /**
  * Linear interpolation
