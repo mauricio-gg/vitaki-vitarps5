@@ -52,10 +52,10 @@
 #define CALLOUT_ARROW_LENGTH 12
 
 // Zone/mapping label baseline offsets (relative to control-dot center)
-#define DIAGRAM_ZONE_LABEL_BASELINE_OFFSET \
-  6  // Pixels above the control-dot center where the zone label baseline sits.
-#define DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET \
-  10  // Pixels below the control-dot center where the mapping label baseline sits.
+/* Pixels above the control-dot center where the zone label baseline sits. */
+#define DIAGRAM_ZONE_LABEL_BASELINE_OFFSET 6
+/* Pixels below the control-dot center where the mapping label baseline sits. */
+#define DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET 10
 
 #define CONTROLLER_FRONT_TEXTURE_PATH TEXTURE_PATH "controller_front.png"
 #define CONTROLLER_BACK_TEXTURE_PATH TEXTURE_PATH "controller_back.png"
@@ -721,6 +721,9 @@ static void draw_anchor_label(const char *text, int x, int y, uint32_t color) {
     return;
   int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
   int text_x = x - text_w / 2;
+  // The `6` here is NOT the same concept as DIAGRAM_ZONE_LABEL_BASELINE_OFFSET;
+  // anchor labels and zone labels serve different layout contexts and the shared
+  // value is coincidental — do not merge them into one constant.
   // text_y is a pre-computed true baseline (anchor y minus a fixed 6 px offset), not a
   // box-centre — use ui_text_draw directly rather than ui_text_draw_centered_v.
   int text_y = y - 6;

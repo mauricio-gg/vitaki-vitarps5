@@ -23,9 +23,11 @@
  * ============================================================================ */
 
 /*
- * Point sizes to pre-warm.  Derived directly from the FONT_SIZE_* constants
- * in ui_constants.h so that any future size addition is tracked here
- * automatically.
+ * Point sizes to pre-warm.  Mixed source: the semantic FONT_SIZE_* constants
+ * from ui_constants.h plus the bare literals 20 and 24 used by a handful of
+ * hot-path sites that haven't earned their own FONT_SIZE_* constant yet.
+ * When adding a new size, update this table, the _Static_assert literal, and
+ * the size_index() switch in lockstep.
  */
 static const int UI_FONT_PREWARM_SIZES[] = {
     FONT_SIZE_SMALL,     /* 14 pt */
