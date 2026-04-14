@@ -174,7 +174,7 @@ static void render_loss_indicator_preview(void) {
   int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
   int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
               UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
-  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;
+  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
   int box_x = VITA_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
   int box_y = VITA_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
 

@@ -90,13 +90,13 @@ static void draw_indicators(void) {
   int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
   int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
               UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
-  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;
+  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
   int box_x = SCREEN_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
   int box_y = SCREEN_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
 
   uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
-  if (bg_alpha < 30)
-    bg_alpha = 30;
+  if (bg_alpha < 40)
+    bg_alpha = 40;
   uint32_t bg_color = RGBA8(0, 0, 0, bg_alpha);
   draw_pill(box_x, box_y, box_w, box_h, bg_color);
 
