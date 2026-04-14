@@ -23,25 +23,17 @@
  * ============================================================================ */
 
 /*
- * Point sizes to pre-warm.  Mixed source: the semantic FONT_SIZE_* constants
- * from ui_constants.h plus the bare literals 20 and 24 used by a handful of
- * hot-path sites that haven't earned their own FONT_SIZE_* constant yet.
- * When adding a new size, update this table, the _Static_assert literal, and
- * the size_index() switch in lockstep.
+ * Point sizes to pre-warm.  Every entry is a FONT_SIZE_* constant from
+ * ui_constants.h.  When adding a new size, update this table, the
+ * _Static_assert literal, and the size_index() switch in lockstep.
  */
 static const int UI_FONT_PREWARM_SIZES[] = {
-    FONT_SIZE_SMALL,     /* 14 pt */
-    FONT_SIZE_BODY,      /* 16 pt */
-    FONT_SIZE_SUBHEADER, /* 18 pt */
-    /*
-     * 20 pt and 24 pt are used by hot-path screens (console cards + home-screen
-     * header) but do not yet have a semantic FONT_SIZE_* constant — they serve
-     * a single context each and haven't earned a shared name.  Using bare
-     * integer literals here matches the style of the per-entry comments above.
-     */
-    20,               /* 20 pt */
-    24,               /* 24 pt */
-    FONT_SIZE_HEADER, /* 28 pt */
+    FONT_SIZE_SMALL,       /* 14 pt */
+    FONT_SIZE_BODY,        /* 16 pt */
+    FONT_SIZE_SUBHEADER,   /* 18 pt */
+    FONT_SIZE_CARD_TITLE,  /* 20 pt */
+    FONT_SIZE_HOME_HEADER, /* 24 pt */
+    FONT_SIZE_HEADER,      /* 28 pt */
 };
 
 /* Number of entries in the regular-font prewarm size table. */
@@ -174,7 +166,7 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
 
 /**
  * size_index() - Map a pt_size to its slot in s_metrics[].
- * @pt_size: One of the FONT_SIZE_* constants, or 20/24 (hot-path sizes).
+ * @pt_size: One of the FONT_SIZE_* constants.
  *
  * Returns the table index (0–5), or -1 if pt_size is not a known size.
  * Using an explicit switch rather than a loop keeps the mapping O(1) and
@@ -184,8 +176,8 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
  *   0 = 14 pt (FONT_SIZE_SMALL)
  *   1 = 16 pt (FONT_SIZE_BODY)
  *   2 = 18 pt (FONT_SIZE_SUBHEADER)
- *   3 = 20 pt
- *   4 = 24 pt
+ *   3 = 20 pt (FONT_SIZE_CARD_TITLE)
+ *   4 = 24 pt (FONT_SIZE_HOME_HEADER)
  *   5 = 28 pt (FONT_SIZE_HEADER)
  */
 static int size_index(int pt_size) {
@@ -196,9 +188,9 @@ static int size_index(int pt_size) {
       return 1;
     case FONT_SIZE_SUBHEADER:
       return 2;
-    case 20:
+    case FONT_SIZE_CARD_TITLE:
       return 3;
-    case 24:
+    case FONT_SIZE_HOME_HEADER:
       return 4;
     case FONT_SIZE_HEADER:
       return 5;
@@ -254,7 +246,7 @@ static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
 static void warn_unknown_size(const char *caller, int pt_size) {
   sceClibPrintf(
       "[WARN] ui_text: %s received unknown pt_size=%d "
-      "(expected FONT_SIZE_SMALL/BODY/SUBHEADER/20/24/HEADER)\n",
+      "(expected FONT_SIZE_SMALL/BODY/SUBHEADER/CARD_TITLE/HOME_HEADER/HEADER)\n",
       caller, pt_size);
 }
 

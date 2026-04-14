@@ -81,8 +81,7 @@ void ui_text_prewarm(void);
  * @x:          Left edge of the first glyph, in screen pixels.
  * @baseline_y: Baseline Y coordinate, in screen pixels.
  * @color:      ABGR colour value (e.g. RGBA8(r,g,b,a)).
- * @pt_size:    Point size — one of the six supported pt sizes (14/16/18/20/24/28);
- *              20 and 24 are literal values since they have no FONT_SIZE_* constant yet.
+ * @pt_size:    One of the FONT_SIZE_* constants.
  * @s:          NUL-terminated UTF-8 string to render.
  *
  * If pt_size is not a known size, emits a sceClibPrintf warning and returns
@@ -94,8 +93,7 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
 /**
  * ui_text_width() - Return the pixel width of a UTF-8 string.
  * @f:       Font pointer.
- * @pt_size: Point size — one of the six supported pt sizes (14/16/18/20/24/28);
- *           20 and 24 are literal values since they have no FONT_SIZE_* constant yet.
+ * @pt_size: One of the FONT_SIZE_* constants.
  * @s:       NUL-terminated UTF-8 string.
  *
  * Returns 0 and logs a warning if pt_size is unknown.
@@ -108,8 +106,7 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s);
 
 /**
  * ui_text_ascent() - Return the ascent (pixels above baseline) for pt_size.
- * @pt_size: One of the six supported pt sizes (14/16/18/20/24/28); 20 and 24
- *           are literal values since they have no FONT_SIZE_* constant yet.
+ * @pt_size: One of the FONT_SIZE_* constants.
  *
  * Returns an approximation (~80% of the vita2d text-height bounding box,
  * chosen empirically for Roboto). Revisit if the font face changes.
@@ -124,8 +121,7 @@ int ui_text_ascent(int pt_size);
 
 /**
  * ui_text_line_height() - Return the full line height in pixels for pt_size.
- * @pt_size: One of the six supported pt sizes (14/16/18/20/24/28); 20 and 24
- *           are literal values since they have no FONT_SIZE_* constant yet.
+ * @pt_size: One of the FONT_SIZE_* constants.
  *
  * Metrics are derived from the regular font; valid for any face sharing the
  * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
@@ -146,8 +142,7 @@ int ui_text_line_height(int pt_size);
  * @box_y:   Top edge of the bounding box, in screen pixels.
  * @box_h:   Height of the bounding box, in screen pixels.
  * @color:   ABGR colour value.
- * @pt_size: Point size — one of the six supported pt sizes (14/16/18/20/24/28);
- *           20 and 24 are literal values since they have no FONT_SIZE_* constant yet.
+ * @pt_size: One of the FONT_SIZE_* constants.
  * @s:       NUL-terminated UTF-8 string to render.
  *
  * Baseline is computed as: box_y + (box_h + ascent) / 2

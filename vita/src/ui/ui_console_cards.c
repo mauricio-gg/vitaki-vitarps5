@@ -654,12 +654,11 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
                        name_bar_h, (int)(8 * scale), RGBA8(70, 75, 80, 255));
 
   // Console name text (centered in bar)
-  int text_width = ui_text_width(font, CARD_TITLE_FONT_SIZE, console->name);
+  int text_width = ui_text_width(font, FONT_SIZE_CARD_TITLE, console->name);
   int text_x = draw_x + (card_w / 2) - (text_width / 2);
-  // Console name centered vertically in the name bar (20 pt is in the prewarm atlas; see #127 prep
-  // commit).
+  // Console name centered vertically in the name bar (FONT_SIZE_CARD_TITLE = 20 pt).
   ui_text_draw_centered_v(font, text_x, name_bar_y, name_bar_h, UI_COLOR_TEXT_PRIMARY,
-                          CARD_TITLE_FONT_SIZE, console->name);
+                          FONT_SIZE_CARD_TITLE, console->name);
 
   // Status indicator (top-right)
   vita2d_texture *status_tex = NULL;
@@ -725,12 +724,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   }
 
   if (state_text) {
-    int state_text_width = ui_text_width(font, 18, state_text);
+    int state_text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, state_text);
     int state_x = draw_x + (card_w / 2) - (state_text_width / 2);
     // Baseline is 15 px gap below the name bar bottom + 18 pt ascent — anchored to the bar edge,
     // not centered in any box, so ui_text_draw is correct here.
     int state_y = name_bar_y + name_bar_h + 15 + 18;  // 15px gap + font size for baseline
-    ui_text_draw(font, state_x, state_y, state_color, 18, state_text);
+    ui_text_draw(font, state_x, state_y, state_color, FONT_SIZE_SUBHEADER, state_text);
   }
 
   // Temporary status hints (e.g., Remote Play errors)
@@ -740,12 +739,12 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
         now_us <= console->host->status_hint_expire_us) {
       uint32_t hint_color =
           console->host->status_hint_is_error ? RGBA8(255, 128, 128, 255) : UI_COLOR_TEXT_SECONDARY;
-      int hint_width = ui_text_width(font, 16, console->host->status_hint);
+      int hint_width = ui_text_width(font, FONT_SIZE_BODY, console->host->status_hint);
       int hint_x = draw_x + (card_w / 2) - (hint_width / 2);
       // Baseline is chained from state_y (name_bar_y + name_bar_h + 15 + 18) + 8 px gap + 16 pt
       // ascent — explicit chain anchor, not a box center, so ui_text_draw is correct here.
       int hint_y = name_bar_y + name_bar_h + 15 + 18 + 8 + 16;  // status_y + 8px gap + font size
-      ui_text_draw(font, hint_x, hint_y, hint_color, 16, console->host->status_hint);
+      ui_text_draw(font, hint_x, hint_y, hint_color, FONT_SIZE_BODY, console->host->status_hint);
     } else {
       console->host->status_hint[0] = '\0';
       console->host->status_hint_is_error = false;
@@ -804,12 +803,12 @@ void ui_cards_render_grid(void) {
 
   /* Header text */
   const char *header_text = "Which do you want to connect?";
-  int text_width = ui_text_width(font, 24, header_text);
+  int text_width = ui_text_width(font, FONT_SIZE_HOME_HEADER, header_text);
   int text_x = content_center_x - (text_width / 2);
   // Header baseline sits 50 px above the card row — anchors the prompt above the horizontal
   // console-card strip. Not a box-center, so ui_text_draw is correct here.
   int text_y = card_y - 50;
-  ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 24, header_text);
+  ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HOME_HEADER, header_text);
 
   /* --- Poll IME dialog if running --- */
   ui_cards_poll_filter_ime();
