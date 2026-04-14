@@ -462,28 +462,14 @@ void draw_ui() {
 
   /*
    * Glyph atlas warm-up flag: set once here so the first main-loop iteration
-   * can run the prewarm pass inside the same drawing pair that will produce
-   * the first real UI frame.  This avoids presenting a standalone cleared
-   * frame before any UI is visible.
+   * runs the prewarm pass inside the main drawing pair (after
+   * vita2d_start_drawing / vita2d_clear_screen, before the background draw).
+   * Keeping it inside the main pair avoids opening a second GXM scene in the
+   * same frame, which would risk a GXM assertion or scene corruption.
    */
   bool ui_text_prewarm_pending = (bool)ui_text_needs_prewarm();
 
   while (true) {
-    /*
-     * One-shot atlas prewarm: rasterize all (codepoint, pt_size) pairs before
-     * the first visible frame to prevent cold-atlas hitches and atlas-row
-     * variance.  Runs inside the main-loop's own drawing pair; swap_buffers is
-     * NOT called separately here, so the first real UI frame is what gets
-     * presented on screen.
-     */
-    if (ui_text_prewarm_pending) {
-      vita2d_start_drawing();
-      vita2d_clear_screen();
-      ui_text_prewarm();
-      vita2d_end_drawing();
-      ui_text_prewarm_pending = false;
-    }
-
     // --- Deferred session finalization (join + fini on UI thread) ---
     // Must run BEFORE input processing to prevent reconnect races
     if (context.stream.session_finalize_pending) {
@@ -549,6 +535,17 @@ void draw_ui() {
 
       vita2d_start_drawing();
       vita2d_clear_screen();
+
+      /*
+       * One-shot atlas prewarm: runs inside the main drawing pair so there is
+       * only ever one vita2d_start_drawing / vita2d_end_drawing open at a time.
+       * Prewarm draws are at alpha=0 and off-screen (UI_FONT_PREWARM_OFFSCREEN_X/Y)
+       * so they produce no visible output even on the first rendered frame.
+       */
+      if (ui_text_prewarm_pending) {
+        ui_text_prewarm();
+        ui_text_prewarm_pending = false;
+      }
 
       // Draw full-screen background - nav is a pure overlay
       if (background_gradient) {

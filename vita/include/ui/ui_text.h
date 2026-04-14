@@ -99,6 +99,9 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s);
  * ui_text_ascent() - Return the ascent (pixels above baseline) for pt_size.
  * @pt_size: Must be one of the four FONT_SIZE_* constants.
  *
+ * Returns an approximation (~80% of the vita2d text-height bounding box,
+ * chosen empirically for Roboto). Revisit if the font face changes.
+ *
  * Returns 0 and logs a warning for unknown sizes.
  */
 int ui_text_ascent(int pt_size);

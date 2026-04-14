@@ -39,6 +39,14 @@ static const int UI_FONT_PREWARM_SIZES[] = {
   ((int)(sizeof(UI_FONT_PREWARM_SIZES) / sizeof(UI_FONT_PREWARM_SIZES[0])))
 
 /*
+ * Compile-time guard: the size_index() switch has exactly 4 cases (one per
+ * entry in UI_FONT_PREWARM_SIZES).  If a new size is added to the table this
+ * assertion fires immediately, reminding the author to extend size_index().
+ */
+_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 4,
+               "size_index() switch must be updated to match UI_FONT_PREWARM_SIZES");
+
+/*
  * Monospace font is only used at body and small sizes.  Keeping the prewarm
  * set minimal avoids baking unused glyph atlas rows for sizes that mono never
  * renders at.
@@ -104,7 +112,9 @@ static const char UI_FONT_METRIC_PROBE[] = "Ag|";
 #define UI_FONT_PREWARM_OFFSCREEN_Y (-256)
 
 /*
- * X coordinate for prewarm draws — any non-positive value is fine.
+ * X coordinate for prewarm draws.  -4096 exceeds any plausible glyph advance
+ * width (the widest 28pt glyph is well under 64px), so even the rightmost
+ * pixel of a wide character stays left of x=0 and is clipped by the scissor.
  */
 #define UI_FONT_PREWARM_OFFSCREEN_X (-4096)
 
@@ -274,7 +284,7 @@ int ui_text_needs_prewarm(void) {
 static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
   int size_idx;
   const char *p;
-  char glyph_buf[8]; /* Largest UTF-8 sequence is 4 bytes + NUL + 3 bytes padding. */
+  char glyph_buf[8]; /* 4-byte UTF-8 max + NUL = 5 needed; 8 for alignment/safety */
 
   for (size_idx = 0; size_idx < size_count; size_idx++) {
     int pt = sizes[size_idx];
@@ -304,20 +314,22 @@ static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
       }
 
       /*
-       * Bounds-check: verify that each required continuation byte is non-NUL
-       * before copying.  A NUL at p[1..3] means the charset string is
-       * truncated (malformed tail); skip the leading byte and re-sync rather
-       * than reading past the string terminator.
+       * Bounds-check: verify that each required continuation byte is a valid
+       * UTF-8 continuation byte in the range [0x80, 0xBF].  A byte outside
+       * that range (including NUL, which signals a truncated charset string,
+       * or any value >= 0xC0, which would be a spurious new leading byte)
+       * indicates a malformed sequence.  Skip the leading byte and re-sync
+       * rather than copying garbage to glyph_buf.
        */
-      if (seq_len > 1 && p[1] == '\0') {
+      if (seq_len > 1 && ((unsigned char)p[1] < 0x80u || (unsigned char)p[1] > 0xBFu)) {
         p++;
         continue;
       }
-      if (seq_len > 2 && p[2] == '\0') {
+      if (seq_len > 2 && ((unsigned char)p[2] < 0x80u || (unsigned char)p[2] > 0xBFu)) {
         p++;
         continue;
       }
-      if (seq_len > 3 && p[3] == '\0') {
+      if (seq_len > 3 && ((unsigned char)p[3] < 0x80u || (unsigned char)p[3] > 0xBFu)) {
         p++;
         continue;
       }
