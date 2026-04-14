@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-02-11 (Stability recovery split-track kickoff)
+Last Updated: 2026-04-14 (UI Text Phase 1 complete, Phase 2 queued for on-device validation)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -38,7 +38,28 @@ A living reference for larger initiatives. Update this document when we start or
   - Enabled clean, modular development for future enhancements
 - **Status:** Ready for next development phase
 
-### 2. Latency Reduction Initiative *(Active)*
+### 2. Issue #122 - UI Text Rendering Modernization *(In Progress)*
+- **Objective:** Modernize UI text rendering pipeline by integrating FreeType metrics, prewarm glyphs, and eliminate ad-hoc baseline offset math across the codebase.
+- **Progress:** Phase 1 complete (27%); Phase 2 queued pending on-device validation.
+- **Completed Work:**
+  1. Phase 1: FreeType glyph atlas prewarm + metric helpers (PR #135 merged, `feat/ui-freetype-atlases-127`)
+     - Created `vita/include/ui/ui_text.h` + `vita/src/ui/ui_text.c` with prewarm infrastructure and metric-derived layout helpers
+     - Integrated prewarm into UI initialization; all 114 existing call sites left untouched
+     - Passed 8 code review rounds with all substantive feedback addressed
+     - Pending: On-device smoke test of prewarm (first-frame glyph pop-in check)
+- **Planned Work:**
+  2. Phase 2: Migrate 114 call sites to `ui_text_*` helpers (~2-3 week task)
+     - Replace `vita2d_font_draw_text(..., y+5)` with `ui_text_draw_centered_v()` + metric-derived math
+     - Scope: 7 files (`ui_screens.c`, `ui_components.c`, `ui_console_cards.c`, `ui_navigation.c`, `ui_state.c`, `ui.c`, `video_overlay.c`)
+     - Blocking condition: Phase 1 on-device prewarm validation must pass first
+     - Plan: tracked in internal planning notes (see PR #135 and #136 for in-repo context)
+- **Related Subtasks (Parent Epic #122):**
+  - #125 Mipmaps for downscaled icons
+  - #126 Icons shipped at target sizes
+  - #128 Pre-rendered antialiased circle/indicator textures
+- **Status:** Ready for Phase 2 after on-device validation checkpoint.
+
+### 3. Latency Reduction Initiative *(Active)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by improving PS5 negotiation, Vita scheduling, and Wi-Fi guidance.
 - **Current Focus:** Instrumentation + bitrate handshake research (`docs/LATENCY_ANALYSIS.md`).
 - **Status:** In review - multiple latency improvements pending review (bitrate metrics, FPS instrumentation, StartBitrate handling)
@@ -47,7 +68,7 @@ A living reference for larger initiatives. Update this document when we start or
   2. Patch `RP-StartBitrate`/LaunchSpec to request sub-3 Mbps streams reliably.
   3. Surface user-facing controls/documentation for low-bandwidth mode.
 
-### 3. Controller Layout Redesign *(COMPLETE ✅)*
+### 4. Controller Layout Redesign *(COMPLETE ✅)*
 - **Objective:** Redesign the controller configuration screen with an immersive visual layout featuring procedurally rendered Vita controller diagrams and interactive button mapping views.
 - **Progress:** All 3 phases complete (100%)
 - **Completed Work:**
@@ -97,7 +118,7 @@ A living reference for larger initiatives. Update this document when we start or
   - Custom per-button persistence (beyond preset selection)
   - Mapping popup full implementation (currently placeholder with show_mapping_popup field documented)
 
-### 4. Build & Release Reliability *(Ongoing)*
+### 5. Build & Release Reliability *(Ongoing)*
 - **Objective:** Keep Docker-based builds, automated releases, and deployment scripts stable.
 - **Focus Areas:** Monitor GitHub Actions release workflow, ensure `./tools/build.sh` handles new assets/configs, keep documentation current.
 - **Status:** Stable - new modular UI structure integrated into build system, assets pipeline validated
@@ -107,6 +128,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-04-14 | Issue #127 Phase 1 COMPLETE - FreeType glyph atlas prewarm module merged to main (PR #135, feature branch `feat/ui-freetype-atlases-127`). Created `ui_text.h/c` with metric helpers + prewarm infrastructure. All 114 existing `vita2d_font_draw_text()` call sites left untouched per Phase 1 scope. 8 code review rounds, all substantive feedback addressed. Pending: On-device smoke test of prewarm (first-frame pop-in check) before Phase 2 call-site migration. Phase 2 queued with plan file `prancy-sprouting-sunset.md`. | @mauricio-gg |
 | 2026-02-16 | Advanced codebase cleanup wave 1 (Vitaki delta-guided): added file inflation analysis tooling (`tools/analysis/compare_vitaki_delta.sh`), published implementation plan (`docs/ai/CODEBASE_CLEANUP_PLAN.md`), landed table-driven bool migration parsing + manual-host ownership fix in `vita/src/config.c`, extracted stream HUD overlays to `vita/src/video_overlay.c`, extracted host/manual-host storage utilities to `vita/src/host_storage.c`, extracted input-thread/controller-touch mapping logic to `vita/src/host_input.c`, extracted disconnect/quit-reason banner helpers to `vita/src/host_disconnect.c`, extracted loss-profile/saturation helper logic to `vita/src/host_loss_profile.c`, extracted hint/decoder-resync/loss-event handlers to `vita/src/host_feedback.c`, extracted reconnect recovery coordinator logic to `vita/src/host_recovery.c`, extracted stream metrics reset/latency diagnostics paths to `vita/src/host_metrics.c`, extracted registration/wakeup flow to `vita/src/host_registration.c`, extracted stream lifecycle/finalization helpers to `vita/src/host_lifecycle.c`, extracted `CHIAKI_EVENT_QUIT` handling/retry orchestration to `vita/src/host_quit.c`, extracted session/video callback plumbing to `vita/src/host_callbacks.c`, extracted registered/manual host parse+serialize logic from `vita/src/config.c` to `vita/src/config_hosts.c` (plus `vitarps5_tests` linkage update in `test/CMakeLists.txt`), added focused config migration coverage in `test/config_vita_tests.c` (legacy/root bool + latency mode), simplified `vita/src/config.c` parse flow with defaults/custom-map and resolution/FPS/latency helper functions, and deflated `vita/src/video.c` to ~641 lines by removing dead frame-pacer scaffolding, obsolete SPS/header processing path, unused hexdump/FPS helpers, and stale commented decode/setup experiments | @mauricio-gg |
 | 2026-02-11 | Started stability recovery initiative with split tracks: packet/reference-loss mitigation first on fresh `main` baseline, followed by decode/render architecture split on a separate branch; validation standardized on `./tools/build.sh --env testing` + log matrix | @mauricio-gg |
 | 2026-02-10 | Clarified Vita resolution policy in UI/runtime: unsupported legacy 720p/1080p values now display as effective 540p in settings/profile, and stream-start fallback logging is debug-level defensive messaging | @mauricio-gg |

@@ -18,6 +18,7 @@
 
 #include "ui/ui_graphics.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_text.h"
 
 #include <math.h>
 #include <sys/param.h>  // For MIN macro
@@ -294,7 +295,7 @@ void ui_draw_loss_indicator(void) {
   // Badge dimensions using constants
   const int dot_radius = 6;
   const char *headline = "Network Unstable";
-  int text_width = vita2d_font_text_width(font, FONT_SIZE_SMALL, headline);
+  int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
   int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + dot_radius * 2 + 10 + text_width;
   int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;
   int box_x = VITA_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
@@ -313,7 +314,6 @@ void ui_draw_loss_indicator(void) {
 
   // Draw text label
   int text_x = dot_x + dot_radius + 10;
-  int text_y = box_y + box_h / 2 + (FONT_SIZE_SMALL / 2) - 2;
-  vita2d_font_draw_text(font, text_x, text_y, RGBA8(0xFF, 0xFF, 0xFF, alpha), FONT_SIZE_SMALL,
-                        headline);
+  ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
+                          FONT_SIZE_SMALL, headline);
 }

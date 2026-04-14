@@ -4,6 +4,30 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-04-14 (UI Text Rendering: Phase 1 Complete)
+
+### Issue #127 Phase 1 - FreeType Glyph Atlas Prewarm
+- [x] **FreeType Integration & Glyph Atlas Prewarm**
+  - Created modular `vita/include/ui/ui_text.h` and `vita/src/ui/ui_text.c` with prewarm infrastructure
+  - Implemented `ui_text_prewarm_glyphs()` to load common ASCII/Latin-1 glyphs during startup
+  - Added FreeType metric helper functions (`ui_text_get_metrics()`, baseline calculation, kerning)
+  - All 114 existing `vita2d_font_draw_text()` call sites left untouched (Phase 1 scope)
+  - Integrated prewarm call into UI initialization path
+  - Build Status: Docker build successful, zero compiler warnings
+  - Code Review: 8 rounds of substantive feedback, all items addressed and approved
+  - Merged: PR #135 landed on main via feature branch `feat/ui-freetype-atlases-127`
+  - Module Files: `vita/include/ui/ui_text.h` (~150 lines), `vita/src/ui/ui_text.c` (~250 lines, test-friendly exports)
+  - Design: Metric-derived layout foundations enable Phase 2 call-site migration without breaking Phase 1
+
+### Parent Epic #122 - UI Text Rendering Modernization
+- Subtask #127 Phase 1 complete; remaining subtasks (#125 mipmaps, #126 target-size icons, #128 antialiased shapes) are in pipeline
+- Phase 2 (migrate call sites) queued and depends on Phase 1 prewarm validation
+
+### Pending Validation
+- On-device smoke test of Phase 1 prewarm: first-frame glyph pop-in check (never run; Docker build + format-only CI validation completed)
+
+---
+
 ## 2025-12-14 (Controller Diagram Visual Fixes)
 
 ### Controller Layout Redesign: Final Polish Batch

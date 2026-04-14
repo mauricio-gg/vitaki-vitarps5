@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-02-16 (Codebase cleanup wave 1 checkpoint: video monolith deflation)
+Last Updated: 2026-04-14 (Issue #127 Phase 1 complete, Phase 2 queued)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -88,6 +88,20 @@ Only move a task to "Done" after the reviewer signs off.
    - *Goal:* `lib/src/remote/stun.h`'s Fisher-Yates shuffle mutates the file-scope `STUN_SERVERS` array in place. Concurrent callers (e.g., parallel test harnesses, or future concurrent hole-punch attempts) would race. Switch to a local copy-and-shuffle idiom so the global array is never modified.
    - *Tracked from:* PR #95 review, finding #7.
    - *Next Step:* Replace the in-place shuffle in `stun_get_external_address` and `stun_port_allocation_test` with a stack-allocated copy before shuffling; verify no callers depend on the mutated global order.
+
+---
+
+### 🎨 UI Text Migration (Issue #127 - Phase 2)
+1. **Migrate 114 call sites to `ui_text_*` helpers**
+   - *Epic:* Issue #127 Phase 2 - Complete migration of all `vita2d_font_draw_text` / `vita2d_font_text_width` call sites to new `ui_text` module helpers
+   - *Goal:* Replace ad-hoc baseline offset math (`+5`/`+6` pixel adjustments) with metric-derived layout helpers (`ui_text_draw_centered_v()`, etc.)
+   - *Scope:* 7 files with ~114 call sites: `vita/src/ui/ui_screens.c`, `vita/src/ui/ui_components.c`, `vita/src/ui/ui_console_cards.c`, `vita/src/ui/ui_navigation.c`, `vita/src/ui/ui_state.c`, `vita/src/ui.c:176-193`, `vita/src/video_overlay.c:93`
+   - *Example Target:* Replace `vita2d_font_draw_text(f, x, y + h/2 + 5, col, sz, s)` with `ui_text_draw_centered_v(f, x, y, h, col, sz, s)` — baseline derived from cached ascent instead of literal offsets.
+   - *Plan:* tracked in internal planning notes (see PR #135 and #136 for in-repo context)
+   - *Blocking:* On-device smoke test of Phase 1 prewarm (first-frame glyph pop-in check) must pass before Phase 2 starts
+   - *Parent Epic:* #122 UI text rendering modernization
+   - *Related Subtasks:* #125 (mipmaps for downscaled icons), #126 (icons at target sizes), #128 (pre-rendered antialiased shapes)
+   - *Next Step:* Run on-device validation of Phase 1 glyph prewarm, then stage Phase 2 call-site migration
 
 ---
 
