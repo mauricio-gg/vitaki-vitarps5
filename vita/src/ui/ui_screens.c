@@ -3250,7 +3250,7 @@ bool ui_screen_draw_registration(void) {
   ui_draw_card_with_shadow(card_x, card_y, PIN_CARD_WIDTH, PIN_CARD_HEIGHT, 12, UI_COLOR_CARD_BG);
 
   // Title
-  ui_text_draw(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, 28,
+  ui_text_draw(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
                "PS5 Console Registration");
 
   // Console info (name and IP)
@@ -3282,11 +3282,12 @@ bool ui_screen_draw_registration(void) {
     } else {
       snprintf(console_info, sizeof(console_info), "%s", console_name);
     }
-    ui_text_draw(font, card_x + 20, card_y + 100, UI_COLOR_TEXT_SECONDARY, 20, console_info);
+    ui_text_draw(font, card_x + 20, card_y + 100, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_CARD_TITLE,
+                 console_info);
   }
 
   // Instructions
-  ui_text_draw(font, card_x + 20, card_y + 150, UI_COLOR_TEXT_PRIMARY, 20,
+  ui_text_draw(font, card_x + 20, card_y + 150, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_CARD_TITLE,
                "Enter the 8-digit session PIN displayed on your PS5:");
 
   // PIN digit boxes (centered in card)
@@ -3303,7 +3304,8 @@ bool ui_screen_draw_registration(void) {
   }
 
   // Navigation hints
-  ui_text_draw(font, card_x + 20, card_y + PIN_CARD_HEIGHT - 50, UI_COLOR_TEXT_SECONDARY, 18,
+  ui_text_draw(font, card_x + 20, card_y + PIN_CARD_HEIGHT - 50, UI_COLOR_TEXT_SECONDARY,
+               FONT_SIZE_SUBHEADER,
                "Left/Right: Move   Up/Down: Change digit   Cross: Confirm   Circle: Cancel");
 
   // Input handling
@@ -3447,7 +3449,7 @@ UIScreenType ui_screen_draw_waking(void) {
                                  ? "Starting Internet Remote Play"
                                  : "Starting Remote Play");
   int title_size = FONT_SIZE_HEADER;
-  int title_w = get_text_width_cached(title, title_size);
+  int title_w = ui_text_width(font, title_size, title);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title
   ui_text_draw(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
@@ -3552,7 +3554,7 @@ UIScreenType ui_screen_draw_reconnecting(void) {
 
   // Subtitle explaining what's happening (centered)
   const char *subtitle = "Recovering from packet loss";
-  int subtitle_w = get_text_width_cached(subtitle, FONT_SIZE_BODY);
+  int subtitle_w = ui_text_width(font, FONT_SIZE_BODY, subtitle);
   int subtitle_x = card_x + (card_w - subtitle_w) / 2;
   ui_text_draw(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
 

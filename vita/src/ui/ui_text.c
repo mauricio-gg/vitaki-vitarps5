@@ -50,9 +50,9 @@ _Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 7,
                "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
 
 /*
- * Monospace font is only used at body and small sizes.  Keeping the prewarm
- * set minimal avoids baking unused glyph atlas rows for sizes that mono never
- * renders at.
+ * Monospace font is used at small/body/subheader sizes (14/16/18 pt).  Keeping
+ * the prewarm set minimal avoids baking unused glyph atlas rows for sizes that
+ * mono never renders at.
  */
 static const int UI_FONT_PREWARM_MONO_SIZES[] = {
     FONT_SIZE_SMALL,     /* 14 pt */
