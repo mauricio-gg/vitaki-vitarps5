@@ -3250,8 +3250,8 @@ bool ui_screen_draw_registration(void) {
   ui_draw_card_with_shadow(card_x, card_y, PIN_CARD_WIDTH, PIN_CARD_HEIGHT, 12, UI_COLOR_CARD_BG);
 
   // Title
-  vita2d_font_draw_text(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, 28,
-                        "PS5 Console Registration");
+  ui_text_draw(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, 28,
+               "PS5 Console Registration");
 
   // Console info (name and IP)
   if (context.active_host) {
@@ -3282,13 +3282,12 @@ bool ui_screen_draw_registration(void) {
     } else {
       snprintf(console_info, sizeof(console_info), "%s", console_name);
     }
-    vita2d_font_draw_text(font, card_x + 20, card_y + 100, UI_COLOR_TEXT_SECONDARY, 20,
-                          console_info);
+    ui_text_draw(font, card_x + 20, card_y + 100, UI_COLOR_TEXT_SECONDARY, 20, console_info);
   }
 
   // Instructions
-  vita2d_font_draw_text(font, card_x + 20, card_y + 150, UI_COLOR_TEXT_PRIMARY, 20,
-                        "Enter the 8-digit session PIN displayed on your PS5:");
+  ui_text_draw(font, card_x + 20, card_y + 150, UI_COLOR_TEXT_PRIMARY, 20,
+               "Enter the 8-digit session PIN displayed on your PS5:");
 
   // PIN digit boxes (centered in card)
   int pin_total_width =
@@ -3304,9 +3303,8 @@ bool ui_screen_draw_registration(void) {
   }
 
   // Navigation hints
-  vita2d_font_draw_text(
-      font, card_x + 20, card_y + PIN_CARD_HEIGHT - 50, UI_COLOR_TEXT_SECONDARY, 18,
-      "Left/Right: Move   Up/Down: Change digit   Cross: Confirm   Circle: Cancel");
+  ui_text_draw(font, card_x + 20, card_y + PIN_CARD_HEIGHT - 50, UI_COLOR_TEXT_SECONDARY, 18,
+               "Left/Right: Move   Up/Down: Change digit   Cross: Confirm   Circle: Cancel");
 
   // Input handling
   if (btn_pressed(SCE_CTRL_LEFT)) {
