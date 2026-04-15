@@ -2739,16 +2739,15 @@ static void render_mapping_popup(void) {
   ui_draw_card_with_shadow(popup_x, popup_y, popup_w, popup_h, 12, UI_COLOR_CARD_BG);
 
   const char *title = controller_popup_title_for_input(ctrl_popup_input, ctrl_popup_front);
-  vita2d_font_draw_text(font, popup_x + 20, popup_y + 40, UI_COLOR_TEXT_PRIMARY,
-                        FONT_SIZE_SUBHEADER, title);
+  ui_text_draw(font, popup_x + 20, popup_y + 40, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER, title);
   char selection_label[48];
   const char *slot_label = controller_slot_label(ctrl_popup_input);
   if (ctrl_popup_input_count > 1) {
     snprintf(selection_label, sizeof(selection_label), "%d Zones Selected", ctrl_popup_input_count);
     slot_label = selection_label;
   }
-  vita2d_font_draw_text(font, popup_x + 20, popup_y + 70, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                        slot_label);
+  ui_text_draw(font, popup_x + 20, popup_y + 70, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+               slot_label);
 
   int content_x = popup_x + 24;
   int content_y = popup_y + 115;
@@ -2775,9 +2774,9 @@ static void render_mapping_popup(void) {
     ui_draw_rounded_rect(content_x + 12, option_y - 18, content_w - 24, 36, 16, glow_color);
     ui_draw_rounded_rect(content_x + 12, option_y - 18, content_w - 24, 36, 16, base_color);
     const char *option_name = controller_output_name(k_mapping_options[option_index].output);
-    int label_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, option_name);
+    int label_w = ui_text_width(font, FONT_SIZE_SMALL, option_name);
     int label_x = content_x + (content_w - label_w) / 2;
-    vita2d_font_draw_text(font, label_x, option_y + 2, text_color, FONT_SIZE_SMALL, option_name);
+    ui_text_draw(font, label_x, option_y + 2, text_color, FONT_SIZE_SMALL, option_name);
     option_y += POPUP_ROW_HEIGHT;
   }
 
@@ -2803,18 +2802,17 @@ static void render_mapping_popup(void) {
     int icon_w = (int)(32 * hint_icon_scale);
     int icon_h = (int)(32 * hint_icon_scale);
     vita2d_draw_texture_scale(symbol_ex, hint_start_x, hint_y, hint_icon_scale, hint_icon_scale);
-    vita2d_font_draw_text(font, hint_start_x + icon_w + 6, hint_y + icon_h - 4,
-                          UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Assign");
+    ui_text_draw(font, hint_start_x + icon_w + 6, hint_y + icon_h - 4, UI_COLOR_TEXT_SECONDARY,
+                 FONT_SIZE_SMALL, "Assign");
     int second_x = hint_start_x + icon_w + 70;
     vita2d_draw_texture_scale(symbol_circle, second_x, hint_y, hint_icon_scale, hint_icon_scale);
-    vita2d_font_draw_text(font, second_x + icon_w + 6, hint_y + icon_h - 4, UI_COLOR_TEXT_SECONDARY,
-                          FONT_SIZE_SMALL, "Cancel");
+    ui_text_draw(font, second_x + icon_w + 6, hint_y + icon_h - 4, UI_COLOR_TEXT_SECONDARY,
+                 FONT_SIZE_SMALL, "Cancel");
   } else {
     const char *fallback = "X Assign    O Cancel";
-    int fallback_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, fallback);
+    int fallback_w = ui_text_width(font, FONT_SIZE_SMALL, fallback);
     int fallback_x = popup_x + (popup_w - fallback_w) / 2;
-    vita2d_font_draw_text(font, fallback_x, hint_y + 8, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          fallback);
+    ui_text_draw(font, fallback_x, hint_y + 8, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, fallback);
   }
 }
 
@@ -2826,8 +2824,7 @@ static void render_controller_legend(int preset_index, int scroll, int x, int y,
   ui_draw_card_with_shadow(x, y, w, h, 8, UI_COLOR_CARD_BG);
 
   // Title
-  vita2d_font_draw_text(font, x + 10, y + 25, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                        "Mappings");
+  ui_text_draw(font, x + 10, y + 25, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER, "Mappings");
 
   // Get preset info
   const ControllerPresetDef *preset = &g_controller_presets[preset_index];
@@ -2845,10 +2842,10 @@ static void render_controller_legend(int preset_index, int scroll, int x, int y,
     uint32_t row_bg = (i % 2 == 0) ? RGBA8(45, 45, 50, 255) : RGBA8(50, 50, 55, 255);
     vita2d_draw_rectangle(x + 5, row_y - 16, w - 10, row_h, row_bg);
 
-    vita2d_font_draw_text(font, x + 10, row_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-                          sample_mappings[i][0]);
-    vita2d_font_draw_text(font, x + w / 2 + 5, row_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL,
-                          sample_mappings[i][1]);
+    ui_text_draw(font, x + 10, row_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
+                 sample_mappings[i][0]);
+    ui_text_draw(font, x + w / 2 + 5, row_y, UI_COLOR_PRIMARY_BLUE, FONT_SIZE_SMALL,
+                 sample_mappings[i][1]);
 
     row_y += row_h;
   }
@@ -3131,19 +3128,18 @@ UIScreenType ui_screen_draw_controller(void) {
 
   char title[64];
   snprintf(title, sizeof(title), "Controller: %s", view_name);
-  int title_w = vita2d_font_text_width(font, FONT_SIZE_HEADER, title);
+  int title_w = ui_text_width(font, FONT_SIZE_HEADER, title);
   int layout_center_x = controller_layout_center_x();
   int title_x = layout_center_x - title_w / 2;
-  vita2d_font_draw_text(font, title_x, CONTENT_START_Y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-                        title);
+  ui_text_draw(font, title_x, CONTENT_START_Y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
 
   char preset_text[64];
   snprintf(preset_text, sizeof(preset_text), "Preset: %s",
            g_controller_presets[ctrl_preset_index].name);
-  int preset_w = vita2d_font_text_width(font, FONT_SIZE_SUBHEADER, preset_text);
+  int preset_w = ui_text_width(font, FONT_SIZE_SUBHEADER, preset_text);
   int preset_x = layout_center_x - preset_w / 2;
-  vita2d_font_draw_text(font, preset_x, CONTENT_START_Y + 26, UI_COLOR_TEXT_SECONDARY,
-                        FONT_SIZE_SUBHEADER, preset_text);
+  ui_text_draw(font, preset_x, CONTENT_START_Y + 26, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SUBHEADER,
+               preset_text);
 
   int diagram_x, diagram_y, diagram_w, diagram_h;
   controller_compute_diagram_rect(ctrl_diagram.detail_view, &diagram_x, &diagram_y, &diagram_w,
@@ -3154,26 +3150,24 @@ UIScreenType ui_screen_draw_controller(void) {
 
   if (ctrl_diagram.detail_view == CTRL_DETAIL_SUMMARY) {
     int desc_y = diagram_y + diagram_h + 15;
-    int desc_w = vita2d_font_text_width(font, FONT_SIZE_SMALL,
-                                        g_controller_presets[ctrl_preset_index].description);
+    int desc_w =
+        ui_text_width(font, FONT_SIZE_SMALL, g_controller_presets[ctrl_preset_index].description);
     int desc_x = diagram_x + (diagram_w - desc_w) / 2;
-    vita2d_font_draw_text(font, desc_x, desc_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          g_controller_presets[ctrl_preset_index].description);
+    ui_text_draw(font, desc_x, desc_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+                 g_controller_presets[ctrl_preset_index].description);
 
     const char *hint =
         "Left/Right: Change Preset | L/R: Scroll Callouts | Up/Down: Select L1/R1 | X: Edit "
         "Shoulder | Tap Diagram to Edit | Square: Clear View";
-    int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+    int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
     int hint_x = layout_center_x - hint_w / 2;
-    vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          hint);
+    ui_text_draw(font, hint_x, VITA_HEIGHT - 20, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
   } else if (!ctrl_popup_active) {
     const char *hint =
         "Move: D-Pad | Hold X + Move: Select | Triangle: Full | Square: Clear View | Circle: Back";
-    int hint_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, hint);
+    int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
     int hint_x = layout_center_x - hint_w / 2;
-    vita2d_font_draw_text(font, hint_x, VITA_HEIGHT - 20, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-                          hint);
+    ui_text_draw(font, hint_x, VITA_HEIGHT - 20, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, hint);
   }
 
   if (ctrl_popup_active) {
