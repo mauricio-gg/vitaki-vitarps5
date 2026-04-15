@@ -3449,7 +3449,7 @@ UIScreenType ui_screen_draw_waking(void) {
   int title_size = 28;
   int title_w = get_text_width_cached(title, title_size);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title
-  vita2d_font_draw_text(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
+  ui_text_draw(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
   // Console name/IP info
   if (context.active_host && context.active_host->hostname) {
@@ -3462,10 +3462,9 @@ UIScreenType ui_screen_draw_waking(void) {
     }
 
     snprintf(console_info, sizeof(console_info), "%s", console_name);
-    int info_w = vita2d_font_text_width(font, FONT_SIZE_BODY, console_info);
+    int info_w = ui_text_width(font, FONT_SIZE_BODY, console_info);
     int info_x = card_x + (card_w - info_w) / 2;  // Center info
-    vita2d_font_draw_text(font, info_x, card_y + 95, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY,
-                          console_info);
+    ui_text_draw(font, info_x, card_y + 95, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, console_info);
   }
 
   // Spinner animation (smooth rotation at 2 rotations per second)
@@ -3487,17 +3486,17 @@ UIScreenType ui_screen_draw_waking(void) {
 
   // Detail line
   const char *detail_text = stage_details[stage_index];
-  int detail_w = vita2d_font_text_width(font, FONT_SIZE_BODY, detail_text);
+  int detail_w = ui_text_width(font, FONT_SIZE_BODY, detail_text);
   int detail_x = card_x + (card_w - detail_w) / 2;
-  vita2d_font_draw_text(font, detail_x, spinner_cy + spinner_radius + 80, UI_COLOR_TEXT_SECONDARY,
-                        FONT_SIZE_BODY, detail_text);
+  ui_text_draw(font, detail_x, spinner_cy + spinner_radius + 80, UI_COLOR_TEXT_SECONDARY,
+               FONT_SIZE_BODY, detail_text);
 
   // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
   int cancel_center_y = card_y + card_h - 45;
   int cancel_center_x = card_x + card_w / 2 - 40;
   ui_draw_circle_outline(cancel_center_x, cancel_center_y, 12, UI_COLOR_TEXT_TERTIARY);
-  vita2d_font_draw_text(font, cancel_center_x + 20, cancel_center_y + 6, UI_COLOR_TEXT_TERTIARY,
-                        FONT_SIZE_BODY, "Cancel");
+  ui_text_draw(font, cancel_center_x + 20, cancel_center_y + 6, UI_COLOR_TEXT_TERTIARY,
+               FONT_SIZE_BODY, "Cancel");
 
   // Handle Circle button to cancel
   if (btn_pressed(SCE_CTRL_CIRCLE)) {
@@ -3547,16 +3546,15 @@ UIScreenType ui_screen_draw_reconnecting(void) {
   // Title (centered)
   const char *title = "Optimizing Stream";
   int title_size = 28;
-  int title_w = vita2d_font_text_width(font, title_size, title);
+  int title_w = ui_text_width(font, title_size, title);
   int title_x = card_x + (card_w - title_w) / 2;
-  vita2d_font_draw_text(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
+  ui_text_draw(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
   // Subtitle explaining what's happening (centered)
   const char *subtitle = "Recovering from packet loss";
   int subtitle_w = get_text_width_cached(subtitle, FONT_SIZE_BODY);
   int subtitle_x = card_x + (card_w - subtitle_w) / 2;
-  vita2d_font_draw_text(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY,
-                        subtitle);
+  ui_text_draw(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
 
   // Retry bitrate info (centered)
   float retry_mbps = context.stream.loss_retry_bitrate_kbps > 0
@@ -3564,10 +3562,9 @@ UIScreenType ui_screen_draw_reconnecting(void) {
                          : 0.8f;
   char detail[64];
   snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);
-  int detail_w = vita2d_font_text_width(font, FONT_SIZE_BODY, detail);
+  int detail_w = ui_text_width(font, FONT_SIZE_BODY, detail);
   int detail_x = card_x + (card_w - detail_w) / 2;
-  vita2d_font_draw_text(font, detail_x, card_y + 115, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY,
-                        detail);
+  ui_text_draw(font, detail_x, card_y + 115, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, detail);
 
   // Spinner animation (matching Waking screen style)
   int spinner_cx = card_x + card_w / 2;
@@ -3581,17 +3578,17 @@ UIScreenType ui_screen_draw_reconnecting(void) {
   // Attempt count below spinner (centered)
   char attempt_text[64];
   snprintf(attempt_text, sizeof(attempt_text), "Attempt %u", context.stream.loss_retry_attempts);
-  int attempt_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, attempt_text);
+  int attempt_w = ui_text_width(font, FONT_SIZE_SMALL, attempt_text);
   int attempt_x = card_x + (card_w - attempt_w) / 2;
-  vita2d_font_draw_text(font, attempt_x, card_y + card_h - 60, UI_COLOR_TEXT_TERTIARY,
-                        FONT_SIZE_SMALL, attempt_text);
+  ui_text_draw(font, attempt_x, card_y + card_h - 60, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+               attempt_text);
 
   // Status message at bottom (centered)
   const char *status_msg = "Please wait...";
-  int status_w = vita2d_font_text_width(font, FONT_SIZE_SMALL, status_msg);
+  int status_w = ui_text_width(font, FONT_SIZE_SMALL, status_msg);
   int status_x = card_x + (card_w - status_w) / 2;
-  vita2d_font_draw_text(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY,
-                        FONT_SIZE_SMALL, status_msg);
+  ui_text_draw(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
+               status_msg);
 
   return UI_SCREEN_TYPE_RECONNECTING;
 }
