@@ -249,15 +249,10 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
   // Digit text or cursor
   if (has_value && digit <= 9) {
     char digit_text[2] = {'0' + digit, '\0'};
-    // 40 pt is outside the prewarm set (14/16/18/20/24/28); these PIN-entry
-    // digits are a rare, transient flow so the cost of a per-frame FreeType
-    // glyph lookup is acceptable. Do not migrate to ui_text_* helpers —
-    // ui_text_width would emit warn_unknown_size and ui_text_draw would miss
-    // the atlas.
-    int text_w = vita2d_font_text_width(font, 40, digit_text);
+    int text_w = ui_text_width(font, FONT_SIZE_PIN_DIGIT, digit_text);
     int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
     int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
-    vita2d_font_draw_text(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, 40, digit_text);
+    ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_PIN_DIGIT, digit_text);
   } else if (is_current && show_cursor) {
     // Enhanced blinking cursor (wider and more visible)
     int cursor_w = 3;

@@ -65,6 +65,7 @@
 // Context-scoped sizes (used on specific hot-path surfaces):
 #define FONT_SIZE_CARD_TITLE 20   // Console card name text (home screen card name-bar)
 #define FONT_SIZE_HOME_HEADER 24  // Home-screen section prompt ("Which do you want to connect?")
+#define FONT_SIZE_PIN_DIGIT 40    // PIN-entry digit glyphs (oversized for legibility)
 
 // ============================================================================
 // Navigation Layout (per UI spec)
