@@ -258,8 +258,8 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   } else {
     const char *qr_hint = "QR hidden";
     int hint_w = ui_text_width(font, FONT_SIZE_SMALL, qr_hint);
-    ui_text_draw(font, qr_x + (qr_box - hint_w) / 2, qr_y + qr_box / 2, UI_COLOR_TEXT_SECONDARY,
-                 FONT_SIZE_SMALL, qr_hint);
+    ui_text_draw_centered_v(font, qr_x + (qr_box - hint_w) / 2, qr_y, qr_box,
+                            UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, qr_hint);
   }
 
   int text_x = qr_x + qr_box + 14;
@@ -3436,7 +3436,7 @@ UIScreenType ui_screen_draw_waking(void) {
   vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
   vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
 
-  // Title (using FONT_SIZE_HEADER would be 24, but we want slightly larger for importance)
+  // Title (centered)
   const char *title = (ui_connection_stage() == UI_CONNECTION_STAGE_WAKING)
                           ? "Waking Console"
                           : ((ui_connection_stage() == UI_CONNECTION_STAGE_PSN_AUTH ||
@@ -3446,7 +3446,7 @@ UIScreenType ui_screen_draw_waking(void) {
                               ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_DATA)
                                  ? "Starting Internet Remote Play"
                                  : "Starting Remote Play");
-  int title_size = 28;
+  int title_size = FONT_SIZE_HEADER;
   int title_w = get_text_width_cached(title, title_size);
   int title_x = card_x + (card_w - title_w) / 2;  // Center title
   ui_text_draw(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
@@ -3478,11 +3478,11 @@ UIScreenType ui_screen_draw_waking(void) {
 
   // Stage headline
   const char *stage_headline = stage_titles[stage_index];
-  int stage_headline_size = 22;
-  int stage_headline_w = vita2d_font_text_width(font, stage_headline_size, stage_headline);
+  int stage_headline_size = FONT_SIZE_HOME_HEADER;
+  int stage_headline_w = ui_text_width(font, stage_headline_size, stage_headline);
   int stage_headline_x = card_x + (card_w - stage_headline_w) / 2;
-  vita2d_font_draw_text(font, stage_headline_x, spinner_cy + spinner_radius + 50,
-                        UI_COLOR_TEXT_PRIMARY, stage_headline_size, stage_headline);
+  ui_text_draw(font, stage_headline_x, spinner_cy + spinner_radius + 50, UI_COLOR_TEXT_PRIMARY,
+               stage_headline_size, stage_headline);
 
   // Detail line
   const char *detail_text = stage_details[stage_index];
@@ -3545,7 +3545,7 @@ UIScreenType ui_screen_draw_reconnecting(void) {
 
   // Title (centered)
   const char *title = "Optimizing Stream";
-  int title_size = 28;
+  int title_size = FONT_SIZE_HEADER;
   int title_w = ui_text_width(font, title_size, title);
   int title_x = card_x + (card_w - title_w) / 2;
   ui_text_draw(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
@@ -3613,7 +3613,7 @@ bool ui_screen_draw_messages(void) {
   int left_margin = 12;
   int top_margin = 20;
   int bottom_margin = 20;
-  int font_size = 18;
+  int font_size = FONT_SIZE_SUBHEADER;
   int line_height = font_size + 2;
 
   // compute lines to print
@@ -3646,7 +3646,7 @@ bool ui_screen_draw_messages(void) {
     } else {
       snprintf(note, 100, "<%d lines above>", line_offset);
     }
-    vita2d_font_draw_text(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
+    ui_text_draw(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
     y += line_height;
     i_y++;
   }
@@ -3659,8 +3659,8 @@ bool ui_screen_draw_messages(void) {
       if (j < context.mlog->lines - 1)
         break;
     }
-    vita2d_font_draw_text(font_mono, left_margin, y, COLOR_WHITE, font_size,
-                          get_message_log_line(context.mlog, j));
+    ui_text_draw(font_mono, left_margin, y, COLOR_WHITE, font_size,
+                 get_message_log_line(context.mlog, j));
     y += line_height;
     i_y++;
   }
@@ -3672,7 +3672,7 @@ bool ui_screen_draw_messages(void) {
     } else {
       snprintf(note, 100, "<%d lines below>", lines_below);
     }
-    vita2d_font_draw_text(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
+    ui_text_draw(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
     y += line_height;
     i_y++;
   }
