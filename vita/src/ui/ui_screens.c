@@ -232,18 +232,16 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   profile_refresh_login_qr(verify_url);
 
   int qr_box = height - 32;
-  if (qr_box > 188)
-    qr_box = 188;
+  if (qr_box > 160)
+    qr_box = 160;
   if (qr_box < 90)
     qr_box = 90;
 
   int qr_x = content_x;
   int qr_y = y + (height - qr_box) / 2;
 
-  ui_draw_rounded_rect(qr_x, qr_y, qr_box, qr_box, 6, RGBA8(0x10, 0x10, 0x10, 220));
-
   if (profile_login_qr_visible && profile_login_qr.valid) {
-    int quiet_zone = 2;
+    int quiet_zone = 1;
     int module_px_x = qr_box / (profile_login_qr.size + quiet_zone * 2);
     int module_px_y = qr_box / (profile_login_qr.size + quiet_zone * 2);
     int module_px = module_px_x < module_px_y ? module_px_x : module_px_y;
@@ -256,6 +254,7 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
     ui_qr_draw(&profile_login_qr, draw_x, draw_y, module_px, quiet_zone, RGBA8(10, 10, 10, 255),
                RGBA8(250, 250, 250, 255));
   } else {
+    ui_draw_rounded_rect(qr_x, qr_y, qr_box, qr_box, 6, RGBA8(0x1A, 0x1A, 0x1A, 140));
     const char *qr_hint = "QR hidden";
     int hint_w = ui_text_width(font, FONT_SIZE_SMALL, qr_hint);
     ui_text_draw_centered_v(font, qr_x + (qr_box - hint_w) / 2, qr_y, qr_box,
@@ -283,17 +282,53 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, code_buf);
   line_y += text_line_h;
 
-  char url_preview[140];
-  if (verify_url && verify_url[0]) {
-    if (strlen(verify_url) > 116) {
-      snprintf(url_preview, sizeof(url_preview), "URL: %.112s...", verify_url);
-    } else {
-      snprintf(url_preview, sizeof(url_preview), "URL: %s", verify_url);
+  int text_col_w = (x + width - pad) - text_x;
+  if (verify_url && verify_url[0] && text_col_w > 0) {
+    /*
+     * Render up to two lines of the authorize URL so the user can type it
+     * into a browser.  We never truncate with ellipsis — if two lines still
+     * cannot hold the whole string (URLs can reach ~1500 chars) the tail is
+     * silently dropped; the README documents the static base URL as a
+     * fallback.
+     *
+     * Guard: skip line 2 if it would overrun the panel bottom.
+     */
+    char line1[160];
+    int url_len = (int)strlen(verify_url);
+    int fit1 = 0;
+
+    /* Grow fit1 until adding one more char would exceed the column width. */
+    while (fit1 < url_len) {
+      snprintf(line1, sizeof(line1), "URL: %.*s", fit1 + 1, verify_url);
+      if (ui_text_width(font, FONT_SIZE_SMALL, line1) > text_col_w)
+        break;
+      fit1++;
     }
-  } else {
-    snprintf(url_preview, sizeof(url_preview), "URL: unavailable");
+    snprintf(line1, sizeof(line1), "URL: %.*s", fit1, verify_url);
+    ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line1);
+    line_y += text_line_h;
+
+    /* Line 2: remainder of URL with no prefix, only if it fits in the panel. */
+    if (fit1 < url_len && line_y + text_line_h <= y + height - pad) {
+      char line2[160];
+      const char *rest = verify_url + fit1;
+      int rest_len = url_len - fit1;
+      int fit2 = 0;
+
+      while (fit2 < rest_len) {
+        snprintf(line2, sizeof(line2), "%.*s", fit2 + 1, rest);
+        if (ui_text_width(font, FONT_SIZE_SMALL, line2) > text_col_w)
+          break;
+        fit2++;
+      }
+      snprintf(line2, sizeof(line2), "%.*s", fit2, rest);
+      ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line2);
+      line_y += text_line_h;
+    }
+  } else if (!verify_url || !verify_url[0]) {
+    ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "URL: unavailable");
+    line_y += text_line_h;
   }
-  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, url_preview);
 }
 
 static bool profile_auth_ime_running = false;
