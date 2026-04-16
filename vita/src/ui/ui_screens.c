@@ -241,7 +241,9 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   int qr_y = y + (height - qr_box) / 2;
 
   if (profile_login_qr_visible && profile_login_qr.valid) {
-    int quiet_zone = 1;
+    /* ISO spec minimum is 4; we use 2 as a pragmatic balance between panel footprint and scanner
+     * tolerance. */
+    int quiet_zone = 2;
     int module_px_x = qr_box / (profile_login_qr.size + quiet_zone * 2);
     int module_px_y = qr_box / (profile_login_qr.size + quiet_zone * 2);
     int module_px = module_px_x < module_px_y ? module_px_x : module_px_y;
@@ -292,36 +294,77 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
      * fallback.
      *
      * Guard: skip line 2 if it would overrun the panel bottom.
+     *
+     * The fit loops below are O(n) over the URL length and run every frame
+     * while the panel is visible.  Cache results keyed by (text_col_w,
+     * url_len, url_hash) so we only recompute when the inputs actually
+     * change.  djb2 is chosen: two instructions per byte, no includes needed,
+     * collision risk is negligible when combined with the length key.
      */
-    char line1[160];
-    int url_len = (int)strlen(verify_url);
-    int fit1 = 0;
+    static int cached_text_col_w =
+        -1; /* -1 is unreachable at runtime; see text_col_w > 0 guard above */
+    static size_t cached_url_len = 0;
+    static uint32_t cached_url_hash = 0;
+    static int cached_fit1 = 0;
+    static int cached_fit2 = 0;
 
-    /* Grow fit1 until adding one more char would exceed the column width. */
-    while (fit1 < url_len) {
-      snprintf(line1, sizeof(line1), "URL: %.*s", fit1 + 1, verify_url);
-      if (ui_text_width(font, FONT_SIZE_SMALL, line1) > text_col_w)
-        break;
-      fit1++;
+    size_t url_len = strlen(verify_url);
+
+    /* Compute djb2 hash of verify_url. */
+    uint32_t url_hash = 5381u;
+    for (size_t i = 0; i < url_len; i++)
+      url_hash = (url_hash * 33u) ^ (uint8_t)verify_url[i];
+
+    if (text_col_w != cached_text_col_w || url_len != cached_url_len ||
+        url_hash != cached_url_hash) {
+      /* Cache miss — recompute fit1 and fit2. */
+      char probe[160];
+      int fit1 = 0;
+      int len = (int)url_len;
+
+      /* Grow fit1 until adding one more char would exceed the column width. */
+      while (fit1 < len) {
+        snprintf(probe, sizeof(probe), "URL: %.*s", fit1 + 1, verify_url);
+        if (ui_text_width(font, FONT_SIZE_SMALL, probe) > text_col_w)
+          break;
+        fit1++;
+      }
+
+      int fit2 = 0;
+      if (fit1 < len) {
+        const char *rest = verify_url + fit1;
+        int rest_len = len - fit1;
+        while (fit2 < rest_len) {
+          snprintf(probe, sizeof(probe), "%.*s", fit2 + 1, rest);
+          if (ui_text_width(font, FONT_SIZE_SMALL, probe) > text_col_w)
+            break;
+          fit2++;
+        }
+      }
+
+      cached_text_col_w = text_col_w;
+      cached_url_len = url_len;
+      cached_url_hash = url_hash;
+      cached_fit1 = fit1;
+      cached_fit2 = fit2;
     }
+
+    /* Draw using cached fit values. */
+    int fit1 = cached_fit1;
+    int fit2 = cached_fit2;
+    int len = (int)url_len;
+
+    char line1[160];
     snprintf(line1, sizeof(line1), "URL: %.*s", fit1, verify_url);
     ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line1);
     line_y += text_line_h;
 
     /* Line 2: remainder of URL with no prefix, only if it fits in the panel. */
-    if (fit1 < url_len && line_y + text_line_h <= y + height - pad) {
+    /* Panel-height guard is intentionally outside the cache — evaluated every frame since panel
+     * geometry can change even when URL/width do not. */
+    if (fit1 < len && line_y + text_line_h <= y + height - pad) {
       char line2[160];
-      const char *rest = verify_url + fit1;
-      int rest_len = url_len - fit1;
-      int fit2 = 0;
-
-      while (fit2 < rest_len) {
-        snprintf(line2, sizeof(line2), "%.*s", fit2 + 1, rest);
-        if (ui_text_width(font, FONT_SIZE_SMALL, line2) > text_col_w)
-          break;
-        fit2++;
-      }
-      snprintf(line2, sizeof(line2), "%.*s", fit2, rest);
+      snprintf(line2, sizeof(line2), "%.*s", fit2, verify_url + fit1);
       ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line2);
       line_y += text_line_h;
     }
