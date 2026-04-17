@@ -705,6 +705,41 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
     }
   }
 
+  // Internet connectivity badge: three signal-bar dots drawn left of the status dot.
+  // Only shown when the LAN card has a matching PSN remote entry (has_internet), and
+  // never on cooldown cards where the top-right corner is already occupied by "Please wait".
+  if (console->has_internet && !is_cooldown_card) {
+    int indicator_x = draw_x + card_w - (int)(35 * scale);
+    int indicator_y = draw_y + (int)(10 * scale);
+
+    // Reuse the same 1.5s breathing period as the status dot so both pulse in sync.
+    uint64_t badge_time_us = sceKernelGetProcessTimeWide();
+    float badge_sec = (float)(badge_time_us % 1500000ULL) / 1000000.0f;
+    float badge_breath = 0.7f + 0.3f * ((sinf(badge_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
+    uint8_t badge_alpha = (uint8_t)(255.0f * badge_breath);
+    uint32_t dot_color = RGBA8(52, 144, 255, badge_alpha);  // PlayStation Blue
+
+    // Three filled circles arranged diagonally (bottom-left -> top-right) to suggest
+    // signal strength.  Radii increase left-to-right; spacing is scaled with the card.
+    int base_x = indicator_x - (int)(25 * scale);
+    int base_y = indicator_y + (int)(12 * scale);  // bottom anchor of the signal area
+    int r1 = (int)(1.5f * scale);
+    if (r1 < 1)
+      r1 = 1;
+    int r2 = (int)(2.0f * scale);
+    if (r2 < 1)
+      r2 = 1;
+    int r3 = (int)(2.5f * scale);
+    if (r3 < 1)
+      r3 = 1;
+    int step = (int)(6 * scale);
+    if (step < 4)
+      step = 4;
+    vita2d_draw_fill_circle(base_x, base_y, r1, dot_color);
+    vita2d_draw_fill_circle(base_x + step, base_y - step / 2, r2, dot_color);
+    vita2d_draw_fill_circle(base_x + step * 2, base_y - step, r3, dot_color);
+  }
+
   // State text ("Ready" / "Standby" / "Unpaired")
   const char *state_text = NULL;
   uint32_t state_color = UI_COLOR_TEXT_SECONDARY;
