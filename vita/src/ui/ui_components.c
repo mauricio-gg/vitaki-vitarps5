@@ -809,6 +809,140 @@ bool ui_debug_is_active(void) {
 }
 
 // ============================================================================
+// Connection Method Popup
+// ============================================================================
+
+/* Module-level popup state — all fields are owned by this module. */
+static bool connect_popup_active = false;
+static int connect_popup_selection = 0; /* 0 = Local Network, 1 = Internet */
+static int connect_popup_result = -1;   /* -1 = pending, 0 = LAN, 1 = Internet, 2 = cancelled */
+
+#define CONNECT_POPUP_W 400
+#define CONNECT_POPUP_H 160
+#define CONNECT_POPUP_RADIUS 10
+#define CONNECT_POPUP_ITEM_COUNT 2
+
+/**
+ * Show the connection method popup.
+ *
+ * Resets selection to the first option (Local Network) and pushes a modal
+ * focus layer so that background input is suppressed while the popup is open.
+ * Call this when a long Cross-press is detected on a dual-source card.
+ */
+void ui_connect_popup_show(void) {
+  connect_popup_active = true;
+  connect_popup_selection = 0;
+  connect_popup_result = -1;
+  ui_focus_push_modal();
+}
+
+/**
+ * Update the connection method popup for the current frame.
+ *
+ * Must be called every frame while the popup is active.  Returns the user's
+ * decision as soon as it is made, then marks the popup inactive:
+ *   -1 — still open (no action yet)
+ *    0 — Local Network selected
+ *    1 — Internet selected
+ *    2 — cancelled (Circle pressed)
+ *
+ * @return  Decision code as described above.
+ */
+int ui_connect_popup_update(void) {
+  if (!connect_popup_active)
+    return -1;
+
+  uint32_t buttons = context.ui_state.button_state;
+  uint32_t prev = context.ui_state.old_button_state;
+
+  /* D-pad up/down toggles between the two options. */
+  if (((buttons & SCE_CTRL_UP) && !(prev & SCE_CTRL_UP)) ||
+      ((buttons & SCE_CTRL_DOWN) && !(prev & SCE_CTRL_DOWN)))
+    connect_popup_selection = 1 - connect_popup_selection;
+
+  /* Cross confirms the highlighted option. */
+  if ((buttons & SCE_CTRL_CROSS) && !(prev & SCE_CTRL_CROSS)) {
+    connect_popup_result = connect_popup_selection;
+    connect_popup_active = false;
+    ui_focus_pop_modal();
+    block_inputs_for_transition();
+    return connect_popup_result;
+  }
+
+  /* Circle cancels. */
+  if ((buttons & SCE_CTRL_CIRCLE) && !(prev & SCE_CTRL_CIRCLE)) {
+    connect_popup_result = 2;
+    connect_popup_active = false;
+    ui_focus_pop_modal();
+    block_inputs_for_transition();
+    return 2;
+  }
+
+  return -1;
+}
+
+/**
+ * Draw the connection method popup overlay.
+ *
+ * Renders a darkened full-screen overlay and a centered card with two
+ * selectable options.  Must be called inside a vita2d_start_drawing /
+ * vita2d_end_drawing pair, after all other screen content so the popup
+ * appears on top.
+ */
+void ui_connect_popup_draw(void) {
+  if (!connect_popup_active)
+    return;
+
+  /* Dark overlay to focus attention on the popup. */
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 160));
+
+  /* Centered card. */
+  const int card_x = (VITA_WIDTH - CONNECT_POPUP_W) / 2;
+  const int card_y = (VITA_HEIGHT - CONNECT_POPUP_H) / 2;
+  ui_draw_rounded_rect(card_x, card_y, CONNECT_POPUP_W, CONNECT_POPUP_H, CONNECT_POPUP_RADIUS,
+                       RGBA8(0x20, 0x20, 0x20, 245));
+
+  /* Title — centered horizontally, 30px below card top. */
+  const char *title = "Connect via";
+  int title_w = ui_text_width(font, FONT_SIZE_BODY, title);
+  ui_text_draw(font, card_x + (CONNECT_POPUP_W - title_w) / 2, card_y + 30, UI_COLOR_TEXT_PRIMARY,
+               FONT_SIZE_BODY, title);
+
+  /* Option geometry. */
+  const char *options[CONNECT_POPUP_ITEM_COUNT] = {"Local Network", "Internet"};
+  const int opt_x = card_x + 40;
+  const int opt_y[CONNECT_POPUP_ITEM_COUNT] = {card_y + 65, card_y + 100};
+  const int highlight_w = CONNECT_POPUP_W - 60;
+  const int highlight_h = 32;
+
+  /* Selection highlight behind the active row. */
+  int sel_y = opt_y[connect_popup_selection] - 8;
+  ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(52, 144, 255, 60));
+
+  /* Option labels — highlighted row in primary blue, other row secondary. */
+  for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
+    uint32_t color =
+        (i == connect_popup_selection) ? RGBA8(52, 144, 255, 255) : UI_COLOR_TEXT_SECONDARY;
+    ui_text_draw(font, opt_x, opt_y[i], color, FONT_SIZE_BODY, options[i]);
+  }
+
+  /* Button hints — matches the style used by the debug menu. */
+  const char *hint = "D-Pad: Select  |  X: Confirm  |  O: Cancel";
+  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
+  ui_text_draw(font, card_x + (CONNECT_POPUP_W - hint_w) / 2, card_y + CONNECT_POPUP_H - 20,
+               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
+}
+
+/**
+ * Check whether the connection method popup is currently open.
+ *
+ * @return  true if the popup is active and waiting for user input.
+ */
+bool ui_connect_popup_is_active(void) {
+  return connect_popup_active;
+}
+
+// ============================================================================
 // Legacy Compatibility Wrappers (for ui.c internal use)
 // ============================================================================
 
@@ -855,6 +989,10 @@ void render_error_popup(void) {
 
 void handle_error_popup_input(void) {
   ui_error_handle_input();
+}
+
+void render_connect_popup(void) {
+  ui_connect_popup_draw();
 }
 
 void trigger_hints_popup(const char *hint_text) {

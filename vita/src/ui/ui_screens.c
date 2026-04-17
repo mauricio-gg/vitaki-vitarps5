@@ -41,6 +41,7 @@
 #include "ui/ui_screens.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
+#include "ui/ui_input.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
 #include "ui/ui_graphics.h"
@@ -103,6 +104,13 @@ static int s_logout_btn_abs_y = 0;         ///< Button top edge in screen pixels
 static int s_logout_btn_abs_w = 0;         ///< Button width in screen pixels.
 static int s_logout_btn_abs_h = 0;         ///< Button height in screen pixels.
 static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
+
+/*
+ * cross_tracking_for_popup — true from the moment a Cross press is detected on
+ * a dual-source card until it resolves as either a short press (LAN connect) or
+ * a long press (popup shown).  Cleared on release or threshold reached.
+ */
+static bool cross_tracking_for_popup = false;
 
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
 #define LOGOUT_BTN_W 80              ///< Button pixel width.
@@ -762,8 +770,58 @@ UIScreenType ui_screen_draw_main(void) {
 
   /* === X BUTTON (Activate/Select highlighted element) === */
 
-  if (btn_pressed(SCE_CTRL_CROSS) && ui_focus_is_content() && num_hosts > 0)
-    next_screen = main_menu_activate_selected_card();
+  /*
+   * Connection method selection:
+   *   - Dual-source card (has_internet == true): short press → LAN immediately;
+   *     long-press (≥600 ms) → show "Connect via" popup.
+   *   - Single-source card: immediate connect on press (unchanged behaviour).
+   *
+   * When the popup is open, input is forwarded to ui_connect_popup_update()
+   * which handles navigation, confirmation, and cancellation internally.
+   */
+  if (ui_focus_is_content() && num_hosts > 0) {
+    if (ui_connect_popup_is_active()) {
+      /* Popup is open — let it consume input and act on the result. */
+      int result = ui_connect_popup_update();
+      if (result == 0) {
+        /* Local Network selected — connect immediately via LAN. */
+        next_screen = main_menu_activate_selected_card();
+      } else if (result == 1) {
+        /* Internet selected — not yet supported; inform the user. */
+        ui_error_show("Internet remote play is not yet supported.\nPlanned for a future release.");
+      }
+      /* result == 2 (cancel) or -1 (still active) — nothing to do. */
+    } else {
+      ConsoleCardInfo *sel = ui_cards_get_selected_card();
+      bool dual = sel && sel->has_internet;
+
+      if (dual) {
+        /*
+         * Track the Cross press for long-hold detection without immediately
+         * triggering a connection.  btn_pressed() returns true only on the
+         * leading edge, so this block executes exactly once per press.
+         */
+        if (btn_pressed(SCE_CTRL_CROSS))
+          cross_tracking_for_popup = true;
+
+        if (cross_tracking_for_popup && ui_input_cross_held_ms(600)) {
+          /* Long press threshold reached — open the popup. */
+          cross_tracking_for_popup = false;
+          ui_input_cross_hold_reset();
+          ui_connect_popup_show();
+        } else if (cross_tracking_for_popup && btn_released(SCE_CTRL_CROSS)) {
+          /* Released before threshold — treat as a short press (LAN). */
+          cross_tracking_for_popup = false;
+          ui_input_cross_hold_reset();
+          next_screen = main_menu_activate_selected_card();
+        }
+      } else {
+        /* Non-dual card: immediate connect on press (original behaviour). */
+        if (btn_pressed(SCE_CTRL_CROSS))
+          next_screen = main_menu_activate_selected_card();
+      }
+    }
+  }
 
   /* === OTHER BUTTONS === */
 

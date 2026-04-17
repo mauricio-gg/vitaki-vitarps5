@@ -168,6 +168,43 @@ void ui_error_handle_input(void);
 bool ui_error_is_active(void);
 
 // ============================================================================
+// Connection Method Popup
+// ============================================================================
+
+/**
+ * Show the connection method popup.
+ *
+ * Resets selection to Local Network and pushes a modal focus layer.
+ * Call this when a long Cross-press is detected on a dual-source (LAN + PSN)
+ * console card.
+ */
+void ui_connect_popup_show(void);
+
+/**
+ * Update the connection method popup for the current frame.
+ *
+ * Call every frame while the popup is active.
+ *
+ * @return  -1 while still open; 0 = Local Network; 1 = Internet; 2 = cancelled.
+ */
+int ui_connect_popup_update(void);
+
+/**
+ * Draw the connection method popup overlay.
+ *
+ * Must be called inside a vita2d_start_drawing / vita2d_end_drawing pair,
+ * after all other screen content.
+ */
+void ui_connect_popup_draw(void);
+
+/**
+ * Check whether the connection method popup is currently open.
+ *
+ * @return  true if the popup is active and awaiting user input.
+ */
+bool ui_connect_popup_is_active(void);
+
+// ============================================================================
 // Hints Popup System
 // ============================================================================
 
