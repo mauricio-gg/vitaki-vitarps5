@@ -20,6 +20,7 @@
 #include "ui/ui_input.h"
 #include "ui/ui_internal.h"
 
+#include <psp2/kernel/processmgr.h>
 #include <psp2/touch.h>
 
 // ============================================================================
@@ -31,6 +32,12 @@
  * Used during screen transitions to avoid accidental carryover presses
  */
 static uint32_t button_block_mask = 0;
+
+/**
+ * Timestamp (microseconds) of when the Cross button was first pressed.
+ * Zero means Cross is not currently held.
+ */
+static uint64_t cross_press_start_us = 0;
 
 /**
  * Touch block state - prevents touch input processing
@@ -135,6 +142,52 @@ bool ui_input_point_in_circle(float px, float py, int cx, int cy, int radius) {
 
 bool ui_input_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
   return (px >= (float)rx && px <= (float)(rx + rw) && py >= (float)ry && py <= (float)(ry + rh));
+}
+
+// ============================================================================
+// Cross Button Hold Tracking
+// ============================================================================
+
+/**
+ * Update Cross button hold timing — must be called once per frame after
+ * button_state / old_button_state are refreshed.
+ *
+ * Records the timestamp on the leading edge of a Cross press and clears it
+ * when the button is released, enabling duration-aware queries via
+ * ui_input_cross_held_ms().
+ */
+void ui_input_update_hold_tracking(void) {
+  /* Detect fresh Cross press — record timestamp. */
+  if ((context.ui_state.button_state & SCE_CTRL_CROSS) &&
+      !(context.ui_state.old_button_state & SCE_CTRL_CROSS))
+    cross_press_start_us = sceKernelGetProcessTimeWide();
+  /* Clear when released. */
+  if (!(context.ui_state.button_state & SCE_CTRL_CROSS))
+    cross_press_start_us = 0;
+}
+
+/**
+ * Query whether the Cross button has been held continuously for at least
+ * the given number of milliseconds.
+ *
+ * @param ms  Minimum hold duration in milliseconds.
+ * @return    true if Cross has been held for >= ms, false otherwise.
+ */
+bool ui_input_cross_held_ms(uint32_t ms) {
+  if (!cross_press_start_us)
+    return false;
+  uint64_t now = sceKernelGetProcessTimeWide();
+  return (now - cross_press_start_us) >= (uint64_t)ms * 1000ULL;
+}
+
+/**
+ * Reset the Cross button hold tracker.
+ *
+ * Call this after consuming a long-press event so the same hold does not
+ * trigger additional actions in subsequent frames.
+ */
+void ui_input_cross_hold_reset(void) {
+  cross_press_start_us = 0;
 }
 
 // ============================================================================
