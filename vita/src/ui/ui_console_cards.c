@@ -674,6 +674,15 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
       status_tex = ellipse_yellow;
   }
 
+  // Breathing animation constants — status dot and internet badge share one timestamp so
+  // both pulse in perfect sync.  The cooldown pulse uses its own independent timing below.
+  const float breathe_period_s = 1.5f;
+  const uint64_t breathe_period_us = 1500000ULL;
+  uint64_t time_us = sceKernelGetProcessTimeWide();
+  float time_sec = (float)(time_us % breathe_period_us) / 1000000.0f;
+  float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / breathe_period_s) + 1.0f) / 2.0f);
+  uint8_t breath_alpha = (uint8_t)(255.0f * breath);
+
   if (status_tex) {
     int indicator_x = draw_x + card_w - (int)(35 * scale);
     int indicator_y = draw_y + (int)(10 * scale);
@@ -692,14 +701,8 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
       ui_text_draw(font, text_x, text_y, wait_color, FONT_SIZE_BODY, wait_text);
       vita2d_draw_texture_scale(status_tex, indicator_x, indicator_y, scale, scale);
     } else {
-      // Batch 4: Status dot breathing animation (0.7-1.0 alpha over 1.5s cycle)
-      uint64_t time_us = sceKernelGetProcessTimeWide();
-      float time_sec = (float)(time_us % 1500000ULL) / 1000000.0f;  // 1.5s period
-      float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
-      uint8_t alpha = (uint8_t)(255.0f * breath);
-
-      // Apply breathing alpha to status texture with scale
-      uint32_t status_color = RGBA8(255, 255, 255, alpha);
+      // Apply shared breathing alpha to the status dot texture.
+      uint32_t status_color = RGBA8(255, 255, 255, breath_alpha);
       vita2d_draw_texture_tint_scale(status_tex, indicator_x, indicator_y, scale, scale,
                                      status_color);
     }
@@ -712,12 +715,7 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
     int indicator_x = draw_x + card_w - (int)(35 * scale);
     int indicator_y = draw_y + (int)(10 * scale);
 
-    // Reuse the same 1.5s breathing period as the status dot so both pulse in sync.
-    uint64_t badge_time_us = sceKernelGetProcessTimeWide();
-    float badge_sec = (float)(badge_time_us % 1500000ULL) / 1000000.0f;
-    float badge_breath = 0.7f + 0.3f * ((sinf(badge_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
-    uint8_t badge_alpha = (uint8_t)(255.0f * badge_breath);
-    uint32_t dot_color = RGBA8(52, 144, 255, badge_alpha);  // PlayStation Blue
+    uint32_t dot_color = RGBA8(52, 144, 255, breath_alpha);  // PlayStation Blue
 
     // Three filled circles arranged diagonally (bottom-left -> top-right) to suggest
     // signal strength.  Radii increase left-to-right; spacing is scaled with the card.
