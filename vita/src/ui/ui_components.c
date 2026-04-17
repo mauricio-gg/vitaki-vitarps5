@@ -834,6 +834,8 @@ void ui_connect_popup_show(void) {
   connect_popup_selection = 0;
   connect_popup_result = -1;
   ui_focus_push_modal();
+  bool *touch_block = ui_input_get_touch_block_active_ptr();
+  *touch_block = true;
 }
 
 /**

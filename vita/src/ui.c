@@ -647,9 +647,9 @@ void draw_ui() {
       render_hints_popup();
 
       render_loss_indicator_preview();
+      render_connect_popup();
       render_debug_menu();
       render_error_popup();
-      render_connect_popup();
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();

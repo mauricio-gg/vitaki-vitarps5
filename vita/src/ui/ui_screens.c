@@ -784,63 +784,61 @@ UIScreenType ui_screen_draw_main(void) {
 
   /*
    * Connection method selection:
+   *   - When the popup is open, input is forwarded to ui_connect_popup_update()
+   *     regardless of content focus (modal focus is active, so
+   *     ui_focus_is_content() returns false while the popup is open).
    *   - Dual-source card (has_internet == true): short press → LAN immediately;
    *     long-press (≥600 ms) → show "Connect via" popup.
    *   - Single-source card: immediate connect on press (unchanged behaviour).
-   *
-   * When the popup is open, input is forwarded to ui_connect_popup_update()
-   * which handles navigation, confirmation, and cancellation internally.
    */
-  if (ui_focus_is_content() && num_hosts > 0) {
-    if (ui_connect_popup_is_active()) {
-      /* Popup is open — let it consume input and act on the result. */
-      int result = ui_connect_popup_update();
-      if (result == 0) {
-        /* Local Network selected — connect immediately via LAN. */
+  if (ui_connect_popup_is_active()) {
+    /* Popup is open — let it consume input and act on the result. */
+    int result = ui_connect_popup_update();
+    if (result == 0) {
+      /* Local Network selected — connect immediately via LAN. */
+      next_screen = main_menu_activate_selected_card();
+    } else if (result == 1) {
+      /* Internet selected — route through PSN holepunch. */
+      ConsoleCardInfo *inet_card = ui_cards_get_selected_card();
+      if (inet_card && inet_card->host) {
+        inet_card->host->source = VITA_HOST_SOURCE_PSN_REMOTE;
         next_screen = main_menu_activate_selected_card();
-      } else if (result == 1) {
-        /* Internet selected — route through PSN holepunch. */
-        ConsoleCardInfo *inet_card = ui_cards_get_selected_card();
-        if (inet_card && inet_card->host) {
-          inet_card->host->source = VITA_HOST_SOURCE_PSN_REMOTE;
-          next_screen = main_menu_activate_selected_card();
-        }
       }
-      /* result == 2 (cancel) or -1 (still active) — nothing to do. */
+    }
+    /* result == 2 (cancel) or -1 (still active) — nothing to do. */
+  } else if (ui_focus_is_content() && num_hosts > 0) {
+    ConsoleCardInfo *sel = ui_cards_get_selected_card();
+    bool dual = sel && sel->has_internet;
+
+    if (dual) {
+      /*
+       * Track the Cross press for long-hold detection without immediately
+       * triggering a connection.  btn_pressed() returns true only on the
+       * leading edge, so this block executes exactly once per press.
+       */
+      if (btn_pressed(SCE_CTRL_CROSS))
+        cross_tracking_for_popup = true;
+
+      if (cross_tracking_for_popup && ui_input_cross_held_ms(600)) {
+        /* Long press threshold reached — open the popup. */
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
+        ui_connect_popup_show();
+      } else if (cross_tracking_for_popup && btn_released(SCE_CTRL_CROSS)) {
+        /* Released before threshold — treat as a short press (LAN). */
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
+        next_screen = main_menu_activate_selected_card();
+      }
     } else {
-      ConsoleCardInfo *sel = ui_cards_get_selected_card();
-      bool dual = sel && sel->has_internet;
-
-      if (dual) {
-        /*
-         * Track the Cross press for long-hold detection without immediately
-         * triggering a connection.  btn_pressed() returns true only on the
-         * leading edge, so this block executes exactly once per press.
-         */
-        if (btn_pressed(SCE_CTRL_CROSS))
-          cross_tracking_for_popup = true;
-
-        if (cross_tracking_for_popup && ui_input_cross_held_ms(600)) {
-          /* Long press threshold reached — open the popup. */
-          cross_tracking_for_popup = false;
-          ui_input_cross_hold_reset();
-          ui_connect_popup_show();
-        } else if (cross_tracking_for_popup && btn_released(SCE_CTRL_CROSS)) {
-          /* Released before threshold — treat as a short press (LAN). */
-          cross_tracking_for_popup = false;
-          ui_input_cross_hold_reset();
-          next_screen = main_menu_activate_selected_card();
-        }
-      } else {
-        /* Non-dual card: cancel any in-flight long-press tracking from a
-         * previous dual card, then connect immediately on press. */
-        if (cross_tracking_for_popup) {
-          cross_tracking_for_popup = false;
-          ui_input_cross_hold_reset();
-        }
-        if (btn_pressed(SCE_CTRL_CROSS))
-          next_screen = main_menu_activate_selected_card();
+      /* Non-dual card: cancel any in-flight long-press tracking from a
+       * previous dual card, then connect immediately on press. */
+      if (cross_tracking_for_popup) {
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
       }
+      if (btn_pressed(SCE_CTRL_CROSS))
+        next_screen = main_menu_activate_selected_card();
     }
   }
 
