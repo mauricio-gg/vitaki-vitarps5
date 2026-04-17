@@ -33,6 +33,8 @@ typedef struct vita_chiaki_host_t {
   uint8_t server_mac[6];
   uint8_t psn_device_uid[32];
   bool remoteplay_enabled;
+  /** True when a PSN_REMOTE entry for this physical console was found and merged here. */
+  bool psn_remote_available;
   char *hostname;
   uint64_t last_discovery_seen_us;
 
