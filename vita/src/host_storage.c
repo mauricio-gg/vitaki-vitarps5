@@ -295,6 +295,7 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
   memcpy(&h_dest->server_mac, &(h_src->server_mac), 6);
   memcpy(&h_dest->psn_device_uid, &(h_src->psn_device_uid), sizeof(h_dest->psn_device_uid));
   h_dest->remoteplay_enabled = h_src->remoteplay_enabled;
+  h_dest->psn_remote_available = h_src->psn_remote_available;
 
   h_dest->hostname = NULL;
   if ((h_src->hostname) && copy_hostname) {

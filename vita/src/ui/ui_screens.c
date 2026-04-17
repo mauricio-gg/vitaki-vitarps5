@@ -488,7 +488,8 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
 
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active) {
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active ||
+      ui_connect_popup_is_active()) {
     return UI_SCREEN_TYPE_MAIN;
   }
 
@@ -827,7 +828,12 @@ UIScreenType ui_screen_draw_main(void) {
           next_screen = main_menu_activate_selected_card();
         }
       } else {
-        /* Non-dual card: immediate connect on press (original behaviour). */
+        /* Non-dual card: cancel any in-flight long-press tracking from a
+         * previous dual card, then connect immediately on press. */
+        if (cross_tracking_for_popup) {
+          cross_tracking_for_popup = false;
+          ui_input_cross_hold_reset();
+        }
         if (btn_pressed(SCE_CTRL_CROSS))
           next_screen = main_menu_activate_selected_card();
       }
