@@ -854,12 +854,19 @@ int ui_connect_popup_update(void) {
   if (!connect_popup_active)
     return -1;
 
-  /* D-pad up/down toggles between the two options.
+  /* D-pad navigation: DOWN advances the selection, UP retreats it.
+   * The separate branches give each direction its own wraparound expression so
+   * the two options cycle in the expected visual direction rather than both
+   * toggling with the same modulo — pressing Up on "Internet" correctly returns
+   * to "Local Network" rather than advancing past it.
    * btn_pressed() applies button_block_mask, preventing double-fires after
    * block_inputs_for_transition(), and honours the error_popup_active guard
    * (safe here: connect_popup_active is always cleared before ui_error_show). */
-  if (btn_pressed(SCE_CTRL_UP) || btn_pressed(SCE_CTRL_DOWN))
+  if (btn_pressed(SCE_CTRL_DOWN))
     connect_popup_selection = (connect_popup_selection + 1) % CONNECT_POPUP_ITEM_COUNT;
+  if (btn_pressed(SCE_CTRL_UP))
+    connect_popup_selection =
+        (connect_popup_selection + CONNECT_POPUP_ITEM_COUNT - 1) % CONNECT_POPUP_ITEM_COUNT;
 
   /* Cross confirms the highlighted option. */
   if (btn_pressed(SCE_CTRL_CROSS)) {

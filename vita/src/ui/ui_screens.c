@@ -798,12 +798,12 @@ UIScreenType ui_screen_draw_main(void) {
       /* Local Network selected — connect immediately via LAN. */
       next_screen = main_menu_activate_selected_card();
     } else if (result == 1) {
-      /* Internet selected — route through PSN holepunch. */
-      ConsoleCardInfo *inet_card = ui_cards_get_selected_card();
-      if (inet_card && inet_card->host) {
-        inet_card->host->source = VITA_HOST_SOURCE_PSN_REMOTE;
-        next_screen = main_menu_activate_selected_card();
-      }
+      /* Internet selected — route through PSN holepunch.
+       * Set a transient flag on the stream context rather than mutating the
+       * shared host struct, which would corrupt MAC-based dedup on the next
+       * discovery refresh and permanently change the card's render branch. */
+      context.stream.force_psn_holepunch = true;
+      next_screen = main_menu_activate_selected_card();
     }
     /* result == 2 (cancel) or -1 (still active) — nothing to do. */
   } else if (ui_focus_is_content() && num_hosts > 0) {

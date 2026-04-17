@@ -138,7 +138,12 @@ void host_request_stream_stop_from_input(const char *reason) {
 
 int host_stream(VitaChiakiHost *host) {
   LOGD("Preparing to start host_stream");
-  bool psn_remote = host && host->source == VITA_HOST_SOURCE_PSN_REMOTE;
+  /* Check both the host's own source field and the one-shot flag set by the UI
+   * when the user explicitly chose "Internet" in the connect popup.  The flag
+   * is cleared immediately so it cannot bleed into a subsequent call. */
+  bool psn_remote =
+      (host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) || context.stream.force_psn_holepunch;
+  context.stream.force_psn_holepunch = false;
   LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
        (void *)host, host ? host->source : -1, host ? host->type : 0,
        (host && host->hostname) ? host->hostname : "<null>", psn_remote,

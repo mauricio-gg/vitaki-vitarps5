@@ -714,7 +714,9 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   // Internet connectivity badge: three signal-bar dots drawn left of the status dot.
   // Only shown when the LAN card has a matching PSN remote entry (has_internet), and
   // never on cooldown cards where the top-right corner is already occupied by "Please wait".
-  if (console->has_internet && !is_cooldown_card) {
+  // Guard on status_tex so we don't attempt to position the badge against a null texture
+  // when no status dot was resolved for this card (e.g. unknown status code).
+  if (console->has_internet && !is_cooldown_card && status_tex) {
     int indicator_x = draw_x + card_w - (int)(35 * scale);
     int indicator_y = draw_y + (int)(10 * scale);
 
