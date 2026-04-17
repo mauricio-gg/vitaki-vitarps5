@@ -852,16 +852,15 @@ int ui_connect_popup_update(void) {
   if (!connect_popup_active)
     return -1;
 
-  uint32_t buttons = context.ui_state.button_state;
-  uint32_t prev = context.ui_state.old_button_state;
-
-  /* D-pad up/down toggles between the two options. */
-  if (((buttons & SCE_CTRL_UP) && !(prev & SCE_CTRL_UP)) ||
-      ((buttons & SCE_CTRL_DOWN) && !(prev & SCE_CTRL_DOWN)))
-    connect_popup_selection = 1 - connect_popup_selection;
+  /* D-pad up/down toggles between the two options.
+   * btn_pressed() applies button_block_mask, preventing double-fires after
+   * block_inputs_for_transition(), and honours the error_popup_active guard
+   * (safe here: connect_popup_active is always cleared before ui_error_show). */
+  if (btn_pressed(SCE_CTRL_UP) || btn_pressed(SCE_CTRL_DOWN))
+    connect_popup_selection = (connect_popup_selection + 1) % CONNECT_POPUP_ITEM_COUNT;
 
   /* Cross confirms the highlighted option. */
-  if ((buttons & SCE_CTRL_CROSS) && !(prev & SCE_CTRL_CROSS)) {
+  if (btn_pressed(SCE_CTRL_CROSS)) {
     connect_popup_result = connect_popup_selection;
     connect_popup_active = false;
     ui_focus_pop_modal();
@@ -870,7 +869,7 @@ int ui_connect_popup_update(void) {
   }
 
   /* Circle cancels. */
-  if ((buttons & SCE_CTRL_CIRCLE) && !(prev & SCE_CTRL_CIRCLE)) {
+  if (btn_pressed(SCE_CTRL_CIRCLE)) {
     connect_popup_result = 2;
     connect_popup_active = false;
     ui_focus_pop_modal();

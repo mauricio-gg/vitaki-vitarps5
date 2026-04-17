@@ -631,6 +631,7 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
             ui_connection_cancel();
             return UI_SCREEN_TYPE_MAIN;
           } else if (registered) {
+            /* Touch always connects via LAN — long-press popup is controller-only by design. */
             ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
             if (!start_connection_thread(context.active_host)) {
               ui_connection_cancel();
@@ -769,6 +770,16 @@ UIScreenType ui_screen_draw_main(void) {
     main_menu_move_selection(1, num_hosts);
 
   /* === X BUTTON (Activate/Select highlighted element) === */
+
+  /*
+   * If the user navigates away from content while a Cross long-press is in
+   * progress, clear the tracking flag so the stale hold timestamp cannot fire
+   * the popup when focus returns to a (potentially different) card.
+   */
+  if (cross_tracking_for_popup && !ui_focus_is_content()) {
+    cross_tracking_for_popup = false;
+    ui_input_cross_hold_reset();
+  }
 
   /*
    * Connection method selection:
