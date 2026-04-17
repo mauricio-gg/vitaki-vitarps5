@@ -232,17 +232,17 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   profile_refresh_login_qr(verify_url);
 
   int qr_box = height - 32;
-  if (qr_box > 188)
-    qr_box = 188;
+  if (qr_box > 160)
+    qr_box = 160;
   if (qr_box < 90)
     qr_box = 90;
 
   int qr_x = content_x;
   int qr_y = y + (height - qr_box) / 2;
 
-  ui_draw_rounded_rect(qr_x, qr_y, qr_box, qr_box, 6, RGBA8(0x10, 0x10, 0x10, 220));
-
   if (profile_login_qr_visible && profile_login_qr.valid) {
+    /* ISO spec minimum is 4; we use 2 as a pragmatic balance between panel footprint and scanner
+     * tolerance. */
     int quiet_zone = 2;
     int module_px_x = qr_box / (profile_login_qr.size + quiet_zone * 2);
     int module_px_y = qr_box / (profile_login_qr.size + quiet_zone * 2);
@@ -256,6 +256,7 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
     ui_qr_draw(&profile_login_qr, draw_x, draw_y, module_px, quiet_zone, RGBA8(10, 10, 10, 255),
                RGBA8(250, 250, 250, 255));
   } else {
+    ui_draw_rounded_rect(qr_x, qr_y, qr_box, qr_box, 6, RGBA8(0x1A, 0x1A, 0x1A, 140));
     const char *qr_hint = "QR hidden";
     int hint_w = ui_text_width(font, FONT_SIZE_SMALL, qr_hint);
     ui_text_draw_centered_v(font, qr_x + (qr_box - hint_w) / 2, qr_y, qr_box,
@@ -283,17 +284,94 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, code_buf);
   line_y += text_line_h;
 
-  char url_preview[140];
-  if (verify_url && verify_url[0]) {
-    if (strlen(verify_url) > 116) {
-      snprintf(url_preview, sizeof(url_preview), "URL: %.112s...", verify_url);
-    } else {
-      snprintf(url_preview, sizeof(url_preview), "URL: %s", verify_url);
+  int text_col_w = (x + width - pad) - text_x;
+  if (verify_url && verify_url[0] && text_col_w > 0) {
+    /*
+     * Render up to two lines of the authorize URL so the user can type it
+     * into a browser.  We never truncate with ellipsis — if two lines still
+     * cannot hold the whole string (URLs can reach ~1500 chars) the tail is
+     * silently dropped; the README documents the static base URL as a
+     * fallback.
+     *
+     * Guard: skip line 2 if it would overrun the panel bottom.
+     *
+     * The fit loops below are O(n) over the URL length and run every frame
+     * while the panel is visible.  Cache results keyed by (text_col_w,
+     * url_len, url_hash) so we only recompute when the inputs actually
+     * change.  djb2 is chosen: two instructions per byte, no includes needed,
+     * collision risk is negligible when combined with the length key.
+     */
+    static int cached_text_col_w =
+        -1; /* -1 is unreachable at runtime; see text_col_w > 0 guard above */
+    static size_t cached_url_len = 0;
+    static uint32_t cached_url_hash = 0;
+    static int cached_fit1 = 0;
+    static int cached_fit2 = 0;
+
+    size_t url_len = strlen(verify_url);
+
+    /* Compute djb2 hash of verify_url. */
+    uint32_t url_hash = 5381u;
+    for (size_t i = 0; i < url_len; i++)
+      url_hash = (url_hash * 33u) ^ (uint8_t)verify_url[i];
+
+    if (text_col_w != cached_text_col_w || url_len != cached_url_len ||
+        url_hash != cached_url_hash) {
+      /* Cache miss — recompute fit1 and fit2. */
+      char probe[160];
+      int fit1 = 0;
+      int len = (int)url_len;
+
+      /* Grow fit1 until adding one more char would exceed the column width. */
+      while (fit1 < len) {
+        snprintf(probe, sizeof(probe), "URL: %.*s", fit1 + 1, verify_url);
+        if (ui_text_width(font, FONT_SIZE_SMALL, probe) > text_col_w)
+          break;
+        fit1++;
+      }
+
+      int fit2 = 0;
+      if (fit1 < len) {
+        const char *rest = verify_url + fit1;
+        int rest_len = len - fit1;
+        while (fit2 < rest_len) {
+          snprintf(probe, sizeof(probe), "%.*s", fit2 + 1, rest);
+          if (ui_text_width(font, FONT_SIZE_SMALL, probe) > text_col_w)
+            break;
+          fit2++;
+        }
+      }
+
+      cached_text_col_w = text_col_w;
+      cached_url_len = url_len;
+      cached_url_hash = url_hash;
+      cached_fit1 = fit1;
+      cached_fit2 = fit2;
     }
-  } else {
-    snprintf(url_preview, sizeof(url_preview), "URL: unavailable");
+
+    /* Draw using cached fit values. */
+    int fit1 = cached_fit1;
+    int fit2 = cached_fit2;
+    int len = (int)url_len;
+
+    char line1[160];
+    snprintf(line1, sizeof(line1), "URL: %.*s", fit1, verify_url);
+    ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line1);
+    line_y += text_line_h;
+
+    /* Line 2: remainder of URL with no prefix, only if it fits in the panel. */
+    /* Panel-height guard is intentionally outside the cache — evaluated every frame since panel
+     * geometry can change even when URL/width do not. */
+    if (fit1 < len && line_y + text_line_h <= y + height - pad) {
+      char line2[160];
+      snprintf(line2, sizeof(line2), "%.*s", fit2, verify_url + fit1);
+      ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, line2);
+      line_y += text_line_h;
+    }
+  } else if (!verify_url || !verify_url[0]) {
+    ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "URL: unavailable");
+    line_y += text_line_h;
   }
-  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, url_preview);
 }
 
 static bool profile_auth_ime_running = false;

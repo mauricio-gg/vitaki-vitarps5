@@ -57,6 +57,8 @@ VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, co
 
 **Note:** Remote play over the internet is not yet supported. VitaRPS5 currently works over local Wi-Fi only. Internet remote play is planned for a future release.
 
+**Phone Login URL:** When using the Profile page's Phone Login Assist flow, the app displays the full PSN authorize URL on screen so you can type it into a browser. By default, the URL starts with `https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize` followed by session-specific query parameters. If the URL is too long to read off the Vita screen, open that base address on your phone or PC — the app will also prompt you to paste the redirect URL back into the Vita after signing in.
+
 ## Controls
 
 | Input | Action |
