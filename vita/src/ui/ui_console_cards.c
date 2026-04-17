@@ -719,7 +719,7 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   // when no status dot was resolved for this card (e.g. unknown status code).
   if (console->has_internet && !is_cooldown_card && status_tex) {
     // Center the radio source dot to the left of the status dot area.
-    int badge_cx = draw_x + card_w - (int)(45 * scale);
+    int badge_cx = draw_x + card_w - (int)(48 * scale);
     int badge_cy = draw_y + (int)(16 * scale);
 
     uint32_t arc_color = RGBA8(52, 144, 255, breath_alpha);  // PlayStation Blue
@@ -733,7 +733,7 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
     // Three concentric arcs curving to the right (like ")"))
     // Each arc spans roughly -57° to +57° (±1.0 rad) centred on 0° = right.
     // Line-segment approximation identical to the approach used in ui_graphics.c.
-    float arc_radii[3] = {4.0f * scale, 7.0f * scale, 10.0f * scale};
+    float arc_radii[3] = {5.0f * scale, 9.0f * scale, 13.0f * scale};
     const int arc_segments = 8;
     const float arc_start = -1.0f; /* radians, ~-57° */
     const float arc_end = 1.0f;    /* radians, ~+57° */
