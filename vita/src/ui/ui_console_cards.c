@@ -711,36 +711,47 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
     }
   }
 
-  // Internet connectivity badge: three signal-bar dots drawn left of the status dot.
+  // Internet connectivity badge: radio-wave arcs drawn left of the status dot.
+  // Visually indicates that PSN internet connectivity is also available for this host.
   // Only shown when the LAN card has a matching PSN remote entry (has_internet), and
   // never on cooldown cards where the top-right corner is already occupied by "Please wait".
   // Guard on status_tex so we don't attempt to position the badge against a null texture
   // when no status dot was resolved for this card (e.g. unknown status code).
   if (console->has_internet && !is_cooldown_card && status_tex) {
-    int indicator_x = draw_x + card_w - (int)(35 * scale);
-    int indicator_y = draw_y + (int)(10 * scale);
+    // Center the radio source dot to the left of the status dot area.
+    int badge_cx = draw_x + card_w - (int)(45 * scale);
+    int badge_cy = draw_y + (int)(16 * scale);
 
-    uint32_t dot_color = RGBA8(52, 144, 255, breath_alpha);  // PlayStation Blue
+    uint32_t arc_color = RGBA8(52, 144, 255, breath_alpha);  // PlayStation Blue
 
-    // Three filled circles arranged diagonally (bottom-left -> top-right) to suggest
-    // signal strength.  Radii increase left-to-right; spacing is scaled with the card.
-    int base_x = indicator_x - (int)(25 * scale);
-    int base_y = indicator_y + (int)(12 * scale);  // bottom anchor of the signal area
-    int r1 = (int)(1.5f * scale);
-    if (r1 < 1)
-      r1 = 1;
-    int r2 = (int)(2.0f * scale);
-    if (r2 < 1)
-      r2 = 1;
-    int r3 = (int)(2.5f * scale);
-    if (r3 < 1)
-      r3 = 1;
-    int step = (int)(6 * scale);
-    if (step < 4)
-      step = 4;
-    vita2d_draw_fill_circle(base_x, base_y, r1, dot_color);
-    vita2d_draw_fill_circle(base_x + step, base_y - step / 2, r2, dot_color);
-    vita2d_draw_fill_circle(base_x + step * 2, base_y - step, r3, dot_color);
+    // Source dot — the anchor point from which arcs radiate.
+    int dot_r = (int)(1.5f * scale);
+    if (dot_r < 1)
+      dot_r = 1;
+    vita2d_draw_fill_circle(badge_cx, badge_cy, dot_r, arc_color);
+
+    // Three concentric arcs curving to the right (like ")"))
+    // Each arc spans roughly -57° to +57° (±1.0 rad) centred on 0° = right.
+    // Line-segment approximation identical to the approach used in ui_graphics.c.
+    float arc_radii[3] = {4.0f * scale, 7.0f * scale, 10.0f * scale};
+    const int arc_segments = 8;
+    const float arc_start = -1.0f; /* radians, ~-57° */
+    const float arc_end = 1.0f;    /* radians, ~+57° */
+
+    for (int a = 0; a < 3; a++) {
+      float r = arc_radii[a];
+      if (r < 2.0f)
+        r = 2.0f;
+      for (int s = 0; s < arc_segments; s++) {
+        float t1 = arc_start + (arc_end - arc_start) * s / arc_segments;
+        float t2 = arc_start + (arc_end - arc_start) * (s + 1) / arc_segments;
+        int x1 = badge_cx + (int)(cosf(t1) * r);
+        int y1 = badge_cy + (int)(sinf(t1) * r);
+        int x2 = badge_cx + (int)(cosf(t2) * r);
+        int y2 = badge_cy + (int)(sinf(t2) * r);
+        vita2d_draw_line(x1, y1, x2, y2, arc_color);
+      }
+    }
   }
 
   // State text ("Ready" / "Standby" / "Unpaired")

@@ -919,12 +919,15 @@ void ui_connect_popup_draw(void) {
   /* Option geometry. */
   const char *options[CONNECT_POPUP_ITEM_COUNT] = {"Local Network", "Internet"};
   const int opt_x = card_x + 40;
-  const int opt_y[CONNECT_POPUP_ITEM_COUNT] = {card_y + 65, card_y + 100};
+  const int opt_y[CONNECT_POPUP_ITEM_COUNT] = {card_y + 60, card_y + 100};
   const int highlight_w = CONNECT_POPUP_W - 60;
   const int highlight_h = 32;
 
-  /* Selection highlight behind the active row. */
-  int sel_y = opt_y[connect_popup_selection] - 8;
+  /* Selection highlight behind the active row.
+   * opt_y[] stores the FreeType baseline position, so the visible glyph body
+   * sits mostly ABOVE that coordinate.  Shift the rect up so the baseline
+   * lands near the bottom third of the highlight, visually centering the text. */
+  int sel_y = opt_y[connect_popup_selection] - highlight_h + 10;
   ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(52, 144, 255, 60));
 
   /* Option labels — highlighted row in primary blue, other row secondary. */
