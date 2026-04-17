@@ -208,8 +208,11 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   }
 
   // Map host state to console state
-  if (psn_remote) {
-    card->status = 1;  // Unavailable (internet not yet supported)
+  if (psn_remote && registered) {
+    card->status = 0;  // Available
+    card->state = 1;   // Ready
+  } else if (psn_remote) {
+    card->status = 1;  // Unavailable (not registered)
     card->state = 0;   // Unknown
   } else if (discovered && !at_rest) {
     card->status = 0;  // Available

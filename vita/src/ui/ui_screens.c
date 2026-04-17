@@ -799,8 +799,12 @@ UIScreenType ui_screen_draw_main(void) {
         /* Local Network selected — connect immediately via LAN. */
         next_screen = main_menu_activate_selected_card();
       } else if (result == 1) {
-        /* Internet selected — not yet supported; inform the user. */
-        ui_error_show("Internet remote play is not yet supported.\nPlanned for a future release.");
+        /* Internet selected — route through PSN holepunch. */
+        ConsoleCardInfo *inet_card = ui_cards_get_selected_card();
+        if (inet_card && inet_card->host) {
+          inet_card->host->source = VITA_HOST_SOURCE_PSN_REMOTE;
+          next_screen = main_menu_activate_selected_card();
+        }
       }
       /* result == 2 (cancel) or -1 (still active) — nothing to do. */
     } else {
