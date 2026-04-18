@@ -139,6 +139,13 @@ static const char UI_FONT_METRIC_PROBE[] = "Ag|";
 #define UI_FONT_ASCENT_NUMERATOR 4
 #define UI_FONT_ASCENT_DENOMINATOR 5
 
+/*
+ * Stack buffer size for a single UTF-8 glyph sequence plus NUL terminator.
+ * UTF-8 encodes any codepoint in at most 4 bytes; 8 bytes gives alignment
+ * headroom and is the size already established in the original prewarm code.
+ */
+#define UI_FONT_UTF8_SEQ_BUFFER_BYTES 8
+
 /* ============================================================================
  * Per-size metric cache
  * ============================================================================ */
@@ -255,6 +262,126 @@ static void warn_unknown_size(const char *caller, int pt_size) {
       caller, pt_size);
 }
 
+/**
+ * utf8_extract() - Consume one UTF-8 sequence from *pp into out_buf.
+ * @pp:      Pointer to the current read position in the source string.
+ *           Advanced past the consumed bytes on return.
+ * @out_buf: Caller-provided buffer of at least UI_FONT_UTF8_SEQ_BUFFER_BYTES
+ *           bytes.  Receives the NUL-terminated sequence on success.
+ *
+ * Returns the byte length of the extracted sequence (1–4) on success, or 0
+ * when *pp points at the NUL terminator (end of string).  On a malformed
+ * leading byte (a bare continuation byte 0x80–0xBF in start position, or a
+ * sequence whose required continuation bytes are absent or invalid), advances
+ * *pp by one byte and returns -1 so the caller can skip and continue.
+ *
+ * This is the single canonical UTF-8 decoder used by draw_glyph_chain() and
+ * prewarm_one_font(); neither duplicates this logic.
+ */
+static int utf8_extract(const char **pp, char *out_buf) {
+  const char *p = *pp;
+  unsigned char lead = (unsigned char)*p;
+  int seq_len;
+
+  if (lead == '\0')
+    return 0;
+
+  /* Determine sequence length from the leading byte. */
+  if (lead < 0x80u) {
+    seq_len = 1;
+  } else if (lead < 0xC0u) {
+    /* Bare continuation byte in leading position — skip one byte to re-sync. */
+    *pp = p + 1;
+    return -1;
+  } else if (lead < 0xE0u) {
+    seq_len = 2;
+  } else if (lead < 0xF0u) {
+    seq_len = 3;
+  } else {
+    seq_len = 4;
+  }
+
+  /*
+   * Validate continuation bytes.  A byte outside [0x80, 0xBF] (including NUL,
+   * which signals a truncated string, or any value >= 0xC0) means the sequence
+   * is malformed.  Skip the leading byte and re-sync rather than forwarding
+   * garbage to the caller.
+   */
+  if (seq_len > 1 && ((unsigned char)p[1] < 0x80u || (unsigned char)p[1] > 0xBFu)) {
+    *pp = p + 1;
+    return -1;
+  }
+  if (seq_len > 2 && ((unsigned char)p[2] < 0x80u || (unsigned char)p[2] > 0xBFu)) {
+    *pp = p + 1;
+    return -1;
+  }
+  if (seq_len > 3 && ((unsigned char)p[3] < 0x80u || (unsigned char)p[3] > 0xBFu)) {
+    *pp = p + 1;
+    return -1;
+  }
+
+  /* Copy the validated sequence and NUL-terminate. */
+  out_buf[0] = p[0];
+  if (seq_len > 1)
+    out_buf[1] = p[1];
+  if (seq_len > 2)
+    out_buf[2] = p[2];
+  if (seq_len > 3)
+    out_buf[3] = p[3];
+  out_buf[seq_len] = '\0';
+
+  *pp = p + seq_len;
+  return seq_len;
+}
+
+/**
+ * draw_glyph_chain() - Draw or measure a UTF-8 string one glyph at a time.
+ * @f:          Font to use.
+ * @start_x:    X coordinate of the first glyph origin, in integer screen pixels.
+ * @baseline_y: Baseline Y coordinate, in screen pixels.
+ * @color:      ABGR colour value (ignored when draw == 0).
+ * @pt_size:    Point size (must be a known FONT_SIZE_* constant).
+ * @s:          NUL-terminated UTF-8 string.
+ * @draw:       Non-zero to issue vita2d_font_draw_text calls; 0 for measure only.
+ *
+ * Returns the total advance width in pixels (cursor_x - start_x).
+ *
+ * Each glyph origin is an integer — cursor_x is incremented by the integer
+ * width of each glyph and never accumulates a fractional component.  This
+ * prevents vita2d's internal sub-pixel advance accumulation from placing glyph
+ * quads at fractional texel columns, which is the root cause of the horizontal
+ * stripe aliasing artifacts visible on UI text at Vita's GXM point filter.
+ *
+ * Known trade-off: per-glyph draws lose kerning pairs that vita2d may apply
+ * when rendering a whole string.  At 14–28pt with Roboto, kerning corrections
+ * are sub-pixel and the aliasing fix dominates visual quality.
+ */
+static int draw_glyph_chain(vita2d_font *f, int start_x, int baseline_y, unsigned int color,
+                            int pt_size, const char *s, int draw) {
+  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
+  const char *p = s;
+  int cursor_x = start_x;
+  int extracted;
+
+  while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
+    int glyph_w;
+
+    if (extracted < 0) {
+      /* Malformed sequence; utf8_extract already advanced p by one byte. */
+      continue;
+    }
+
+    glyph_w = (int)vita2d_font_text_width(f, (unsigned int)pt_size, glyph_buf);
+
+    if (draw)
+      vita2d_font_draw_text(f, cursor_x, baseline_y, color, (unsigned int)pt_size, glyph_buf);
+
+    cursor_x += glyph_w;
+  }
+
+  return cursor_x - start_x;
+}
+
 /* ============================================================================
  * Public API
  * ============================================================================ */
@@ -301,83 +428,26 @@ int ui_text_needs_prewarm(void) {
  * @sizes:      Array of point sizes to iterate.
  * @size_count: Number of entries in @sizes.
  *
- * Walks UI_FONT_PREWARM_CHARSET byte-by-byte, extracts each UTF-8 sequence
- * into a small stack buffer, and issues a vita2d_font_draw_text call at fully
- * transparent, off-screen coordinates.  This forces FreeType rasterization and
- * the GXM atlas upload without producing any visible output.
- *
- * UTF-8 continuation bytes are validated before copying: if a required
- * continuation byte is NUL (truncated sequence), the leading byte is skipped
- * and iteration continues.  This prevents an OOB read if UI_FONT_PREWARM_CHARSET
- * ever gains a malformed tail.
+ * Walks UI_FONT_PREWARM_CHARSET via utf8_extract(), issuing a
+ * vita2d_font_draw_text call per glyph at fully transparent, off-screen
+ * coordinates.  This forces FreeType rasterization and GXM atlas upload
+ * without producing any visible output.
  */
 static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
+  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
   int size_idx;
-  const char *p;
-  char glyph_buf[8]; /* 4-byte UTF-8 max + NUL = 5 needed; 8 for alignment/safety */
 
   for (size_idx = 0; size_idx < size_count; size_idx++) {
     int pt = sizes[size_idx];
+    const char *p = UI_FONT_PREWARM_CHARSET;
+    int extracted;
 
-    for (p = UI_FONT_PREWARM_CHARSET; *p != '\0';) {
-      unsigned char lead = (unsigned char)*p;
-      int seq_len;
-
-      /* Determine UTF-8 sequence length from the leading byte. */
-      if (lead < 0x80u) {
-        seq_len = 1;
-      } else if (lead < 0xC0u) {
-        /*
-         * Defensive: bytes in [0x80, 0xC0) are UTF-8 continuation bytes and
-         * are malformed as sequence starters.  Skip one byte to re-sync.
-         * Cannot fire with the current static charset but guards against any
-         * future extension that introduces a bad byte.
-         */
-        p++;
+    while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
+      if (extracted < 0)
         continue;
-      } else if (lead < 0xE0u) {
-        seq_len = 2;
-      } else if (lead < 0xF0u) {
-        seq_len = 3;
-      } else {
-        seq_len = 4;
-      }
-
-      /*
-       * Bounds-check: verify that each required continuation byte is a valid
-       * UTF-8 continuation byte in the range [0x80, 0xBF].  A byte outside
-       * that range (including NUL, which signals a truncated charset string,
-       * or any value >= 0xC0, which would be a spurious new leading byte)
-       * indicates a malformed sequence.  Skip the leading byte and re-sync
-       * rather than copying garbage to glyph_buf.
-       */
-      if (seq_len > 1 && ((unsigned char)p[1] < 0x80u || (unsigned char)p[1] > 0xBFu)) {
-        p++;
-        continue;
-      }
-      if (seq_len > 2 && ((unsigned char)p[2] < 0x80u || (unsigned char)p[2] > 0xBFu)) {
-        p++;
-        continue;
-      }
-      if (seq_len > 3 && ((unsigned char)p[3] < 0x80u || (unsigned char)p[3] > 0xBFu)) {
-        p++;
-        continue;
-      }
-
-      /* Copy the validated sequence into the local buffer and NUL-terminate. */
-      glyph_buf[0] = p[0];
-      if (seq_len > 1)
-        glyph_buf[1] = p[1];
-      if (seq_len > 2)
-        glyph_buf[2] = p[2];
-      if (seq_len > 3)
-        glyph_buf[3] = p[3];
-      glyph_buf[seq_len] = '\0';
 
       vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
                             UI_FONT_PREWARM_COLOR, (unsigned int)pt, glyph_buf);
-
-      p += seq_len;
     }
   }
 }
@@ -434,7 +504,7 @@ void ui_text_prewarm(void) {
 }
 
 /**
- * ui_text_draw() - Draw a UTF-8 string at integer-floored screen coordinates.
+ * ui_text_draw() - Draw a UTF-8 string glyph-by-glyph at integer-snapped X positions.
  */
 void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
                   const char *s) {
@@ -448,11 +518,15 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
     warn_unknown_size("ui_text_draw", pt_size);
     return;
   }
-  vita2d_font_draw_text(f, x, baseline_y, color, (unsigned int)pt_size, s);
+  draw_glyph_chain(f, x, baseline_y, color, pt_size, s, /*draw=*/1);
 }
 
 /**
  * ui_text_width() - Return the pixel width of a UTF-8 string.
+ *
+ * Uses draw_glyph_chain() in measure-only mode so the returned width is
+ * identical to what ui_text_draw() would advance — centering math in callers
+ * is therefore exact.
  */
 int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
   if (!f) {
@@ -465,7 +539,8 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
     warn_unknown_size("ui_text_width", pt_size);
     return 0;
   }
-  return (int)vita2d_font_text_width(f, (unsigned int)pt_size, s);
+  return draw_glyph_chain(f, /*start_x=*/0, /*baseline_y=*/0, /*color=*/0, pt_size, s,
+                          /*draw=*/0);
 }
 
 /**
@@ -499,12 +574,13 @@ int ui_text_line_height(int pt_size) {
  *   baseline_y = box_y + (box_h + ascent) / 2
  *
  * This replaces ad-hoc magic offsets like "+5" / "+6" at individual call sites.
+ * Delegates to ui_text_draw() so all text goes through the integer-snapped
+ * glyph-chain path.
  */
 void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsigned int color,
                              int pt_size, const char *s) {
-  int ascent;
-  int baseline_y;
   int idx;
+  int baseline_y;
 
   if (!f) {
     sceClibPrintf("[WARN] ui_text_draw_centered_v: NULL font pointer\n");
@@ -519,8 +595,6 @@ void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsign
     return;
   }
 
-  ascent = s_metrics[idx].ascent;
-  baseline_y = box_y + (box_h + ascent) / 2;
-
-  vita2d_font_draw_text(f, x, baseline_y, color, (unsigned int)pt_size, s);
+  baseline_y = box_y + (box_h + s_metrics[idx].ascent) / 2;
+  ui_text_draw(f, x, baseline_y, color, pt_size, s);
 }
