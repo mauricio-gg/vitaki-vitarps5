@@ -667,11 +667,10 @@ static void main_menu_move_selection(int delta, int num_hosts) {
 }
 
 static UIScreenType main_menu_activate_selected_card(void) {
-  /* Capture and clear force_psn_holepunch immediately so it cannot leak
-   * through early-return paths that never reach host_stream(). The flag is
-   * restored only at the one path that actually starts the connection thread,
-   * ensuring a failed/skipped activation never silently taints the next LAN
-   * connect attempt. */
+  /* Capture and clear force_psn_holepunch so early-return paths never leak the
+   * flag into a future LAN attempt. Restored only where start_connection_thread
+   * is invoked — including the standby-wake path, where ui_screen_draw_waking()
+   * defers the actual thread start. */
   bool saved_force_psn = context.stream.force_psn_holepunch;
   context.stream.force_psn_holepunch = false;
 
@@ -700,8 +699,13 @@ static UIScreenType main_menu_activate_selected_card(void) {
   if (at_rest) {
     LOGD("Waking dormant console...");
     ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby", false))
+    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby", false)) {
+      /* Restore the flag so ui_screen_draw_waking()'s deferred
+       * start_connection_thread() honours the user's Internet choice. */
+      context.stream.force_psn_holepunch = saved_force_psn;
       return UI_SCREEN_TYPE_WAKING;
+    }
+    /* Wake request failed — connection will not proceed; leave flag cleared. */
     ui_connection_cancel();
     return UI_SCREEN_TYPE_MAIN;
   }
@@ -714,6 +718,9 @@ static UIScreenType main_menu_activate_selected_card(void) {
   context.stream.force_psn_holepunch = saved_force_psn;
   ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
   if (!start_connection_thread(context.active_host)) {
+    /* Thread never started — clear the flag so it cannot bleed into the
+     * next connection attempt. */
+    context.stream.force_psn_holepunch = false;
     ui_connection_cancel();
     return UI_SCREEN_TYPE_MAIN;
   }
