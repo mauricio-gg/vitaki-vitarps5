@@ -928,14 +928,8 @@ void ui_connect_popup_draw(void) {
    * sits mostly ABOVE that coordinate.  Shift the rect up so the baseline
    * lands near the bottom third of the highlight, visually centering the text. */
   int sel_y = opt_y[connect_popup_selection] - highlight_h + 10;
-  /* Outer glow — subtle blue halo around the highlight. */
-  ui_draw_rounded_rect(opt_x - 13, sel_y - 3, highlight_w + 6, highlight_h + 6, 9,
-                       RGBA8(52, 144, 255, 30));
-  /* Border — thin blue outline. */
-  ui_draw_rounded_rect(opt_x - 11, sel_y - 1, highlight_w + 2, highlight_h + 2, 7,
-                       RGBA8(52, 144, 255, 120));
-  /* Fill — semi-transparent blue interior. */
-  ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(52, 144, 255, 40));
+  /* Subtle grey highlight — 20% opacity, no border. */
+  ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(255, 255, 255, 50));
 
   /* Option labels — highlighted row in primary blue, other row secondary. */
   for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
