@@ -667,6 +667,14 @@ static void main_menu_move_selection(int delta, int num_hosts) {
 }
 
 static UIScreenType main_menu_activate_selected_card(void) {
+  /* Capture and clear force_psn_holepunch immediately so it cannot leak
+   * through early-return paths that never reach host_stream(). The flag is
+   * restored only at the one path that actually starts the connection thread,
+   * ensuring a failed/skipped activation never silently taints the next LAN
+   * connect attempt. */
+  bool saved_force_psn = context.stream.force_psn_holepunch;
+  context.stream.force_psn_holepunch = false;
+
   ConsoleCardInfo *card = ui_cards_get_selected_card();
   if (!card || !card->host)
     return UI_SCREEN_TYPE_MAIN;
@@ -703,6 +711,7 @@ static UIScreenType main_menu_activate_selected_card(void) {
     request_host_wakeup_with_feedback(context.active_host, "cross-manual-preconnect", true);
   }
 
+  context.stream.force_psn_holepunch = saved_force_psn;
   ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
   if (!start_connection_thread(context.active_host)) {
     ui_connection_cancel();

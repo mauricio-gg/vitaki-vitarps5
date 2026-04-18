@@ -934,8 +934,7 @@ void ui_connect_popup_draw(void) {
   /* Option labels — all rows use primary text color; the grey highlight bar
    * behind the selected row is sufficient to indicate selection. */
   for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
-    uint32_t color = UI_COLOR_TEXT_PRIMARY;
-    ui_text_draw(font, opt_x, opt_y[i], color, FONT_SIZE_BODY, options[i]);
+    ui_text_draw(font, opt_x, opt_y[i], UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, options[i]);
   }
 
   /* Button hints — matches the style used by the debug menu. */
