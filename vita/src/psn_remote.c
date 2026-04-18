@@ -92,6 +92,15 @@ static VitaChiakiHost *find_registered_source_for_device(const char *device_name
 }
 
 static void remove_existing_psn_hosts(void) {
+  /* Clear the merge flag on all non-PSN hosts first so that stale
+   * psn_remote_available values don't persist when a PSN device is
+   * removed from the account or the user signs out. */
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+    VitaChiakiHost *host = context.hosts[i];
+    if (host && host->source != VITA_HOST_SOURCE_PSN_REMOTE)
+      host->psn_remote_available = false;
+  }
+
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     VitaChiakiHost *host = context.hosts[i];
     if (!host || host->source != VITA_HOST_SOURCE_PSN_REMOTE)

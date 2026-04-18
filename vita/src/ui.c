@@ -485,6 +485,9 @@ void draw_ui() {
     context.ui_state.button_state = ctrl.buttons;
     *button_block_mask &= context.ui_state.button_state;
 
+    // Update Cross button hold timing before any input handler runs
+    ui_input_update_hold_tracking();
+
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
 
@@ -644,6 +647,7 @@ void draw_ui() {
       render_hints_popup();
 
       render_loss_indicator_preview();
+      render_connect_popup();
       render_debug_menu();
       render_error_popup();
       vita2d_end_drawing();

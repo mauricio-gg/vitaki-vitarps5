@@ -23,6 +23,7 @@
 
 #include <psp2/ctrl.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 // ============================================================================
 // Initialization
@@ -82,6 +83,34 @@ void ui_input_clear_button_blocks(void);
  * @param btn Button(s) to block
  */
 void ui_input_block_button(SceCtrlButtons btn);
+
+// ============================================================================
+// Cross Button Hold Tracking
+// ============================================================================
+
+/**
+ * Update Cross button hold timing — call once per frame after button state
+ * has been refreshed (old_button_state / button_state are current).
+ *
+ * Records the start time on the leading edge of a Cross press and clears it
+ * on release.  Must be called before any code queries ui_input_cross_held_ms().
+ */
+void ui_input_update_hold_tracking(void);
+
+/**
+ * Query whether the Cross button has been held for at least @p ms milliseconds.
+ *
+ * @param ms  Minimum continuous hold duration in milliseconds.
+ * @return    true if the Cross button has been held for >= ms, false otherwise.
+ */
+bool ui_input_cross_held_ms(uint32_t ms);
+
+/**
+ * Reset the Cross button hold tracker after consuming a long-press event.
+ *
+ * Prevents the same hold from firing additional actions in subsequent frames.
+ */
+void ui_input_cross_hold_reset(void);
 
 // ============================================================================
 // Touch Input

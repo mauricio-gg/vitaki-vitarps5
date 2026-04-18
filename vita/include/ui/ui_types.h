@@ -160,6 +160,7 @@ typedef struct console_card_info_t {
   int state;             // 0=Unknown, 1=Ready, 2=Standby
   bool is_registered;    // Has valid credentials
   bool is_discovered;    // From network discovery
+  bool has_internet;     // PSN_REMOTE entry was merged into this LAN-discovered host
   VitaChiakiHost *host;  // Original vitaki host reference
 } ConsoleCardInfo;
 

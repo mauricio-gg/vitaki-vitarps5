@@ -208,9 +208,12 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   }
 
   // Map host state to console state
-  if (psn_remote) {
+  if (psn_remote && registered) {
     card->status = 0;  // Available
     card->state = 1;   // Ready
+  } else if (psn_remote) {
+    card->status = 1;  // Unavailable (not registered)
+    card->state = 0;   // Unknown
   } else if (discovered && !at_rest) {
     card->status = 0;  // Available
     card->state = 1;   // Ready
@@ -225,6 +228,7 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   card->is_registered = registered;
   card->is_discovered = discovered;
   card->host = host;
+  card->has_internet = host->psn_remote_available;
 }
 
 // ============================================================================
@@ -673,6 +677,15 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
       status_tex = ellipse_yellow;
   }
 
+  // Breathing animation constants — status dot and internet badge share one timestamp so
+  // both pulse in perfect sync.  The cooldown pulse uses its own independent timing below.
+  const float breathe_period_s = 1.5f;
+  const uint64_t breathe_period_us = 1500000ULL;
+  uint64_t time_us = sceKernelGetProcessTimeWide();
+  float time_sec = (float)(time_us % breathe_period_us) / 1000000.0f;
+  float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / breathe_period_s) + 1.0f) / 2.0f);
+  uint8_t breath_alpha = (uint8_t)(255.0f * breath);
+
   if (status_tex) {
     int indicator_x = draw_x + card_w - (int)(35 * scale);
     int indicator_y = draw_y + (int)(10 * scale);
@@ -691,16 +704,54 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
       ui_text_draw(font, text_x, text_y, wait_color, FONT_SIZE_BODY, wait_text);
       vita2d_draw_texture_scale(status_tex, indicator_x, indicator_y, scale, scale);
     } else {
-      // Batch 4: Status dot breathing animation (0.7-1.0 alpha over 1.5s cycle)
-      uint64_t time_us = sceKernelGetProcessTimeWide();
-      float time_sec = (float)(time_us % 1500000ULL) / 1000000.0f;  // 1.5s period
-      float breath = 0.7f + 0.3f * ((sinf(time_sec * 2.0f * M_PI / 1.5f) + 1.0f) / 2.0f);
-      uint8_t alpha = (uint8_t)(255.0f * breath);
-
-      // Apply breathing alpha to status texture with scale
-      uint32_t status_color = RGBA8(255, 255, 255, alpha);
+      // Apply shared breathing alpha to the status dot texture.
+      uint32_t status_color = RGBA8(255, 255, 255, breath_alpha);
       vita2d_draw_texture_tint_scale(status_tex, indicator_x, indicator_y, scale, scale,
                                      status_color);
+    }
+  }
+
+  // Internet connectivity badge: radio-wave arcs drawn left of the status dot.
+  // Visually indicates that PSN internet connectivity is also available for this host.
+  // Only shown when the LAN card has a matching PSN remote entry (has_internet), and
+  // never on cooldown cards where the top-right corner is already occupied by "Please wait".
+  // Guard on status_tex so we don't attempt to position the badge against a null texture
+  // when no status dot was resolved for this card (e.g. unknown status code).
+  if (console->has_internet && !is_cooldown_card && status_tex) {
+    // Outermost arc (r=13) rightmost point = badge_cx + 13*scale = card_w - 45*scale,
+    // leaving ~10*scale gap to the status dot at card_w - 35*scale.
+    int badge_cx = draw_x + card_w - (int)(58 * scale);
+    int badge_cy = draw_y + (int)(16 * scale);
+
+    uint32_t arc_color = RGBA8(52, 144, 255, breath_alpha);  // PlayStation Blue
+
+    // Source dot — the anchor point from which arcs radiate.
+    int dot_r = (int)(1.5f * scale);
+    if (dot_r < 1)
+      dot_r = 1;
+    vita2d_draw_fill_circle(badge_cx, badge_cy, dot_r, arc_color);
+
+    // Three concentric arcs curving to the right (like ")"))
+    // Each arc spans roughly -57° to +57° (±1.0 rad) centred on 0° = right.
+    // Line-segment approximation identical to the approach used in ui_graphics.c.
+    float arc_radii[3] = {5.0f * scale, 9.0f * scale, 13.0f * scale};
+    const int arc_segments = 8;
+    const float arc_start = -1.0f; /* radians, ~-57° */
+    const float arc_end = 1.0f;    /* radians, ~+57° */
+
+    for (int a = 0; a < 3; a++) {
+      float r = arc_radii[a];
+      if (r < 2.0f)
+        r = 2.0f;
+      for (int s = 0; s < arc_segments; s++) {
+        float t1 = arc_start + (arc_end - arc_start) * s / arc_segments;
+        float t2 = arc_start + (arc_end - arc_start) * (s + 1) / arc_segments;
+        int x1 = badge_cx + (int)(cosf(t1) * r);
+        int y1 = badge_cy + (int)(sinf(t1) * r);
+        int x2 = badge_cx + (int)(cosf(t2) * r);
+        int y2 = badge_cy + (int)(sinf(t2) * r);
+        vita2d_draw_line(x1, y1, x2, y2, arc_color);
+      }
     }
   }
 

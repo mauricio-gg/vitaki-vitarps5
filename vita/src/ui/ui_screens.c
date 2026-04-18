@@ -41,6 +41,7 @@
 #include "ui/ui_screens.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
+#include "ui/ui_input.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
 #include "ui/ui_graphics.h"
@@ -103,6 +104,13 @@ static int s_logout_btn_abs_y = 0;         ///< Button top edge in screen pixels
 static int s_logout_btn_abs_w = 0;         ///< Button width in screen pixels.
 static int s_logout_btn_abs_h = 0;         ///< Button height in screen pixels.
 static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
+
+/*
+ * cross_tracking_for_popup — true from the moment a Cross press is detected on
+ * a dual-source card until it resolves as either a short press (LAN connect) or
+ * a long press (popup shown).  Cleared on release or threshold reached.
+ */
+static bool cross_tracking_for_popup = false;
 
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
 #define LOGOUT_BTN_W 80              ///< Button pixel width.
@@ -480,7 +488,8 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
   SceTouchData touch;
   sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
 
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active) {
+  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active ||
+      ui_connect_popup_is_active()) {
     return UI_SCREEN_TYPE_MAIN;
   }
 
@@ -623,6 +632,7 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
             ui_connection_cancel();
             return UI_SCREEN_TYPE_MAIN;
           } else if (registered) {
+            /* Touch always connects via LAN — long-press popup is controller-only by design. */
             ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
             if (!start_connection_thread(context.active_host)) {
               ui_connection_cancel();
@@ -762,8 +772,75 @@ UIScreenType ui_screen_draw_main(void) {
 
   /* === X BUTTON (Activate/Select highlighted element) === */
 
-  if (btn_pressed(SCE_CTRL_CROSS) && ui_focus_is_content() && num_hosts > 0)
-    next_screen = main_menu_activate_selected_card();
+  /*
+   * If the user navigates away from content while a Cross long-press is in
+   * progress, clear the tracking flag so the stale hold timestamp cannot fire
+   * the popup when focus returns to a (potentially different) card.
+   */
+  if (cross_tracking_for_popup && !ui_focus_is_content()) {
+    cross_tracking_for_popup = false;
+    ui_input_cross_hold_reset();
+  }
+
+  /*
+   * Connection method selection:
+   *   - When the popup is open, input is forwarded to ui_connect_popup_update()
+   *     regardless of content focus (modal focus is active, so
+   *     ui_focus_is_content() returns false while the popup is open).
+   *   - Dual-source card (has_internet == true): short press → LAN immediately;
+   *     long-press (≥600 ms) → show "Connect via" popup.
+   *   - Single-source card: immediate connect on press (unchanged behaviour).
+   */
+  if (ui_connect_popup_is_active()) {
+    /* Popup is open — let it consume input and act on the result. */
+    int result = ui_connect_popup_update();
+    if (result == 0) {
+      /* Local Network selected — connect immediately via LAN. */
+      next_screen = main_menu_activate_selected_card();
+    } else if (result == 1) {
+      /* Internet selected — route through PSN holepunch.
+       * Set a transient flag on the stream context rather than mutating the
+       * shared host struct, which would corrupt MAC-based dedup on the next
+       * discovery refresh and permanently change the card's render branch. */
+      context.stream.force_psn_holepunch = true;
+      next_screen = main_menu_activate_selected_card();
+    }
+    /* result == 2 (cancel) or -1 (still active) — nothing to do. */
+  } else if (ui_focus_is_content() && num_hosts > 0) {
+    ConsoleCardInfo *sel = ui_cards_get_selected_card();
+    bool dual = sel && sel->has_internet;
+
+    if (dual) {
+      /*
+       * Track the Cross press for long-hold detection without immediately
+       * triggering a connection.  btn_pressed() returns true only on the
+       * leading edge, so this block executes exactly once per press.
+       */
+      if (btn_pressed(SCE_CTRL_CROSS))
+        cross_tracking_for_popup = true;
+
+      if (cross_tracking_for_popup && ui_input_cross_held_ms(600)) {
+        /* Long press threshold reached — open the popup. */
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
+        ui_connect_popup_show();
+      } else if (cross_tracking_for_popup && btn_released(SCE_CTRL_CROSS)) {
+        /* Released before threshold — treat as a short press (LAN). */
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
+        next_screen = main_menu_activate_selected_card();
+      }
+    } else {
+      /* Non-dual card: cancel any in-flight long-press tracking from a
+       * previous dual card, then connect immediately on press. */
+      if (cross_tracking_for_popup) {
+        cross_tracking_for_popup = false;
+        ui_input_cross_hold_reset();
+      }
+      if (btn_pressed(SCE_CTRL_CROSS))
+        next_screen = main_menu_activate_selected_card();
+    }
+  }
 
   /* === OTHER BUTTONS === */
 

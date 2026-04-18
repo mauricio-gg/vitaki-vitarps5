@@ -184,6 +184,29 @@ void update_context_hosts() {
     }
   }
 
+  /* When a LAN-discovered host and a PSN_REMOTE host share the same MAC address they represent
+   * the same physical console.  Merge by setting psn_remote_available on the discovered host
+   * and removing the PSN_REMOTE entry so only a single card appears in the UI. */
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+    VitaChiakiHost *psn = context.hosts[i];
+    if (!(psn && psn->source == VITA_HOST_SOURCE_PSN_REMOTE &&
+          !mac_addr_is_zero(&(psn->server_mac))))
+      continue;
+    for (int j = 0; j < MAX_CONTEXT_HOSTS; j++) {
+      if (j == i)
+        continue;
+      VitaChiakiHost *disc = context.hosts[j];
+      if (!(disc && (disc->type & DISCOVERED) && !mac_addr_is_zero(&(disc->server_mac))))
+        continue;
+      if (mac_addrs_match(&(disc->server_mac), &(psn->server_mac))) {
+        disc->psn_remote_available = true;
+        host_free(psn);
+        context.hosts[i] = NULL;
+        break;
+      }
+    }
+  }
+
   compact_context_hosts();
 
   for (int i = 0; i < context.config.num_manual_hosts; i++) {
@@ -272,6 +295,7 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
   memcpy(&h_dest->server_mac, &(h_src->server_mac), 6);
   memcpy(&h_dest->psn_device_uid, &(h_src->psn_device_uid), sizeof(h_dest->psn_device_uid));
   h_dest->remoteplay_enabled = h_src->remoteplay_enabled;
+  h_dest->psn_remote_available = h_src->psn_remote_available;
 
   h_dest->hostname = NULL;
   if ((h_src->hostname) && copy_hostname) {

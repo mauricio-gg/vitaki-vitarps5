@@ -262,6 +262,7 @@ void start_toggle_animation(int toggle_index, bool target_state);
 float get_toggle_animation_value(int toggle_index, bool current_state);
 void render_error_popup(void);
 void handle_error_popup_input(void);
+void render_connect_popup(void);
 void trigger_hints_popup(const char *hint_text);
 void render_hints_popup(void);
 void render_hints_indicator(void);

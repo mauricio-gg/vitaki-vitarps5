@@ -131,6 +131,8 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_idr_requests;  // IDR attempts in rolling window
   uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
+  bool force_psn_holepunch;  // Set by UI when user selects Internet in the connect popup;
+                             // consumed and cleared at the top of host_stream().
 
   // --- Diagnostic instrumentation (D1: Decode Time) ---
   volatile uint32_t
