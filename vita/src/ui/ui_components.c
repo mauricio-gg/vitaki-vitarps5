@@ -928,16 +928,13 @@ void ui_connect_popup_draw(void) {
    * sits mostly ABOVE that coordinate.  Shift the rect up so the baseline
    * lands near the bottom third of the highlight, visually centering the text. */
   int sel_y = opt_y[connect_popup_selection] - highlight_h + 10;
-  /* Outer glow — very subtle, consistent with UI glow patterns. */
-  ui_draw_rounded_rect(opt_x - 13, sel_y - 3, highlight_w + 6, highlight_h + 6, 9,
-                       RGBA8(255, 255, 255, 15));
   /* Subtle grey highlight — 20% opacity, no border. */
   ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(255, 255, 255, 50));
 
-  /* Option labels — highlighted row in primary blue, other row secondary. */
+  /* Option labels — all rows use primary text color; the grey highlight bar
+   * behind the selected row is sufficient to indicate selection. */
   for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
-    uint32_t color =
-        (i == connect_popup_selection) ? RGBA8(52, 144, 255, 255) : UI_COLOR_TEXT_SECONDARY;
+    uint32_t color = UI_COLOR_TEXT_PRIMARY;
     ui_text_draw(font, opt_x, opt_y[i], color, FONT_SIZE_BODY, options[i]);
   }
 
