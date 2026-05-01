@@ -301,6 +301,24 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
 				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
 		}
+		/* Match send buffer to receive buffer so IDR/feedback/ACK bursts are not
+		 * stalled by a tiny OS-default SO_SNDBUF. */
+		{
+			const int sndbuf_val = takion->a_rwnd;
+			r = setsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (const CHIAKI_SOCKET_BUF_TYPE)&sndbuf_val, sizeof(sndbuf_val));
+			if(r < 0)
+			{
+				CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_SNDBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+				ret = CHIAKI_ERR_NETWORK;
+				goto error_sock;
+			}
+			{
+				int actual_sndbuf = 0;
+				socklen_t optlen = sizeof(actual_sndbuf);
+				if(getsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_sndbuf, &optlen) == 0)
+					CHIAKI_LOGI(takion->log, "Takion SO_SNDBUF requested=%d actual=%d", sndbuf_val, actual_sndbuf);
+			}
+		}
 
 #if defined(__APPLE__)
 		SInt32 majorVersion;
@@ -399,6 +417,24 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			socklen_t optlen = sizeof(actual_rcvbuf);
 			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
 				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
+		}
+		/* Match send buffer to receive buffer so IDR/feedback/ACK bursts are not
+		 * stalled by a tiny OS-default SO_SNDBUF. */
+		{
+			const int sndbuf_val = takion->a_rwnd;
+			r = setsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (const CHIAKI_SOCKET_BUF_TYPE)&sndbuf_val, sizeof(sndbuf_val));
+			if(r < 0)
+			{
+				CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_SNDBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+				ret = CHIAKI_ERR_NETWORK;
+				goto error_sock;
+			}
+			{
+				int actual_sndbuf = 0;
+				socklen_t optlen = sizeof(actual_sndbuf);
+				if(getsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_sndbuf, &optlen) == 0)
+					CHIAKI_LOGI(takion->log, "Takion SO_SNDBUF requested=%d actual=%d", sndbuf_val, actual_sndbuf);
+			}
 		}
 		if(info->ip_dontfrag)
 		{
