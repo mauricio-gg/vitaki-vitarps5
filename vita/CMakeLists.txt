@@ -65,6 +65,15 @@ if(CHIAKI_ENABLE_VITA_HOLEPUNCH)
         ../third-party/vita-stubs/posix_stubs.c)
 endif()
 
+# VitaRPS5: vendored libvita2d sources with LINEAR atlas filter patch.
+# These object files are linked directly so they shadow vita2d_font.o and
+# texture_atlas.o inside the system -lvita2d archive. All other vita2d
+# symbols still come from -lvita2d below.
+target_sources(${VITA_APP_NAME}.elf PRIVATE
+    ../third-party/libvita2d/vita2d_font.c
+    ../third-party/libvita2d/texture_atlas.c
+)
+
 # Logging configuration is controlled via environment files (.env.prod, .env.testing)
 # and passed to CMake via build.sh. No hardcoded defaults here to avoid redefinition warnings.
 
@@ -143,6 +152,8 @@ target_include_directories(${VITA_APP_NAME}.elf PRIVATE
     include
     third_party
     third_party/h264-bitstream/
+    ../third-party/libvita2d/include
+    $ENV{VITASDK}/arm-vita-eabi/include/freetype2
 )
 
 if(CHIAKI_USE_SYSTEM_CURL)

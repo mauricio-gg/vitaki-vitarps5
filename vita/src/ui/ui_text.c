@@ -275,8 +275,8 @@ static void warn_unknown_size(const char *caller, int pt_size) {
  * sequence whose required continuation bytes are absent or invalid), advances
  * *pp by one byte and returns -1 so the caller can skip and continue.
  *
- * This is the single canonical UTF-8 decoder used by draw_glyph_chain() and
- * prewarm_one_font(); neither duplicates this logic.
+ * This is the single canonical UTF-8 decoder used by prewarm_one_font();
+ * no other caller duplicates this logic.
  */
 static int utf8_extract(const char **pp, char *out_buf) {
   const char *p = *pp;
@@ -332,54 +332,6 @@ static int utf8_extract(const char **pp, char *out_buf) {
 
   *pp = p + seq_len;
   return seq_len;
-}
-
-/**
- * draw_glyph_chain() - Draw or measure a UTF-8 string one glyph at a time.
- * @f:          Font to use.
- * @start_x:    X coordinate of the first glyph origin, in integer screen pixels.
- * @baseline_y: Baseline Y coordinate, in screen pixels.
- * @color:      ABGR colour value (ignored when draw == 0).
- * @pt_size:    Point size (must be a known FONT_SIZE_* constant).
- * @s:          NUL-terminated UTF-8 string.
- * @draw:       Non-zero to issue vita2d_font_draw_text calls; 0 for measure only.
- *
- * Returns the total advance width in pixels (cursor_x - start_x).
- *
- * Each glyph origin is an integer — cursor_x is incremented by the integer
- * width of each glyph and never accumulates a fractional component.  This
- * prevents vita2d's internal sub-pixel advance accumulation from placing glyph
- * quads at fractional texel columns, which is the root cause of the horizontal
- * stripe aliasing artifacts visible on UI text at Vita's GXM point filter.
- *
- * Known trade-off: per-glyph draws lose kerning pairs that vita2d may apply
- * when rendering a whole string.  At 14–28pt with Roboto, kerning corrections
- * are sub-pixel and the aliasing fix dominates visual quality.
- */
-static int draw_glyph_chain(vita2d_font *f, int start_x, int baseline_y, unsigned int color,
-                            int pt_size, const char *s, int draw) {
-  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
-  const char *p = s;
-  int cursor_x = start_x;
-  int extracted;
-
-  while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
-    int glyph_w;
-
-    if (extracted < 0) {
-      /* Malformed sequence; utf8_extract already advanced p by one byte. */
-      continue;
-    }
-
-    glyph_w = (int)vita2d_font_text_width(f, (unsigned int)pt_size, glyph_buf);
-
-    if (draw)
-      vita2d_font_draw_text(f, cursor_x, baseline_y, color, (unsigned int)pt_size, glyph_buf);
-
-    cursor_x += glyph_w;
-  }
-
-  return cursor_x - start_x;
 }
 
 /* ============================================================================
@@ -504,7 +456,12 @@ void ui_text_prewarm(void) {
 }
 
 /**
- * ui_text_draw() - Draw a UTF-8 string glyph-by-glyph at integer-snapped X positions.
+ * ui_text_draw() - Draw a UTF-8 string as a single whole-string call.
+ *
+ * Issues one vita2d_font_draw_text call for the entire string, preserving
+ * vita2d's internal kerning pairs.  Sub-pixel placement aliasing is handled
+ * by the atlas LINEAR (bilinear) texture filter applied at init time rather
+ * than by integer-snapping individual glyph origins.
  */
 void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
                   const char *s) {
@@ -514,19 +471,20 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
   }
   if (!s)
     return;
+  /* Guard ensures pt_size is in UI_FONT_PREWARM_SIZES; catches forgotten new sizes early. */
   if (size_index(pt_size) < 0) {
     warn_unknown_size("ui_text_draw", pt_size);
     return;
   }
-  draw_glyph_chain(f, x, baseline_y, color, pt_size, s, /*draw=*/1);
+  vita2d_font_draw_text(f, x, baseline_y, color, (unsigned int)pt_size, s);
 }
 
 /**
  * ui_text_width() - Return the pixel width of a UTF-8 string.
  *
- * Uses draw_glyph_chain() in measure-only mode so the returned width is
- * identical to what ui_text_draw() would advance — centering math in callers
- * is therefore exact.
+ * Delegates to vita2d_font_text_width() for whole-string measurement,
+ * matching the kerning-aware advance that ui_text_draw() produces.
+ * Centering math in callers is therefore exact.
  */
 int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
   if (!f) {
@@ -535,12 +493,12 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
   }
   if (!s)
     return 0;
+  /* Guard ensures pt_size is in UI_FONT_PREWARM_SIZES; catches forgotten new sizes early. */
   if (size_index(pt_size) < 0) {
     warn_unknown_size("ui_text_width", pt_size);
     return 0;
   }
-  return draw_glyph_chain(f, /*start_x=*/0, /*baseline_y=*/0, /*color=*/0, pt_size, s,
-                          /*draw=*/0);
+  return (int)vita2d_font_text_width(f, (unsigned int)pt_size, s);
 }
 
 /**
@@ -574,8 +532,8 @@ int ui_text_line_height(int pt_size) {
  *   baseline_y = box_y + (box_h + ascent) / 2
  *
  * This replaces ad-hoc magic offsets like "+5" / "+6" at individual call sites.
- * Delegates to ui_text_draw() so all text goes through the integer-snapped
- * glyph-chain path.
+ * Delegates to ui_text_draw() which issues a single whole-string
+ * vita2d_font_draw_text call with kerning intact.
  */
 void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsigned int color,
                              int pt_size, const char *s) {
