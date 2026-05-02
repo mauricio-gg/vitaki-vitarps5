@@ -222,6 +222,13 @@ int host_stream(VitaChiakiHost *host) {
     LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
     context.stream.loss_retry_active = false;
   }
+  /* PSN/internet paths use a lower default bitrate: 6 Mbps saturates
+   * Vita 802.11g Wi-Fi and a typical home upstream simultaneously.
+   * PS5 does not support mid-session bitrate changes. */
+  if (psn_remote && profile.bitrate > 3500) {
+    profile.bitrate = 3500;
+    LOGD("PSN path: clamping bitrate to %u kbps", profile.bitrate);
+  }
 #if CHIAKI_CAN_USE_HOLEPUNCH
   ChiakiHolepunchSession holepunch_session = NULL;
 #endif
