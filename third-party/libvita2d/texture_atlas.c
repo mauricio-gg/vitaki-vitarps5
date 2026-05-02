@@ -1,9 +1,11 @@
 /*
  * texture_atlas.c — vendored from xerpi/libvita2d (master branch)
  *
- * VitaRPS5: upstream defaults (POINT min, LINEAR mag) are preserved.
- * An earlier experiment set both filters to LINEAR; on-device testing
- * confirmed that caused atlas-edge blur on integer-positioned glyphs.
+ * VitaRPS5 patch: atlas filters set to LINEAR/LINEAR. Combined with
+ * the 2x supersampled atlas in vita2d_font.c (see
+ * VITARPS5_FONT_SUPERSAMPLE), every drawn glyph performs a
+ * legitimate 2:1 bilinear minification — proper antialiasing
+ * without the texel-edge sampling problem that bit earlier attempts.
  *
  * See third-party/libvita2d/VITARPS5_PATCHES.md for full rationale.
  */
@@ -20,9 +22,13 @@
  *
  * Returns a newly-allocated texture_atlas on success, NULL on failure.
  *
- * vita2d upstream default: POINT min, LINEAR mag.
- * An earlier VitaRPS5 patch set both to LINEAR and caused atlas-edge
- * blur; it has been reverted.
+ * VitaRPS5 patch: both filters set to LINEAR. The active patch in
+ * vita2d_font.c renders every glyph at 2x its display size, so
+ * draw_scale = 0.5 at draw time and the sampler is doing 2:1
+ * minification. LINEAR min then averages 4 source texels per output
+ * pixel — proper antialiasing — and the texel-edge UV problem that
+ * made LINEAR fail at 1:1 mapping does not apply because the sample
+ * point lands halfway between source texels by construction.
  */
 texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat format)
 {
@@ -47,13 +53,15 @@ texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat f
 	atlas->bp_root = bp2d_create(&rect);
 	atlas->htab = int_htab_create(256);
 
-	/* Upstream libvita2d default: POINT min, LINEAR mag.
-	 * An earlier VitaRPS5 patch changed this to LINEAR/LINEAR; on-device
-	 * testing confirmed that caused blur because vita2d's sprite vertex
-	 * path does not apply a half-texel UV offset for bilinear sampling.
-	 * POINT min preserves FreeType's own 8-bit greyscale antialiasing. */
+	/* Both filters set to LINEAR.
+	 * Combined with the 2x supersampled atlas (see
+	 * VITARPS5_FONT_SUPERSAMPLE in vita2d_font.c) every drawn glyph is
+	 * minified 2:1, so LINEAR min/mag perform a proper 4-tap bilinear
+	 * downsample. The texel-edge ambiguity that produced uniform blur
+	 * with LINEAR at 1:1 does not apply here because the sample point
+	 * lands halfway between source texels by construction. */
 	vita2d_texture_set_filters(atlas->texture,
-				   SCE_GXM_TEXTURE_FILTER_POINT,
+				   SCE_GXM_TEXTURE_FILTER_LINEAR,
 				   SCE_GXM_TEXTURE_FILTER_LINEAR);
 
 	return atlas;

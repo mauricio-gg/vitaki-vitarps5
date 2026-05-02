@@ -1,12 +1,16 @@
 /*
  * vita2d_font.c — vendored from xerpi/libvita2d (master branch)
  *
- * VitaRPS5 patch: LINEAR atlas filtering is applied in texture_atlas.c.
+ * VitaRPS5 patch: glyphs are rasterized into the atlas at 2x the
+ * requested point size and drawn back at draw_scale = 0.5 with
+ * LINEAR filtering, giving a true 2:1 bilinear minification. Atlas
+ * filter selection lives in texture_atlas.c.
  *
  * See third-party/libvita2d/VITARPS5_PATCHES.md for full rationale.
  */
 
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/clib.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -19,8 +23,11 @@
 #include "utils.h"
 #include "shared.h"
 
-#define ATLAS_DEFAULT_W 512
-#define ATLAS_DEFAULT_H 512
+#define ATLAS_DEFAULT_W 1024
+#define ATLAS_DEFAULT_H 1024
+
+/* VitaRPS5 patch: see VITARPS5_PATCHES.md (active patch — 2x supersample). */
+#define VITARPS5_FONT_SUPERSAMPLE 2
 
 typedef enum {
 	VITA2D_LOAD_FONT_FROM_FILE,
@@ -245,10 +252,13 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 	bp2d_rectangle rect;
 	texture_atlas_entry_data data;
 
+	/* VitaRPS5 patch: see VITARPS5_PATCHES.md (active patch — 2x supersample). */
+	unsigned int atlas_size = size * VITARPS5_FONT_SUPERSAMPLE;
+
 	FTC_ScalerRec scaler;
 	scaler.face_id = face_id;
-	scaler.width = size;
-	scaler.height = size;
+	scaler.width = atlas_size;
+	scaler.height = atlas_size;
 	scaler.pixel = 1;
 
 	FTC_Manager_LookupFace(font->ftcmanager, face_id, &face);
@@ -275,7 +285,11 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 			FT_Vector delta;
 			FT_Get_Kerning(face, previous, glyph_index,
 				       FT_KERNING_DEFAULT, &delta);
-			pen_x += delta.x >> 6;
+			/* FTC_ImageCache_LookupScaler sizes the face at atlas_size
+			 * (size * VITARPS5_FONT_SUPERSAMPLE); FT_Get_Kerning returns
+			 * kerning at that active size, so divide back to display
+			 * space before the 26.6 → pixel truncation. */
+			pen_x += (delta.x / VITARPS5_FONT_SUPERSAMPLE) >> 6;
 		}
 
 		if (!texture_atlas_get(font->atlas, glyph_index, &rect, &data)) {
@@ -287,7 +301,10 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 						    NULL);
 
 			if (!atlas_add_glyph(font->atlas, glyph_index,
-					     (FT_BitmapGlyph)glyph, size)) {
+					     (FT_BitmapGlyph)glyph, atlas_size)) {
+				sceClibPrintf("[WARN] vita2d_font: atlas overflow — "
+					      "glyph %u at %upt (atlas %upt) did not fit\n",
+					      glyph_index, size, atlas_size);
 				continue;
 			}
 
