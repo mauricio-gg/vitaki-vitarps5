@@ -1,5 +1,5 @@
 
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.5)
 
 # Fix -rdynamic error with arm-vita-eabi-gcc https://github.com/tdlib/td/issues/1558
 if (POLICY CMP0065)

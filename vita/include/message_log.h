@@ -10,8 +10,8 @@
 // A hard-wrapped message log
 typedef struct vita_chiaki_message_log_t {
   char log[MLOG_LINES + 1][MLOG_LINE_LEN + 1];
-  uint8_t start_offset;
-  uint8_t lines;
+  uint16_t start_offset;
+  uint16_t lines;
   uint64_t last_update;
 } VitaChiakiMessageLog;
 
