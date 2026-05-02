@@ -308,10 +308,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			r = setsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (const CHIAKI_SOCKET_BUF_TYPE)&sndbuf_val, sizeof(sndbuf_val));
 			if(r < 0)
 			{
-				CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_SNDBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
-				ret = CHIAKI_ERR_NETWORK;
-				goto error_sock;
+				/* SO_SNDBUF is a performance hint, not required for correctness;
+				 * the OS default send buffer is still usable. Locked-down kernels
+				 * (e.g. low net.core.wmem_max) can fail this with EPERM, in which
+				 * case we'd rather stream with a smaller send buffer than refuse
+				 * to connect. */
+				CHIAKI_LOGW(takion->log, "Takion failed to setsockopt SO_SNDBUF (non-fatal): " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
 			}
+			else
 			{
 				int actual_sndbuf = 0;
 				socklen_t optlen = sizeof(actual_sndbuf);
@@ -425,10 +429,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			r = setsockopt(takion->sock, SOL_SOCKET, SO_SNDBUF, (const CHIAKI_SOCKET_BUF_TYPE)&sndbuf_val, sizeof(sndbuf_val));
 			if(r < 0)
 			{
-				CHIAKI_LOGE(takion->log, "Takion failed to setsockopt SO_SNDBUF: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
-				ret = CHIAKI_ERR_NETWORK;
-				goto error_sock;
+				/* SO_SNDBUF is a performance hint, not required for correctness;
+				 * the OS default send buffer is still usable. Locked-down kernels
+				 * (e.g. low net.core.wmem_max) can fail this with EPERM, in which
+				 * case we'd rather stream with a smaller send buffer than refuse
+				 * to connect. */
+				CHIAKI_LOGW(takion->log, "Takion failed to setsockopt SO_SNDBUF (non-fatal): " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
 			}
+			else
 			{
 				int actual_sndbuf = 0;
 				socklen_t optlen = sizeof(actual_sndbuf);
