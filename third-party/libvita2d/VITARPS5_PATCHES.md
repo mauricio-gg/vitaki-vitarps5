@@ -6,70 +6,58 @@ libvita2d symbols come from the system `-lvita2d`.
 
 ---
 
-## Problem
+## Current patch state
 
-vita2d's FreeType font backend creates its glyph atlas texture via
-`vita2d_create_empty_texture_format()` inside `texture_atlas_create()`.
-Upstream then calls `vita2d_texture_set_filters(atlas->texture, POINT, LINEAR)`.
-The POINT minification filter causes:
-- Stripe artifacts on text rendered at sub-integer scale factors
-- Jagged edges and baseline drift on all headers / UI labels
-- Inconsistency with PNG textures which already use LINEAR/LINEAR (see
-  `vita/include/ui/ui_internal.h:136`, `ui_load_png_linear()`)
+No active filter patches. Both `vita2d_font.c` and `texture_atlas.c`
+use upstream defaults. They are vendored to allow future surgical
+patches without forking the entire library.
 
 ---
 
-## Patch 1 — texture_atlas.c: LINEAR minification filter
+## Experiment record: LINEAR atlas filter (reverted)
 
-**File:** `third-party/libvita2d/texture_atlas.c`
-**Function:** `texture_atlas_create()` (line ~50 in the patched file)
+### What was tried
 
-**Original (upstream):**
-```c
-vita2d_texture_set_filters(atlas->texture,
-                           SCE_GXM_TEXTURE_FILTER_POINT,
-                           SCE_GXM_TEXTURE_FILTER_LINEAR);
-```
+`texture_atlas.c` — `texture_atlas_create()` — changed
+`vita2d_texture_set_filters()` from upstream `POINT min / LINEAR mag`
+to `LINEAR min / LINEAR mag`.
 
-**Patched:**
-```c
-vita2d_texture_set_filters(atlas->texture,
-                           SCE_GXM_TEXTURE_FILTER_LINEAR,
-                           SCE_GXM_TEXTURE_FILTER_LINEAR);
-```
+Hypothesis: POINT sampling of the FreeType glyph atlas was causing
+stripe artifacts, jagged edges, and baseline drift on header text.
+Bilinear filtering was expected to smooth sub-pixel placement.
 
-**Why this covers all cases:** The `texture_atlas` uses a fixed-size bin
-packing tree (512x512). There is no atlas-grow path; when the atlas is full,
-`texture_atlas_insert()` returns 0 and the glyph is skipped. The single
-`texture_atlas_create()` allocation is the only site where the filter is set.
+### What happened
+
+On-device testing confirmed the LINEAR filter made all header text
+**visibly blurry**. Smaller body text was similarly affected.
+
+### Root cause
+
+vita2d's sprite vertex path (`vita2d_draw_texture_tint_part_scale`)
+does not add the half-texel UV offset required for bilinear sampling to
+land on texel centers. For integer-positioned glyph quads, the GXM
+sampler ends up at texel-edge UV coordinates, averaging four neighbouring
+texels equally — producing the observed blur.
+
+POINT (nearest-neighbour) is robust to this because it returns a single
+texel regardless of the fractional UV position. FreeType's own 8-bit
+greyscale antialiasing (`FT_LOAD_TARGET_NORMAL`) is sufficient and is
+preserved when POINT is used.
+
+### Revert
+
+Both filters restored to upstream defaults in commit that follows
+`07d354e`.
 
 ---
 
-## Patch 2 — vita2d_font.c: added `vita2d_font_set_atlas_filters()` helper
+## ui_text.c: whole-string drawing (not a libvita2d patch)
 
-**File:** `third-party/libvita2d/vita2d_font.c`
-**New function added at end of file (after `vita2d_font_text_height`):**
-
-```c
-void vita2d_font_set_atlas_filters(vita2d_font *font,
-                                   SceGxmTextureFilter min_filter,
-                                   SceGxmTextureFilter mag_filter);
-```
-
-Allows call-site override of the atlas texture filter after font load.
-Under normal usage this is unnecessary because `texture_atlas_create()`
-already defaults both filters to LINEAR. The helper exists for diagnostic
-use or for callers that need POINT filtering (pixel-perfect bitmap fonts).
-
-**Declaration note:** This function is not declared in any public vita2d.h
-header. To call it from `vita/src/ui.c`, add a forward declaration at the
-top of `ui.c`:
-```c
-/* Forward-declare VitaRPS5 patched helper from third-party/libvita2d */
-extern void vita2d_font_set_atlas_filters(vita2d_font *font,
-                                          SceGxmTextureFilter min_filter,
-                                          SceGxmTextureFilter mag_filter);
-```
+`vita/src/ui/ui_text.c` routes all text draws through
+`vita2d_font_draw_text` (whole-string) rather than per-glyph calls.
+This restores vita2d's internal kerning pairs, which were lost in the
+`dee6831` per-glyph workaround. This is a VitaRPS5 policy change; it
+does not touch libvita2d.
 
 ---
 
@@ -78,7 +66,7 @@ extern void vita2d_font_set_atlas_filters(vita2d_font *font,
 Both `vita2d_font.c` and `texture_atlas.c` are compiled directly into
 `VitaRPS5.elf` via `target_sources()`. The linker resolves their symbols
 from these direct object files before consulting the `-lvita2d` archive,
-so the patched versions shadow the originals without removing `-lvita2d`
+so any future patches shadow the originals without removing `-lvita2d`
 (which still provides all other vita2d symbols).
 
 Include path `third-party/libvita2d/include` is added via
@@ -92,8 +80,8 @@ Include path `third-party/libvita2d/include` is added via
 
 | File | Source | Purpose |
 |------|--------|---------|
-| `vita2d_font.c` | xerpi/libvita2d master + VitaRPS5 patch | FreeType font rendering; adds helper |
-| `texture_atlas.c` | xerpi/libvita2d master + VitaRPS5 patch | Glyph atlas; PRIMARY PATCH SITE |
+| `vita2d_font.c` | xerpi/libvita2d master | FreeType font rendering (no active VitaRPS5 patch) |
+| `texture_atlas.c` | xerpi/libvita2d master | Glyph atlas (no active VitaRPS5 patch; upstream POINT/LINEAR preserved) |
 | `include/texture_atlas.h` | xerpi/libvita2d master | Private struct/API for texture_atlas |
 | `include/bin_packing_2d.h` | xerpi/libvita2d master | 2D bin packing used by atlas |
 | `include/int_htab.h` | xerpi/libvita2d master | Hash table used by atlas |

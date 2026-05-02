@@ -1,10 +1,9 @@
 /*
  * texture_atlas.c — vendored from xerpi/libvita2d (master branch)
  *
- * VitaRPS5 patch: changed SCE_GXM_TEXTURE_FILTER_POINT to
- * SCE_GXM_TEXTURE_FILTER_LINEAR for the minification filter in
- * texture_atlas_create(). This eliminates stripe artifacts and
- * jagged edges on all FreeType-rendered glyphs.
+ * VitaRPS5: upstream defaults (POINT min, LINEAR mag) are preserved.
+ * An earlier experiment set both filters to LINEAR; on-device testing
+ * confirmed that caused atlas-edge blur on integer-positioned glyphs.
  *
  * See third-party/libvita2d/VITARPS5_PATCHES.md for full rationale.
  */
@@ -21,9 +20,9 @@
  *
  * Returns a newly-allocated texture_atlas on success, NULL on failure.
  *
- * VitaRPS5 patch: both min and mag filters are set to LINEAR so that
- * glyphs drawn at non-integer scales (vita2d_draw_texture_tint_part_scale)
- * are bilinearly filtered rather than nearest-neighbour sampled.
+ * vita2d upstream default: POINT min, LINEAR mag.
+ * An earlier VitaRPS5 patch set both to LINEAR and caused atlas-edge
+ * blur; it has been reverted.
  */
 texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat format)
 {
@@ -48,13 +47,13 @@ texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat f
 	atlas->bp_root = bp2d_create(&rect);
 	atlas->htab = int_htab_create(256);
 
-	/*
-	 * VITARPS5 PATCH: upstream sets min=POINT, mag=LINEAR.
-	 * We set both to LINEAR so glyphs rendered at sub-integer draw_scale
-	 * values are bilinearly filtered, eliminating stripe artifacts.
-	 */
+	/* Upstream libvita2d default: POINT min, LINEAR mag.
+	 * An earlier VitaRPS5 patch changed this to LINEAR/LINEAR; on-device
+	 * testing confirmed that caused blur because vita2d's sprite vertex
+	 * path does not apply a half-texel UV offset for bilinear sampling.
+	 * POINT min preserves FreeType's own 8-bit greyscale antialiasing. */
 	vita2d_texture_set_filters(atlas->texture,
-				   SCE_GXM_TEXTURE_FILTER_LINEAR,
+				   SCE_GXM_TEXTURE_FILTER_POINT,
 				   SCE_GXM_TEXTURE_FILTER_LINEAR);
 
 	return atlas;
