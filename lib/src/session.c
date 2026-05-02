@@ -670,7 +670,9 @@ ctrl_failed:
 			session->mtu_in = 1454;
 			session->mtu_out = 1454;
 			/* 5ms is a conservative LAN fallback; 1ms was a stale placeholder
-			 * that caused downstream timing decisions to be unrealistically tight. */
+			 * that caused downstream timing decisions to be unrealistically tight.
+			 * TODO: PSN/relay paths probably want ~30000us — track per-session-type
+			 * fallback in a follow-up. */
 			session->rtt_us = 5000;
 		}
 #endif
