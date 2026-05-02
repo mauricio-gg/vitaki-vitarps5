@@ -210,6 +210,16 @@ typedef struct SceVideodecCtrl {
 extern SceInt32 sceVideodecQueryMemSize(SceUInt32 codecType,
                                         const SceVideodecQueryInitInfo *pInitInfo,
                                         SceVideodecMemInfo *pMemInfo);
+/* Extended videodec + codec-engine API not yet in VitaSDK headers (GCC 15
+ * hard-errors on implicit declarations; symbols exist in stub libs). */
+extern SceInt32 sceVideodecInitLibraryWithUnmapMem(SceVideodecType codec, SceVideodecCtrl *libCtrl,
+                                                   const SceVideodecQueryInitInfo *initInfo);
+extern SceUID sceCodecEngineOpenUnmapMemBlock(void *base, SceUInt32 size);
+extern SceInt32 sceCodecEngineCloseUnmapMemBlock(SceUID unmapUid);
+extern SceUIntVAddr sceCodecEngineAllocMemoryFromUnmapMemBlock(SceUID unmapUid, SceUInt32 size,
+                                                               SceUInt32 alignment);
+extern SceInt32 sceCodecEngineFreeMemoryFromUnmapMemBlock(SceUID unmapUid, SceUIntVAddr vaCtx);
+extern SceInt32 sceAvcdecDecodeAvailableSize(const SceAvcdecCtrl *decoder);
 
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};

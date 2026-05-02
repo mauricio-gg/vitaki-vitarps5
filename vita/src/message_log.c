@@ -1,4 +1,5 @@
 #include "message_log.h"
+#include <psp2/kernel/processmgr.h>
 
 VitaChiakiMessageLog *message_log_create() {
   VitaChiakiMessageLog *ml = (VitaChiakiMessageLog *)malloc(sizeof(VitaChiakiMessageLog));
