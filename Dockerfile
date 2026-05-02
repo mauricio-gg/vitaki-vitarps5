@@ -106,7 +106,7 @@ RUN cd /tmp && \
         -DUPNPC_BUILD_SAMPLE=OFF \
         -DNO_GETADDRINFO=ON \
         -DCMAKE_POSITION_INDEPENDENT_CODE=OFF \
-        -DCMAKE_C_FLAGS="-fno-pic -I/tmp/vita-stubs -Wno-error -Dgai_strerror=strerror -DNEED_STRUCT_IP_MREQN" \
+        -DCMAKE_C_FLAGS="-fno-pic -I/tmp/vita-stubs -Wno-error -DNEED_STRUCT_IP_MREQN" \
         -DCMAKE_BUILD_TYPE=Release && \
     make && \
     make install && \
