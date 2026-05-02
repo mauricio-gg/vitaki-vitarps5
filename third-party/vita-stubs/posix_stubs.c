@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stddef.h>
+#include "netdb.h"
 
 /* in6addr_any: declared as extern in net/if.h; definition lives here to avoid
  * multiple-definition errors when net/if.h is included by multiple translation
@@ -36,4 +37,14 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen,
 void herror(const char *s)
 {
     (void)s;
+}
+
+/* gethostbyname: legacy DNS lookup, used in connecthostport when
+ * NO_GETADDRINFO / USE_GETHOSTBYNAME is defined.  VitaSDK provides no
+ * implementation; returning NULL causes the caller to invoke herror() and
+ * return INVALID_SOCKET — a safe failure for an unreachable code path. */
+struct hostent *gethostbyname(const char *name)
+{
+    (void)name;
+    return NULL;
 }
