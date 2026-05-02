@@ -70,7 +70,11 @@
 #define UUIDV4_STR_LEN 37
 #define SECOND_US 1000000L
 #define MILLISECONDS_US 1000L
-#define WEBSOCKET_PING_INTERVAL_SEC 5
+#define WEBSOCKET_PING_INTERVAL_SEC 10
+/* Seconds to wait for a PONG reply before treating the link as dead.
+ * Kept shorter than WEBSOCKET_PING_INTERVAL_SEC so dead links are
+ * detected before the next scheduled PING would fire. */
+#define WEBSOCKET_PONG_TIMEOUT_SEC 5
 // Maximum WebSocket frame size currently supported by libcurl
 #define WEBSOCKET_MAX_FRAME_SIZE 64 * 1024
 #define SESSION_CREATION_TIMEOUT_SEC 30
@@ -80,11 +84,11 @@
 #define SELECT_CANDIDATE_TRIES 20
 #define SELECT_CANDIDATE_CONNECTION_SEC 5
 #define RANDOM_ALLOCATION_GUESSES_NUMBER 75
-/* On PS Vita sceNet caps simultaneous sockets at ~64-128. Keep 48 to leave
+/* On PS Vita sceNet caps simultaneous sockets at ~64-128. Keep 24 to leave
  * headroom for other session sockets (control, data, IPv6). Non-Vita
  * platforms keep the original 250 for full random-allocation coverage. */
 #ifdef __PSVITA__
-#define RANDOM_ALLOCATION_SOCKS_NUMBER 48
+#define RANDOM_ALLOCATION_SOCKS_NUMBER 24
 #else
 #define RANDOM_ALLOCATION_SOCKS_NUMBER 250
 #endif
@@ -2383,7 +2387,7 @@ cleanup_headers:
     FD_ZERO(&fds);
     FD_SET(sockfd, &fds);
 
-    // Need to send a ping every 5secs
+    // Need to send a ping every WEBSOCKET_PING_INTERVAL_SEC secs
     uint64_t timeout = WEBSOCKET_PING_INTERVAL_SEC * 1000;
     uint64_t now = 0;
     uint64_t last_ping_sent = 0;
@@ -2409,13 +2413,13 @@ cleanup_headers:
     {
         now = chiaki_time_now_monotonic_us();
 
-        if (expecting_pong && now - last_ping_sent > 5LL * SECOND_US)
+        if (expecting_pong && now - last_ping_sent > ((uint64_t)WEBSOCKET_PONG_TIMEOUT_SEC * SECOND_US))
         {
             CHIAKI_LOGE(session->log, "websocket_thread_func: Did not receive PONG in time.");
             goto cleanup_json;
         }
 
-        if (now - last_ping_sent > 5LL * SECOND_US)
+        if (now - last_ping_sent > ((uint64_t)WEBSOCKET_PING_INTERVAL_SEC * SECOND_US))
         {
             res = curl_ws_send(curl, buf, 0, &wlen, 0, CURLWS_PING);
             if (res != CURLE_OK)
