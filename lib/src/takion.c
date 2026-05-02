@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <psp2/kernel/threadmgr.h>
 #else
 #include <unistd.h>
 #include <netinet/in.h>
@@ -1036,6 +1037,13 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 static void *takion_thread_func(void *user)
 {
 	ChiakiTakion *takion = user;
+
+#ifdef __PSVITA__
+	// Pin network recv thread to USER_1 at prio 64 so it does not compete
+	// with HW decode (USER_0) or audio (USER_2) for CPU time.
+	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
+#endif
 
 	uint32_t seq_num_remote_initial;
 	if(takion_handshake(takion, &seq_num_remote_initial) != CHIAKI_ERR_SUCCESS)

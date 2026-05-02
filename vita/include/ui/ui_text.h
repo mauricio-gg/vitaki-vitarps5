@@ -76,13 +76,17 @@ void ui_text_prewarm(void);
  * ============================================================================ */
 
 /**
- * ui_text_draw() - Draw a UTF-8 string at integer coordinates.
+ * ui_text_draw() - Draw a UTF-8 string using the atlas LINEAR filter for clean rendering.
  * @f:          Font pointer (regular or mono).
  * @x:          Left edge of the first glyph, in screen pixels.
  * @baseline_y: Baseline Y coordinate, in screen pixels.
  * @color:      ABGR colour value (e.g. RGBA8(r,g,b,a)).
  * @pt_size:    One of the FONT_SIZE_* constants.
  * @s:          NUL-terminated UTF-8 string to render.
+ *
+ * Sub-pixel aliasing is handled by the atlas LINEAR (bilinear) texture filter
+ * applied at init time in texture_atlas.c; glyph-by-glyph integer snapping is
+ * not used.
  *
  * If pt_size is not a known size, emits a sceClibPrintf warning and returns
  * without drawing.

@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-04-14 (Issue #127 Phase 1 complete, Phase 2 queued)
+Last Updated: 2026-05-01 (Remote play smoothness initiative added, T1-T6 starting)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -78,12 +78,36 @@ Only move a task to "Done" after the reviewer signs off.
    - *Current Status (2026-02-19):* PSN host source, token config scaffold, settings toggle, device-list refresh, holepunch connect handoff, holepunch-enabled Release packaging, plus profile-side PSN auth lifecycle controls (device-login start/poll/cancel, token refresh attempt, logout, status UI) are implemented on `feat/psn-internet-remoteplay-mvp`.
    - *Blocking Gap:* Feature is still not ship-ready due to missing production OAuth provider configuration on Vita builds (device/token endpoint + client settings), plaintext token-at-rest storage in `ux0:data/vita-chiaki/chiaki.toml`, plus WAN/NAT hardware validation.
    - *Next Step:* Wire production OAuth app credentials/config into build pipeline, add encrypted storage for persisted PSN OAuth tokens, then run NAT matrix validation with `./tools/build.sh --env testing`.
-11. **PSN OAuth token encryption** (security hardening)
+11. **Remote Play Smoothness Initiative (see `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`)**
+   - *Owner:* Implementation agents
+   - *Goal:* Reduce latency and choppiness on both LAN and PSN-over-internet streams through a prioritized set of Vita-feasible, userland-only improvements.
+   - *Spec:* `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
+   - *Sub-tasks (check when done):*
+     - [ ] **T1: CPU affinity split** — audio→USER_2, Takion→USER_1, decode+render→USER_0 (`vita/src/audio.c:154-155`, `vita/src/video.c:505-507`, Takion thread)
+     - [ ] **T2: Symmetric SO_SNDBUF** — set SCE_NET_SO_SNDBUF to match TAKION_A_RWND (512 KB on Vita) (`lib/src/takion.c:289-401`)
+     - [ ] **T3: Lower PSN bitrate default** — clamp to ~3500 kbps when holepunch_session != NULL (`vita/src/host.c:206-219`)
+     - [ ] **T4: Fix Senkusha 1ms RTT fallback** — change to 30000 µs PSN / 5000 µs LAN (`lib/src/session.c:670-672`)
+     - [ ] **T5: Throttle WS ping during stream** — WEBSOCKET_PING_INTERVAL_SEC 5→30 after DATA_ESTABLISHED (`lib/src/remote/holepunch.c:73,968`)
+     - [ ] **T6: Reduce NAT burst socket count** — RANDOM_ALLOCATION_SOCKS_NUMBER 48→24 on Vita (`lib/src/remote/holepunch.c:86-90`)
+     - [ ] **T7: Port AV reorder queue + timeout flush** — chiaki-ng ea32368: per-stream queues, 16ms stall timeout (`lib/src/takion.c`)
+     - [ ] **T8: Port audio jitter buffer + PLC** — chiaki-ng 9d9a9cc + 3e481a9: prefill=3, buf=8, unlock before callback (`lib/src/audioreceiver.c`)
+     - [ ] **T9: Diagnostics overlay (LAN+PSN)** — RTT, jitter, bitrate, drop count, PS5 target_bitrate, NAT candidate type (`vita/src/video_overlay.c`, `vita/src/host_metrics.c`)
+     - [ ] **T10: Packet slab allocator** — replace malloc(1500)/free per packet with fixed-size pool (`lib/src/takion.c:1143,1163`)
+     - [ ] **T11: Decouple HW decode to own thread** — SPSC handoff: Takion assembles frame, dedicated "Vita Decoder" thread calls sceAvcdecDecode (`vita/src/video.c:490-549`)
+     - [ ] **T12: Port decoder flush + IDR on loss** — chiaki-ng 855de76: flush + IDR on detected packet loss (`lib/src/videoreceiver.c:381-485`)
+     - [ ] **T13: Test IP_TOS=0xB8 (DSCP EF)** — set on Takion socket; validate WMM AC_VO tagging with Wi-Fi capture (`lib/src/takion.c:289-401`)
+     - [ ] **T14: NEON-accelerated FEC** — ARMv7 NEON vmull.p8 for Jerasure GF8 inner loop; 3-5× speedup on burst recovery (`lib/src/fec.c`)
+     - [ ] **T15: Two-slot decoded-frame ring** — pair with T11; eliminate silent overwrites via 2-texture CDRAM ring (`vita/src/video.c:63,74,286-295`)
+     - [ ] **T16: Configurable STUN port-guessing** — chiaki-ng 6e778f7: expose force_stun_port_guessing as per-host config (`lib/src/remote/holepunch.c`)
+     - [ ] **T17: Replace force_psn_holepunch global** — pass bool force_internet as stream-scoped arg, not global flag (`vita/src/host.c:144-146`)
+   - *Execution order:* T1-T6 first (Tier 1, small), then T9 (observability), then T7-T8-T10-T11-T15-T12 (Tier 2), then T13-T16-T17, then T14 last if still needed.
+   - *Last Updated:* 2026-05-01 (research + plan phase complete)
+12. **PSN OAuth token encryption** (security hardening)
    - *Owner:* Implementation agent
    - *Goal:* `chiaki.toml` currently stores PSN OAuth access + refresh tokens in plaintext. Design and implement at-rest encryption using a device-derived or user-provided key so tokens aren't recoverable from a plaintext copy of the config file. Blocks enabling PSN internet mode by default.
    - *Tracked from:* PR #95 review, finding #6.
    - *Next Step:* Evaluate Vita keystore / device-derived key options, draft encryption scheme, implement in `vita/src/config.c` token read/write paths.
-12. **Thread-safe STUN server shuffle**
+13. **Thread-safe STUN server shuffle**
    - *Owner:* Implementation agent
    - *Goal:* `lib/src/remote/stun.h`'s Fisher-Yates shuffle mutates the file-scope `STUN_SERVERS` array in place. Concurrent callers (e.g., parallel test harnesses, or future concurrent hole-punch attempts) would race. Switch to a local copy-and-shuffle idiom so the global array is never modified.
    - *Tracked from:* PR #95 review, finding #7.
@@ -98,10 +122,10 @@ Only move a task to "Done" after the reviewer signs off.
    - *Scope:* 7 files with ~114 call sites: `vita/src/ui/ui_screens.c`, `vita/src/ui/ui_components.c`, `vita/src/ui/ui_console_cards.c`, `vita/src/ui/ui_navigation.c`, `vita/src/ui/ui_state.c`, `vita/src/ui.c:176-193`, `vita/src/video_overlay.c:93`
    - *Example Target:* Replace `vita2d_font_draw_text(f, x, y + h/2 + 5, col, sz, s)` with `ui_text_draw_centered_v(f, x, y, h, col, sz, s)` — baseline derived from cached ascent instead of literal offsets.
    - *Plan:* tracked in internal planning notes (see PR #135 and #136 for in-repo context)
-   - *Blocking:* On-device smoke test of Phase 1 prewarm (first-frame glyph pop-in check) must pass before Phase 2 starts
+   - *Status:* Phase 1 blocking condition resolved (see #145) — text aliasing root cause (POINT atlas filter) fixed via vendored libvita2d patch + LINEAR filter. dee6831 per-glyph integer-snap workaround reverted. Ready to begin Phase 2.
    - *Parent Epic:* #122 UI text rendering modernization
    - *Related Subtasks:* #125 (mipmaps for downscaled icons), #126 (icons at target sizes), #128 (pre-rendered antialiased shapes)
-   - *Next Step:* Run on-device validation of Phase 1 glyph prewarm, then stage Phase 2 call-site migration
+   - *Next Step:* Begin Phase 2 call-site migration across 7 files
 
 ---
 

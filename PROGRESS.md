@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-04-14 (UI Text Phase 1 complete, Phase 2 queued for on-device validation)
+Last Updated: 2026-05-01 (Text rendering aliasing root cause fixed, Phase 2 unblocked)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -40,26 +40,43 @@ A living reference for larger initiatives. Update this document when we start or
 
 ### 2. Issue #122 - UI Text Rendering Modernization *(In Progress)*
 - **Objective:** Modernize UI text rendering pipeline by integrating FreeType metrics, prewarm glyphs, and eliminate ad-hoc baseline offset math across the codebase.
-- **Progress:** Phase 1 complete (27%); Phase 2 queued pending on-device validation.
+- **Progress:** Phase 1 + blocking root cause fix complete (60%); Phase 2 now unblocked and ready to begin.
 - **Completed Work:**
   1. Phase 1: FreeType glyph atlas prewarm + metric helpers (PR #135 merged, `feat/ui-freetype-atlases-127`)
      - Created `vita/include/ui/ui_text.h` + `vita/src/ui/ui_text.c` with prewarm infrastructure and metric-derived layout helpers
      - Integrated prewarm into UI initialization; all 114 existing call sites left untouched
      - Passed 8 code review rounds with all substantive feedback addressed
-     - Pending: On-device smoke test of prewarm (first-frame glyph pop-in check)
+  2. Root cause fix: Text aliasing (jaggy edges, horizontal stripes, baseline drift) resolved (PR #145, `fix/ui-text-per-glyph-integer-snap`)
+     - Identified root cause: vita2d's font glyph atlas was sampled with POINT (nearest-neighbor) filtering
+     - Vendored `third-party/libvita2d/vita2d_font.c` + `texture_atlas.c` with private headers
+     - Patched `texture_atlas.c` to use `SCE_GXM_TEXTURE_FILTER_LINEAR` for both min and mag on glyph atlas
+     - Reverted dee6831 per-glyph integer-snap workaround; restored kerning in whole-string vita2d calls
+     - Fixed CMakeLists.txt to include FreeType2 headers for vendored sources
+     - Build clean at v0.1.732
 - **Planned Work:**
-  2. Phase 2: Migrate 114 call sites to `ui_text_*` helpers (~2-3 week task)
+  3. Phase 2: Migrate 114 call sites to `ui_text_*` helpers (~2-3 week task)
      - Replace `vita2d_font_draw_text(..., y+5)` with `ui_text_draw_centered_v()` + metric-derived math
      - Scope: 7 files (`ui_screens.c`, `ui_components.c`, `ui_console_cards.c`, `ui_navigation.c`, `ui_state.c`, `ui.c`, `video_overlay.c`)
-     - Blocking condition: Phase 1 on-device prewarm validation must pass first
+     - Blocking condition: RESOLVED — aliasing root cause fixed; kerning preserved
      - Plan: tracked in internal planning notes (see PR #135 and #136 for in-repo context)
 - **Related Subtasks (Parent Epic #122):**
   - #125 Mipmaps for downscaled icons
   - #126 Icons shipped at target sizes
   - #128 Pre-rendered antialiased circle/indicator textures
-- **Status:** Ready for Phase 2 after on-device validation checkpoint.
+- **Status:** Phase 2 unblocked and ready to begin immediately.
 
-### 3. Latency Reduction Initiative *(Active)*
+### 3. Remote Play Smoothness Initiative *(In Progress 🔄)*
+- **Objective:** Reduce latency, audio dropouts, and choppiness on both LAN and PSN-over-internet Remote Play through 17 Vita-feasible, userland-only improvements across three tiers.
+- **Motivation:** PSN remote play was recently added and is the choppiest codepath; LAN also has headroom to improve.
+- **Progress:** Research + feasibility validation complete (2026-05-01); implementation of T1-T6 starting now.
+- **Tier 1 (Quick wins):** T1 CPU affinity, T2 SO_SNDBUF, T3 PSN bitrate, T4 Senkusha fix, T5 WS ping throttle, T6 NAT burst reduction
+- **Tier 2 (chiaki-ng ports + architecture):** T7 AV reorder queue, T8 audio jitter buffer, T9 diagnostics overlay, T10 packet slab, T11 decode thread decoupling, T12 decoder flush
+- **Tier 3 (deferred):** T13 IP_TOS, T14 NEON FEC, T15 frame ring, T16 STUN config, T17 PSN flag cleanup
+- **Not planned (validated infeasible):** adaptive PS5 bitrate, TURN relay, async HW decoder API, >444MHz CPU, Wi-Fi 5GHz, 4th core, SO_PRIORITY
+- **Spec:** `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
+- **Status:** T1-T6 in progress on worktrees.
+
+### 4. Latency Reduction Initiative *(Active)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by improving PS5 negotiation, Vita scheduling, and Wi-Fi guidance.
 - **Current Focus:** Instrumentation + bitrate handshake research (`docs/LATENCY_ANALYSIS.md`).
 - **Status:** In review - multiple latency improvements pending review (bitrate metrics, FPS instrumentation, StartBitrate handling)
@@ -68,7 +85,7 @@ A living reference for larger initiatives. Update this document when we start or
   2. Patch `RP-StartBitrate`/LaunchSpec to request sub-3 Mbps streams reliably.
   3. Surface user-facing controls/documentation for low-bandwidth mode.
 
-### 4. Controller Layout Redesign *(COMPLETE ✅)*
+### 5. Controller Layout Redesign *(COMPLETE ✅)*
 - **Objective:** Redesign the controller configuration screen with an immersive visual layout featuring procedurally rendered Vita controller diagrams and interactive button mapping views.
 - **Progress:** All 3 phases complete (100%)
 - **Completed Work:**
@@ -118,7 +135,7 @@ A living reference for larger initiatives. Update this document when we start or
   - Custom per-button persistence (beyond preset selection)
   - Mapping popup full implementation (currently placeholder with show_mapping_popup field documented)
 
-### 5. Build & Release Reliability *(Ongoing)*
+### 6. Build & Release Reliability *(Ongoing)*
 - **Objective:** Keep Docker-based builds, automated releases, and deployment scripts stable.
 - **Focus Areas:** Monitor GitHub Actions release workflow, ensure `./tools/build.sh` handles new assets/configs, keep documentation current.
 - **Status:** Stable - new modular UI structure integrated into build system, assets pipeline validated
@@ -128,6 +145,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-05-01 | Issue #122 text aliasing root cause fixed (PR #145) — vita2d font glyph atlas was sampled with POINT filtering, causing jaggy edges and baseline drift. Vendored libvita2d (`vita2d_font.c`, `texture_atlas.c`), patched to use LINEAR filter on atlas, reverted dee6831 per-glyph integer-snap workaround. Kerning restored via whole-string vita2d calls. Phase 2 (114 call-site migration) now unblocked. Build clean at v0.1.732. | @mauricio-gg |
 | 2026-04-14 | Issue #127 Phase 1 COMPLETE - FreeType glyph atlas prewarm module merged to main (PR #135, feature branch `feat/ui-freetype-atlases-127`). Created `ui_text.h/c` with metric helpers + prewarm infrastructure. All 114 existing `vita2d_font_draw_text()` call sites left untouched per Phase 1 scope. 8 code review rounds, all substantive feedback addressed. Pending: On-device smoke test of prewarm (first-frame pop-in check) before Phase 2 call-site migration. Phase 2 queued with plan file `prancy-sprouting-sunset.md`. | @mauricio-gg |
 | 2026-02-16 | Advanced codebase cleanup wave 1 (Vitaki delta-guided): added file inflation analysis tooling (`tools/analysis/compare_vitaki_delta.sh`), published implementation plan (`docs/ai/CODEBASE_CLEANUP_PLAN.md`), landed table-driven bool migration parsing + manual-host ownership fix in `vita/src/config.c`, extracted stream HUD overlays to `vita/src/video_overlay.c`, extracted host/manual-host storage utilities to `vita/src/host_storage.c`, extracted input-thread/controller-touch mapping logic to `vita/src/host_input.c`, extracted disconnect/quit-reason banner helpers to `vita/src/host_disconnect.c`, extracted loss-profile/saturation helper logic to `vita/src/host_loss_profile.c`, extracted hint/decoder-resync/loss-event handlers to `vita/src/host_feedback.c`, extracted reconnect recovery coordinator logic to `vita/src/host_recovery.c`, extracted stream metrics reset/latency diagnostics paths to `vita/src/host_metrics.c`, extracted registration/wakeup flow to `vita/src/host_registration.c`, extracted stream lifecycle/finalization helpers to `vita/src/host_lifecycle.c`, extracted `CHIAKI_EVENT_QUIT` handling/retry orchestration to `vita/src/host_quit.c`, extracted session/video callback plumbing to `vita/src/host_callbacks.c`, extracted registered/manual host parse+serialize logic from `vita/src/config.c` to `vita/src/config_hosts.c` (plus `vitarps5_tests` linkage update in `test/CMakeLists.txt`), added focused config migration coverage in `test/config_vita_tests.c` (legacy/root bool + latency mode), simplified `vita/src/config.c` parse flow with defaults/custom-map and resolution/FPS/latency helper functions, and deflated `vita/src/video.c` to ~641 lines by removing dead frame-pacer scaffolding, obsolete SPS/header processing path, unused hexdump/FPS helpers, and stale commented decode/setup experiments | @mauricio-gg |
 | 2026-02-11 | Started stability recovery initiative with split tracks: packet/reference-loss mitigation first on fresh `main` baseline, followed by decode/render architecture split on a separate branch; validation standardized on `./tools/build.sh --env testing` + log matrix | @mauricio-gg |
