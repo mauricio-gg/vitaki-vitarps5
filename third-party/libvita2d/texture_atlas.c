@@ -87,6 +87,10 @@ int texture_atlas_insert(texture_atlas *atlas, unsigned int character,
 		return 0;
 
 	entry = malloc(sizeof(*entry));
+	if (!entry) {
+		bp2d_delete(atlas->bp_root, new_node);
+		return 0;
+	}
 
 	entry->rect.x = inserted_pos->x;
 	entry->rect.y = inserted_pos->y;
