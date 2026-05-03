@@ -103,6 +103,10 @@
 #define VITA_PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
 #endif
 
+#if defined(__PSVITA__)
+#include "vita_dns.h"
+#endif
+
 static const char oauth_header_fmt[] = "Authorization: Bearer %s";
 static const char session_id_header_fmt[] = "X-PSN-SESSION-MANAGER-SESSION-IDS: %s";
 
@@ -581,7 +585,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
@@ -1324,7 +1337,16 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("asm.np.community.playstation.net", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     CHIAKI_LOGV(session->log, "http_ps4_session_wakeup: Received JSON:\n%.*s", response_data.size, response_data.data);
     if (res != CURLE_OK)
@@ -1450,7 +1472,16 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
 
     CHIAKI_LOGV(session->log, "http_ps4_session_wakeup: Sending JSON:\n%s", envelope_buf);
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve2 = NULL;
+    vita_curl_add_resolve(host_url, 443, &vita_resolve2);
+    if (vita_resolve2)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve2);
+#endif
     res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve2);
+#endif
     curl_slist_free_all(headers);
     CHIAKI_LOGV(session->log, "http_ps4_session_wakeup: Received JSON:\n%.*s", response_data.size, response_data.data);
     if (res != CURLE_OK)
@@ -2024,7 +2055,16 @@ static ChiakiErrorCode get_websocket_fqdn(Session *session, char **fqdn)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("mobile-pushcl.np.communication.playstation.net", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
     if (res != CURLE_OK)
@@ -2333,7 +2373,16 @@ cleanup_headers:
         goto cleanup;
     }
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve(session->ws_fqdn, 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
@@ -3608,7 +3657,16 @@ static ChiakiErrorCode http_create_session(Session *session)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
@@ -3711,7 +3769,16 @@ static ChiakiErrorCode http_check_session(Session *session, bool viewurl)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
@@ -3816,7 +3883,16 @@ static ChiakiErrorCode http_start_session(Session *session)
     CHIAKI_LOGV(session->log, "http_start_session: Sending JSON:\n%s", envelope_buf);
 
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     CHIAKI_LOGV(session->log, "http_start_session: Received JSON:\n%.*s", response_data.size, response_data.data);
     if (res != CURLE_OK)
@@ -3903,7 +3979,16 @@ static ChiakiErrorCode http_send_session_message(Session *session, SessionMessag
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {
@@ -3964,7 +4049,16 @@ static ChiakiErrorCode deleteSession(Session *session)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
+#if defined(__PSVITA__)
+    struct curl_slist *vita_resolve = NULL;
+    vita_curl_add_resolve("web.np.playstation.com", 443, &vita_resolve);
+    if (vita_resolve)
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, vita_resolve);
+#endif
     CURLcode res = curl_easy_perform(curl);
+#if defined(__PSVITA__)
+    curl_slist_free_all(vita_resolve);
+#endif
     curl_slist_free_all(headers);
     if (res != CURLE_OK)
     {

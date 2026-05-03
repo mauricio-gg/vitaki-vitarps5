@@ -15,6 +15,7 @@
 #include "config.h"
 #include "context.h"
 #include "psn_auth.h"
+#include "vita_dns.h"
 
 #ifndef VITARPS5_PSN_OAUTH_DEVICE_CODE_URL
 #define VITARPS5_PSN_OAUTH_DEVICE_CODE_URL ""
@@ -395,6 +396,9 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   long local_port = 0;
   char *local_ip = NULL;
   FILE *ca_file = NULL;
+#ifdef __PSVITA__
+  struct curl_slist *resolve_list = NULL;
+#endif /* __PSVITA__ */
 
   if (!curl) {
     LOGE("PSN auth HTTP init failed for %s", url ? url : "<null>");
@@ -412,6 +416,21 @@ static bool oauth_post_form(const char *url, const char *form_data, const char *
   fclose(ca_file);
   ca_file = NULL;
 
+#ifdef __PSVITA__
+  {
+    char host[256];
+    char port_str[16];
+    if (parse_url_host_port(url, host, sizeof(host), port_str, sizeof(port_str))) {
+      int port_num = (int)strtol(port_str, NULL, 10);
+      if (port_num <= 0)
+        port_num = 443;
+      if (!vita_curl_add_resolve(host, port_num, &resolve_list))
+        LOGE("PSN auth: Vita native DNS failed for %s; curl will attempt getaddrinfo", host);
+    }
+  }
+  if (resolve_list)
+    curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve_list);
+#endif /* __PSVITA__ */
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_POST, 1L);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, form_data);
@@ -489,6 +508,9 @@ cleanup:
   if (ca_file)
     fclose(ca_file);
   curl_slist_free_all(headers);
+#ifdef __PSVITA__
+  curl_slist_free_all(resolve_list);
+#endif /* __PSVITA__ */
   curl_easy_cleanup(curl);
   free(response.data);
   return ok;
