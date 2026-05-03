@@ -54,6 +54,7 @@ typedef struct vita_chiaki_context_t {
   VitaChiakiConfig config;
   VitaChiakiUIState ui_state;
   uint8_t num_hosts;
+  volatile bool config_persist_pending;
   VitaChiakiMessageLog *mlog;
 } VitaChiakiContext;
 

@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include <vita2d.h>
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
@@ -46,6 +47,7 @@
 #include "ui.h"
 #include "util.h"
 #include "video.h"
+#include "psn_auth.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_input.h"
@@ -457,6 +459,13 @@ void draw_ui() {
   context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
+  uint64_t startup_unix = (uint64_t)time(NULL);
+  psn_auth_refresh_token_if_needed(startup_unix, false);
+  if (context.config_persist_pending) {
+    if (!config_serialize(&context.config))
+      CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
+    context.config_persist_pending = false;
+  }
 
   /*
    * Glyph atlas warm-up flag: set once here so the first main-loop iteration
@@ -472,6 +481,28 @@ void draw_ui() {
     // Must run BEFORE input processing to prevent reconnect races
     if (context.stream.session_finalize_pending) {
       host_finalize_deferred_session();
+    }
+
+    /* Proactively refresh PSN token once per minute while idle so it never
+     * expires unnoticed between user actions. Skip during streaming to avoid
+     * network contention with the media path. */
+    if (!context.stream.is_streaming) {
+      static uint64_t last_token_check_unix = 0;
+      time_t t = time(NULL);
+      if (t != (time_t)-1) {
+        uint64_t now_unix = (uint64_t)t;
+        if (last_token_check_unix == 0)
+          last_token_check_unix = startup_unix;
+        if (now_unix - last_token_check_unix >= 60) {
+          last_token_check_unix = now_unix;
+          psn_auth_refresh_token_if_needed(now_unix, false);
+          if (context.config_persist_pending) {
+            if (!config_serialize(&context.config))
+              CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token");
+            context.config_persist_pending = false;
+          }
+        }
+      }
     }
 
     // Always read controller input - input thread uses Ext2 variant to access controller

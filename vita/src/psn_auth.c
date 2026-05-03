@@ -863,6 +863,7 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
   clear_device_flow_fields();
   g_psn_auth.state = PSN_AUTH_STATE_TOKEN_VALID;
   psn_auth_clear_error();
+  context.config_persist_pending = true;
   return true;
 }
 
