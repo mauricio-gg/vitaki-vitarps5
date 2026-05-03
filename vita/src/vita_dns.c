@@ -8,7 +8,7 @@
 #include "context.h"
 #include "vita_dns.h"
 
-#define VITA_DNS_TIMEOUT_US (5 * 1000 * 1000)  /* Sony resolver timeout is microseconds; 5 s */
+#define VITA_DNS_TIMEOUT_US (5 * 1000 * 1000) /* Sony resolver timeout is microseconds; 5 s */
 #define VITA_DNS_RETRY 3
 
 bool vita_curl_add_resolve(const char *hostname, int port, struct curl_slist **list) {
