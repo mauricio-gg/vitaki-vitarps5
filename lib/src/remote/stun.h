@@ -18,10 +18,7 @@
 #include <chiaki/random.h>
 
 #if defined(__PSVITA__)
-#include <netinet/in.h>
-/* vita_resolve_sin is defined in vita/src/vita_dns.c, linked on Vita only.
- * Resolves hostname via sceNetResolverStartNtoa, bypassing broken getaddrinfo. */
-bool vita_resolve_sin(const char *hostname, uint16_t port, struct sockaddr_in *out);
+#include "vita_resolve.h"
 #endif
 
 #define STUN_REPLY_TIMEOUT_SEC 1
@@ -460,6 +457,8 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
         server_addr = (struct sockaddr_in6 *)&vita_sin;
         server_addr_len = sizeof(struct sockaddr_in);
     } else {
+        /* IPv6 path uses AI_NUMERICHOST (no DNS) and is unreachable on PS5
+         * (ENABLE_IPV6 == false). Safe to leave on broken getaddrinfo. */
         struct addrinfo hints;
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_INET6;

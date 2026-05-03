@@ -100,10 +100,7 @@
 #endif
 
 #if defined(__PSVITA__)
-/* vita_curl_add_resolve is defined in vita/src/vita_dns.c and linked on Vita only.
- * It resolves the hostname with sceNetResolverStartNtoa and injects the result
- * via CURLOPT_RESOLVE, bypassing broken getaddrinfo in libcurl 8.17+ on Vita. */
-bool vita_curl_add_resolve(const char *hostname, int port, struct curl_slist **list);
+#include "vita_dns.h"
 #endif
 
 static const char oauth_header_fmt[] = "Authorization: Bearer %s";

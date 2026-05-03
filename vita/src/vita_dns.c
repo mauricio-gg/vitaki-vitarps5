@@ -60,7 +60,8 @@ bool vita_resolve_sin(const char *hostname, uint16_t port, struct sockaddr_in *o
     return false;
 
   char ip_str[INET_ADDRSTRLEN] = {0};
-  inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str));
+  if (!inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str)))
+    snprintf(ip_str, sizeof(ip_str), "<inet_ntop failed>");
   LOGD("vita_dns: resolved host=%s -> %s (sockaddr)", hostname, ip_str);
 
   memset(out, 0, sizeof(*out));
