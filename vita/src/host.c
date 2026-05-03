@@ -7,6 +7,7 @@
 #include "host_metrics.h"
 #include "host_lifecycle.h"
 #include "host_callbacks.h"
+#include "host_constants.h"
 #include "discovery.h"
 #include "audio.h"
 #include "psn_auth.h"
@@ -260,6 +261,15 @@ int host_stream(VitaChiakiHost *host) {
     ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_PUNCH_CTRL);
   } else {
     ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+  }
+
+  /* PSN/internet path: cap the start bitrate at PSN_REMOTE_BITRATE_CAP_KBPS
+   * (3.5 Mbps). The 540p preset default of 6 Mbps saturates Vita 802.11g
+   * Wi-Fi combined with a typical home upstream, and PS5 does not support
+   * mid-session bitrate renegotiation, so the start value is final. */
+  if (psn_remote && profile.bitrate > PSN_REMOTE_BITRATE_CAP_KBPS) {
+    LOGD("PSN path: clamping bitrate %u -> %u kbps", profile.bitrate, PSN_REMOTE_BITRATE_CAP_KBPS);
+    profile.bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
   }
 
   ChiakiConnectInfo chiaki_connect_info = {};
