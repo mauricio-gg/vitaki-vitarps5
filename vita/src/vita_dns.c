@@ -8,7 +8,7 @@
 #include "context.h"
 #include "vita_dns.h"
 
-#define VITA_DNS_TIMEOUT_MS 5000
+#define VITA_DNS_TIMEOUT_US (5 * 1000 * 1000)  /* Sony resolver timeout is microseconds; 5 s */
 #define VITA_DNS_RETRY 3
 
 bool vita_curl_add_resolve(const char *hostname, int port, struct curl_slist **list) {
@@ -22,7 +22,7 @@ bool vita_curl_add_resolve(const char *hostname, int port, struct curl_slist **l
     return false;
   }
 
-  int rc = sceNetResolverStartNtoa(rid, hostname, &addr, VITA_DNS_TIMEOUT_MS, VITA_DNS_RETRY, 0);
+  int rc = sceNetResolverStartNtoa(rid, hostname, &addr, VITA_DNS_TIMEOUT_US, VITA_DNS_RETRY, 0);
   sceNetResolverDestroy(rid);
   if (rc < 0) {
     LOGE("vita_dns: resolve failed host=%s rc=0x%x", hostname, rc);
