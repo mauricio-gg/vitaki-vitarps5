@@ -266,8 +266,7 @@ int host_stream(VitaChiakiHost *host) {
   /* PSN/internet path: cap the start bitrate at PSN_REMOTE_BITRATE_CAP_KBPS
    * (3.5 Mbps). The 540p preset default of 6 Mbps saturates Vita 802.11g
    * Wi-Fi combined with a typical home upstream, and PS5 does not support
-   * mid-session bitrate renegotiation, so the start value is final.
-   * Applied after any loss-retry override so recovery sessions are also capped. */
+   * mid-session bitrate renegotiation, so the start value is final. */
   if (psn_remote && profile.bitrate > PSN_REMOTE_BITRATE_CAP_KBPS) {
     LOGD("PSN path: clamping bitrate %u -> %u kbps", profile.bitrate, PSN_REMOTE_BITRATE_CAP_KBPS);
     profile.bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
