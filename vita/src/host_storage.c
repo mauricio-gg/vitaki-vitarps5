@@ -200,6 +200,7 @@ void update_context_hosts() {
         continue;
       if (mac_addrs_match(&(disc->server_mac), &(psn->server_mac))) {
         disc->psn_remote_available = true;
+        memcpy(disc->psn_device_uid, psn->psn_device_uid, sizeof(disc->psn_device_uid));
         host_free(psn);
         context.hosts[i] = NULL;
         break;
