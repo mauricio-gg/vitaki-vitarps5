@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-05-01 (Remote play smoothness initiative added, T1-T6 starting)
+Last Updated: 2026-05-03 (PSN STUN DNS fix merged PR #158; header-hygiene followup PR in review)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.

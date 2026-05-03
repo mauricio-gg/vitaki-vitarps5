@@ -168,6 +168,10 @@ if(NOT CHIAKI_IS_VITA OR CHIAKI_ENABLE_VITA_HOLEPUNCH)
 	endif()
 endif()
 
+if(CHIAKI_IS_VITA)
+	target_include_directories(chiaki-lib PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../vita/include")
+endif()
+
 if(CHIAKI_LIB_ENABLE_MBEDTLS)
 	if(CHIAKI_LIB_MBEDTLS_EXTERNAL_PROJECT)
 		target_link_libraries(chiaki-lib mbedtls mbedx509 mbedcrypto)
