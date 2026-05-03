@@ -17,6 +17,13 @@
 #include <chiaki/sock.h>
 #include <chiaki/random.h>
 
+#if defined(__PSVITA__)
+#include <netinet/in.h>
+/* vita_resolve_sin is defined in vita/src/vita_dns.c, linked on Vita only.
+ * Resolves hostname via sceNetResolverStartNtoa, bypassing broken getaddrinfo. */
+bool vita_resolve_sin(const char *hostname, uint16_t port, struct sockaddr_in *out);
+#endif
+
 #define STUN_REPLY_TIMEOUT_SEC 1
 
 #define STUN_HEADER_SIZE 20
@@ -439,10 +446,37 @@ CHIAKI_EXPORT bool stun_port_allocation_test(ChiakiLog *log, char *address, uint
 
 static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *server, char *address, uint16_t *port, chiaki_socket_t *sock, bool ipv4)
 {
-    struct addrinfo* resolved;
-    struct addrinfo hints;
     struct sockaddr_in6 *server_addr;
     socklen_t server_addr_len;
+
+#if defined(__PSVITA__)
+    struct sockaddr_in vita_sin;
+    struct addrinfo *resolved = NULL;
+    if (ipv4) {
+        if (!vita_resolve_sin(server->host, server->port, &vita_sin)) {
+            CHIAKI_LOGE(log, "remote/stun.h: Failed to resolve STUN server '%s' via vita_dns", server->host);
+            return false;
+        }
+        server_addr = (struct sockaddr_in6 *)&vita_sin;
+        server_addr_len = sizeof(struct sockaddr_in);
+    } else {
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET6;
+        hints.ai_flags = AI_NUMERICHOST;
+        char server_service[6];
+        sprintf(server_service, "%d", server->port);
+        hints.ai_socktype = SOCK_DGRAM;
+        if (getaddrinfo(server->host, server_service, &hints, &resolved) != 0) {
+            CHIAKI_LOGE(log, "remote/stun.h: Failed to resolve STUN server '%s', error was " CHIAKI_SOCKET_ERROR_FMT, server->host, CHIAKI_SOCKET_ERROR_VALUE);
+            return false;
+        }
+        server_addr = (struct sockaddr_in6 *)resolved->ai_addr;
+        server_addr_len = sizeof(struct sockaddr_in6);
+    }
+#else
+    struct addrinfo *resolved;
+    struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
     if(ipv4)
         hints.ai_family = AF_INET;
@@ -458,7 +492,6 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
         CHIAKI_LOGE(log, "remote/stun.h: Failed to resolve STUN server '%s', error was " CHIAKI_SOCKET_ERROR_FMT, server->host, CHIAKI_SOCKET_ERROR_VALUE);
         return false;
     }
-
     if(ipv4)
     {
         server_addr = (struct sockaddr_in6*)resolved->ai_addr;
@@ -469,6 +502,7 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
         server_addr = (struct sockaddr_in6*)resolved->ai_addr;
         server_addr_len = sizeof(struct sockaddr_in6);
     }
+#endif
 
     uint8_t binding_req[STUN_HEADER_SIZE];
     memset(binding_req, 0, sizeof(binding_req));
@@ -482,10 +516,18 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
         CHIAKI_LOGE(log, "remote/stun.h: Failed to send STUN request, error was " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
         CHIAKI_SOCKET_CLOSE(*sock);
         *sock = CHIAKI_INVALID_SOCKET;
+#if defined(__PSVITA__)
+        if (resolved) freeaddrinfo(resolved);
+#else
         freeaddrinfo(resolved);
+#endif
         return false;
     }
+#if defined(__PSVITA__)
+    if (resolved) freeaddrinfo(resolved);
+#else
     freeaddrinfo(resolved);
+#endif
 
 #ifdef _WIN32
     int timeout = STUN_REPLY_TIMEOUT_SEC * 1000;
