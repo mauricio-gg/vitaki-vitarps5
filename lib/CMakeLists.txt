@@ -169,7 +169,7 @@ if(NOT CHIAKI_IS_VITA OR CHIAKI_ENABLE_VITA_HOLEPUNCH)
 endif()
 
 if(CHIAKI_IS_VITA)
-    target_include_directories(chiaki-lib PRIVATE "${CMAKE_SOURCE_DIR}/vita/include")
+	target_include_directories(chiaki-lib PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../vita/include")
 endif()
 
 if(CHIAKI_LIB_ENABLE_MBEDTLS)

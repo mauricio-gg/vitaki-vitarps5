@@ -457,8 +457,9 @@ static bool stun_get_external_address_from_server(ChiakiLog *log, StunServer *se
         server_addr = (struct sockaddr_in6 *)&vita_sin;
         server_addr_len = sizeof(struct sockaddr_in);
     } else {
-        /* IPv6 path uses AI_NUMERICHOST (no DNS) and is unreachable on PS5
-         * (ENABLE_IPV6 == false). Safe to leave on broken getaddrinfo. */
+        /* IPv6 path: AI_NUMERICHOST means getaddrinfo() resolves a
+         * numeric address literal, never a hostname — the broken
+         * sceNet getaddrinfo() only fails on name lookups. */
         struct addrinfo hints;
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_INET6;

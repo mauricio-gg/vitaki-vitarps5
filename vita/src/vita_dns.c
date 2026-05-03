@@ -59,9 +59,10 @@ bool vita_resolve_sin(const char *hostname, uint16_t port, struct sockaddr_in *o
   if (!vita_dns_resolve_inaddr(hostname, &addr))
     return false;
 
+  /* diagnostic only; sockaddr is already fully populated above */
   char ip_str[INET_ADDRSTRLEN] = {0};
   if (!inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str)))
-    snprintf(ip_str, sizeof(ip_str), "<inet_ntop failed>");
+    snprintf(ip_str, sizeof(ip_str), "<ntop-err>");
   LOGD("vita_dns: resolved host=%s -> %s (sockaddr)", hostname, ip_str);
 
   memset(out, 0, sizeof(*out));
