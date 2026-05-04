@@ -1596,8 +1596,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   bool psn_valid = psn_auth_token_is_valid(now_unix);
   s_logout_psn_valid = psn_valid; /* expose to input handler for the same frame */
 
-  const char *auth_status = psn_auth_state_label_for(psn_state);
-  uint32_t auth_color;
+  const char *auth_status = psn_auth_state_label_for(psn_state, now_unix);
+  uint32_t auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
   if (psn_state == PSN_AUTH_STATE_TOKEN_VALID) {
     auth_color = RGBA8(0x4C, 0xAF, 0x50, 255);
   } else if (psn_state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING ||
@@ -1606,8 +1606,6 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
     auth_color = RGBA8(0xFF, 0xB7, 0x4D, 255);
   } else if (psn_state == PSN_AUTH_STATE_DISABLED) {
     auth_color = UI_COLOR_TEXT_TERTIARY;
-  } else {
-    auth_color = RGBA8(0xF4, 0x43, 0x36, 255);
   }
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
   ui_text_draw(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
