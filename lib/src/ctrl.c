@@ -5,6 +5,7 @@
 #include <chiaki/base64.h>
 #include <chiaki/http.h>
 #include <chiaki/time.h>
+#include <chiaki/random.h>
 
 #include <stdlib.h>
 #include <string.h>
