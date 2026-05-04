@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="764"
+VERSION_ITERATION="762"
 
 # Colors for output
 RED='\033[0;31m'
@@ -157,7 +157,7 @@ configure_feature_cmake_args() {
     holepunch_val=$(normalize_bool "$VITARPS5_ENABLE_VITA_HOLEPUNCH")
     if [ -n "$holepunch_val" ]; then
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=$( [ "$holepunch_val" = "1" ] && echo ON || echo OFF )")
-    else
+    elif [ "$(basename "$ENV_PROFILE_PATH")" = ".env.testing" ]; then
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON")
     fi
 
