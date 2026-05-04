@@ -21,6 +21,7 @@ void psn_auth_clear_tokens(void);
 
 PsnAuthState psn_auth_state(uint64_t now_unix);
 const char *psn_auth_state_label(void);
+const char *psn_auth_state_label_for(PsnAuthState state);
 const char *psn_auth_last_error(void);
 
 bool psn_auth_begin_device_login(uint64_t now_unix);

@@ -903,9 +903,7 @@ const char *psn_auth_last_error(void) {
   return g_psn_auth.last_error;
 }
 
-const char *psn_auth_state_label(void) {
-  uint64_t now_unix = (uint64_t)time(NULL);
-  PsnAuthState state = psn_auth_state(now_unix);
+const char *psn_auth_state_label_for(PsnAuthState state) {
   if (state == PSN_AUTH_STATE_DISABLED)
     return "Disabled";
   if (state == PSN_AUTH_STATE_TOKEN_VALID)
@@ -916,9 +914,14 @@ const char *psn_auth_state_label(void) {
     return "Awaiting browser sign-in";
   if (state == PSN_AUTH_STATE_ERROR && has_text(g_psn_auth.last_error))
     return g_psn_auth.last_error;
+  uint64_t now_unix = (uint64_t)time(NULL);
   if (psn_auth_has_tokens() && !psn_auth_token_is_valid(now_unix))
     return "Token expired";
   return "Not authenticated";
+}
+
+const char *psn_auth_state_label(void) {
+  return psn_auth_state_label_for(psn_auth_state((uint64_t)time(NULL)));
 }
 
 bool psn_auth_device_login_active(void) {
