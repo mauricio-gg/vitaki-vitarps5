@@ -33,6 +33,7 @@ VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, co
 - **Low-Latency Streaming** — Tuned thread priorities, 500Hz input polling, optimized network buffers
 - **Controller Customization** — 3 custom preset slots, fullscreen interactive controller diagram with front and back views
 - **Smart Connection Flow** — Auto-discovery, animated wake-up with progress countdown, automatic streaming start
+- **PSN Internet Remote Play** — Sign in with PSN to stream from outside your home network via UPnP NAT traversal (works on most home networks; falls back gracefully on restrictive ones)
 - **Packet-Loss Recovery** — Reconnecting overlay, automatic bitrate adjustment, seamless retry without crashing
 - **Flexible Video Settings** — Latency presets (ultra-low to max), fill/letterbox toggle, 30/60 FPS control
 - **Full Control Support** — All buttons mapped including L2/R2/L3/R3, touchpad, and motion controls
@@ -55,9 +56,30 @@ VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, co
 
 **Tip:** If your PSN ID isn't detected, go to the Profile page, select the Profile card, and press X to refresh your Account ID.
 
-**Note:** Remote play over the internet is not yet supported. VitaRPS5 currently works over local Wi-Fi only. Internet remote play is planned for a future release.
+### Internet Remote Play (PSN)
 
-**Phone Login URL:** When using the Profile page's Phone Login Assist flow, the app displays the full PSN authorize URL on screen so you can type it into a browser. By default, the URL starts with `https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize` followed by session-specific query parameters. If the URL is too long to read off the Vita screen, open that base address on your phone or PC — the app will also prompt you to paste the redirect URL back into the Vita after signing in.
+VitaRPS5 3.0.0 adds remote play over the internet. The Vita signs in to your PSN account, then uses UPnP to punch through your router so the stream can reach your PS5 from outside your home network.
+
+**One-time PSN sign-in:**
+
+1. In **Settings**, enable **PSN Internet Mode**
+2. Open the **Profile** tab and press **X** on the Connection card
+3. The Vita shows a QR code and an authorize URL beginning with `https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize`
+4. Scan the QR (or type the URL) on your phone or PC, then sign in to PSN
+5. After signing in, your browser will land on a page beginning with `https://remoteplay.dl.playstation.net/remoteplay/redirect` — **copy that full URL from the address bar** (it contains a `code=...` parameter)
+6. Back on the Vita, press **X** again on the Connection card and paste the redirect URL into the text input — just the `code=...` value also works
+7. You should see **"PSN login complete"** — your PSN-registered consoles will now appear with a small radio-wave icon next to the status dot
+
+**Choosing LAN vs Internet:**
+
+Consoles reachable both on your local network and via PSN show a small **blue radio-wave icon** on their card. On those cards:
+
+- **Tap X (or touch the card)** — connect over your local Wi-Fi
+- **Hold X for ~0.6 s** — open a "Connect via" picker with **Local Network** and **Internet** options
+
+Cards without the radio-wave icon connect immediately on press (LAN-only or Internet-only, depending on what was discovered).
+
+**Caveat:** Internet remote play depends on UPnP being enabled on your router and your ISP not using carrier-grade NAT. It works on most home networks but not all. If the stream fails to start, your network may be blocking the hole-punch — try LAN instead, or open a [GitHub issue](https://github.com/mauricio-gg/vitaki-vitarps5/issues) with your router model so we can track common failure cases.
 
 ## Controls
 
