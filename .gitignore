@@ -74,3 +74,6 @@ vitarps5/
 # AI Configs
 AGENTS.md
 CLAUDE.md
+
+# Git worktrees
+.worktrees/
