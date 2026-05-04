@@ -460,18 +460,24 @@ void draw_ui() {
   context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
-  uint64_t startup_unix = (uint64_t)time(NULL);
-  /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
-   * device list, and persists the config. It is a no-op when PSN internet
-   * mode is disabled. Doing this at startup means the user does not have to
-   * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
-  psn_remote_refresh_hosts();
-  /* Drain any token refresh that happened but didn't persist (e.g. host
-   * fetch failed after a successful token refresh). */
-  if (context.config_persist_pending) {
-    if (!config_serialize(&context.config))
-      CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
-    context.config_persist_pending = false;
+  time_t startup_t = time(NULL);
+  uint64_t startup_unix = 0;
+  if (startup_t != (time_t)-1) {
+    startup_unix = (uint64_t)startup_t;
+    /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
+     * device list, and persists the config. It is a no-op when PSN internet
+     * mode is disabled. Doing this at startup means the user does not have to
+     * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
+    psn_remote_refresh_hosts();
+    /* Drain any token refresh that happened but didn't persist (e.g. host
+     * fetch failed after a successful token refresh). */
+    if (context.config_persist_pending) {
+      if (!config_serialize(&context.config))
+        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
+      context.config_persist_pending = false;
+    }
+  } else {
+    CHIAKI_LOGW(&(context.log), "PSN auth: skipping startup host refresh — system clock not set");
   }
 
   /*
