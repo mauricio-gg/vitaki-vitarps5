@@ -48,6 +48,7 @@
 #include "util.h"
 #include "video.h"
 #include "psn_auth.h"
+#include "psn_remote.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_input.h"
@@ -460,7 +461,13 @@ void draw_ui() {
 
   load_psn_id_if_needed();
   uint64_t startup_unix = (uint64_t)time(NULL);
-  psn_auth_refresh_token_if_needed(startup_unix, false);
+  /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
+   * device list, and persists the config. It is a no-op when PSN internet
+   * mode is disabled. Doing this at startup means the user does not have to
+   * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
+  psn_remote_refresh_hosts();
+  /* Drain any token refresh that happened but didn't persist (e.g. host
+   * fetch failed after a successful token refresh). */
   if (context.config_persist_pending) {
     if (!config_serialize(&context.config))
       CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
