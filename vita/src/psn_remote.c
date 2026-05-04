@@ -12,8 +12,7 @@
 /* Last error string and setter live outside the holepunch guard so they are
  * available to all build configurations, including the stub paths that
  * compile when CHIAKI_CAN_USE_HOLEPUNCH is OFF. */
-static char g_psn_remote_last_error[160] =
-    "PSN internet remote play stack is unavailable in this build.";
+static char g_psn_remote_last_error[160] = "";
 
 static void psn_remote_set_error(const char *message) {
   if (!message || !message[0]) {
