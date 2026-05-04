@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/common_dialog.h>
@@ -19,6 +20,7 @@
 #include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
+#include "psn_auth.h"
 
 // ============================================================================
 // Local State
@@ -717,7 +719,8 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   // never on cooldown cards where the top-right corner is already occupied by "Please wait".
   // Guard on status_tex so we don't attempt to position the badge against a null texture
   // when no status dot was resolved for this card (e.g. unknown status code).
-  if (console->has_internet && !is_cooldown_card && status_tex) {
+  if (console->has_internet && !is_cooldown_card && status_tex &&
+      psn_auth_token_is_valid((uint64_t)time(NULL))) {
     // Outermost arc (r=13) rightmost point = badge_cx + 13*scale = card_w - 45*scale,
     // leaving ~10*scale gap to the status dot at card_w - 35*scale.
     int badge_cx = draw_x + card_w - (int)(58 * scale);
