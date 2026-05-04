@@ -275,7 +275,7 @@ void config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
     }
 
     fprintf(fp, "\n\n[[registered_hosts]]\n");
-    serialize_b64(fp, "server_mac", rhost->server_mac, 6);
+    serialize_b64(fp, "server_mac", host->server_mac, 6);
     fprintf(fp, "server_nickname = \"%s\"\n", rhost->server_nickname);
     serialize_target(fp, "target", rhost->target);
     serialize_b64(fp, "rp_key", rhost->rp_key, 0x10);
