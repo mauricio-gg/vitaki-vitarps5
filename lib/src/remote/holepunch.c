@@ -75,6 +75,8 @@
  * Kept shorter than WEBSOCKET_PING_INTERVAL_SEC so dead links are
  * detected before the next scheduled PING would fire. */
 #define WEBSOCKET_PONG_TIMEOUT_SEC 5
+_Static_assert(WEBSOCKET_PONG_TIMEOUT_SEC < WEBSOCKET_PING_INTERVAL_SEC,
+               "PONG timeout must be shorter than PING interval");
 // Maximum WebSocket frame size currently supported by libcurl
 #define WEBSOCKET_MAX_FRAME_SIZE 64 * 1024
 #define SESSION_CREATION_TIMEOUT_SEC 30
