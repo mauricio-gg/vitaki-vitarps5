@@ -16,7 +16,7 @@
 
 VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, consider supporting continued development.
 
-<a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
+<div align="center"><a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a></div>
 
 ## Screenshots
 
