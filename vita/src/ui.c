@@ -496,6 +496,16 @@ void draw_ui() {
       host_finalize_deferred_session();
     }
 
+    /* Drain any pending config persist on every idle frame. config_persist_pending
+     * can be set by any refresh path (startup, idle timer, pre-stream token check),
+     * so draining it here — outside the 60s gate — ensures a power-cycle right after
+     * any refresh still saves the new token. */
+    if (!context.stream.is_streaming && context.config_persist_pending) {
+      if (!config_serialize(&context.config))
+        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token");
+      context.config_persist_pending = false;
+    }
+
     /* Proactively refresh PSN token once per minute while idle so it never
      * expires unnoticed between user actions. Skip during streaming to avoid
      * network contention with the media path. */
@@ -509,11 +519,6 @@ void draw_ui() {
         if (now_unix - last_token_check_unix >= 60) {
           last_token_check_unix = now_unix;
           psn_auth_refresh_token_if_needed(now_unix, false);
-          if (context.config_persist_pending) {
-            if (!config_serialize(&context.config))
-              CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token");
-            context.config_persist_pending = false;
-          }
         }
       }
     }
