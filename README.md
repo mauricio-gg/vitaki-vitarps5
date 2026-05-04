@@ -6,26 +6,27 @@
   **PS5 Remote Play on PS Vita**
 
   [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-  [![Build Status](https://img.shields.io/github/actions/workflow/status/mauricio-gg/vitaki-vitarps5/release.yml?branch=main)](https://github.com/mauricio-gg/vitaki-vitarps5/actions)
+  [![Build Status](https://img.shields.io/github/actions/workflow/status/mauricio-gg/vitaki-vitarps5/create_release.yml?branch=main)](https://github.com/mauricio-gg/vitaki-vitarps5/actions)
   [![Latest Release](https://img.shields.io/github/v/release/mauricio-gg/vitaki-vitarps5)](https://github.com/mauricio-gg/vitaki-vitarps5/releases/latest)
 </div>
 
 ---
 
-## Screenshots
-
-<div align="center">
-  <img src="https://github.com/user-attachments/assets/881bdc80-acde-4690-992c-6785b89300c6" alt="Main Screen" width="45%"/>
-  <img src="https://github.com/user-attachments/assets/f5213d0f-589c-44ad-9234-5e25a8f8ac06" alt="Main Screen with Menu" width="45%"/>
-  <img src="https://github.com/user-attachments/assets/0c5af5c4-e4cf-40e4-b981-03f1ef04c65f" alt="Controller Mapping" width="45%"/>
-  <img src="https://github.com/user-attachments/assets/8b6f592e-6f6c-47a4-bc64-fb15ccd973b8" alt="Streaming Settings" width="45%"/>
-</div>
-
 ## Support This Project
 
 VitaRPS5 has been a labor of love for the PS Vita community. If you enjoy it, consider supporting continued development.
 
-<a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
+<div align="center"><a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a></div>
+
+## Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/main_screen.png" alt="Main Screen" width="45%"/>
+  <img src="docs/screenshots/main_sidebar.png" alt="Main Screen with Sidebar" width="45%"/>
+  <img src="docs/screenshots/profile_screen.png" alt="Profile & Connection" width="45%"/>
+  <img src="docs/screenshots/connect_via.png" alt="Connect via Popup" width="45%"/>
+  <img src="docs/screenshots/controller_screen.png" alt="Controller Mapping" width="45%"/>
+</div>
 
 ## Features
 
