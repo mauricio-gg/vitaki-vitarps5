@@ -2436,8 +2436,9 @@ cleanup_headers:
     FD_ZERO(&fds);
     FD_SET(sockfd, &fds);
 
-    // Need to send a ping every WEBSOCKET_PING_INTERVAL_SEC secs
-    uint64_t timeout = WEBSOCKET_PING_INTERVAL_SEC * 1000;
+    // Bound select() wait by the PONG deadline so a missed PONG is detected
+    // by the loop's expiry check before the next PING is queued.
+    uint64_t timeout = WEBSOCKET_PONG_TIMEOUT_SEC * 1000;
     uint64_t now = 0;
     uint64_t last_ping_sent = 0;
 
