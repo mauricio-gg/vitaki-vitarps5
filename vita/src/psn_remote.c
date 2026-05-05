@@ -318,7 +318,7 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     return 1;
   }
 
-  char selected_addr[256] = {0};
+  char selected_addr[PSN_SELECTED_ADDR_SIZE] = {0};
   chiaki_get_ps_selected_addr(session, selected_addr);
   if (!selected_addr[0]) {
     LOGE("PSN remote prepare failed: holepunch did not return a host address");

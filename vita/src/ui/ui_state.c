@@ -42,7 +42,7 @@ static ConnectionOverlayState connection_overlay = {0};
  * Connection worker thread state
  * Allows async streaming without blocking UI
  */
-static SceUID connection_thread_id = -1;
+static volatile SceUID connection_thread_id = -1;
 static VitaChiakiHost *connection_thread_host = NULL;
 static bool connection_overlay_modal_pushed = false;
 
