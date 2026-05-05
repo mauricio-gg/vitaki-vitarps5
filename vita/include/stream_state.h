@@ -6,6 +6,10 @@
 
 #include "controller.h"
 
+/* Maximum length of a resolved PSN holepunch address string.
+ * INET6_ADDRSTRLEN is 46 bytes; 64 gives comfortable headroom. */
+#define PSN_SELECTED_ADDR_SIZE 64
+
 typedef struct vita_chiaki_stream_t {
   ChiakiSession session;
   ChiakiControllerState controller_state;
@@ -133,6 +137,8 @@ typedef struct vita_chiaki_stream_t {
   bool restart_failure_active;
   bool force_psn_holepunch;  // Set by UI when user selects Internet in the connect popup;
                              // consumed and cleared at the top of host_stream().
+  char psn_selected_addr[PSN_SELECTED_ADDR_SIZE];  // Resolved PSN-path IP written by holepunch;
+                                                   // consumed by host_stream
 
   // --- Diagnostic instrumentation (D1: Decode Time) ---
   volatile uint32_t

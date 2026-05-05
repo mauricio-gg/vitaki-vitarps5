@@ -303,6 +303,10 @@ void ui_state_set_reconnect_animation_frame(int frame) {
 // Internal Functions (for ui.c compatibility, exposed via ui_internal.h)
 // ============================================================================
 
+bool ui_state_connection_thread_active(void) {
+  return connection_thread_id >= 0;
+}
+
 /**
  * Check if stream cooldown is active (internal alias)
  * Original function name used in ui.c

@@ -115,6 +115,13 @@ void ui_connection_clear_waking_wait(void);
  */
 bool ui_connection_start_thread(VitaChiakiHost *host);
 
+/**
+ * Check whether a connection worker thread is currently running
+ *
+ * @return true if a connection thread is active
+ */
+bool ui_state_connection_thread_active(void);
+
 // ============================================================================
 // Stream Cooldown (Rate Limiting)
 // ============================================================================

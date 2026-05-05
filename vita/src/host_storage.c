@@ -201,6 +201,11 @@ void update_context_hosts() {
       if (mac_addrs_match(&(disc->server_mac), &(psn->server_mac))) {
         disc->psn_remote_available = true;
         memcpy(disc->psn_device_uid, psn->psn_device_uid, sizeof(disc->psn_device_uid));
+        LOGD(
+            "update_context_hosts dedup: freeing PSN host ptr=%p hostname=%s, keeping LAN host "
+            "ptr=%p hostname=%s",
+            (void *)psn, psn->hostname ? psn->hostname : "<null>", (void *)disc,
+            disc->hostname ? disc->hostname : "<null>");
         host_free(psn);
         context.hosts[i] = NULL;
         break;

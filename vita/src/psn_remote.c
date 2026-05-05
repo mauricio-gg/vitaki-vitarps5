@@ -8,6 +8,7 @@
 #include "host.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
+#include "ui/ui_state.h"
 
 /* Last error string and setter live outside the holepunch guard so they are
  * available to all build configurations, including the stub paths that
@@ -213,8 +214,11 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     psn_remote_set_error("Missing selected PSN host.");
     return 1;
   }
-
 #if CHIAKI_CAN_USE_HOLEPUNCH
+  LOGD(
+      "psn_remote_prepare: host_ptr=%p hostname=%s source=%d type=0x%x uid_zero=%d uid_prefix=%08x",
+      (void *)host, host->hostname ? host->hostname : "<null>", host->source, host->type,
+      psn_uid_is_zero(host->psn_device_uid), psn_uid_debug_prefix(host->psn_device_uid));
   if (!out_session) {
     LOGE("PSN remote prepare failed: missing output session");
     psn_remote_set_error("PSN remote session setup is unavailable.");
@@ -316,10 +320,13 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
 
   char selected_addr[256] = {0};
   chiaki_get_ps_selected_addr(session, selected_addr);
-  if (selected_addr[0]) {
-    free(host->hostname);
-    host->hostname = strdup(selected_addr);
+  if (!selected_addr[0]) {
+    LOGE("PSN remote prepare failed: holepunch did not return a host address");
+    psn_remote_set_error("PSN holepunch did not return a host address.");
+    chiaki_holepunch_session_fini(session);
+    return 1;
   }
+  snprintf(context.stream.psn_selected_addr, PSN_SELECTED_ADDR_SIZE, "%s", selected_addr);
 
   *out_session = session;
   psn_remote_set_error("");
@@ -351,6 +358,10 @@ int psn_remote_refresh_hosts(void) {
   const char *token = psn_auth_access_token();
   if (!token || !token[0]) {
     LOGD("PSN host refresh skipped: missing OAuth access token");
+    return 1;
+  }
+  if (ui_state_connection_thread_active()) {
+    LOGD("PSN host refresh deferred: connection thread active");
     return 1;
   }
 

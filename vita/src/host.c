@@ -95,6 +95,9 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
 }
 
 void host_free(VitaChiakiHost *host) {
+  LOGD("host_free: ptr=%p hostname=%s source=%d type=0x%x", (void *)host,
+       (host && host->hostname) ? host->hostname : "<null>", host ? host->source : -1,
+       host ? host->type : 0);
   if (host) {
     if (host->discovery_state) {
       destroy_discovery_host(host->discovery_state);
@@ -145,6 +148,7 @@ int host_stream(VitaChiakiHost *host) {
   bool psn_remote =
       (host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) || context.stream.force_psn_holepunch;
   context.stream.force_psn_holepunch = false;
+  context.stream.psn_selected_addr[0] = '\0';
   LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
        (void *)host, host ? host->source : -1, host ? host->type : 0,
        (host && host->hostname) ? host->hostname : "<null>", psn_remote,
@@ -273,7 +277,22 @@ int host_stream(VitaChiakiHost *host) {
   }
 
   ChiakiConnectInfo chiaki_connect_info = {};
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  chiaki_connect_info.host = (psn_remote && context.stream.psn_selected_addr[0])
+                                 ? context.stream.psn_selected_addr
+                                 : host->hostname;
+#else
   chiaki_connect_info.host = host->hostname;
+#endif
+  if (!chiaki_connect_info.host || !chiaki_connect_info.host[0]) {
+    LOGE("host_stream: resolved host address is empty (psn_remote=%d)", psn_remote);
+    host_set_hint(host, "Could not determine host address.", true, HINT_DURATION_CREDENTIAL_US);
+#if CHIAKI_CAN_USE_HOLEPUNCH
+    if (holepunch_session)
+      chiaki_holepunch_session_fini(holepunch_session);
+#endif
+    goto cleanup;
+  }
   chiaki_connect_info.video_profile = profile;
   chiaki_connect_info.video_profile_auto_downgrade = true;
   chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
