@@ -1262,3 +1262,49 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
   free(response);
   return refreshed;
 }
+/* ============================================================
+ * APPEND THESE TWO FUNCTIONS TO THE END OF vita/src/psn_auth.c
+ * (after psn_auth_refresh_token_if_needed)
+ * ============================================================ */
+
+/* psn_auth_on_network_change ─────────────────────────────────────────────
+ *
+ * Forces an immediate token refresh when the Vita reconnects to a network.
+ *
+ * Rationale: the normal 60-second idle poller in ui.c fires too late when
+ * the user switches WiFi networks and then immediately tries to connect.
+ * The old access token is bound to the previous session; presenting it on
+ * a fresh network path can cause spurious PSN 401 rejections or stale
+ * holepunch sessions before the poller has a chance to refresh.
+ *
+ * Passing force=true bypasses the "still valid" early-out in
+ * psn_auth_refresh_token_if_needed() so we always exchange the refresh
+ * token for a new access token, regardless of the remaining expiry window.
+ */
+bool psn_auth_on_network_change(uint64_t now_unix) {
+  if (!psn_auth_enabled())
+    return false;
+  if (!psn_auth_has_tokens()) {
+    LOGD("PSN auth: network change — no tokens, skipping refresh");
+    return false;
+  }
+  LOGD("PSN auth: network change detected — forcing token refresh (force=true)");
+  return psn_auth_refresh_token_if_needed(now_unix, /* force= */ true);
+}
+
+/* psn_auth_token_seconds_remaining ──────────────────────────────────────
+ *
+ * Returns how many seconds remain before the access token expires.
+ * The UI uses this to render a live countdown on the Connection card.
+ *
+ * Returns -1 when there is no token or the expiry timestamp is unknown
+ * (e.g. after a legacy plaintext migration that omitted the expiry field).
+ * Returns 0 when the token is already past its expiry timestamp.
+ */
+int64_t psn_auth_token_seconds_remaining(uint64_t now_unix) {
+  if (!psn_auth_has_tokens() || context.config.psn_oauth_expires_at_unix == 0)
+    return -1;
+  if (context.config.psn_oauth_expires_at_unix <= now_unix)
+    return 0;
+  return (int64_t)(context.config.psn_oauth_expires_at_unix - now_unix);
+}

@@ -33,3 +33,33 @@ const char *psn_auth_device_user_code(void);
 const char *psn_auth_device_verification_url(void);
 
 bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force);
+
+/**
+ * psn_auth_on_network_change
+ *
+ * Forces an immediate PSN token refresh after the Vita transitions to a new
+ * network connection (WiFi reconnect, network switch).
+ *
+ * Call this when sceNetCtlGetState() transitions to SCE_NETCTL_STATE_CONNECTED
+ * (3) from any non-connected state.  Without this, the 60-second idle poller
+ * may fire too late if the user immediately attempts a connection after
+ * changing networks, causing the stale access token to be rejected by PSN.
+ *
+ * Safe to call when PSN is disabled or no tokens are stored (no-op).
+ *
+ * @param now_unix  Current Unix timestamp from time(NULL).
+ * @return true if a refresh was attempted and succeeded, false otherwise.
+ */
+bool psn_auth_on_network_change(uint64_t now_unix);
+
+/**
+ * psn_auth_token_seconds_remaining
+ *
+ * Returns the number of seconds until the current access token expires.
+ * Used by the UI to display a countdown badge on the Connection card.
+ *
+ * @param now_unix  Current Unix timestamp from time(NULL).
+ * @return Seconds until expiry (>= 0), or -1 if no token / expiry unknown.
+ *         0 means the token is already expired.
+ */
+int64_t psn_auth_token_seconds_remaining(uint64_t now_unix);

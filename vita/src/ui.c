@@ -41,6 +41,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <chiaki/base64.h>
+#include <psp2/net/netctl.h>
 
 #include "context.h"
 #include "host.h"
@@ -520,6 +521,60 @@ void draw_ui() {
           last_token_check_unix = now_unix;
           psn_auth_refresh_token_if_needed(now_unix, false);
         }
+        /* ====================================================================
+ * CHANGES TO vita/src/ui.c
+ * ====================================================================
+ *
+ * CHANGE 1 — Add include near the other psp2/net/*.h includes
+ * (after #include <psp2/net/netctl.h> which is already in main.c;
+ *  ui.c does not currently include it)
+ *
+ *   #include <psp2/net/netctl.h>
+ *
+ *
+ * CHANGE 2 — Insert this block in the main while(true) loop,
+ * immediately AFTER the existing 60-second token refresh block:
+ *
+ *   if (now_unix - last_token_check_unix >= 60) {
+ *     last_token_check_unix = now_unix;
+ *     psn_auth_refresh_token_if_needed(now_unix, false);
+ *   }
+ *
+ * Paste the block below right after the closing brace of that `if`:
+ * ==================================================================== */
+
+    /* ── Immediate token refresh on WiFi reconnect ─────────────────────
+     *
+     * sceNetCtlGetState() is a fast, non-blocking kernel call.  We poll
+     * it every frame (negligible cost) and watch for the edge:
+     *   prev_state != CONNECTED  →  cur_state == CONNECTED
+     *
+     * On that edge we force an immediate PSN token refresh so the new
+     * IP is usable before the 60-second idle timer fires.
+     *
+     * SCE_NETCTL_STATE_CONNECTED == 3 (defined in <psp2/net/netctl.h>).
+     *
+     * prev_net_ctl_state starts at -1 so the very first iteration (where
+     * the Vita has been connected all along) never fires a spurious refresh.
+     */
+    if (!context.stream.is_streaming) {
+      static int prev_net_ctl_state = -1;
+      int cur_net_ctl_state = -1;
+      if (sceNetCtlGetState(&cur_net_ctl_state) >= 0) {
+        if (prev_net_ctl_state >= 0 &&
+            prev_net_ctl_state != 3 /* SCE_NETCTL_STATE_CONNECTED */ &&
+            cur_net_ctl_state  == 3) {
+          time_t t_nc = time(NULL);
+          if (t_nc != (time_t)-1) {
+            LOGD("UI: network reconnected (prev=%d → cur=3) — forcing PSN token refresh",
+                 prev_net_ctl_state);
+            psn_auth_on_network_change((uint64_t)t_nc);
+          }
+        }
+        prev_net_ctl_state = cur_net_ctl_state;
+      }
+    }
+    
       }
     }
 

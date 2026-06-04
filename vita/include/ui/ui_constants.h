@@ -350,3 +350,23 @@
 #define VITA_CAMERA_CX_RATIO 0.920f
 #define VITA_CAMERA_CY_RATIO 0.180f
 #define VITA_CAMERA_R_RATIO 0.020f
+// ============================================================================
+// QR Code Fullscreen Overlay  — append at end of ui_constants.h
+// ============================================================================
+
+/// Semi-transparent black overlay covering the full screen (90% opaque).
+#define QR_OVERLAY_BG_COLOR       0xE6000000
+/// QR box size in fullscreen mode (px). 380 px gives ~2.5 px/module for v29.
+#define QR_OVERLAY_QR_SIZE        380
+/// White padding ring around the QR box (px) — improves scanner contrast.
+#define QR_OVERLAY_FRAME_PAD      6
+/// Quiet-zone modules in fullscreen mode (ISO minimum is 4).
+#define QR_OVERLAY_QUIET_ZONE     4
+/// Top margin for the QR box inside the overlay (px).
+#define QR_OVERLAY_TOP_MARGIN     30
+/// Gap between QR box bottom and first instruction line (px).
+#define QR_OVERLAY_TEXT_GAP       14
+/// Line height for instruction text below the QR (px).
+#define QR_OVERLAY_LINE_H         22
+/// Amber warning colour for the "error page is normal" instruction line.
+#define QR_OVERLAY_WARN_COLOR     RGBA8(0xFF, 0xCC, 0x00, 255)

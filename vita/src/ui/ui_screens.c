@@ -86,6 +86,7 @@ static bool touch_start_was_add_btn = false;
 
 // Profile PSN login assist state
 static bool profile_login_qr_visible = false;
+static bool profile_login_qr_fullscreen = false;
 static bool profile_login_was_active = false;
 static char profile_login_qr_url[1536] = {0};
 static UIQrCode profile_login_qr = {0};
@@ -280,12 +281,11 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
   ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
                "2) Scan QR with phone and sign in");
   line_y += text_line_h;
-  ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-               "3) Press X and paste redirect URL/code");
+  ui_text_draw(font, text_x, line_y, QR_OVERLAY_WARN_COLOR, FONT_SIZE_SMALL,
+               "3) 'Error' page is NORMAL — copy URL!");
   line_y += text_line_h;
   ui_text_draw(font, text_x, line_y, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL,
-               "4) Select opens Vita browser fallback");
-  line_y += text_line_h;
+               "4) Press X here, paste the copied URL");
 
   char code_buf[96];
   snprintf(code_buf, sizeof(code_buf), "Code: %s", code_line);
@@ -1609,6 +1609,29 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   }
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "PSN Auth");
   ui_text_draw(font, col2_x, cy, auth_color, FONT_SIZE_SMALL, auth_status);
+  /* Token expiry countdown — shown inline after the auth status badge.
+   * Amber (<5 min) warns the user to proactively refresh before connecting. */
+  if (psn_state == PSN_AUTH_STATE_TOKEN_VALID) {
+    int64_t secs = psn_auth_token_seconds_remaining(now_unix);
+    if (secs >= 0) {
+      char expiry_buf[24];
+      if (secs >= 3600)
+        snprintf(expiry_buf, sizeof(expiry_buf), "(%ldh%ldm)",
+                 (long)(secs / 3600), (long)((secs % 3600) / 60));
+      else if (secs >= 60)
+        snprintf(expiry_buf, sizeof(expiry_buf), "(%ld min)", (long)(secs / 60));
+      else
+        snprintf(expiry_buf, sizeof(expiry_buf), "(%lds!)", (long)secs);
+
+      uint32_t expiry_color = (secs < 300)
+          ? RGBA8(0xFF, 0xB7, 0x4D, 255)   /* amber  — < 5 minutes */
+          : RGBA8(0x9E, 0x9E, 0x9E, 255);  /* grey   — plenty of time */
+
+      int status_w = ui_text_width(font, FONT_SIZE_SMALL, auth_status);
+      ui_text_draw(font, col2_x + status_w + 5, cy, expiry_color,
+                   FONT_SIZE_SMALL, expiry_buf);
+    }
+  }
 
   /* ── Bottom strip: Log out button + hint ────────────────────────────── */
   if (selected) {
@@ -1709,6 +1732,94 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
   }
 }
 
+/**
+ * draw_qr_fullscreen_overlay
+ *
+ * Renders a full-screen QR code overlay on top of all other UI.
+ * Active only when profile_login_qr_fullscreen is true AND a device-login
+ * flow is in progress.
+ *
+ * PLACEMENT: Add this function immediately BEFORE ui_screen_draw_profile()
+ * in vita/src/ui/ui_screens.c (i.e. just before line 1714).
+ *
+ * Call it at the end of ui_screen_draw_profile(), immediately before the
+ * `return next_screen;` statement.
+ */
+static void draw_qr_fullscreen_overlay(void) {
+  if (!profile_login_qr_fullscreen || !psn_auth_device_login_active())
+    return;
+  if (!profile_login_qr.valid)
+    return;
+
+  /* ── Dim the entire screen ── */
+  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, QR_OVERLAY_BG_COLOR);
+
+  /* ── QR box geometry ── */
+  int qr_size  = QR_OVERLAY_QR_SIZE;   /* 380 px */
+  int qr_x     = (VITA_WIDTH - qr_size) / 2;
+  int qr_y     = QR_OVERLAY_TOP_MARGIN;
+
+  /* White background frame — scanners need contrast against the dark overlay. */
+  vita2d_draw_rectangle(
+      qr_x - QR_OVERLAY_FRAME_PAD,
+      qr_y - QR_OVERLAY_FRAME_PAD,
+      qr_size + QR_OVERLAY_FRAME_PAD * 2,
+      qr_size + QR_OVERLAY_FRAME_PAD * 2,
+      RGBA8(255, 255, 255, 255));
+
+  /* Compute the largest integer module_px that still fits in qr_size. */
+  int quiet     = QR_OVERLAY_QUIET_ZONE;
+  int total_mod = profile_login_qr.size + quiet * 2;
+  int module_px = qr_size / total_mod;
+  if (module_px < 1)
+    module_px = 1;
+  int qr_span   = total_mod * module_px;
+  int draw_x    = qr_x + (qr_size - qr_span) / 2;
+  int draw_y    = qr_y + (qr_size - qr_span) / 2;
+
+  ui_qr_draw(&profile_login_qr, draw_x, draw_y, module_px, quiet,
+             RGBA8(0, 0, 0, 255), RGBA8(255, 255, 255, 255));
+
+  /* ── Instruction text below the QR ── */
+  int ty   = qr_y + qr_size + QR_OVERLAY_TEXT_GAP;
+  int lh   = QR_OVERLAY_LINE_H;
+
+  /* Line 1 — what to do */
+  {
+    const char *s = "Scan QR with phone then complete sign-in";
+    int w = ui_text_width(font, FONT_SIZE_SUBHEADER, s);
+    ui_text_draw(font, (VITA_WIDTH - w) / 2, ty,
+                 UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER, s);
+    ty += lh + 2;
+  }
+
+  /* Line 2 — amber warning: the "error" page is expected */
+  {
+    const char *s = "\xe2\x9a\xa0  Error page is NORMAL — Sony's redirect always shows an error!";
+    int w = ui_text_width(font, FONT_SIZE_SMALL, s);
+    ui_text_draw(font, (VITA_WIDTH - w) / 2, ty,
+                 QR_OVERLAY_WARN_COLOR, FONT_SIZE_SMALL, s);
+    ty += lh;
+  }
+
+  /* Line 3 — what to do after seeing the error */
+  {
+    const char *s = "COPY the full URL from your phone's address bar, then press X here";
+    int w = ui_text_width(font, FONT_SIZE_SMALL, s);
+    ui_text_draw(font, (VITA_WIDTH - w) / 2, ty,
+                 UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, s);
+    ty += lh;
+  }
+
+  /* Line 4 — controls */
+  {
+    const char *s = "Start: exit fullscreen   |   Square: cancel login";
+    int w = ui_text_width(font, FONT_SIZE_SMALL, s);
+    ui_text_draw(font, (VITA_WIDTH - w) / 2, ty,
+                 UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, s);
+  }
+}
+
 /// Main Profile & Registration screen
 /// @return next screen type to display
 UIScreenType ui_screen_draw_profile(void) {
@@ -1768,6 +1879,7 @@ UIScreenType ui_screen_draw_profile(void) {
     profile_refresh_login_qr(psn_auth_device_verification_url());
   } else if (!login_active && profile_login_was_active) {
     profile_login_qr_visible = false;
+    profile_login_qr_fullscreen = false;
     profile_login_qr.valid = false;
     profile_login_qr_url[0] = '\0';
   }
@@ -1917,6 +2029,7 @@ UIScreenType ui_screen_draw_profile(void) {
       psn_auth_device_login_active()) {
     psn_auth_cancel_device_login();
     profile_login_qr_visible = false;
+    profile_login_qr_fullscreen = false;
     profile_login_qr.valid = false;
     profile_login_qr_url[0] = '\0';
     trigger_hints_popup("PSN login canceled");
@@ -1925,10 +2038,21 @@ UIScreenType ui_screen_draw_profile(void) {
   /* Start: toggle QR visibility during device login. */
   if (profile_state.current_section == PROFILE_SECTION_CONNECTION && btn_pressed(SCE_CTRL_START) &&
       psn_auth_device_login_active()) {
-    profile_login_qr_visible = !profile_login_qr_visible;
-    trigger_hints_popup(profile_login_qr_visible
-                            ? "QR shown. Scan with phone, then press X to paste code."
-                            : "QR hidden. Press Start again to show.");
+    if (!profile_login_qr_visible) {
+      // hidden → small panel view
+      profile_login_qr_visible    = true;
+      profile_login_qr_fullscreen = false;
+      trigger_hints_popup("QR shown (small). Press Start again for FULLSCREEN view.");
+    } else if (!profile_login_qr_fullscreen) {
+      // small → fullscreen overlay
+      profile_login_qr_fullscreen = true;
+      trigger_hints_popup("FULLSCREEN QR. Scan then copy redirect URL, press X.");
+    } else {
+      // fullscreen → hidden
+      profile_login_qr_visible    = false;
+      profile_login_qr_fullscreen = false;
+      trigger_hints_popup("QR hidden. Press Start to show again.");
+    }
   }
 
   /* Touch: hit-test the Log out button on the Connection card.
@@ -2001,6 +2125,9 @@ UIScreenType ui_screen_draw_profile(void) {
   if (next_screen != UI_SCREEN_TYPE_PROFILE) {
     profile_screen_initialized = false;
   }
+
+  // Full-screen QR overlay — rendered last so it appears above all other UI.
+  draw_qr_fullscreen_overlay();
 
   return next_screen;
 }
