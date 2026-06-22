@@ -101,6 +101,16 @@ static size_t log_queue_head = 0;
 static size_t log_queue_tail = 0;
 static size_t log_queue_cap = 0;
 
+// Dropped-line tracking for the LOGD non-blocking fast path.
+// log_lines_dropped is written by multiple threads without a lock; a torn
+// increment is an acceptable approximation for this diagnostic counter on
+// 32-bit ARM (Cortex-A9 guarantees naturally-aligned 32-bit accesses are
+// atomic at the bus level).
+static volatile uint32_t log_lines_dropped = 0;
+// Timestamp of the last drop-summary injection; updated only while holding
+// log_mutex so there is no reset race between threads.
+static uint64_t log_last_drop_report_us = 0;
+
 static bool vita_log_queue_is_empty(void) {
   return log_queue_head == log_queue_tail;
 }
@@ -402,7 +412,38 @@ void vita_log_submit_line(ChiakiLogLevel level, const char *line) {
     return;
   memcpy(copy, line, len);
 
-  sceKernelLockLwMutex(&log_mutex, 1, NULL);
+  bool is_debug = (level == CHIAKI_LOG_DEBUG);
+
+  if (is_debug) {
+    // Non-blocking path for debug: drop rather than stall the recv thread.
+    if (sceKernelTryLockLwMutex(&log_mutex, 1) != 0) {
+      free(copy);
+      log_lines_dropped++;
+      return;
+    }
+  } else {
+    sceKernelLockLwMutex(&log_mutex, 1, NULL);
+  }
+
+  // Inject a drop-summary line at most once per second when drops have occurred.
+  if (log_lines_dropped > 0) {
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    if (now_us - log_last_drop_report_us >= 1000000ULL) {
+      char summary[64];
+      int slen = sceClibSnprintf(summary, sizeof(summary), "LOG_LINES_DROPPED count=%u\n",
+                                 log_lines_dropped);
+      if (slen > 0 && (size_t)slen < sizeof(summary)) {
+        char *scopy = malloc((size_t)slen);
+        if (scopy) {
+          memcpy(scopy, summary, (size_t)slen);
+          vita_log_queue_push_locked(scopy, (size_t)slen);
+        }
+      }
+      log_lines_dropped = 0;
+      log_last_drop_report_us = now_us;
+    }
+  }
+
   vita_log_queue_push_locked(copy, len);
   sceKernelSignalLwCond(&log_cond);
   sceKernelUnlockLwMutex(&log_mutex, 1);

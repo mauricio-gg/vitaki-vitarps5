@@ -1005,13 +1005,29 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 	uint64_t interval_ms = takion->jitter_stats.last_log_ms
 		? now_ms - takion->jitter_stats.last_log_ms : 0;
 
-	if(!force && interval_ms < TAKION_JITTER_LOG_INTERVAL_MS)
+	// Use 1s log interval for first 10 emissions (startup diagnosis), then fall back to 5s.
+	uint64_t log_interval_ms = (takion->jitter_stats.startup_log_count < 10)
+		? 1000ULL : (uint64_t)TAKION_JITTER_LOG_INTERVAL_MS;
+
+	if(!force && takion->jitter_stats.last_log_ms && interval_ms < log_interval_ms)
 		return;
 
 	uint64_t gaps_skipped = takion->jitter_stats.gaps_skipped;
 	uint64_t queue_highwater = takion->jitter_stats.queue_highwater;
 	uint64_t first_set_offset = takion->jitter_stats.last_first_set_offset;
 	uint64_t head_gap_age_us = takion->jitter_stats.last_head_gap_age_us;
+
+	takion->jitter_stats.startup_log_count++;
+	uint64_t jitter = takion->jitter_stats.jitter_us;
+	uint64_t threshold_us = (jitter * 5) / 2;
+	if(threshold_us < TAKION_JITTER_MIN_THRESHOLD_US) threshold_us = TAKION_JITTER_MIN_THRESHOLD_US;
+	if(threshold_us > TAKION_JITTER_MAX_THRESHOLD_US) threshold_us = TAKION_JITTER_MAX_THRESHOLD_US;
+	CHIAKI_LOGD(takion->log,
+		"PIPE/JITTER jitter_us=%llu threshold_us=%llu qhw=%llu gaps_skipped=%llu",
+		(unsigned long long)jitter,
+		(unsigned long long)threshold_us,
+		(unsigned long long)queue_highwater,
+		(unsigned long long)gaps_skipped);
 
 	if(gaps_skipped > 0 || queue_highwater > 0 || force)
 	{
@@ -1114,12 +1130,16 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.drain_max_count = 0;
 	takion->jitter_stats.drain_total_count = 0;
 	takion->jitter_stats.drain_cycles = 0;
+	takion->jitter_stats.startup_log_count = 0;
 
 	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
 	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
 	CHIAKI_LOGI(takion->log, "Takion receive queue size configured for %llu packets",
 			queue_slots);
 	uint64_t queue_usage_log_last_ms = 0;
+	/* PIPE/RECV_MALLOC_BURST: count mallocs on the recv thread per 5-second window */
+	uint32_t recv_malloc_calls = 0;
+	uint64_t recv_malloc_report_ms = 0;
 
 	if(!takion->log)
 		goto error_reoder_queue;
@@ -1229,6 +1249,22 @@ static void *takion_thread_func(void *user)
 			takion->jitter_stats.drain_total_count += drain_count;
 			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
 				takion->jitter_stats.drain_max_count = drain_count;
+			/* PIPE/RECV_MALLOC_BURST: +1 for the primary recv malloc, +drain_count for drain-loop mallocs */
+			recv_malloc_calls += 1u + (uint32_t)drain_count;
+		}
+		{
+			uint64_t rm_now = chiaki_time_now_monotonic_ms();
+			if(recv_malloc_report_ms == 0)
+				recv_malloc_report_ms = rm_now;
+			if(rm_now - recv_malloc_report_ms >= 5000)
+			{
+				uint64_t rm_elapsed = rm_now - recv_malloc_report_ms;
+				CHIAKI_LOGD(takion->log,
+					"PIPE/RECV_MALLOC_BURST count=%u over_ms=%llu",
+					recv_malloc_calls, (unsigned long long)rm_elapsed);
+				recv_malloc_calls = 0;
+				recv_malloc_report_ms = rm_now;
+			}
 		}
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);

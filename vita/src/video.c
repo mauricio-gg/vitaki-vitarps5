@@ -530,6 +530,10 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
   record_decode_timing_sample(decode_elapsed_us);
+  if (context.stream.first_decode_frame_count < 30) {
+    context.stream.first_decode_frame_count++;
+    LOGD("PIPE/DECODE n=%u us=%u", context.stream.first_decode_frame_count, decode_elapsed_us);
+  }
   if (ret < 0) {
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret,
          array_picture.numOfOutput);

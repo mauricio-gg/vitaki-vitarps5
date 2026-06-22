@@ -225,28 +225,36 @@ void host_metrics_update_latency(void) {
     uint64_t total_frames = stats->frames;
     uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
     uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
+    // Advance prev pointers unconditionally so they never stale when frames
+    // resume — this must remain outside the delta_frames guard below.
     context.stream.bitrate_prev_bytes = total_bytes;
     context.stream.bitrate_prev_frames = total_frames;
 
-    uint8_t idx = context.stream.bitrate_window_index;
-    context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
-    context.stream.bitrate_window_delta_frames[idx] = delta_frames;
-    context.stream.bitrate_window_index = (idx + 1) % 3;
-    if (context.stream.bitrate_window_filled < 3)
-      context.stream.bitrate_window_filled++;
+    // Skip the window push when no new frames were decoded this interval.
+    // Without this guard the first call after session start captures all
+    // handshake + Senkusha probe bytes against zero frames, which inflates
+    // windowed_bitrate_mbps to the 100 Mbps clamp.
+    if (delta_frames > 0) {
+      uint8_t idx = context.stream.bitrate_window_index;
+      context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
+      context.stream.bitrate_window_delta_frames[idx] = delta_frames;
+      context.stream.bitrate_window_index = (idx + 1) % 3;
+      if (context.stream.bitrate_window_filled < 3)
+        context.stream.bitrate_window_filled++;
 
-    uint64_t sum_bytes = 0;
-    uint32_t sum_frames = 0;
-    for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
-      sum_bytes += context.stream.bitrate_window_delta_bytes[i];
-      sum_frames += context.stream.bitrate_window_delta_frames[i];
-    }
-    if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
-      float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
-      float window_mbps = window_bps / 1000000.0f;
-      if (window_mbps > 100.0f)
-        window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
-      context.stream.windowed_bitrate_mbps = window_mbps;
+      uint64_t sum_bytes = 0;
+      uint32_t sum_frames = 0;
+      for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
+        sum_bytes += context.stream.bitrate_window_delta_bytes[i];
+        sum_frames += context.stream.bitrate_window_delta_frames[i];
+      }
+      if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
+        float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
+        float window_mbps = window_bps / 1000000.0f;
+        if (window_mbps > 100.0f)
+          window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
+        context.stream.windowed_bitrate_mbps = window_mbps;
+      }
     }
   }
 

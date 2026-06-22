@@ -210,6 +210,7 @@ typedef struct chiaki_takion_t
 		uint64_t drain_max_count;         // Max drain-loop iterations in a single cycle
 		uint64_t drain_total_count;       // Total drain-loop iterations across all cycles
 		uint64_t drain_cycles;            // Number of drain cycles (wakeups)
+		uint32_t startup_log_count;       // counts initial 1s-interval log emissions; switches to 5s after 10
 	} jitter_stats;
 } ChiakiTakion;
 

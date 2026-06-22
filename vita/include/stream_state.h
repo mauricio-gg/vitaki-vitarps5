@@ -75,6 +75,10 @@ typedef struct vita_chiaki_stream_t {
   uint64_t
       last_loss_recovery_action_us;  // Timestamp of last restart/downgrade action from packet loss
   uint64_t stream_start_us;          // Timestamp when streaming connection became active
+  uint64_t session_start_us;         // timestamp from chiaki_session_start() success; used for
+                                     // TIME_TO_FIRST_FRAME
+  uint32_t
+      first_decode_frame_count;  // counts frames 1..30 for PIPE/DECODE logging; reset each session
   uint64_t loss_restart_soft_grace_until_us;  // Short startup grace used for early burst
                                               // suppression only
   uint64_t loss_restart_grace_until_us;       // During startup grace, suppress restart escalation

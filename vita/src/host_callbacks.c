@@ -3,6 +3,7 @@
 #include "host_metrics.h"
 #include "host_quit.h"
 #include "host_callbacks.h"
+#include "ui.h"
 #include "video.h"
 
 #include <psp2/kernel/processmgr.h>
@@ -62,8 +63,19 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   if (context.stream.stop_requested)
     return false;
   if (!context.stream.video_first_frame_logged) {
+    uint64_t now_us = sceKernelGetProcessTimeWide();
+    uint64_t delta_us =
+        context.stream.session_start_us ? (now_us - context.stream.session_start_us) : 0;
     LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
+    LOGD("PIPE/TIME_TO_FIRST_FRAME us=%llu", (unsigned long long)delta_us);
     context.stream.video_first_frame_logged = true;
+
+    if (ui_connection_overlay_active()) {
+      ui_connection_complete();
+      uint64_t overlay_delta_us =
+          context.stream.session_start_us ? (now_us - context.stream.session_start_us) : 0;
+      LOGD("PIPE/OVERLAY_DISMISSED us=%llu", (unsigned long long)overlay_delta_us);
+    }
   }
   if (frames_lost > 0) {
     host_handle_loss_event(frames_lost, frame_recovered);
@@ -71,8 +83,6 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   }
   context.stream.is_streaming = true;
   context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
-  if (ui_connection_overlay_active())
-    ui_connection_complete();
   if (context.stream.reconnect_overlay_active)
     context.stream.reconnect_overlay_active = false;
   int err = vita_h264_decode_frame(buf, buf_size);
@@ -80,6 +90,5 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     LOGE("Error during video decode: %d", err);
     return false;
   }
-  host_metrics_update_latency();
   return true;
 }
