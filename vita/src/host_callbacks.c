@@ -72,9 +72,7 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
 
     if (ui_connection_overlay_active()) {
       ui_connection_complete();
-      uint64_t overlay_delta_us =
-          context.stream.session_start_us ? (now_us - context.stream.session_start_us) : 0;
-      LOGD("PIPE/OVERLAY_DISMISSED us=%llu", (unsigned long long)overlay_delta_us);
+      LOGD("PIPE/OVERLAY_DISMISSED us=%llu", (unsigned long long)delta_us);
     }
   }
   if (frames_lost > 0) {

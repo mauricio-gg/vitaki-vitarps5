@@ -409,17 +409,17 @@ int host_stream(VitaChiakiHost *host) {
   }
   vita_h264_start();
 
-  err = chiaki_session_start(&context.stream.session);
-  if (err != CHIAKI_ERR_SUCCESS) {
-    LOGE("Error during stream start: %s", chiaki_error_string(err));
-    goto cleanup;
-  }
-
   context.stream.session_start_us = sceKernelGetProcessTimeWide();
   context.stream.first_decode_frame_count = 0;
   context.stream.video_first_frame_logged = false;
   LOGD("PIPE/STREAM_START path=%s bitrate_kbps=%u res=%ux%u fps=%u", psn_remote ? "psn" : "lan",
        profile.bitrate, profile.width, profile.height, profile.max_fps);
+
+  err = chiaki_session_start(&context.stream.session);
+  if (err != CHIAKI_ERR_SUCCESS) {
+    LOGE("Error during stream start: %s", chiaki_error_string(err));
+    goto cleanup;
+  }
 
   context.stream.input_thread_should_exit = false;
   err = chiaki_thread_create(&context.stream.input_thread, host_input_thread_func, &context.stream);
