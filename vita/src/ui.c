@@ -47,6 +47,7 @@
 #include "ui.h"
 #include "util.h"
 #include "video.h"
+#include "host_metrics.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui/ui_graphics.h"
@@ -595,6 +596,7 @@ void draw_ui() {
       if (ui_text_prewarm_pending) {
         ui_text_prewarm();
         ui_text_prewarm_pending = 0;
+        LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
       }
 
       // Draw full-screen background - nav is a pure overlay
@@ -709,6 +711,9 @@ void draw_ui() {
       if (!vita_video_render_latest_frame()) {
         sceKernelDelayThread(1000);  // 1ms sleep to avoid busy-spin
       }
+      // Metrics update runs here so the 1Hz sceNetCtlInetGetInfo probe and
+      // diag_mutex trylock are off the Takion recv thread entirely.
+      host_metrics_update_latency();
     }
   }
 }

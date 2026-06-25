@@ -134,6 +134,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 	if(frame_processor->frame_buf_size < frame_buf_size_required)
 	{
 		free(frame_processor->frame_buf);
+		/* PIPE/FRAMEBUF_REALLOC: program-lifetime counter; even across reconnects, growth should stay n=1 */
+		{
+			static uint32_t framebuf_realloc_n = 0;
+			framebuf_realloc_n++;
+			CHIAKI_LOGD(frame_processor->log,
+				"PIPE/FRAMEBUF_REALLOC n=%u size=%lu",
+				framebuf_realloc_n, (unsigned long)frame_buf_size_required);
+		}
 		frame_processor->frame_buf = malloc(frame_buf_size_required + CHIAKI_VIDEO_BUFFER_PADDING_SIZE);
 		if(!frame_processor->frame_buf)
 		{

@@ -136,8 +136,11 @@ static void video_receiver_maybe_request_idr(ChiakiVideoReceiver *video_receiver
 	if(!video_receiver->idr_request_pending
 		&& (now_ms - video_receiver->last_idr_request_ms >= IDR_REQUEST_COOLDOWN_MS))
 	{
+		/* PIPE/SEND_CHAIN_BLOCKED: measure recv-thread stall waiting for the send-chain mutex */
+		uint64_t idr_t0 = now_ms;
 		ChiakiErrorCode idr_err =
 			chiaki_stream_connection_request_idr(&video_receiver->session->stream_connection);
+		uint64_t idr_dur_ms = chiaki_time_now_monotonic_ms() - idr_t0;
 		if(idr_err == CHIAKI_ERR_SUCCESS)
 		{
 			video_receiver->idr_request_pending = true;
@@ -145,6 +148,8 @@ static void video_receiver_maybe_request_idr(ChiakiVideoReceiver *video_receiver
 			video_receiver->last_idr_request_ms = now_ms;
 			CHIAKI_LOGI(video_receiver->log, "Requesting IDR (%s)",
 				reason ? reason : "unknown");
+			CHIAKI_LOGD(video_receiver->log, "PIPE/SEND_CHAIN_BLOCKED ms=%llu",
+						(unsigned long long)idr_dur_ms);
 		}
 	}
 }
