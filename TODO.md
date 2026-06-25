@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-05-03 (PSN STUN DNS fix merged PR #158; header-hygiene followup PR in review)
+Last Updated: 2026-06-25 (Bitrate metric instrumentation PR #181-183 merged; NET_UNSTABLE debounce shipped; GH issue #178 deferred)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -167,10 +167,6 @@ Only move a task to "Done" after the reviewer signs off.
    - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
 ### 📥 In Review
-1. **Instrument PS5 bitrate/latency metrics**
-   - *Owner:* Implementation agent (latency instrumentation)
-   - *Summary:* Added runtime bitrate + RTT sampling via `vita/src/host.c` (using `chiaki_stream_stats_bitrate`) with gated logging and profile card display in `vita/src/ui.c`. Metrics reset on stream stop and update whenever frames arrive.
-   - *Needs:* Reviewer to verify code quality, ensure no race conditions with Chiaki structs, and confirm UI integration looks correct on hardware.
 2. **Add latency mode presets (1.2–3.8 Mbps)**
    - *Owner:* Implementation agent
    - *Summary:* Introduced `latency_mode` config/UI dropdown plus bitrate overrides in `vita/src/host.c` so users can pick Ultra Low → Max bandwidth targets. Added presets to config serialization and documented options in README.
@@ -185,6 +181,12 @@ Only move a task to "Done" after the reviewer signs off.
    - *Owner:* Implementation agent
    - *Summary:* `lib/src/ctrl.c` now encrypts the requested bitrate instead of zeros when `ChiakiConnectInfo.send_actual_start_bitrate` (driven by the new `send_actual_start_bitrate` config flag + README docs) is enabled, letting Vita A/B test real StartBitrate payloads.
    - *Needs:* Reviewer to ensure the PS5 handshake still accepts the StartBitrate header with non-zero payloads and that the new config default behaves on hardware.
+
+5. **lib-layer gen/reconnect_gen tagging for PIPE/logs (GH issue #178)**
+   - *Owner:* Investigation agent
+   - *Goal:* Instrument Chiaki's internal generation/stream ID propagation so all `PIPE/` log lines include a machine-readable tag identifying which generation (reconnect or initial) they belong to.
+   - *Status:* Deferred after PR #183 to focus on other priority work.
+   - *Next Step:* Spike Chiaki's generation tracking in `lib/src/takion.c` and `lib/src/session.c` to understand how gen IDs flow through log macro callsites.
 
 ---
 
