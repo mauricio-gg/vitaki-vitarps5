@@ -88,10 +88,11 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   // D4: Windowed bitrate
   context.stream.bitrate_prev_bytes = 0;
   context.stream.bitrate_prev_frames = 0;
+  context.stream.bitrate_prev_update_us = 0;
   memset(context.stream.bitrate_window_delta_bytes, 0,
          sizeof(context.stream.bitrate_window_delta_bytes));
-  memset(context.stream.bitrate_window_delta_frames, 0,
-         sizeof(context.stream.bitrate_window_delta_frames));
+  memset(context.stream.bitrate_window_elapsed_us, 0,
+         sizeof(context.stream.bitrate_window_elapsed_us));
   context.stream.bitrate_window_index = 0;
   context.stream.bitrate_window_filled = 0;
   context.stream.windowed_bitrate_mbps = 0.0f;
@@ -219,41 +220,61 @@ void host_metrics_update_latency(void) {
 
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
-  // D4: Windowed bitrate — 3-element ring buffer for rolling 3s average
+  // D4: Windowed bitrate — 3-element ring buffer, time-based rate (not fps/frames).
+  // Uses elapsed wall-clock µs per window so frame-bunching and byte-counter lags
+  // do not inflate the estimate. Byte-counter reset detection prevents uint64
+  // underflow from poisoning the ring (stats->bytes can reset after realloc).
   {
     uint64_t total_bytes = stats->bytes;
     uint64_t total_frames = stats->frames;
-    uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
-    uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
-    // Advance prev pointers unconditionally so they never stale when frames
-    // resume — this must remain outside the delta_frames guard below.
-    context.stream.bitrate_prev_bytes = total_bytes;
-    context.stream.bitrate_prev_frames = total_frames;
 
-    // Skip the window push when no new frames were decoded this interval.
-    // Without this guard the first call after session start captures all
-    // handshake + Senkusha probe bytes against zero frames, which inflates
-    // windowed_bitrate_mbps to the 100 Mbps clamp.
-    if (delta_frames > 0) {
-      uint8_t idx = context.stream.bitrate_window_index;
-      context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
-      context.stream.bitrate_window_delta_frames[idx] = delta_frames;
-      context.stream.bitrate_window_index = (idx + 1) % 3;
-      if (context.stream.bitrate_window_filled < 3)
-        context.stream.bitrate_window_filled++;
+    // Detect byte-counter reset (e.g. frame-processor realloc zeroes stats->bytes).
+    // When the counter goes backwards, discard this interval and re-anchor.
+    bool byte_counter_reset = (total_bytes < context.stream.bitrate_prev_bytes);
+    if (byte_counter_reset) {
+      context.stream.bitrate_prev_bytes = total_bytes;
+      context.stream.bitrate_prev_frames = total_frames;
+      context.stream.bitrate_prev_update_us = now_us;
+      // Do not push to ring — treat as a gap.
+    } else {
+      uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
+      uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
+      uint64_t elapsed_us = (context.stream.bitrate_prev_update_us > 0)
+                                ? (now_us - context.stream.bitrate_prev_update_us)
+                                : 0;
 
-      uint64_t sum_bytes = 0;
-      uint32_t sum_frames = 0;
-      for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
-        sum_bytes += context.stream.bitrate_window_delta_bytes[i];
-        sum_frames += context.stream.bitrate_window_delta_frames[i];
-      }
-      if (sum_frames > 0 && fps > 0 && context.stream.bitrate_window_filled >= 2) {
-        float window_bps = ((float)sum_bytes * 8.0f * (float)fps) / (float)sum_frames;
-        float window_mbps = window_bps / 1000000.0f;
-        if (window_mbps > 100.0f)
-          window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
-        context.stream.windowed_bitrate_mbps = window_mbps;
+      // Advance prev pointers unconditionally so they never stale when frames
+      // resume — this must remain outside the delta_frames guard below.
+      context.stream.bitrate_prev_bytes = total_bytes;
+      context.stream.bitrate_prev_frames = total_frames;
+      context.stream.bitrate_prev_update_us = now_us;
+
+      // Skip the window push when no new frames were decoded this interval or
+      // elapsed time is implausibly short (< 100ms, e.g. first call).
+      if (delta_frames > 0 && elapsed_us >= 100000ULL) {
+        uint8_t idx = context.stream.bitrate_window_index;
+        context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
+        context.stream.bitrate_window_elapsed_us[idx] = elapsed_us;
+        context.stream.bitrate_window_index = (idx + 1) % 3;
+        if (context.stream.bitrate_window_filled < 3)
+          context.stream.bitrate_window_filled++;
+
+        if (context.stream.bitrate_window_filled >= 2) {
+          uint64_t sum_bytes = 0;
+          uint64_t sum_elapsed_us = 0;
+          for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
+            sum_bytes += context.stream.bitrate_window_delta_bytes[i];
+            sum_elapsed_us += context.stream.bitrate_window_elapsed_us[i];
+          }
+          if (sum_elapsed_us > 0) {
+            // bps = bytes * 8 bits * 1e6 µs/s / elapsed_µs
+            float window_mbps =
+                ((float)sum_bytes * 8.0f) / ((float)sum_elapsed_us / 1000000.0f) / 1000000.0f;
+            if (window_mbps > 100.0f)
+              window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
+            context.stream.windowed_bitrate_mbps = window_mbps;
+          }
+        }
       }
     }
   }
