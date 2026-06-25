@@ -16,6 +16,11 @@ extern "C" {
 
 #define CHIAKI_VIDEO_PROFILES_MAX 8
 
+// Must match REF_FRAMES in vita/include/video.h (Vita HW H.264 decoder DPB size).
+// Receiver window > HW decoder DPB causes silent macroblocking: the receiver
+// approves P-frames referencing evicted decoder slots. Keep these in sync.
+#define CHIAKI_VIDEO_RECEIVER_REF_SLOTS 8
+
 typedef struct chiaki_video_receiver_t
 {
 	struct chiaki_session_t *session;
@@ -31,7 +36,7 @@ typedef struct chiaki_video_receiver_t
 	ChiakiPacketStats *packet_stats;
 
 	int32_t frames_lost;
-	int32_t reference_frames[16];
+	int32_t reference_frames[CHIAKI_VIDEO_RECEIVER_REF_SLOTS];
 	ChiakiBitstream bitstream;
 	bool gap_report_pending;
 	uint16_t gap_report_start;
