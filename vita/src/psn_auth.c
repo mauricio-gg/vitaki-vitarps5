@@ -977,16 +977,15 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     return false;
   }
   off = (size_t)base_wrote;
+  /* Parameter order matches chiaki-ng exactly; duid is not a valid authorize endpoint param. */
   bool form_ok =
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "service_entity",
                      "urn:service-entity:psn") &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "response_type", "code") &&
-      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "duid",
-                     context.config.psn_client_duid) &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "client_id", oauth_client_id()) &&
-      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope", oauth_scope()) &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "redirect_uri",
                      oauth_redirect_uri()) &&
+      append_form_kv(curl, auth_url, sizeof(auth_url), &off, "scope", oauth_scope()) &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "request_locale", "en_US") &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "ui", "pr") &&
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "service_logo", "ps") &&
@@ -1001,11 +1000,10 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
   }
 
   LOGD(
-      "PSN auth authorize tuple authorize_url=%s redirect_uri=%s duid=%s client_id=%s scope=%s "
+      "PSN auth authorize tuple authorize_url=%s redirect_uri=%s client_id=%s scope=%s "
       "locale=%s ui=%s service_logo=%s layout_type=%s smcid=%s prompt=%s privacy=%s",
-      oauth_authorize_url(), oauth_redirect_uri(), context.config.psn_client_duid,
-      oauth_client_id(), oauth_scope(), "en_US", "pr", "ps", "popup", "remoteplay", "always",
-      "minimal");
+      oauth_authorize_url(), oauth_redirect_uri(), oauth_client_id(), oauth_scope(), "en_US", "pr",
+      "ps", "popup", "remoteplay", "always", "minimal");
   clear_device_flow_fields();
   int verify_wrote =
       snprintf(g_psn_auth.verification_url, sizeof(g_psn_auth.verification_url), "%s", auth_url);
