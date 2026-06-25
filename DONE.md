@@ -4,6 +4,28 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-06-25 (Bitrate Metrics & Stability Hardening)
+
+### Stream Metrics & Network Stability
+- [x] **Windowed Mbps Time-Based Formula (Fix #181, PR #183)**
+  - Replaced fps/frames-based bitrate calculation with 3-slot time-based ring window (≥100ms per slot)
+  - Added byte-counter reset detection to prevent uint64 underflow when frame-processor reallocs its buffer
+  - Previously caused ~100 Mbps spikes on buffer reallocation
+  - Removed dead `bitrate_window_delta_frames` field from stream_state.h
+  - Files modified: `vita/src/host_metrics.c`, `vita/include/stream_state.h`
+  - Merged to main in PR #183 (v0.1.783)
+
+- [x] **NET_UNSTABLE Indicator Debounce (Fix #182, PR #183)**
+  - Added 500ms debounce to `vitavideo_overlay_show_poor_net_indicator()` via `net_unstable_last_activated_us` field
+  - Prevented multiple redundant overlay activation calls during recv bursts (previously fired multiple times per millisecond)
+  - Files modified: `vita/src/video_overlay.c`, `vita/include/stream_state.h`
+  - Shipped together with Fix #181 in PR #183 (v0.1.783)
+
+### Deferred Work
+- GH issue #178 (lib-layer gen/reconnect_gen tagging for PIPE/ logs) — moved to backlog after #183; spike Chiaki generation tracking first
+
+---
+
 ## 2026-04-14 (UI Text Rendering: Phase 1 Complete)
 
 ### Issue #127 Phase 1 - FreeType Glyph Atlas Prewarm

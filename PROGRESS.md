@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-05-01 (Text rendering aliasing root cause fixed, Phase 2 unblocked)
+Last Updated: 2026-06-25 (Bitrate metrics formula & NET_UNSTABLE debounce merged PR #183, v0.1.783)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -145,6 +145,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-06-25 | Bitrate metrics hardening shipped (PR #183, v0.1.783): windowed Mbps time-based formula (3-slot ring window, fixes ~100 Mbps spikes on buffer realloc), NET_UNSTABLE overlay debounce (500ms, prevents rapid redundant activation during recv bursts). GH issue #178 (lib-layer gen/reconnect_gen tagging) deferred to future spike work. | @mauricio-gg |
 | 2026-05-03 | PSN remote-play STUN DNS fix shipped (PR #158, v0.1.749) and header-hygiene followup PR submitted (v0.1.750): `vita_resolve_sin` / `vita_curl_add_resolve` forward-decl drift risk eliminated by splitting `vita_resolve.h` (curl-free) from `vita_dns.h` (curl-aware), wiring `vita/include/` as a PRIVATE chiaki-lib include dir for Vita, replacing hand-typed prototypes in `lib/src/remote/stun.h` and `holepunch.c` with real `#include` statements, and adding `<stdbool.h>` self-sufficiency + inet_ntop fallback logging. Root cause was getaddrinfo() EAI_NONAME regression in vitasdk libcurl 8.17 / GCC 15 toolchain rebuild (2026-05-02). | @mauricio-gg |
 | 2026-05-01 | Issue #122 text aliasing root cause fixed (PR #145) — vita2d font glyph atlas was sampled with POINT filtering, causing jaggy edges and baseline drift. Vendored libvita2d (`vita2d_font.c`, `texture_atlas.c`), patched to use LINEAR filter on atlas, reverted dee6831 per-glyph integer-snap workaround. Kerning restored via whole-string vita2d calls. Phase 2 (114 call-site migration) now unblocked. Build clean at v0.1.732. | @mauricio-gg |
 | 2026-04-14 | Issue #127 Phase 1 COMPLETE - FreeType glyph atlas prewarm module merged to main (PR #135, feature branch `feat/ui-freetype-atlases-127`). Created `ui_text.h/c` with metric helpers + prewarm infrastructure. All 114 existing `vita2d_font_draw_text()` call sites left untouched per Phase 1 scope. 8 code review rounds, all substantive feedback addressed. Pending: On-device smoke test of prewarm (first-frame pop-in check) before Phase 2 call-site migration. Phase 2 queued with plan file `prancy-sprouting-sunset.md`. | @mauricio-gg |
