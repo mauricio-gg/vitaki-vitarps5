@@ -249,6 +249,10 @@ void vitavideo_overlay_on_stream_stop(void) {
 void vitavideo_overlay_show_poor_net_indicator(void) {
   if (!context.config.show_network_indicator)
     return;
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (now_us - context.stream.net_unstable_last_activated_us < 500000ULL)
+    return;
+  context.stream.net_unstable_last_activated_us = now_us;
   LOGD("PIPE/NET_UNSTABLE activated");
   poor_net_indicator.activated = true;
 }

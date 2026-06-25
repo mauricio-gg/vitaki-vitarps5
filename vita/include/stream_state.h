@@ -84,6 +84,8 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_restart_grace_until_us;       // During startup grace, suppress restart escalation
   uint64_t loss_alert_until_us;               // Overlay visibility deadline for loss warning
   uint64_t loss_alert_duration_us;            // Duration used to compute overlay fade
+  uint64_t net_unstable_last_activated_us;    // debounce: minimum 500ms between PIPE/NET_UNSTABLE
+                                              // activations
   uint32_t logged_loss_events;                // Last loss event count logged to console
   uint32_t auto_loss_downgrades;              // Number of auto latency downgrades this session
   uint32_t takion_drop_events;                // Queue overflow/corruption events seen from Takion
@@ -154,13 +156,14 @@ typedef struct vita_chiaki_stream_t {
   uint32_t decode_window_count;     // Takion-thread-only frame count
 
   // --- Diagnostic instrumentation (D4: Windowed Bitrate) ---
-  uint64_t bitrate_prev_bytes;              // Previous snapshot of total bytes for delta
-  uint64_t bitrate_prev_frames;             // Previous snapshot of total frames for delta
-  uint64_t bitrate_window_delta_bytes[3];   // 3-element ring buffer of byte deltas
-  uint32_t bitrate_window_delta_frames[3];  // 3-element ring buffer of frame deltas
-  uint8_t bitrate_window_index;             // Current ring buffer write position
-  uint8_t bitrate_window_filled;            // Number of valid entries in ring buffer
-  volatile float windowed_bitrate_mbps;     // Rolling 3s bitrate (Takion writes, UI reads)
+  uint64_t bitrate_prev_bytes;             // Previous snapshot of total bytes for delta
+  uint64_t bitrate_prev_frames;            // Previous snapshot of total frames for delta
+  uint64_t bitrate_window_delta_bytes[3];  // 3-element ring buffer of byte deltas
+  uint64_t bitrate_window_elapsed_us[3];   // elapsed µs for each ring-buffer window
+  uint64_t bitrate_prev_update_us;         // process timestamp of the last ring-buffer push
+  uint8_t bitrate_window_index;            // Current ring buffer write position
+  uint8_t bitrate_window_filled;           // Number of valid entries in ring buffer
+  volatile float windowed_bitrate_mbps;    // Rolling 3s bitrate (Takion writes, UI reads)
 
   // --- Diagnostic instrumentation (D5: Frame Overwrite) ---
   volatile uint32_t frame_overwrite_count;  // Frames overwritten before display consumed them
