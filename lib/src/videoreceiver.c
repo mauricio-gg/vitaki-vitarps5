@@ -490,7 +490,11 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
 						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
 						video_receiver->consecutive_missing_ref);
-					// Keep missing-ref handling passive to avoid aggressive restart/keyframe churn.
+					/* Request IDR immediately; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms) prevents
+					 * flooding. Cascade skip fires at consecutive_missing_ref >= CASCADE_SKIP_THRESHOLD
+					 * as a backstop if the PS5 is slow to respond. */
+					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
+					video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "missing_ref");
 				}
 			}
 		}
