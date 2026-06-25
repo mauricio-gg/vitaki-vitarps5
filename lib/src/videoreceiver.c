@@ -7,6 +7,8 @@
 #include <string.h>
 #include "videoreceiver_gap.h"
 
+#define RECEIVER_REF_SLOTS CHIAKI_VIDEO_RECEIVER_REF_SLOTS
+
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver);
 
 // Hold tiny gap reports briefly so out-of-order packets can fill them first.
@@ -23,11 +25,12 @@ static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
 	if(video_receiver->reference_frames[0] != -1)
 	{
-		memmove(&video_receiver->reference_frames[1], &video_receiver->reference_frames[0], sizeof(int32_t) * 15);
+		memmove(&video_receiver->reference_frames[1], &video_receiver->reference_frames[0],
+			sizeof(int32_t) * (RECEIVER_REF_SLOTS - 1));
 		video_receiver->reference_frames[0] = frame;
 		return;
 	}
-	for(int i=15; i>=0; i--)
+	for(int i = RECEIVER_REF_SLOTS - 1; i >= 0; i--)
 	{
 		if(video_receiver->reference_frames[i] == -1)
 		{
@@ -39,7 +42,7 @@ static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 
 static bool have_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
-	for(int i=0; i<16; i++)
+	for(int i = 0; i < RECEIVER_REF_SLOTS; i++)
 		if(video_receiver->reference_frames[i] == frame)
 			return true;
 	return false;
@@ -464,7 +467,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			ChiakiSeqNum16 ref_frame_index = video_receiver->frame_index_cur - slice.reference_frame - 1;
 			if(slice.reference_frame != 0xff && !have_ref_frame(video_receiver, ref_frame_index))
 			{
-				for(unsigned i=slice.reference_frame+1; i<16; i++)
+				for(unsigned i = slice.reference_frame + 1; i < RECEIVER_REF_SLOTS; i++)
 				{
 					ChiakiSeqNum16 ref_frame_index_new = video_receiver->frame_index_cur - i - 1;
 					if(have_ref_frame(video_receiver, ref_frame_index_new))
