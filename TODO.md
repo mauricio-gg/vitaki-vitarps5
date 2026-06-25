@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-06-25 (Bitrate metric instrumentation PR #181-183 merged; NET_UNSTABLE debounce shipped; GH issue #178 deferred)
+Last Updated: 2026-06-25 (PSN QR login fix validated and merged in PR #184; Motion macroblocking investigation doc created; Bitrate metrics PR #181-183 shipped)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -32,6 +32,7 @@ Only move a task to "Done" after the reviewer signs off.
    - *Owner:* Implementation agent
    - *Goal:* Instrument receive/reorder/fallback reason paths and tune loss gates/cooldowns so transient bursts request IDR first instead of entering reconnect oscillation.
    - *Next Step:* Add compact counters and reason tagging around `handle_loss_event()` and stream restart scheduling in `vita/src/host.c`.
+   - *Related:* Motion-triggered macroblocking investigation (`docs/ai/MOTION_MACROBLOCKING_INVESTIGATION.md`) — queued for future PR once code changes are ready.
 5. **Decode/render split prototype (separate branch after packet track)**
    - *Owner:* Implementation agent
    - *Goal:* Decouple decode from present path so `sceAvcdecDecode` is not blocked by `vita2d_wait_rendering_done()`, then validate cadence gains without introducing corruption regressions.

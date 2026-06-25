@@ -4,7 +4,21 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
-## 2026-06-25 (Bitrate Metrics & Stability Hardening)
+## 2026-06-25 (PSN Login Fix & Bitrate Metrics)
+
+### PSN QR Login Fix
+- [x] **Remove `duid` parameter from OAuth authorize URL (Fix #202, PR #184)**
+  - Removed the `duid` query parameter from the PSN OAuth authorize endpoint in `vita/src/psn_auth.c`
+  - The `duid` param caused Sony's authorize endpoint to return "Something went wrong" before the login page loaded
+  - URL now matches chiaki-ng's confirmed-working flow exactly
+  - On-device validation: PSN QR login now shows the login page and completes successfully
+  - Merged to main in PR #184 (v0.1.784)
+
+- [x] **Motion-Triggered Macroblocking Investigation Documentation**
+  - Root-cause analysis document created at `docs/ai/MOTION_MACROBLOCKING_INVESTIGATION.md`
+  - Identifies motion compensation failure and decode pressure as contributing factors
+  - Queued for future PR once code changes are ready
+  - Includes evidence from testing logs and recommended mitigation strategies
 
 ### Stream Metrics & Network Stability
 - [x] **Windowed Mbps Time-Based Formula (Fix #181, PR #183)**
