@@ -99,6 +99,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
 
   // D5: Frame overwrite
   context.stream.frame_overwrite_count = 0;
+  context.stream.freeze_engaged_count = 0;
 
   // D6: Wi-Fi RSSI
   context.stream.wifi_rssi = -1;

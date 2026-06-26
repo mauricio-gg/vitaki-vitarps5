@@ -647,8 +647,28 @@ bool vita_video_render_latest_frame(void) {
   frame_ready_for_display = false;
 
   bool drop_frame = should_drop_frame_for_pacing();
-  if (drop_frame)
+  if (drop_frame) {
+    // Frame is paced out but still consumed — advance freeze state so the cap
+    // counts all consumed frames, not just displayed ones.
+    bool corrupt = incoming_frame_corrupt;
+    if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
+      frozen_frame_streak++;
+      context.stream.freeze_engaged_count++;
+    } else if (!corrupt) {
+      // Clean paced-drop: still update the last-good snapshot.
+      if (frozen_frame_streak > 0) {
+        LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
+      }
+      frozen_frame_streak = 0;
+      if (last_good_texture != NULL) {
+        uint32_t copy_size =
+            image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
+        sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
+                      vita2d_texture_get_datap(frame_texture), copy_size);
+      }
+    }
     return true;  // consumed the frame but skipped display
+  }
 
   /* Determine which texture to present.
    *
