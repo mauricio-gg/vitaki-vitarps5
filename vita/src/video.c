@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-static void draw_streaming(vita2d_texture *frame_texture);
+static void draw_streaming(vita2d_texture *tex);
 
 enum {
   VITA_VIDEO_INIT_OK = 0,
@@ -73,6 +73,25 @@ SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 static bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
+/* --- Freeze-on-corrupt: last-good frame texture and presentation state --- */
+
+/* Twin texture holding the last clean decoded frame. Allocated in video_setup_framebuffer(),
+ * freed in video_cleanup_framebuffer(), NULL until first clean frame arrives. */
+static vita2d_texture *last_good_texture = NULL;
+
+/* Set inside vita_h264_decode_frame() on the Takion thread, under the decode mutex,
+ * after a successful decode. Read by vita_video_render_latest_frame() on the UI thread.
+ * Single-writer/single-reader on Vita Cortex-A9 — volatile is sufficient. */
+static volatile bool incoming_frame_corrupt = false;
+
+/* Consecutive corrupt-frame presentations. Reset on any clean frame.
+ * When it reaches FREEZE_MAX_STREAK the freeze is released unconditionally. */
+static int frozen_frame_streak = 0;
+
+/* Maximum consecutive frames we will hold a frozen image. At this cap the
+ * live (possibly corrupted) frame is presented so the picture always resumes. */
+#define FREEZE_MAX_STREAK 8
+
 typedef struct {
   unsigned int texture_width;
   unsigned int texture_height;
@@ -87,6 +106,16 @@ typedef struct {
 } image_scaling_settings;
 
 static image_scaling_settings image_scaling = {0};
+
+/* Snapshot the current decoded frame as the last-good frame. Runs on the UI
+ * thread only — keeps the ~2 MB copy off the Takion receive/decode hot path. */
+static void snapshot_last_good_frame(void) {
+  if (last_good_texture == NULL)
+    return;
+  uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(frame_texture);
+  sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
+                vita2d_texture_get_datap(frame_texture), copy_size);
+}
 
 static void record_incoming_frame_sample(void) {
   uint64_t now_us = sceKernelGetSystemTimeWide();
@@ -282,6 +311,10 @@ static void video_cleanup_framebuffer(void) {
     vita2d_free_texture(frame_texture);
     frame_texture = NULL;
   }
+  if (last_good_texture != NULL) {
+    vita2d_free_texture(last_good_texture);
+    last_good_texture = NULL;
+  }
   video_status--;
 }
 
@@ -299,6 +332,16 @@ static int video_setup_framebuffer(int width, int height) {
     return VITA_VIDEO_ERROR_NO_MEM;
   }
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
+
+  /* Allocate the twin "last good frame" texture. Same format and dimensions as
+   * frame_texture so we can memcpy between them. Failure is non-fatal: freeze
+   * suppression simply won't engage (last_good_texture stays NULL). */
+  last_good_texture =
+      vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
+                                         SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
+  if (last_good_texture == NULL)
+    LOGD("VIDEO: last_good_texture alloc failed — freeze suppression disabled\n");
+
   return VITA_VIDEO_INIT_OK;
 }
 
@@ -497,7 +540,7 @@ cleanup:
   return ret;
 }
 
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   // Early validation to detect corrupted frames before decoding
   if (buf == NULL || buf_size == 0) {
     LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
@@ -551,6 +594,12 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // from the Takion network receive path and eliminates ~15-20ms of blocking.
   if (active_video_thread) {
     record_incoming_frame_sample();
+    /* Atomically tie the corruption flag to this decoded frame while we still
+     * hold the mutex. This prevents the flag from mismatching the pixels under
+     * frame-overwrite scenarios. The last-good snapshot (the expensive ~2 MB
+     * memcpy) is now taken on the UI thread in vita_video_render_latest_frame()
+     * so the Takion receive thread is never stalled by it. */
+    incoming_frame_corrupt = frame_corrupt;
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
       context.stream.frame_overwrite_count++;
@@ -563,7 +612,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   return 0;
 }
 
-static void draw_streaming(vita2d_texture *frame_texture) {
+static void draw_streaming(vita2d_texture *tex) {
   // ui is still rendering in the background, clear the screen first
   vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RGBA8(0, 0, 0, 255));
 
@@ -583,14 +632,13 @@ static void draw_streaming(vita2d_texture *frame_texture) {
     // Fill Screen: scale active decoded source region to full display
     float scale_x = (float)SCREEN_WIDTH / src_w;
     float scale_y = (float)SCREEN_HEIGHT / src_h;
-    vita2d_draw_texture_part_scale(frame_texture, 0.0f, 0.0f, 0.0f, 0.0f, src_w, src_h, scale_x,
-                                   scale_y);
+    vita2d_draw_texture_part_scale(tex, 0.0f, 0.0f, 0.0f, 0.0f, src_w, src_h, scale_x, scale_y);
   } else {
     // Aspect-preserving: draw active source region centered with computed scale
     float scale_x = image_scaling.region_x2 / src_w;
     float scale_y = image_scaling.region_y2 / src_h;
-    vita2d_draw_texture_part_scale(frame_texture, image_scaling.origin_x, image_scaling.origin_y,
-                                   0.0f, 0.0f, src_w, src_h, scale_x, scale_y);
+    vita2d_draw_texture_part_scale(tex, image_scaling.origin_x, image_scaling.origin_y, 0.0f, 0.0f,
+                                   src_w, src_h, scale_x, scale_y);
   }
 }
 
@@ -601,12 +649,68 @@ bool vita_video_render_latest_frame(void) {
   frame_ready_for_display = false;
 
   bool drop_frame = should_drop_frame_for_pacing();
-  if (drop_frame)
+  if (drop_frame) {
+    // Frame is paced out but still consumed — advance freeze state so the cap
+    // counts all consumed frames, not just displayed ones.
+    bool corrupt = incoming_frame_corrupt;
+    if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
+      frozen_frame_streak++;
+      context.stream.freeze_engaged_count++;
+    } else if (!corrupt) {
+      // Clean paced-drop: still update the last-good snapshot.
+      if (frozen_frame_streak > 0) {
+        LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
+      }
+      frozen_frame_streak = 0;
+      snapshot_last_good_frame();
+    } else {
+      /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
+      if (frozen_frame_streak > 0)
+        LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
+      frozen_frame_streak = 0;
+    }
     return true;  // consumed the frame but skipped display
+  }
+
+  /* Determine which texture to present.
+   *
+   * If the incoming frame is flagged corrupt AND we have a clean snapshot AND
+   * we haven't held the freeze beyond FREEZE_MAX_STREAK, show the last good
+   * frame instead. At the cap, fall through to present whatever decoded — this
+   * guarantees the picture always resumes even under sustained loss.
+   *
+   * The corruption flag is updated under mtx inside vita_h264_decode_frame(),
+   * so it is always consistent with the pixels in frame_texture when we read
+   * it here. The last-good snapshot is taken below on this thread. */
+  bool corrupt = incoming_frame_corrupt;
+  vita2d_texture *present_texture = frame_texture;
+
+  if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
+    frozen_frame_streak++;
+    context.stream.freeze_engaged_count++;
+    if (frozen_frame_streak == 1)
+      LOGD("PIPE/FREEZE engaged streak=%d", frozen_frame_streak);
+    present_texture = last_good_texture;
+  } else if (!corrupt) {
+    /* Clean frame — take the last-good snapshot here on the UI thread so the
+     * Takion receive/decode thread is never stalled by the ~2 MB copy. */
+    if (frozen_frame_streak > 0) {
+      LOGD("PIPE/FREEZE cleared streak=%d", frozen_frame_streak);
+      frozen_frame_streak = 0;
+    }
+    present_texture = frame_texture;
+    snapshot_last_good_frame();
+  } else {
+    /* corrupt && (last_good_texture == NULL || streak >= FREEZE_MAX_STREAK) */
+    if (frozen_frame_streak >= FREEZE_MAX_STREAK)
+      LOGD("PIPE/FREEZE cap-released streak=%d", frozen_frame_streak);
+    frozen_frame_streak = 0;
+    present_texture = frame_texture;
+  }
 
   vita2d_start_drawing();
 
-  draw_streaming(frame_texture);
+  draw_streaming(present_texture);
   vitavideo_overlay_render();
 
   vita2d_end_drawing();
@@ -635,6 +739,8 @@ void vita_h264_start() {
   chiaki_mutex_init(&mtx, false);
   vita2d_set_vblank_wait(false);
   frame_ready_for_display = false;
+  incoming_frame_corrupt = false;
+  frozen_frame_streak = 0;
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
   context.stream.display_fps_window_start_us = 0;
@@ -645,6 +751,8 @@ void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
   frame_ready_for_display = false;
+  incoming_frame_corrupt = false;
+  frozen_frame_streak = 0;
   chiaki_mutex_fini(&mtx);
   vitavideo_overlay_on_stream_stop();
 }

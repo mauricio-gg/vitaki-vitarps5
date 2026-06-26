@@ -83,7 +83,14 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
   if (context.stream.reconnect_overlay_active)
     context.stream.reconnect_overlay_active = false;
-  int err = vita_h264_decode_frame(buf, buf_size);
+
+  /* Pass frame quality with the decode call so the corruption flag and the
+   * last-good snapshot are updated atomically under the decode mutex —
+   * keeping them consistent with the pixels written to frame_texture.
+   * Decode always runs unconditionally to keep the HW decoder DPB reference
+   * chain in sync. */
+  bool frame_corrupt = (frames_lost > 0) || frame_recovered;
+  int err = vita_h264_decode_frame(buf, buf_size, frame_corrupt);
   if (err != 0) {
     LOGE("Error during video decode: %d", err);
     return false;

@@ -165,8 +165,10 @@ typedef struct vita_chiaki_stream_t {
   uint8_t bitrate_window_filled;           // Number of valid entries in ring buffer
   volatile float windowed_bitrate_mbps;    // Rolling 3s bitrate (Takion writes, UI reads)
 
-  // --- Diagnostic instrumentation (D5: Frame Overwrite) ---
+  // --- Diagnostic instrumentation (D5: Frame Overwrite / Freeze) ---
   volatile uint32_t frame_overwrite_count;  // Frames overwritten before display consumed them
+  volatile uint32_t
+      freeze_engaged_count;  // Corrupt frames suppressed (last-good presented in their place)
 
   // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
   volatile int32_t wifi_rssi;  // Latest Wi-Fi signal strength (-1 if unavailable)

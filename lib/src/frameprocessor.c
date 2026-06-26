@@ -23,6 +23,8 @@ CHIAKI_EXPORT void chiaki_stream_stats_frame(ChiakiStreamStats *stats, uint64_t 
 {
 	stats->frames++;
 	stats->bytes += size;
+	stats->frames_total++;
+	stats->bytes_total += size;
 	//float br = (float)chiaki_stream_stats_bitrate(stats, 60) / 1000000.0f;
 	//CHIAKI_LOGD(NULL, "bitrate: %f", br);
 }
@@ -56,6 +58,10 @@ CHIAKI_EXPORT void chiaki_frame_processor_init(ChiakiFrameProcessor *frame_proce
 	frame_processor->unit_slots_size = 0;
 	frame_processor->flushed = true;
 	chiaki_stream_stats_reset(&frame_processor->stream_stats);
+	/* CHIAKI_NEW uses plain malloc (not calloc), so explicitly zero the monotonic
+	 * counters that chiaki_stream_stats_reset() intentionally leaves untouched. */
+	frame_processor->stream_stats.frames_total = 0;
+	frame_processor->stream_stats.bytes_total = 0;
 }
 
 CHIAKI_EXPORT void chiaki_frame_processor_fini(ChiakiFrameProcessor *frame_processor)
