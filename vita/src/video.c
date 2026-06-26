@@ -666,6 +666,11 @@ bool vita_video_render_latest_frame(void) {
         sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
                       vita2d_texture_get_datap(frame_texture), copy_size);
       }
+    } else {
+      /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
+      if (frozen_frame_streak > 0)
+        LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
+      frozen_frame_streak = 0;
     }
     return true;  // consumed the frame but skipped display
   }
