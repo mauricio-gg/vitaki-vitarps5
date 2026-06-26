@@ -57,6 +57,13 @@
 #define TAKION_POSTPONE_PACKETS_SIZE 32
 #define TAKION_RECV_BUF_SIZE 1500
 
+/* Max packets drained per wakeup after the blocking recv. Sized to absorb a
+ * full burst in one cycle (observed bursts saturated the previous cap of 64),
+ * cutting cross-wakeup serialization latency. Cheap since the drain path no
+ * longer allocates per packet (see Task 1). Bounded to cap worst-case loop
+ * time. */
+#define TAKION_RECV_DRAIN_MAX 256
+
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
 #ifdef __PSVITA__
@@ -1233,7 +1240,7 @@ static void *takion_thread_func(void *user)
 		{
 			int drain_count = 0;
 			int drain_i;
-			for(drain_i = 0; drain_i < 64; drain_i++)
+			for(drain_i = 0; drain_i < TAKION_RECV_DRAIN_MAX; drain_i++)
 			{
 				size_t drain_size = TAKION_RECV_BUF_SIZE;
 				drain_err = takion_recv(takion, recvbuf, &drain_size, 0);
