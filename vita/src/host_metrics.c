@@ -366,7 +366,7 @@ void host_metrics_update_latency(void) {
     LOGD(
         "Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms (base %u ms, jitter "
         "%llu us)",
-        target_mbps, bitrate_mbps, context.stream.measured_rtt_ms,
+        target_mbps, context.stream.windowed_bitrate_mbps, context.stream.measured_rtt_ms,
         (uint32_t)(context.stream.session.rtt_us / 1000),
         (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
     LOGD(
