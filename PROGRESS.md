@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-06-25 (Bitrate metrics formula & NET_UNSTABLE debounce merged PR #183, v0.1.783)
+Last Updated: 2026-06-26 (Bitrate metrics hardening & RWND experiment closure merged PR #193, v0.1.784)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -145,6 +145,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-06-26 | RWND experiment closure + metrics validation (PR #193, v0.1.784): A/B tested TAKION_A_RWND 512KB→256KB, found no latency benefit + 4× more freezes, reverted to 512KB (final). `vita/src/host_metrics.c` on-device validation confirms `windowed_bitrate_mbps` now prints honest bitrate every cycle (no more 0↔2 Mbps artifact). GH #188 (Wi-Fi/jitter-buffer bufferbloat) is the next domain focus. | @mauricio-gg |
 | 2026-06-25 | Bitrate metrics hardening shipped (PR #183, v0.1.783): windowed Mbps time-based formula (3-slot ring window, fixes ~100 Mbps spikes on buffer realloc), NET_UNSTABLE overlay debounce (500ms, prevents rapid redundant activation during recv bursts). GH issue #178 (lib-layer gen/reconnect_gen tagging) deferred to future spike work. | @mauricio-gg |
 | 2026-05-03 | PSN remote-play STUN DNS fix shipped (PR #158, v0.1.749) and header-hygiene followup PR submitted (v0.1.750): `vita_resolve_sin` / `vita_curl_add_resolve` forward-decl drift risk eliminated by splitting `vita_resolve.h` (curl-free) from `vita_dns.h` (curl-aware), wiring `vita/include/` as a PRIVATE chiaki-lib include dir for Vita, replacing hand-typed prototypes in `lib/src/remote/stun.h` and `holepunch.c` with real `#include` statements, and adding `<stdbool.h>` self-sufficiency + inet_ntop fallback logging. Root cause was getaddrinfo() EAI_NONAME regression in vitasdk libcurl 8.17 / GCC 15 toolchain rebuild (2026-05-02). | @mauricio-gg |
 | 2026-05-01 | Issue #122 text aliasing root cause fixed (PR #145) — vita2d font glyph atlas was sampled with POINT filtering, causing jaggy edges and baseline drift. Vendored libvita2d (`vita2d_font.c`, `texture_atlas.c`), patched to use LINEAR filter on atlas, reverted dee6831 per-glyph integer-snap workaround. Kerning restored via whole-string vita2d calls. Phase 2 (114 call-site migration) now unblocked. Build clean at v0.1.732. | @mauricio-gg |

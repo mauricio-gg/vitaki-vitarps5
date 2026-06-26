@@ -73,15 +73,27 @@
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
 #ifdef __PSVITA__
-#define TAKION_JITTER_MAX_THRESHOLD_US  100000 // 100ms: Vita WiFi jitter regularly exceeds 20ms;
-                                               // allow adaptive threshold to accommodate up to
-                                               // ~40ms measured jitter (2.5×40=100ms).
+#define TAKION_JITTER_MAX_THRESHOLD_US  40000  // 40ms: ~1.2 frame intervals at 30fps; on LAN
+                                               // real network jitter is sub-ms. The old 100ms
+                                               // was derived from "2.5×~40ms measured jitter"
+                                               // but that reading is inflated by synchronous
+                                               // HW decode (~55ms) blocking this thread; it is
+                                               // not real network jitter. A/B ladder rung 1:
+                                               // 100ms -> 40ms -> 33ms -> 25ms (stop when
+                                               // missing_ref/fec_fail/corrupt climb). Tracked
+                                               // under GH #188.
                                                // Only affects out-of-order packets; in-order
                                                // packets flow through with zero added latency.
 #else
 #define TAKION_JITTER_MAX_THRESHOLD_US  20000  // 20ms: wired/stable connections
 #endif
 #define TAKION_JITTER_LOG_INTERVAL_MS   5000   // Log jitter stats every 5 seconds
+
+/* Max head-gap force-skips per push when the reorder queue is full. One skip
+ * frees one slot — enough to admit the incoming packet. The cap absorbs a
+ * short run of consecutive missing head seq numbers without risking an
+ * unbounded loop. Far below the 256-slot queue. See takion_relieve_full_queue_head(). */
+#define TAKION_OVERFLOW_FORCE_SKIP_MAX 8
 
 #define TAKION_MESSAGE_HEADER_SIZE 0x10
 
@@ -1113,10 +1125,13 @@ static void *takion_thread_func(void *user)
 	ChiakiTakion *takion = user;
 
 #ifdef __PSVITA__
-	// Pin network recv thread to USER_1 at prio 64 so it does not compete
-	// with HW decode (USER_0) or audio (USER_2) for CPU time.
+	/* Pin network recv+decode thread to USER_0 at prio 64. H.264 decode
+	 * (sceAvcdecDecode) runs synchronously on this thread, so it belongs
+	 * on USER_0 alongside the decode work. USER_2 = audio. The one-time
+	 * re-pin in vita_h264_decode_frame() (video.c) is now redundant but
+	 * harmless. */
 	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
+	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 #endif
 
 	uint32_t seq_num_remote_initial;
@@ -1687,6 +1702,58 @@ CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
 	return takion_drop_data_queue_locked(takion);
 }
 
+/* Break a head-of-line deadlock in the reorder queue.
+ *
+ * With DROP_STRATEGY_END (the default), chiaki_reorder_queue_push() drops the
+ * NEW incoming packet when the queue is full (reorderqueue.c:117-118). This
+ * makes a missing head seq self-perpetuating: every subsequent packet is
+ * silently dropped, the age-based gap-skip in takion_flush_data_queue() never
+ * refreshes, and the queue stays pinned full indefinitely.
+ *
+ * Call this BEFORE chiaki_reorder_queue_push() when the queue is full to
+ * force-advance past the wedged head gap, making room for the new packet.
+ * Bounded by TAKION_OVERFLOW_FORCE_SKIP_MAX to prevent an unbounded loop.
+ * No-op when the queue is not full (the common case). */
+static void takion_relieve_full_queue_head(ChiakiTakion *takion)
+{
+	ChiakiReorderQueue *q = &takion->data_queue;
+	size_t cap = chiaki_reorder_queue_size(q);
+
+	if(chiaki_reorder_queue_count(q) < (uint64_t)cap)
+		return; /* not full — nothing to do */
+
+	unsigned forced = 0;
+	while(forced < TAKION_OVERFLOW_FORCE_SKIP_MAX
+		&& chiaki_reorder_queue_count(q) >= (uint64_t)cap)
+	{
+		uint64_t head_seq = 0;
+		void *head_user = NULL;
+		/* peek(index=0) returns true when the head slot IS set (a real
+		 * buffered packet). If the head is set we must not discard it —
+		 * the normal flush path will pull it. Break and let push proceed. */
+		if(chiaki_reorder_queue_peek(q, 0, &head_seq, &head_user))
+			break;
+
+		/* Head slot is empty (a gap). Force-skip it to make one slot free. */
+		uint64_t gap_seq = chiaki_reorder_queue_begin_seq(q);
+		chiaki_reorder_queue_skip_gap(q);
+		takion->jitter_stats.gaps_skipped++;
+		forced++;
+
+		if(takion->jitter_stats.last_skipped_seq_num != gap_seq)
+		{
+			takion->jitter_stats.last_skipped_seq_num = gap_seq;
+			CHIAKI_LOGW(takion->log,
+				"Takion force-skipping head gap at seq %#llx under queue overflow "
+				"(queue %llu/%llu, forced=%u)",
+				(unsigned long long)gap_seq,
+				(unsigned long long)chiaki_reorder_queue_count(q),
+				(unsigned long long)cap,
+				forced);
+		}
+	}
+}
+
 static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size, uint32_t *recv_malloc_calls)
 {
 	uint8_t *copy_buf;
@@ -1766,6 +1833,7 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 	}
 	takion->jitter_stats.last_packet_arrival_us = now_us;
 
+	takion_relieve_full_queue_head(takion); /* break head-of-line wedge before push */
 	chiaki_reorder_queue_push(&takion->data_queue, seq_num, entry);
 	takion_flush_data_queue(takion);
 }
