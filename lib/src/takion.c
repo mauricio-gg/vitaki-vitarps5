@@ -42,9 +42,15 @@
 // VERY similar to SCTP, see RFC 4960
 
 #ifdef __PSVITA__
-#define TAKION_A_RWND 0x80000  // 512KB — absorb burst packet loss on Vita
+/* 512KB advertised receive window. An on-device A/B (PR #193) tried halving this
+ * to 256KB to cut bufferbloat, but it delivered no jitter/rtt improvement and
+ * ~4x the freezes / 3-5x the missing-ref+FEC failures -- the smaller window left
+ * too little headroom to absorb Vita Wi-Fi burst loss. Reverted to 512KB.
+ * Bufferbloat is real but is not RWND-bound at this stream's bitrate; pursue it
+ * via the Wi-Fi/jitter-buffer domain instead (see GH #188). */
+#define TAKION_A_RWND 0x80000
 #else
-#define TAKION_A_RWND 0x19000  // 100KB — original for desktop platforms
+#define TAKION_A_RWND 0x19000  /* 100KB -- original for desktop platforms */
 #endif
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
