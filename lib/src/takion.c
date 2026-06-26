@@ -55,6 +55,14 @@
 #define TAKION_SEND_BUFFER_SIZE 16
 
 #define TAKION_POSTPONE_PACKETS_SIZE 32
+#define TAKION_RECV_BUF_SIZE 1500
+
+/* Max packets drained per wakeup after the blocking recv. Sized to absorb a
+ * full burst in one cycle (observed bursts saturated the previous cap of 64),
+ * cutting cross-wakeup serialization latency. Cheap since the drain path no
+ * longer allocates per packet (see Task 1). Bounded to cap worst-case loop
+ * time. */
+#define TAKION_RECV_DRAIN_MAX 256
 
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
@@ -189,10 +197,10 @@ typedef struct chiaki_takion_postponed_packet_t
 } ChiakiTakionPostponedPacket;
 
 static void *takion_thread_func(void *user);
-static void takion_handle_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size);
+static void takion_handle_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint32_t *recv_malloc_calls);
 static ChiakiErrorCode takion_handle_packet_mac(ChiakiTakion *takion, uint8_t base_type, uint8_t *buf, size_t buf_size);
-static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, size_t buf_size);
-static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size);
+static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint32_t *recv_malloc_calls);
+static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size, uint32_t *recv_malloc_calls);
 static void takion_handle_packet_message_data_ack(ChiakiTakion *takion, uint8_t flags, uint8_t *buf, size_t buf_size);
 static ChiakiErrorCode takion_parse_message(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, TakionMessage *msg);
 static void takion_write_message_header(uint8_t *buf, uint32_t tag, uint64_t key_pos, uint8_t chunk_type, uint8_t chunk_flags, size_t payload_data_size);
@@ -1137,7 +1145,9 @@ static void *takion_thread_func(void *user)
 	CHIAKI_LOGI(takion->log, "Takion receive queue size configured for %llu packets",
 			queue_slots);
 	uint64_t queue_usage_log_last_ms = 0;
-	/* PIPE/RECV_MALLOC_BURST: count mallocs on the recv thread per 5-second window */
+	/* PIPE/RECV_MALLOC_BURST: count retain-copy mallocs (postpone + reorder push) per 5s window.
+	 * Per-AV-packet recv mallocs have been eliminated; counter now only reflects
+	 * heap copies at the two retain sites. */
 	uint32_t recv_malloc_calls = 0;
 	uint64_t recv_malloc_report_ms = 0;
 
@@ -1160,6 +1170,9 @@ static void *takion_thread_func(void *user)
 	}
 
 	bool crypt_available = takion->gkcrypt_remote ? true : false;
+	uint8_t recvbuf[TAKION_RECV_BUF_SIZE];
+	ChiakiErrorCode err;
+	ChiakiErrorCode drain_err;
 
 	while(true)
 	{
@@ -1200,7 +1213,11 @@ static void *takion_thread_func(void *user)
 			for(size_t i=0; i<takion->postponed_packets_count; i++)
 			{
 				ChiakiTakionPostponedPacket *packet = &takion->postponed_packets[i];
-				takion_handle_packet(takion, packet->buf, packet->buf_size);
+				takion_handle_packet(takion, packet->buf, packet->buf_size, &recv_malloc_calls);
+				/* Free the heap copy made in takion_postpone_packet.
+				 * takion_handle_packet no longer owns or frees borrowed bufs. */
+				free(packet->buf);
+				packet->buf = NULL;
 			}
 			free(takion->postponed_packets);
 			takion->postponed_packets = NULL;
@@ -1208,20 +1225,13 @@ static void *takion_thread_func(void *user)
 			takion->postponed_packets_count = 0;
 		}
 
-		size_t received_size = 1500;
-		// Keep a fixed receive buffer per packet read to avoid realloc churn.
-		// Ownership is transferred to takion_handle_packet(), which frees it or
-		// moves it into the postpone queue when crypt is not ready yet.
-		uint8_t *buf = malloc(received_size);
-		if(!buf)
-			break;
-		ChiakiErrorCode err = takion_recv(takion, buf, &received_size, UINT64_MAX);
-		if(err != CHIAKI_ERR_SUCCESS)
 		{
-			free(buf);
-			break;
+			size_t received_size = TAKION_RECV_BUF_SIZE;
+			err = takion_recv(takion, recvbuf, &received_size, UINT64_MAX);
+			if(err != CHIAKI_ERR_SUCCESS)
+				break;
+			takion_handle_packet(takion, recvbuf, received_size, &recv_malloc_calls);
 		}
-		takion_handle_packet(takion, buf, received_size);
 
 		// Drain any additional buffered packets without blocking.
 		// After the first packet wakes us from the blocking select above,
@@ -1229,28 +1239,21 @@ static void *takion_thread_func(void *user)
 		// This reduces per-packet syscall overhead and keeps the socket buffer drained.
 		{
 			int drain_count = 0;
-			for(int drain_i = 0; drain_i < 64; drain_i++)
+			int drain_i;
+			for(drain_i = 0; drain_i < TAKION_RECV_DRAIN_MAX; drain_i++)
 			{
-				size_t drain_size = 1500;
-				uint8_t *drain_buf = malloc(drain_size);
-				if(!drain_buf)
-					break;
-				ChiakiErrorCode drain_err = takion_recv(takion, drain_buf, &drain_size, 0);
+				size_t drain_size = TAKION_RECV_BUF_SIZE;
+				drain_err = takion_recv(takion, recvbuf, &drain_size, 0);
 				if(drain_err != CHIAKI_ERR_SUCCESS)
-				{
-					free(drain_buf);
 					break;
-				}
-				takion_handle_packet(takion, drain_buf, drain_size);
+				takion_handle_packet(takion, recvbuf, drain_size, &recv_malloc_calls);
 				drain_count++;
 			}
-			// D3: Track drain batch statistics
+			/* D3: Track drain batch statistics */
 			takion->jitter_stats.drain_cycles++;
 			takion->jitter_stats.drain_total_count += drain_count;
 			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
 				takion->jitter_stats.drain_max_count = drain_count;
-			/* PIPE/RECV_MALLOC_BURST: +1 for the primary recv malloc, +drain_count for drain-loop mallocs */
-			recv_malloc_calls += 1u + (uint32_t)drain_count;
 		}
 		{
 			uint64_t rm_now = chiaki_time_now_monotonic_ms();
@@ -1392,8 +1395,11 @@ static ChiakiErrorCode takion_handle_packet_mac(ChiakiTakion *takion, uint8_t ba
 	return CHIAKI_ERR_SUCCESS;
 }
 
-static void takion_postpone_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size)
+static void takion_postpone_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint32_t *recv_malloc_calls)
 {
+	uint8_t *copy;
+	ChiakiTakionPostponedPacket *packet;
+
 	if(!takion->postponed_packets)
 	{
 		takion->postponed_packets = calloc(TAKION_POSTPONE_PACKETS_SIZE, sizeof(ChiakiTakionPostponedPacket));
@@ -1409,75 +1415,77 @@ static void takion_postpone_packet(ChiakiTakion *takion, uint8_t *buf, size_t bu
 		return;
 	}
 
+	/* Retain a private heap copy of the borrowed packet buffer so the caller's
+	 * stack buffer can be reused for the next recv immediately. */
+	copy = malloc(buf_size);
+	if(!copy)
+	{
+		CHIAKI_LOGE(takion->log, "Postpone: failed to alloc copy of size %#llx", (unsigned long long)buf_size);
+		return;
+	}
+	(*recv_malloc_calls)++;
+	memcpy(copy, buf, buf_size);
+
 	CHIAKI_LOGI(takion->log, "Postpone packet of size %#llx", (unsigned long long)buf_size);
-	ChiakiTakionPostponedPacket *packet = &takion->postponed_packets[takion->postponed_packets_count++];
-	packet->buf = buf;
+	packet = &takion->postponed_packets[takion->postponed_packets_count++];
+	packet->buf = copy;
 	packet->buf_size = buf_size;
 }
 
 /**
- * @param buf ownership of this buf is taken.
+ * @param buf borrowed; this function does NOT free it. Paths that retain
+ *            the buffer past this call make their own heap copy internally.
+ * @param recv_malloc_calls counter threaded from takion_thread_func; incremented
+ *        at each retain-copy malloc site so the caller can report churn.
  */
-static void takion_handle_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size)
+static void takion_handle_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint32_t *recv_malloc_calls)
 {
 	assert(buf_size > 0);
 	uint8_t base_type = (uint8_t)(buf[0] & TAKION_PACKET_BASE_TYPE_MASK);
 
 	if(takion_handle_packet_mac(takion, base_type, buf, buf_size) != CHIAKI_ERR_SUCCESS)
-	{
-		free(buf);
 		return;
-	}
 
 	switch(base_type)
 	{
 		case TAKION_PACKET_TYPE_CONTROL:
-			takion_handle_packet_message(takion, buf, buf_size);
+			takion_handle_packet_message(takion, buf, buf_size, recv_malloc_calls);
 			break;
 		case TAKION_PACKET_TYPE_VIDEO:
 		case TAKION_PACKET_TYPE_AUDIO:
 			if(takion->enable_crypt && !takion->gkcrypt_remote)
-				takion_postpone_packet(takion, buf, buf_size);
+				takion_postpone_packet(takion, buf, buf_size, recv_malloc_calls);
 			else
-			{
 				takion_handle_packet_av(takion, base_type, buf, buf_size);
-				free(buf);
-			}
 			break;
 		default:
 			CHIAKI_LOGW(takion->log, "Takion packet with unknown type %#x received", base_type);
 			chiaki_log_hexdump(takion->log, CHIAKI_LOG_WARNING, buf, buf_size);
-			free(buf);
 			break;
 	}
 }
 
 
-static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, size_t buf_size)
+static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint32_t *recv_malloc_calls)
 {
 	TakionMessage msg;
 	ChiakiErrorCode err = takion_parse_message(takion, buf+1, buf_size-1, &msg);
 	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		free(buf);
 		return;
-	}
 
-	// CHIAKI_LOGD(takion->log, "Takion received message with tag %#x, key pos %#x, type %#x, payload size %#x, payload:", msg.tag, msg.key_pos, msg.chunk_type, msg.payload_size);
-	// chiaki_log_hexdump(takion->log, CHIAKI_LOG_DEBUG, buf, buf_size);
+	/* CHIAKI_LOGD(takion->log, "Takion received message with tag %#x, key pos %#x, type %#x, payload size %#x, payload:", msg.tag, msg.key_pos, msg.chunk_type, msg.payload_size); */
+	/* chiaki_log_hexdump(takion->log, CHIAKI_LOG_DEBUG, buf, buf_size); */
 
 	switch(msg.chunk_type)
 	{
 		case TAKION_CHUNK_TYPE_DATA:
-			takion_handle_packet_message_data(takion, buf, buf_size, msg.chunk_flags, msg.payload, msg.payload_size);
+			takion_handle_packet_message_data(takion, buf, buf_size, msg.chunk_flags, msg.payload, msg.payload_size, recv_malloc_calls);
 			break;
 		case TAKION_CHUNK_TYPE_DATA_ACK:
 			takion_handle_packet_message_data_ack(takion, msg.chunk_flags, msg.payload, msg.payload_size);
-			free(buf);
 			break;
 		default:
 			CHIAKI_LOGW(takion->log, "Takion received message with unknown chunk type = %#x", msg.chunk_type);
-			free(buf);
 			break;
 	}
 }
@@ -1673,8 +1681,14 @@ CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
 	return takion_drop_data_queue_locked(takion);
 }
 
-static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size)
+static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size, uint32_t *recv_malloc_calls)
 {
+	uint8_t *copy_buf;
+	ptrdiff_t payload_offset;
+	TakionDataPacketEntry *entry;
+	ChiakiSeqNum32 seq_num;
+	uint64_t now_us;
+
 	if(type_b != 1)
 		CHIAKI_LOGW(takion->log, "Takion received data with type_b = %#x (was expecting %#x)", type_b, 1);
 
@@ -1684,20 +1698,31 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 		return;
 	}
 
-	TakionDataPacketEntry *entry = malloc(sizeof(TakionDataPacketEntry));
+	entry = malloc(sizeof(TakionDataPacketEntry));
 	if(!entry)
 		return;
 
-	entry->type_b = type_b;
-	entry->packet_buf = packet_buf;
-	entry->packet_size = packet_buf_size;
-	entry->payload = payload;
+	/* Retain a private heap copy so the caller's stack recv buffer can be
+	 * reused immediately. Rebase payload into the copy. */
+	copy_buf = malloc(packet_buf_size);
+	if(!copy_buf)
+	{
+		free(entry);
+		return;
+	}
+	(*recv_malloc_calls)++;
+	memcpy(copy_buf, packet_buf, packet_buf_size);
+	payload_offset = (ptrdiff_t)(payload - packet_buf);
+	entry->type_b       = type_b;
+	entry->packet_buf   = copy_buf;
+	entry->packet_size  = packet_buf_size;
+	entry->payload      = copy_buf + payload_offset;
 	entry->payload_size = payload_size;
 	entry->channel = ntohs(*((chiaki_unaligned_uint16_t *)(payload + 4)));
-	ChiakiSeqNum32 seq_num = ntohl(*((chiaki_unaligned_uint32_t *)(payload + 0)));
+	seq_num = ntohl(*((chiaki_unaligned_uint32_t *)(payload + 0)));
 
 	// Capture arrival time and update jitter estimate using EWMA
-	uint64_t now_us = chiaki_time_now_monotonic_us();
+	now_us = chiaki_time_now_monotonic_us();
 	entry->arrival_time_us = now_us;
 
 	if(takion->jitter_stats.last_packet_arrival_us != 0)
