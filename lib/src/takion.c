@@ -73,9 +73,15 @@
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
 #ifdef __PSVITA__
-#define TAKION_JITTER_MAX_THRESHOLD_US  100000 // 100ms: Vita WiFi jitter regularly exceeds 20ms;
-                                               // allow adaptive threshold to accommodate up to
-                                               // ~40ms measured jitter (2.5×40=100ms).
+#define TAKION_JITTER_MAX_THRESHOLD_US  40000  // 40ms: ~1.2 frame intervals at 30fps; on LAN
+                                               // real network jitter is sub-ms. The old 100ms
+                                               // was derived from "2.5×~40ms measured jitter"
+                                               // but that reading is inflated by synchronous
+                                               // HW decode (~55ms) blocking this thread; it is
+                                               // not real network jitter. A/B ladder rung 1:
+                                               // 100ms -> 40ms -> 33ms -> 25ms (stop when
+                                               // missing_ref/fec_fail/corrupt climb). Tracked
+                                               // under GH #188.
                                                // Only affects out-of-order packets; in-order
                                                // packets flow through with zero added latency.
 #else
@@ -1113,10 +1119,13 @@ static void *takion_thread_func(void *user)
 	ChiakiTakion *takion = user;
 
 #ifdef __PSVITA__
-	// Pin network recv thread to USER_1 at prio 64 so it does not compete
-	// with HW decode (USER_0) or audio (USER_2) for CPU time.
+	/* Pin network recv+decode thread to USER_0 at prio 64. H.264 decode
+	 * (sceAvcdecDecode) runs synchronously on this thread, so it belongs
+	 * on USER_0 alongside the decode work. USER_2 = audio. The one-time
+	 * re-pin in vita_h264_decode_frame() (video.c) is now redundant but
+	 * harmless. */
 	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
+	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 #endif
 
 	uint32_t seq_num_remote_initial;

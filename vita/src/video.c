@@ -554,6 +554,9 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   }
 
   chiaki_mutex_lock(&mtx);
+  /* NOTE: takion.c now pins this thread to USER_0/prio-64 at startup, so
+   * the priority + affinity set below is redundant. Kept as a safety net
+   * in case the decode work is ever moved to its own thread. */
   if (!threadSetupComplete) {
     sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
     sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
