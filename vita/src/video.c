@@ -107,6 +107,16 @@ typedef struct {
 
 static image_scaling_settings image_scaling = {0};
 
+/* Snapshot the current decoded frame as the last-good frame. Runs on the UI
+ * thread only — keeps the ~2 MB copy off the Takion receive/decode hot path. */
+static void snapshot_last_good_frame(void) {
+  if (last_good_texture == NULL)
+    return;
+  uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
+  sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
+                vita2d_texture_get_datap(frame_texture), copy_size);
+}
+
 static void record_incoming_frame_sample(void) {
   uint64_t now_us = sceKernelGetSystemTimeWide();
   if (context.stream.fps_window_start_us == 0)
@@ -584,19 +594,12 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   // from the Takion network receive path and eliminates ~15-20ms of blocking.
   if (active_video_thread) {
     record_incoming_frame_sample();
-    /* Atomically tie the corruption flag and the clean-frame snapshot to
-     * this decoded frame, while we still hold the mutex. This prevents the
-     * flag from mismatching the pixels under frame-overwrite scenarios.
-     * The snapshot copy runs here on the Takion thread; the GPU timing
-     * invariant (decode ~55ms >> render ~15ms with wait_rendering_done)
-     * ensures last_good_texture is not being read by the GPU. */
+    /* Atomically tie the corruption flag to this decoded frame while we still
+     * hold the mutex. This prevents the flag from mismatching the pixels under
+     * frame-overwrite scenarios. The last-good snapshot (the expensive ~2 MB
+     * memcpy) is now taken on the UI thread in vita_video_render_latest_frame()
+     * so the Takion receive thread is never stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
-    if (!frame_corrupt && last_good_texture != NULL) {
-      uint32_t copy_size =
-          image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
-      sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
-                    vita2d_texture_get_datap(frame_texture), copy_size);
-    }
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
       context.stream.frame_overwrite_count++;
@@ -660,12 +663,7 @@ bool vita_video_render_latest_frame(void) {
         LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
       }
       frozen_frame_streak = 0;
-      if (last_good_texture != NULL) {
-        uint32_t copy_size =
-            image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
-        sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
-                      vita2d_texture_get_datap(frame_texture), copy_size);
-      }
+      snapshot_last_good_frame();
     } else {
       /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
       if (frozen_frame_streak > 0)
@@ -682,9 +680,9 @@ bool vita_video_render_latest_frame(void) {
    * frame instead. At the cap, fall through to present whatever decoded — this
    * guarantees the picture always resumes even under sustained loss.
    *
-   * The corruption flag and the last-good snapshot are both updated under mtx
-   * inside vita_h264_decode_frame(), so they are always consistent with the
-   * pixels in frame_texture when we read them here. */
+   * The corruption flag is updated under mtx inside vita_h264_decode_frame(),
+   * so it is always consistent with the pixels in frame_texture when we read
+   * it here. The last-good snapshot is taken below on this thread. */
   bool corrupt = incoming_frame_corrupt;
   vita2d_texture *present_texture = frame_texture;
 
@@ -695,12 +693,14 @@ bool vita_video_render_latest_frame(void) {
       LOGD("PIPE/FREEZE engaged streak=%d", frozen_frame_streak);
     present_texture = last_good_texture;
   } else if (!corrupt) {
-    /* Clean frame — snapshot was already taken under mutex in vita_h264_decode_frame(). */
+    /* Clean frame — take the last-good snapshot here on the UI thread so the
+     * Takion receive/decode thread is never stalled by the ~2 MB copy. */
     if (frozen_frame_streak > 0) {
       LOGD("PIPE/FREEZE cleared streak=%d", frozen_frame_streak);
       frozen_frame_streak = 0;
     }
     present_texture = frame_texture;
+    snapshot_last_good_frame();
   } else {
     /* corrupt && (last_good_texture == NULL || streak >= FREEZE_MAX_STREAK) */
     if (frozen_frame_streak >= FREEZE_MAX_STREAK)
