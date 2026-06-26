@@ -79,8 +79,8 @@ static volatile bool frame_ready_for_display = false;
  * freed in video_cleanup_framebuffer(), NULL until first clean frame arrives. */
 static vita2d_texture *last_good_texture = NULL;
 
-/* Set by vita_video_set_frame_quality() on the Takion thread before each decode.
- * Read by vita_video_render_latest_frame() on the UI thread.
+/* Set inside vita_h264_decode_frame() on the Takion thread, under the decode mutex,
+ * after a successful decode. Read by vita_video_render_latest_frame() on the UI thread.
  * Single-writer/single-reader on Vita Cortex-A9 — volatile is sufficient. */
 static volatile bool incoming_frame_corrupt = false;
 
