@@ -222,13 +222,15 @@ void host_metrics_update_latency(void) {
 
   // D4: Windowed bitrate — 3-element ring buffer, time-based rate (not fps/frames).
   // Uses elapsed wall-clock µs per window so frame-bunching and byte-counter lags
-  // do not inflate the estimate. Byte-counter reset detection prevents uint64
-  // underflow from poisoning the ring (stats->bytes can reset after realloc).
+  // do not inflate the estimate. Reads monotonic _total counters (never zeroed by
+  // chiaki_stream_stats_reset) to survive per-second CONNECTIONQUALITY resets that
+  // would otherwise trigger the reset-detection branch and stall the ring.
   {
-    uint64_t total_bytes = stats->bytes;
-    uint64_t total_frames = stats->frames;
+    uint64_t total_bytes = stats->bytes_total;
+    uint64_t total_frames = stats->frames_total;
 
-    // Detect byte-counter reset (e.g. frame-processor realloc zeroes stats->bytes).
+    // Detect counter regression (e.g. new frame_processor on reconnect restarts
+    // bytes_total at 0 while bitrate_prev_bytes still holds the old high value).
     // When the counter goes backwards, discard this interval and re-anchor.
     bool byte_counter_reset = (total_bytes < context.stream.bitrate_prev_bytes);
     if (byte_counter_reset) {

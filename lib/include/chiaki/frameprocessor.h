@@ -18,6 +18,11 @@ typedef struct chiaki_stream_stats_t
 {
 	uint64_t frames;
 	uint64_t bytes;
+	/* Monotonic counters — incremented by chiaki_stream_stats_frame() but
+	 * never zeroed by chiaki_stream_stats_reset(). Used by the Vita host_metrics
+	 * windowed-bitrate ring to survive per-second CONNECTIONQUALITY resets. */
+	uint64_t frames_total;
+	uint64_t bytes_total;
 } ChiakiStreamStats;
 
 CHIAKI_EXPORT void chiaki_stream_stats_reset(ChiakiStreamStats *stats);
