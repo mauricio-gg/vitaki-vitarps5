@@ -83,6 +83,13 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
   if (context.stream.reconnect_overlay_active)
     context.stream.reconnect_overlay_active = false;
+
+  /* Signal frame quality before decode so the UI thread can decide whether to
+   * freeze on the last good snapshot. Decode always runs unconditionally to
+   * keep the HW decoder's DPB reference chain in sync. */
+  bool frame_corrupt = (frames_lost > 0) || frame_recovered;
+  vita_video_set_frame_quality(frame_corrupt);
+
   int err = vita_h264_decode_frame(buf, buf_size);
   if (err != 0) {
     LOGE("Error during video decode: %d", err);

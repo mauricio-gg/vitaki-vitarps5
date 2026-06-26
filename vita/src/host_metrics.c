@@ -355,8 +355,8 @@ void host_metrics_update_latency(void) {
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
-        "windowed_mbps=%.2f overwrites=%u rssi=%d display_fps=%u stuck_streak=%u stuck_used=%d "
-        "cascade_streak=%u cascade_used=%d",
+        "windowed_mbps=%.2f overwrites=%u freeze=%u rssi=%d display_fps=%u stuck_streak=%u "
+        "stuck_used=%d cascade_streak=%u cascade_used=%d",
         context.stream.session_generation, context.stream.reconnect_generation, incoming_fps,
         effective_target_fps, context.stream.fps_under_target_windows,
         context.stream.post_reconnect_low_fps_windows,
@@ -367,7 +367,7 @@ void host_metrics_update_latency(void) {
             : 0ULL,
         context.stream.decode_avg_us / 1000.0f, context.stream.decode_max_us / 1000.0f,
         context.stream.windowed_bitrate_mbps, context.stream.frame_overwrite_count,
-        context.stream.wifi_rssi, context.stream.display_fps,
+        context.stream.freeze_engaged_count, context.stream.wifi_rssi, context.stream.display_fps,
         context.stream.stuck_bitrate_low_fps_streak, (int)context.stream.stuck_bitrate_restart_used,
         context.stream.cascade_alarm_streak, (int)context.stream.cascade_alarm_restart_used);
     last_log_us = now_us;
