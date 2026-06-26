@@ -42,9 +42,15 @@
 // VERY similar to SCTP, see RFC 4960
 
 #ifdef __PSVITA__
-#define TAKION_A_RWND 0x80000  // 512KB — absorb burst packet loss on Vita
+/* 256KB advertised receive window. The original 512KB gave ~1-4s of in-flight
+ * buffering at this stream's 1-5 Mbps, which let the PS5 run far ahead and
+ * queue data — seen as 43-96ms arrival jitter and a 0-191ms PS5-side rtt swing.
+ * Halving it caps in-flight bytes sooner to cut that bufferbloat, while still
+ * leaving 2.5x the desktop window to absorb Vita burst loss. On-device A/B value
+ * — revisit (192KB/128KB) only if jitter stays high without a loss regression. */
+#define TAKION_A_RWND 0x40000
 #else
-#define TAKION_A_RWND 0x19000  // 100KB — original for desktop platforms
+#define TAKION_A_RWND 0x19000  /* 100KB — original for desktop platforms */
 #endif
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
