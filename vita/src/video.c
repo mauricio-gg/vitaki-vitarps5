@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-static void draw_streaming(vita2d_texture *frame_texture);
+static void draw_streaming(vita2d_texture *tex);
 
 enum {
   VITA_VIDEO_INIT_OK = 0,
@@ -112,7 +112,7 @@ static image_scaling_settings image_scaling = {0};
 static void snapshot_last_good_frame(void) {
   if (last_good_texture == NULL)
     return;
-  uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
+  uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(frame_texture);
   sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
                 vita2d_texture_get_datap(frame_texture), copy_size);
 }
@@ -612,7 +612,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   return 0;
 }
 
-static void draw_streaming(vita2d_texture *frame_texture) {
+static void draw_streaming(vita2d_texture *tex) {
   // ui is still rendering in the background, clear the screen first
   vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RGBA8(0, 0, 0, 255));
 
@@ -632,14 +632,13 @@ static void draw_streaming(vita2d_texture *frame_texture) {
     // Fill Screen: scale active decoded source region to full display
     float scale_x = (float)SCREEN_WIDTH / src_w;
     float scale_y = (float)SCREEN_HEIGHT / src_h;
-    vita2d_draw_texture_part_scale(frame_texture, 0.0f, 0.0f, 0.0f, 0.0f, src_w, src_h, scale_x,
-                                   scale_y);
+    vita2d_draw_texture_part_scale(tex, 0.0f, 0.0f, 0.0f, 0.0f, src_w, src_h, scale_x, scale_y);
   } else {
     // Aspect-preserving: draw active source region centered with computed scale
     float scale_x = image_scaling.region_x2 / src_w;
     float scale_y = image_scaling.region_y2 / src_h;
-    vita2d_draw_texture_part_scale(frame_texture, image_scaling.origin_x, image_scaling.origin_y,
-                                   0.0f, 0.0f, src_w, src_h, scale_x, scale_y);
+    vita2d_draw_texture_part_scale(tex, image_scaling.origin_x, image_scaling.origin_y, 0.0f, 0.0f,
+                                   src_w, src_h, scale_x, scale_y);
   }
 }
 
