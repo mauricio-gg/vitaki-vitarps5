@@ -35,6 +35,15 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - Files modified: `vita/src/video_overlay.c`, `vita/include/stream_state.h`
   - Shipped together with Fix #181 in PR #183 (v0.1.783)
 
+- [x] **Bitrate Metrics Hardening & TAKION_A_RWND Experiment Closure (Fix #181 & #182 + RWND A/B, PR #193)**
+  - Verified `windowed_bitrate_mbps` calculation (time-based 3-slot ring) printing correct honest bitrate in metrics log
+  - On-device validation: measured bitrate now matches windowed_mbps= every cycle (fixes previous 0↔2 Mbps seesawing artifact from frame-count method)
+  - A/B tested TAKION_A_RWND reduction: 512KB→256KB, found no latency benefit + 4× more freezes, reverted
+  - `lib/src/takion.c` net diff = zero; value remains `0x80000` (512KB final)
+  - Bufferbloat investigation concluded; future work tracked under GH #188 (Wi-Fi/jitter-buffer domain)
+  - Files modified: (no net changes to source; experimentation validated)
+  - Merged to main in PR #193 (v0.1.784)
+
 ### Deferred Work
 - GH issue #178 (lib-layer gen/reconnect_gen tagging for PIPE/ logs) — moved to backlog after #183; spike Chiaki generation tracking first
 
