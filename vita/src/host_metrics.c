@@ -12,6 +12,11 @@
 #define AV_DIAG_LOG_INTERVAL_US (5 * 1000 * 1000ULL)
 #define AV_DIAG_STALE_SNAPSHOT_WARN_STREAK 5
 
+/* Windowed-bitrate ring: accumulate at least this much wall-clock before
+ * closing a window; discard windows longer than the max (post-stall gaps). */
+#define BITRATE_WINDOW_MIN_US 100000ULL  /* 100 ms */
+#define BITRATE_WINDOW_MAX_US 2000000ULL /* 2 s */
+
 void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
@@ -226,6 +231,9 @@ void host_metrics_update_latency(void) {
   // do not inflate the estimate. Reads monotonic _total counters (never zeroed by
   // chiaki_stream_stats_reset) to survive per-second CONNECTIONQUALITY resets that
   // would otherwise trigger the reset-detection branch and stall the ring.
+  // The prev_* pointers advance only when a window closes (>= BITRATE_WINDOW_MIN_US),
+  // not on every call. Re-anchoring every call (the old behaviour) reset elapsed_us
+  // to ~one UI frame so the gate was never reached and windowed_mbps stayed 0.00.
   {
     uint64_t total_bytes = stats->bytes_total;
     uint64_t total_frames = stats->frames_total;
@@ -239,46 +247,54 @@ void host_metrics_update_latency(void) {
       context.stream.bitrate_prev_frames = total_frames;
       context.stream.bitrate_prev_update_us = now_us;
       // Do not push to ring — treat as a gap.
-    } else {
-      uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
-      uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
-      uint64_t elapsed_us = (context.stream.bitrate_prev_update_us > 0)
-                                ? (now_us - context.stream.bitrate_prev_update_us)
-                                : 0;
-
-      // Advance prev pointers unconditionally so they never stale when frames
-      // resume — this must remain outside the delta_frames guard below.
+    } else if (context.stream.bitrate_prev_update_us == 0) {
+      /* First observation — anchor without pushing so elapsed accumulates
+       * from a real timestamp on subsequent calls. */
       context.stream.bitrate_prev_bytes = total_bytes;
       context.stream.bitrate_prev_frames = total_frames;
       context.stream.bitrate_prev_update_us = now_us;
+    } else {
+      uint64_t delta_bytes = total_bytes - context.stream.bitrate_prev_bytes;
+      uint32_t delta_frames = (uint32_t)(total_frames - context.stream.bitrate_prev_frames);
+      uint64_t elapsed_us = now_us - context.stream.bitrate_prev_update_us;
 
-      // Skip the window push when no new frames were decoded this interval or
-      // elapsed time is implausibly short (< 100ms, e.g. first call).
-      if (delta_frames > 0 && elapsed_us >= 100000ULL) {
-        uint8_t idx = context.stream.bitrate_window_index;
-        context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
-        context.stream.bitrate_window_elapsed_us[idx] = elapsed_us;
-        context.stream.bitrate_window_index = (idx + 1) % 3;
-        if (context.stream.bitrate_window_filled < 3)
-          context.stream.bitrate_window_filled++;
+      /* Accumulate wall-clock ACROSS calls until a full window (>= MIN_US) has
+       * elapsed, then push one window and re-anchor. Re-anchoring on every call
+       * (the previous behaviour) reset elapsed_us to ~one UI frame each time so
+       * it never reached the threshold — windowed_mbps stayed 0.00. We only
+       * re-anchor when a window closes; until then prev_* stay put. */
+      if (delta_frames > 0 && elapsed_us >= BITRATE_WINDOW_MIN_US) {
+        if (elapsed_us <= BITRATE_WINDOW_MAX_US) {
+          uint8_t idx = context.stream.bitrate_window_index;
+          context.stream.bitrate_window_delta_bytes[idx] = delta_bytes;
+          context.stream.bitrate_window_elapsed_us[idx] = elapsed_us;
+          context.stream.bitrate_window_index = (idx + 1) % 3;
+          if (context.stream.bitrate_window_filled < 3)
+            context.stream.bitrate_window_filled++;
 
-        if (context.stream.bitrate_window_filled >= 2) {
-          uint64_t sum_bytes = 0;
-          uint64_t sum_elapsed_us = 0;
-          for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
-            sum_bytes += context.stream.bitrate_window_delta_bytes[i];
-            sum_elapsed_us += context.stream.bitrate_window_elapsed_us[i];
-          }
-          if (sum_elapsed_us > 0) {
-            // bps = bytes * 8 bits * 1e6 µs/s / elapsed_µs
-            float window_mbps =
-                ((float)sum_bytes * 8.0f) / ((float)sum_elapsed_us / 1000000.0f) / 1000000.0f;
-            if (window_mbps > 100.0f)
-              window_mbps = 100.0f;  // sanity clamp: Vita Wi-Fi ceiling
-            context.stream.windowed_bitrate_mbps = window_mbps;
+          if (context.stream.bitrate_window_filled >= 2) {
+            uint64_t sum_bytes = 0;
+            uint64_t sum_elapsed_us = 0;
+            for (uint8_t i = 0; i < context.stream.bitrate_window_filled; i++) {
+              sum_bytes += context.stream.bitrate_window_delta_bytes[i];
+              sum_elapsed_us += context.stream.bitrate_window_elapsed_us[i];
+            }
+            if (sum_elapsed_us > 0) {
+              float window_mbps =
+                  ((float)sum_bytes * 8.0f) / ((float)sum_elapsed_us / 1000000.0f) / 1000000.0f;
+              if (window_mbps > 100.0f)
+                window_mbps = 100.0f; /* sanity clamp: Vita Wi-Fi ceiling */
+              context.stream.windowed_bitrate_mbps = window_mbps;
+            }
           }
         }
+        /* Re-anchor on every closed window (pushed OR discarded as too-long). */
+        context.stream.bitrate_prev_bytes = total_bytes;
+        context.stream.bitrate_prev_frames = total_frames;
+        context.stream.bitrate_prev_update_us = now_us;
       }
+      /* delta_frames == 0 or window still < MIN_US: keep accumulating, do NOT
+       * advance prev_* — that is the whole point of the fix. */
     }
   }
 
