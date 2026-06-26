@@ -89,6 +89,12 @@
 #endif
 #define TAKION_JITTER_LOG_INTERVAL_MS   5000   // Log jitter stats every 5 seconds
 
+/* Max head-gap force-skips per push when the reorder queue is full. One skip
+ * frees one slot — enough to admit the incoming packet. The cap absorbs a
+ * short run of consecutive missing head seq numbers without risking an
+ * unbounded loop. Far below the 256-slot queue. See takion_relieve_full_queue_head(). */
+#define TAKION_OVERFLOW_FORCE_SKIP_MAX 8
+
 #define TAKION_MESSAGE_HEADER_SIZE 0x10
 
 #define TAKION_PACKET_BASE_TYPE_MASK 0xf
@@ -1696,6 +1702,58 @@ CHIAKI_EXPORT uint32_t chiaki_takion_drop_data_queue(ChiakiTakion *takion)
 	return takion_drop_data_queue_locked(takion);
 }
 
+/* Break a head-of-line deadlock in the reorder queue.
+ *
+ * With DROP_STRATEGY_END (the default), chiaki_reorder_queue_push() drops the
+ * NEW incoming packet when the queue is full (reorderqueue.c:117-118). This
+ * makes a missing head seq self-perpetuating: every subsequent packet is
+ * silently dropped, the age-based gap-skip in takion_flush_data_queue() never
+ * refreshes, and the queue stays pinned full indefinitely.
+ *
+ * Call this BEFORE chiaki_reorder_queue_push() when the queue is full to
+ * force-advance past the wedged head gap, making room for the new packet.
+ * Bounded by TAKION_OVERFLOW_FORCE_SKIP_MAX to prevent an unbounded loop.
+ * No-op when the queue is not full (the common case). */
+static void takion_relieve_full_queue_head(ChiakiTakion *takion)
+{
+	ChiakiReorderQueue *q = &takion->data_queue;
+	size_t cap = chiaki_reorder_queue_size(q);
+
+	if(chiaki_reorder_queue_count(q) < (uint64_t)cap)
+		return; /* not full — nothing to do */
+
+	unsigned forced = 0;
+	while(forced < TAKION_OVERFLOW_FORCE_SKIP_MAX
+		&& chiaki_reorder_queue_count(q) >= (uint64_t)cap)
+	{
+		uint64_t head_seq = 0;
+		void *head_user = NULL;
+		/* peek(index=0) returns true when the head slot IS set (a real
+		 * buffered packet). If the head is set we must not discard it —
+		 * the normal flush path will pull it. Break and let push proceed. */
+		if(chiaki_reorder_queue_peek(q, 0, &head_seq, &head_user))
+			break;
+
+		/* Head slot is empty (a gap). Force-skip it to make one slot free. */
+		uint64_t gap_seq = chiaki_reorder_queue_begin_seq(q);
+		chiaki_reorder_queue_skip_gap(q);
+		takion->jitter_stats.gaps_skipped++;
+		forced++;
+
+		if(takion->jitter_stats.last_skipped_seq_num != gap_seq)
+		{
+			takion->jitter_stats.last_skipped_seq_num = gap_seq;
+			CHIAKI_LOGW(takion->log,
+				"Takion force-skipping head gap at seq %#llx under queue overflow "
+				"(queue %llu/%llu, forced=%u)",
+				(unsigned long long)gap_seq,
+				(unsigned long long)chiaki_reorder_queue_count(q),
+				(unsigned long long)cap,
+				forced);
+		}
+	}
+}
+
 static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *packet_buf, size_t packet_buf_size, uint8_t type_b, uint8_t *payload, size_t payload_size, uint32_t *recv_malloc_calls)
 {
 	uint8_t *copy_buf;
@@ -1775,6 +1833,7 @@ static void takion_handle_packet_message_data(ChiakiTakion *takion, uint8_t *pac
 	}
 	takion->jitter_stats.last_packet_arrival_us = now_us;
 
+	takion_relieve_full_queue_head(takion); /* break head-of-line wedge before push */
 	chiaki_reorder_queue_push(&takion->data_queue, seq_num, entry);
 	takion_flush_data_queue(takion);
 }
