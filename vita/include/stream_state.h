@@ -22,11 +22,14 @@ typedef struct vita_chiaki_stream_t {
   bool stop_requested;
   bool stop_requested_by_user;
   bool teardown_in_progress;
-  volatile bool session_finalize_pending;  // Set by session thread (event_cb), consumed by UI
-                                           // thread for deferred join+fini
-  uint32_t negotiated_fps;                 // max_fps requested from the console
-  uint32_t target_fps;                     // local clamp target (prep for pacer)
-  uint32_t measured_incoming_fps;          // latest measured incoming fps window
+  volatile bool session_finalize_pending;   // Set by session thread (event_cb), consumed by UI
+                                            // thread for deferred join+fini
+  uint32_t negotiated_fps;                  // max_fps requested from the console
+  uint32_t target_fps;                      // local clamp target (prep for pacer)
+  uint32_t measured_incoming_fps;           // latest measured incoming fps window
+  volatile uint64_t last_decoded_frame_us;  // ProcessTimeWide of most recent decoded frame
+                                            // (decode thread writes, UI thread reads)
+  bool watchdog_reconnect_requested;        // Set by freeze watchdog, consumed by QUIT handler
   uint32_t session_generation;    // increments for each successfully initialized stream session
   uint32_t reconnect_generation;  // non-zero when this session is a reconnect/re-entry
   bool reset_reconnect_gen;       // next session should start as fresh (gen 0)

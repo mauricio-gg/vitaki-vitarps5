@@ -119,6 +119,7 @@ static void snapshot_last_good_frame(void) {
 
 static void record_incoming_frame_sample(void) {
   uint64_t now_us = sceKernelGetSystemTimeWide();
+  context.stream.last_decoded_frame_us = sceKernelGetProcessTimeWide();
   if (context.stream.fps_window_start_us == 0)
     context.stream.fps_window_start_us = now_us;
 

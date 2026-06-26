@@ -52,6 +52,8 @@ void host_handle_quit_event(ChiakiEvent *event) {
   uint32_t retry_holdoff_ms = context.stream.retry_holdoff_ms;
   uint64_t retry_holdoff_until = context.stream.retry_holdoff_until_us;
   bool retry_holdoff_active = context.stream.retry_holdoff_active;
+  bool watchdog_reconnect = context.stream.watchdog_reconnect_requested;
+  uint32_t prev_auto_reconnect_count = context.stream.auto_reconnect_count;
   if (retry_pending && !context.active_host)
     retry_pending = false;
   host_shutdown_media_pipeline();
@@ -254,6 +256,45 @@ void host_handle_quit_event(ChiakiEvent *event) {
     }
   } else if (restart_failed && !retry_allowed_reason) {
     LOGD("Skipping hard fallback retry for quit reason %d (%s)", event->quit.reason, reason_label);
+  } else if (!user_stop_requested && watchdog_reconnect && context.active_host) {
+    /* Freeze watchdog reconnect: stream was dead (no frames) — restart
+     * cleanly. Reuse the same connect-info and host, incrementing
+     * reconnect_gen so logs show this was an automatic recovery. */
+    uint32_t new_reconnect_count = prev_auto_reconnect_count < UINT32_MAX
+                                       ? prev_auto_reconnect_count + 1
+                                       : prev_auto_reconnect_count;
+    LOGD("Watchdog reconnect: restarting after stream freeze (auto_reconnect=%u)",
+         new_reconnect_count);
+    context.stream.watchdog_reconnect_requested = false;
+    /* Suppress the disconnect banner — we are reconnecting, not dropping. */
+    context.stream.disconnect_banner_until_us = 0;
+    context.stream.disconnect_reason[0] = '\0';
+    context.stream.auto_reconnect_count = new_reconnect_count;
+    context.stream.reconnect_overlay_active = true;
+    context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+    /* Honour the standard 3-second stream-retry cooldown. */
+    uint64_t now_wr = sceKernelGetProcessTimeWide();
+    uint64_t desired_wr =
+        context.stream.next_stream_allowed_us ? context.stream.next_stream_allowed_us : now_wr;
+    if (desired_wr < now_wr)
+      desired_wr = now_wr;
+    if (desired_wr > now_wr)
+      sceKernelDelayThread((unsigned int)(desired_wr - now_wr));
+    int wdg_result = host_stream(context.active_host);
+    if (wdg_result != 0) {
+      LOGE("Watchdog reconnect: host_stream failed (%d)", wdg_result);
+      context.stream.reconnect_overlay_active = false;
+      context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
+      context.stream.restart_failure_active = true;
+      /* Deferred finalization — UI thread joins + fini. */
+      context.stream.input_thread_should_exit = true;
+      chiaki_mutex_lock(&context.stream.finalization_mutex);
+      context.stream.session_init = false;
+      chiaki_mutex_unlock(&context.stream.finalization_mutex);
+      context.stream.session_finalize_pending = true;
+    } else {
+      context.stream.reconnect_overlay_active = false;
+    }
   }
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;

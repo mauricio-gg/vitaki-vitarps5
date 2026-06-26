@@ -410,6 +410,8 @@ int host_stream(VitaChiakiHost *host) {
   vita_h264_start();
 
   context.stream.session_start_us = sceKernelGetProcessTimeWide();
+  context.stream.last_decoded_frame_us = sceKernelGetProcessTimeWide();
+  context.stream.watchdog_reconnect_requested = false;
   context.stream.first_decode_frame_count = 0;
   context.stream.video_first_frame_logged = false;
   LOGD("PIPE/STREAM_START path=%s bitrate_kbps=%u res=%ux%u fps=%u", psn_remote ? "psn" : "lan",

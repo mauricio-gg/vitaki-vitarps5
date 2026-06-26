@@ -17,6 +17,11 @@
 #define BITRATE_WINDOW_MIN_US 100000ULL  /* 100 ms */
 #define BITRATE_WINDOW_MAX_US 2000000ULL /* 2 s */
 
+/* No decoded frame for this long while streaming → frozen (dead socket /
+ * suspend-resume). Trigger a clean reconnect. LAN-tuned: long enough to ride
+ * out a brief decode hiccup, short enough to recover fast. */
+#define STREAM_FREEZE_WATCHDOG_TIMEOUT_US (2500 * 1000ULL)
+
 void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
@@ -154,6 +159,8 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.auto_reconnect_count = 0;
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
+  context.stream.last_decoded_frame_us = 0;
+  context.stream.watchdog_reconnect_requested = false;
   vitavideo_hide_poor_net_indicator();
 }
 
@@ -354,6 +361,25 @@ void host_metrics_update_latency(void) {
     host_recovery_handle_post_reconnect_degraded_mode(av_diag_progressed, incoming_fps,
                                                       effective_target_fps, low_fps_window, now_us);
     // Keep diagnostics passive here; stability path avoids restart escalation.
+
+    /* Freeze watchdog: no decoded frame for STREAM_FREEZE_WATCHDOG_TIMEOUT_US while
+     * streaming → socket is dead (suspend/resume). Trigger a full session reconnect.
+     * Do NOT set stop_requested here — that makes user_stop_requested=true in the
+     * QUIT handler, which suppresses the reconnect path. Instead set only
+     * watchdog_reconnect_requested + teardown_in_progress so the QUIT handler
+     * recognises this as an automatic watchdog reconnect. */
+    if (context.stream.is_streaming && !context.stream.stop_requested &&
+        !context.stream.teardown_in_progress && !context.stream.fast_restart_active &&
+        !context.stream.session_finalize_pending && context.stream.last_decoded_frame_us > 0 &&
+        (now_us - context.stream.last_decoded_frame_us) > STREAM_FREEZE_WATCHDOG_TIMEOUT_US) {
+      uint64_t stall_ms = (now_us - context.stream.last_decoded_frame_us) / 1000ULL;
+      CHIAKI_LOGW(&context.log,
+                  "Stream freeze watchdog: no decoded frame for %llu ms — triggering reconnect",
+                  (unsigned long long)stall_ms);
+      context.stream.watchdog_reconnect_requested = true;
+      context.stream.teardown_in_progress = true;
+      chiaki_session_stop(&context.stream.session);
+    }
   }
 
   if (!context.config.show_latency)
