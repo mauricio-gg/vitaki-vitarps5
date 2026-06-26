@@ -42,10 +42,5 @@ int vitavideo_initialized();
 
 int vita_h264_setup(int width, int height);
 void vita_h264_cleanup();
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size);
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt);
 bool vita_video_render_latest_frame(void);
-
-/* Pre-decode corruption signal — called from host_video_cb() before vita_h264_decode_frame().
- * Sets the frame quality state used by vita_video_render_latest_frame() to decide whether
- * to present the newly decoded frame or freeze on the last known-good texture. */
-void vita_video_set_frame_quality(bool corrupt);

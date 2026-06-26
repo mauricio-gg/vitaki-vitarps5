@@ -530,7 +530,7 @@ cleanup:
   return ret;
 }
 
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   // Early validation to detect corrupted frames before decoding
   if (buf == NULL || buf_size == 0) {
     LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
@@ -584,6 +584,19 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size) {
   // from the Takion network receive path and eliminates ~15-20ms of blocking.
   if (active_video_thread) {
     record_incoming_frame_sample();
+    /* Atomically tie the corruption flag and the clean-frame snapshot to
+     * this decoded frame, while we still hold the mutex. This prevents the
+     * flag from mismatching the pixels under frame-overwrite scenarios.
+     * The snapshot copy runs here on the Takion thread; the GPU timing
+     * invariant (decode ~55ms >> render ~15ms with wait_rendering_done)
+     * ensures last_good_texture is not being read by the GPU. */
+    incoming_frame_corrupt = frame_corrupt;
+    if (!frame_corrupt && last_good_texture != NULL) {
+      uint32_t copy_size =
+          image_scaling.texture_height * vita2d_texture_get_stride(last_good_texture);
+      sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
+                    vita2d_texture_get_datap(frame_texture), copy_size);
+    }
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
       context.stream.frame_overwrite_count++;
@@ -627,15 +640,6 @@ static void draw_streaming(vita2d_texture *frame_texture) {
   }
 }
 
-/* Sets the corruption flag for the next frame to be presented.
- * Called by host_video_cb() on the Takion thread before vita_h264_decode_frame().
- * Parameters:
- *   corrupt — true if frames_lost > 0 or frame_recovered is true for this frame.
- * Thread safety: single-writer (Takion), single-reader (UI). volatile is sufficient on ARM. */
-void vita_video_set_frame_quality(bool corrupt) {
-  incoming_frame_corrupt = corrupt;
-}
-
 bool vita_video_render_latest_frame(void) {
   if (!frame_ready_for_display)
     return false;
@@ -653,9 +657,9 @@ bool vita_video_render_latest_frame(void) {
    * frame instead. At the cap, fall through to present whatever decoded — this
    * guarantees the picture always resumes even under sustained loss.
    *
-   * On a clean frame: copy frame_texture → last_good_texture for future use,
-   * then present frame_texture. The memcpy happens only on the clean path so it
-   * adds zero latency to the corrupt/freeze path. */
+   * The corruption flag and the last-good snapshot are both updated under mtx
+   * inside vita_h264_decode_frame(), so they are always consistent with the
+   * pixels in frame_texture when we read them here. */
   bool corrupt = incoming_frame_corrupt;
   vita2d_texture *present_texture = frame_texture;
 
@@ -666,12 +670,7 @@ bool vita_video_render_latest_frame(void) {
       LOGD("PIPE/FREEZE engaged streak=%d", frozen_frame_streak);
     present_texture = last_good_texture;
   } else if (!corrupt) {
-    /* Clean frame: snapshot it for future freeze windows. */
-    if (last_good_texture != NULL) {
-      uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(frame_texture);
-      sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
-                    vita2d_texture_get_datap(frame_texture), copy_size);
-    }
+    /* Clean frame — snapshot was already taken under mutex in vita_h264_decode_frame(). */
     if (frozen_frame_streak > 0) {
       LOGD("PIPE/FREEZE cleared streak=%d", frozen_frame_streak);
       frozen_frame_streak = 0;

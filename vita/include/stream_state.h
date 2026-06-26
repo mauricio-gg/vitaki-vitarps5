@@ -167,7 +167,8 @@ typedef struct vita_chiaki_stream_t {
 
   // --- Diagnostic instrumentation (D5: Frame Overwrite / Freeze) ---
   volatile uint32_t frame_overwrite_count;  // Frames overwritten before display consumed them
-  volatile uint32_t freeze_engaged_count;   // Times freeze-on-corrupt engaged (last-good presented)
+  volatile uint32_t
+      freeze_engaged_count;  // Corrupt frames suppressed (last-good presented in their place)
 
   // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
   volatile int32_t wifi_rssi;  // Latest Wi-Fi signal strength (-1 if unavailable)
