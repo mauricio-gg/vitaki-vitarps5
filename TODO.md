@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-06-25 (PSN QR login fix validated and merged in PR #184; Motion macroblocking investigation doc created; Bitrate metrics PR #181-183 shipped)
+Last Updated: 2026-06-27 (Wi-Fi power-save hint A/B concluded: no jitter benefit; GH #188 decode-decouple confirmed as next actionable step)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -131,7 +131,15 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Implement adaptive jitter buffer** ⭐ **HIGH PRIORITY**
+1. **Decouple sceAvcdecDecode from Takion recv thread (GH #188)** ⭐ **HIGH PRIORITY**
+   - *Goal:* Move H.264 decode off Takion network recv thread → dedicated single-consumer decode thread. Removes ~55ms self-inflicted jitter inflation from measured network metrics.
+   - *Evidence:* A/B testing on 2026-06-27 confirmed decode inflates jitter by ~55ms (sceAvcdecDecode runs synchronously on recv thread; see `lib/src/takion.c:76-84`, `vita/src/video.c:543-575`)
+   - *Impact:* Network jitter measurements will become honest (not conflated with decode time), enabling clearer diagnosis of actual Wi-Fi/congestion issues
+   - *Files:* `vita/src/video.c` (decode loop), `vita/include/context.h` (add SPSC handoff queue), `lib/src/takion.c` (remove decode blocking)
+   - *Architecture:* Single-writer (frame assembler) → bounded queue → single-reader decode thread; ensure `frame_texture` safe handoff via volatile flags + `vita2d_wait_rendering_done()`
+   - *Next Step:* Design SPSC queue capacity (start with 2-4 decoded frames), implement decode thread spawn/shutdown, validate no corruption regressions on hardware
+
+2. **Implement adaptive jitter buffer** 
    - *Goal:* Replace static reorder queue timeout with adaptive algorithm that adjusts playout delay based on measured network jitter
    - *Files:* `lib/src/reorderqueue.c`, `lib/include/chiaki/reorderqueue.h`, `lib/src/takion.c`
    - *Algorithm:* Measure inter-arrival jitter using EWMA (α=0.125), calculate dynamic threshold (2.5× jitter + safety margin), skip gaps after adaptive timeout instead of blocking indefinitely
