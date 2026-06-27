@@ -146,6 +146,9 @@ int main(int argc, char *argv[]) {
   sceIoMkdir("ux0:/data/vita-chiaki", 0777);
 
   vita_chiaki_init_context();
+  // A/B tested PR #198 (2026-06-27): confirmed applied (0x0) but no measurable
+  // effect on jitter or RTT. Kept as foundation for a future battery-saving
+  // toggle in settings (separate PR).
   int wireless_ret = scePowerSetUsingWireless(1);
   LOGD("scePowerSetUsingWireless(1) = 0x%x", wireless_ret);
   if (context.config.auto_discovery) {
