@@ -54,6 +54,8 @@ static int vita_init() {
   scePowerSetGpuClockFrequency(222);
   scePowerSetBusClockFrequency(222);
   scePowerSetGpuXbarClockFrequency(166);
+  int wireless_ret = scePowerSetUsingWireless(1);
+  LOGD("scePowerSetUsingWireless(1) = 0x%x", wireless_ret);
   // Seed OpenSSL
   char random_seed[0x40] = {0};
   sceKernelGetRandomNumber(random_seed, sizeof(random_seed));
