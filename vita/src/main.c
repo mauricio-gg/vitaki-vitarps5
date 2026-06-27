@@ -54,8 +54,6 @@ static int vita_init() {
   scePowerSetGpuClockFrequency(222);
   scePowerSetBusClockFrequency(222);
   scePowerSetGpuXbarClockFrequency(166);
-  int wireless_ret = scePowerSetUsingWireless(1);
-  LOGD("scePowerSetUsingWireless(1) = 0x%x", wireless_ret);
   // Seed OpenSSL
   char random_seed[0x40] = {0};
   sceKernelGetRandomNumber(random_seed, sizeof(random_seed));
@@ -140,12 +138,16 @@ unsigned int _newlib_heap_size_user = 64 * 1024 * 1024;
 int main(int argc, char *argv[]) {
   vita_init();
 
-  // Note: Power management is configured in vita_init() (scePowerSet* calls)
+  // Note: Clock frequencies are configured in vita_init() (scePowerSet* calls).
+  // scePowerSetUsingWireless() is set after vita_chiaki_init_context() so the
+  // result is captured in the log (log sink is not live during vita_init()).
   // Note: Input thread is created per-stream in host.c when streaming starts
 
   sceIoMkdir("ux0:/data/vita-chiaki", 0777);
 
   vita_chiaki_init_context();
+  int wireless_ret = scePowerSetUsingWireless(1);
+  LOGD("scePowerSetUsingWireless(1) = 0x%x", wireless_ret);
   if (context.config.auto_discovery) {
     LOGD("Starting discovery");
     ChiakiErrorCode err = start_discovery(NULL, NULL);
