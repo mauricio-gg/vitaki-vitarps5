@@ -79,9 +79,9 @@ static volatile bool frame_ready_for_display = false;
  * freed in video_cleanup_framebuffer(), NULL until first clean frame arrives. */
 static vita2d_texture *last_good_texture = NULL;
 
-/* Set inside vita_h264_decode_frame() on the Takion thread, under the decode mutex,
- * after a successful decode. Read by vita_video_render_latest_frame() on the UI thread.
- * Single-writer/single-reader on Vita Cortex-A9 — volatile is sufficient. */
+/* Set inside decode_frame_now() on the dedicated decode thread, under `mtx`,
+ * after a successful sceAvcdecDecode. Read by vita_video_render_latest_frame() on
+ * the UI thread. Single-writer/single-reader on Vita Cortex-A9 — volatile sufficient. */
 static volatile bool incoming_frame_corrupt = false;
 
 /* Consecutive corrupt-frame presentations. Reset on any clean frame.
@@ -222,7 +222,44 @@ void update_scaling_settings(int width, int height) {
 
 ChiakiMutex mtx;
 
-bool threadSetupComplete = false;
+/* -----------------------------------------------------------------------
+ * SPSC decode queue: producer = Takion recv thread, consumer = decode thread
+ * (GH #188: decouple sceAvcdecDecode from the recv thread to fix jitter inflation)
+ * ----------------------------------------------------------------------- */
+
+/* 4 ring slots → 3 usable queued frames (full when (tail+1)%N == head) plus 1
+ * in-flight slot held by the decode thread while sceAvcdecDecode runs. On a
+ * healthy LAN the queue is almost always empty. */
+#define DECODE_QUEUE_DEPTH 4
+/* 256 KB per slot — headroom for worst-case IDR frames (~60-120 KB) plus the
+ * 64-byte pad contract (CHIAKI_VIDEO_BUFFER_PADDING_SIZE, chiaki/video.h:24). */
+#define DECODE_SLOT_CAPACITY (256 * 1024)
+/* Trailing zero-pad required by sceAvcdecDecode (== CHIAKI_VIDEO_BUFFER_PADDING_SIZE). */
+#define DECODE_SLOT_PAD 64
+
+typedef struct {
+  uint8_t *data; /* malloc'd once at start, DECODE_SLOT_CAPACITY bytes */
+  size_t size;   /* valid compressed-bitstream bytes for this frame */
+  bool frame_corrupt;
+} DecodeSlot;
+
+/* Use a SEPARATE mutex from the existing decode `mtx` so the recv thread's
+ * critical section (memcpy + index bump) never contends with the decode mutex
+ * while a multi-ms sceAvcdecDecode is in flight. */
+static DecodeSlot decode_queue[DECODE_QUEUE_DEPTH];
+static size_t decode_q_head = 0;
+static size_t decode_q_tail = 0;
+static ChiakiMutex decode_q_mtx;
+static ChiakiCond decode_q_cond;
+static ChiakiThread decode_thread;
+static volatile bool decode_thread_should_exit = false;
+/* True only when chiaki_thread_create succeeded in vita_h264_start(). Guards the
+ * chiaki_thread_join call in vita_h264_stop() so we never join a phantom thread. */
+static bool decode_thread_started = false;
+/* Frames dropped from the queue before decode (pre-decode drop breaks the DPB
+ * reference chain; a post-decode overwrite counted in frame_overwrite_count
+ * does not). Should be ~0 on a healthy LAN; exposed in PIPE/FPS for A/B. */
+static uint32_t decode_queue_drops = 0;
 
 typedef struct SceVideodecMemInfo {
   SceUInt32 memSize;
@@ -477,7 +514,6 @@ void vita_h264_cleanup() {
 
   if (video_status == INIT_GS) {
     // gs_sps_stop();
-    threadSetupComplete = false;
     video_status--;
   }
 }
@@ -540,29 +576,13 @@ cleanup:
   return ret;
 }
 
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
-  // Early validation to detect corrupted frames before decoding
-  if (buf == NULL || buf_size == 0) {
-    LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
-    return 1;
-  }
-
-  // Validate minimum H.264 NAL unit size (at least 5 bytes for NAL header)
-  if (buf_size < 5) {
-    LOGD("VIDEO: Frame too small (%zu bytes), possibly corrupted, skipping", buf_size);
-    return 1;
-  }
-
+/* Performs the actual sceAvcdecDecode synchronously. Called only on the
+ * dedicated decode thread (GH #188). buf must be a stable DECODE_SLOT_CAPACITY
+ * allocation (not the borrowed frame_buf pointer from videoreceiver). */
+static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   chiaki_mutex_lock(&mtx);
-  /* NOTE: takion.c now pins this thread to USER_0/prio-64 at startup, so
-   * the priority + affinity set below is redundant. Kept as a safety net
-   * in case the decode work is ever moved to its own thread. */
-  if (!threadSetupComplete) {
-    sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
-    sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
-    threadSetupComplete = true;
-  }
-  if (buf_size > sceAvcdecDecodeAvailableSize(decoder)) {
+
+  if (buf_size > (size_t)sceAvcdecDecodeAvailableSize(decoder)) {
     sceClibPrintf("Video decode buffer too small\n");
     chiaki_mutex_unlock(&mtx);
     return 1;
@@ -581,14 +601,14 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
     LOGD("PIPE/DECODE n=%u us=%u", context.stream.first_decode_frame_count, decode_elapsed_us);
   }
   if (ret < 0) {
-    LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", buf_size, ret,
+    LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", (unsigned int)buf_size, ret,
          array_picture.numOfOutput);
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
 
   if (array_picture.numOfOutput != 1) {
-    LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, buf_size);
+    LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -601,7 +621,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
      * hold the mutex. This prevents the flag from mismatching the pixels under
      * frame-overwrite scenarios. The last-good snapshot (the expensive ~2 MB
      * memcpy) is now taken on the UI thread in vita_video_render_latest_frame()
-     * so the Takion receive thread is never stalled by it. */
+     * so the decode thread is never stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
@@ -612,6 +632,65 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   }
 
   chiaki_mutex_unlock(&mtx);
+  return 0;
+}
+
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
+  /* Early validation — reject garbage before touching the queue. */
+  if (buf == NULL || buf_size == 0) {
+    LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
+    return 1;
+  }
+  if (buf_size < 5) {
+    LOGD("VIDEO: Frame too small (%zu bytes), possibly corrupted, skipping", buf_size);
+    return 1;
+  }
+  /* Guard against oversized frames that would overflow the slot (should never
+   * occur at 540p, but defensive). Reserve DECODE_SLOT_PAD bytes for sceAvcdecDecode. */
+  if (buf_size > DECODE_SLOT_CAPACITY - DECODE_SLOT_PAD) {
+    LOGD("VIDEO: Frame too large for slot (%zu > %d), dropping", buf_size,
+         DECODE_SLOT_CAPACITY - DECODE_SLOT_PAD);
+    decode_queue_drops++;
+    return 0;
+  }
+
+  chiaki_mutex_lock(&decode_q_mtx);
+
+  /* Backpressure: if the ring is full, wait briefly for the decode thread to
+   * free a slot. Bounding the wait (<< one frame interval) prevents a stalled
+   * decoder from wedging the recv thread indefinitely.
+   *
+   * IMPORTANT: dropping a compressed P-frame BEFORE decode breaks the HW DPB
+   * reference chain (→ macroblocking until next IDR), which is worse than the
+   * post-decode overwrite counted in frame_overwrite_count. So we prefer to
+   * block briefly rather than immediately drop. */
+  if (((decode_q_tail + 1) % DECODE_QUEUE_DEPTH) == decode_q_head) {
+    /* Queue full — wait up to 10 ms for the consumer to free a slot. */
+    chiaki_cond_timedwait(&decode_q_cond, &decode_q_mtx, 10);
+  }
+
+  if (((decode_q_tail + 1) % DECODE_QUEUE_DEPTH) == decode_q_head) {
+    /* Still full after timeout — drop the oldest slot to make room. */
+    LOGD("VIDEO: decode queue full, dropping oldest frame (drops=%u)", decode_queue_drops + 1);
+    decode_queue_drops++;
+    decode_q_head = (decode_q_head + 1) % DECODE_QUEUE_DEPTH;
+  }
+
+  /* Copy the bitstream into the queue slot. buf points into frame_buf (the
+   * frame-processor's single reused allocation). After this callback returns,
+   * frame_buf is overwritten or freed, so we MUST copy here. Also capture
+   * frame_corrupt now: frames_lost is reset in videoreceiver.c right after
+   * the callback returns. Zero the trailing DECODE_SLOT_PAD bytes required by
+   * sceAvcdecDecode (== CHIAKI_VIDEO_BUFFER_PADDING_SIZE). */
+  DecodeSlot *slot = &decode_queue[decode_q_tail];
+  sceClibMemcpy(slot->data, buf, buf_size);
+  sceClibMemset(slot->data + buf_size, 0, DECODE_SLOT_PAD);
+  slot->size = buf_size;
+  slot->frame_corrupt = frame_corrupt;
+  decode_q_tail = (decode_q_tail + 1) % DECODE_QUEUE_DEPTH;
+
+  chiaki_cond_signal(&decode_q_cond);
+  chiaki_mutex_unlock(&decode_q_mtx);
   return 0;
 }
 
@@ -682,9 +761,9 @@ bool vita_video_render_latest_frame(void) {
    * frame instead. At the cap, fall through to present whatever decoded — this
    * guarantees the picture always resumes even under sustained loss.
    *
-   * The corruption flag is updated under mtx inside vita_h264_decode_frame(),
-   * so it is always consistent with the pixels in frame_texture when we read
-   * it here. The last-good snapshot is taken below on this thread. */
+   * The corruption flag is updated under mtx inside decode_frame_now() on the
+   * decode thread, so it is always consistent with the pixels in frame_texture
+   * when we read it here. The last-good snapshot is taken below on this thread. */
   bool corrupt = incoming_frame_corrupt;
   vita2d_texture *present_texture = frame_texture;
 
@@ -737,6 +816,55 @@ bool vita_video_render_latest_frame(void) {
   return true;
 }
 
+/* Decode thread: pops compressed frames from the SPSC queue and calls
+ * decode_frame_now(). Pinned to USER_1 so decode no longer competes with
+ * the recv thread (USER_0) or audio (USER_2) for CPU time. */
+static void *decode_thread_func(void *user) {
+  (void)user;
+#ifdef __PSVITA__
+  /* Pin to USER_1 — recv is USER_0, audio is USER_2. */
+  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
+#endif
+  LOGD("VIDEO: decode thread started (USER_1)");
+
+  for (;;) {
+    chiaki_mutex_lock(&decode_q_mtx);
+    /* Wait for work or exit signal. Drain the queue before honouring exit
+     * so in-flight frames are decoded in order. */
+    while (!decode_thread_should_exit && decode_q_head == decode_q_tail)
+      chiaki_cond_wait(&decode_q_cond, &decode_q_mtx);
+
+    if (decode_thread_should_exit && decode_q_head == decode_q_tail) {
+      chiaki_mutex_unlock(&decode_q_mtx);
+      break;
+    }
+
+    /* Pop: capture all fields needed, but do NOT advance head yet.
+     * Keeping head unchanged reserves this slot until decode completes —
+     * the producer's full-check naturally excludes it from reuse. */
+    size_t popped_idx = decode_q_head;
+    uint8_t *frame_data = decode_queue[popped_idx].data;
+    size_t frame_size = decode_queue[popped_idx].size;
+    bool corrupt = decode_queue[popped_idx].frame_corrupt;
+    chiaki_mutex_unlock(&decode_q_mtx);
+
+    /* Decode the frame. The slot buffer is exclusively ours until we advance
+     * decode_q_head below — the producer will block or drop-oldest on the
+     * preceding slots rather than overwriting this one. */
+    decode_frame_now(frame_data, frame_size, corrupt);
+
+    /* Release the slot now that decode is done. Signal any blocked producer. */
+    chiaki_mutex_lock(&decode_q_mtx);
+    decode_q_head = (decode_q_head + 1) % DECODE_QUEUE_DEPTH;
+    chiaki_cond_signal(&decode_q_cond);
+    chiaki_mutex_unlock(&decode_q_mtx);
+  }
+
+  LOGD("VIDEO: decode thread exiting");
+  return NULL;
+}
+
 void vita_h264_start() {
   active_video_thread = true;
   chiaki_mutex_init(&mtx, false);
@@ -747,6 +875,49 @@ void vita_h264_start() {
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
   context.stream.display_fps_window_start_us = 0;
+
+  /* --- Decode queue init (GH #188) --- */
+  chiaki_mutex_init(&decode_q_mtx, false);
+  chiaki_cond_init(&decode_q_cond, &decode_q_mtx);
+  decode_q_head = 0;
+  decode_q_tail = 0;
+  decode_thread_should_exit = false;
+  decode_thread_started = false;
+  decode_queue_drops = 0;
+
+  /* Allocate all slot buffers up front. On the first allocation failure free
+   * any already-allocated slots and skip thread creation entirely — a NULL
+   * slot->data would cause a NULL-deref in the producer on the first frame. */
+  bool slots_ok = true;
+  for (int i = 0; i < DECODE_QUEUE_DEPTH; i++) {
+    decode_queue[i].data = malloc(DECODE_SLOT_CAPACITY);
+    decode_queue[i].size = 0;
+    decode_queue[i].frame_corrupt = false;
+    if (decode_queue[i].data == NULL) {
+      LOGE("VIDEO: failed to allocate decode slot %d — decode thread disabled", i);
+      for (int j = 0; j < i; j++) {
+        free(decode_queue[j].data);
+        decode_queue[j].data = NULL;
+      }
+      slots_ok = false;
+      break;
+    }
+  }
+
+  if (slots_ok) {
+    ChiakiErrorCode thread_err = chiaki_thread_create(&decode_thread, decode_thread_func, NULL);
+    if (thread_err != CHIAKI_ERR_SUCCESS) {
+      LOGE("VIDEO: failed to create decode thread: %d — freeing slots", thread_err);
+      for (int i = 0; i < DECODE_QUEUE_DEPTH; i++) {
+        free(decode_queue[i].data);
+        decode_queue[i].data = NULL;
+      }
+    } else {
+      chiaki_thread_set_name(&decode_thread, "VitaDecode");
+      decode_thread_started = true;
+    }
+  }
+
   vitavideo_overlay_on_stream_start();
 }
 
@@ -756,6 +927,32 @@ void vita_h264_stop() {
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
   frozen_frame_streak = 0;
+
+  /* --- Decode thread shutdown (GH #188) ---
+   * Signal and JOIN the decode thread BEFORE destroying the decode mutex
+   * and BEFORE vita_h264_cleanup() frees decoder/frame_texture. The join
+   * guarantees no sceAvcdecDecode is running on a freed decoder and that
+   * no decode thread holds mtx when chiaki_mutex_fini(&mtx) runs below.
+   * Guard on decode_thread_started so we never join a thread that was never
+   * created (e.g. slot alloc failure or chiaki_thread_create failure). */
+  if (decode_thread_started) {
+    chiaki_mutex_lock(&decode_q_mtx);
+    decode_thread_should_exit = true;
+    chiaki_cond_signal(&decode_q_cond);
+    chiaki_mutex_unlock(&decode_q_mtx);
+    chiaki_thread_join(&decode_thread, NULL);
+    decode_thread_started = false;
+  }
+
+  /* Free slot buffers. Non-NULL slots were allocated in vita_h264_start();
+   * failed/skipped slots are already NULL so free() is a safe no-op. */
+  for (int i = 0; i < DECODE_QUEUE_DEPTH; i++) {
+    free(decode_queue[i].data);
+    decode_queue[i].data = NULL;
+  }
+  chiaki_cond_fini(&decode_q_cond);
+  chiaki_mutex_fini(&decode_q_mtx);
+
   chiaki_mutex_fini(&mtx);
   vitavideo_overlay_on_stream_stop();
 }
@@ -766,6 +963,10 @@ void vitavideo_show_poor_net_indicator() {
 
 void vitavideo_hide_poor_net_indicator() {
   vitavideo_overlay_hide_poor_net_indicator();
+}
+
+uint32_t vita_video_decode_queue_drops(void) {
+  return decode_queue_drops;
 }
 
 int vitavideo_initialized() {
