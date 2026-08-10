@@ -25,9 +25,15 @@ void host_event_cb(ChiakiEvent *event, void *user) {
       context.stream.post_reconnect_window_until_us = 0;
       context.stream.inputs_ready = true;
       context.stream.next_stream_allowed_us = 0;
+      context.stream.post_stop_guard = false;
       context.stream.retry_holdoff_ms = 0;
       context.stream.retry_holdoff_until_us = 0;
       context.stream.retry_holdoff_active = false;
+      // A real successful connect resets the one-shot RP_IN_USE auto-retry
+      // budget (Piece C) for the next time RP_IN_USE might occur later in
+      // this fresh session.
+      context.stream.rp_in_use_retry_pending = false;
+      context.stream.rp_in_use_retry_used = false;
       context.stream.restart_handshake_failures = 0;
       context.stream.last_restart_handshake_fail_us = 0;
       context.stream.restart_cooloff_until_us = 0;

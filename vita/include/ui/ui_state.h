@@ -137,11 +137,13 @@ bool ui_state_connection_thread_active(void);
 bool ui_cooldown_active(void);
 
 /**
- * Get remaining cooldown time in microseconds
+ * Get the absolute deadline (process time, us) until which the stream
+ * cooldown is active
  *
- * @return Microseconds until cooldown expires, or 0 if no cooldown
+ * @return Process timestamp (sceKernelGetProcessTimeWide units) at which the
+ *         cooldown expires, or 0 if no cooldown is active
  */
-uint64_t ui_cooldown_remaining_us(void);
+uint64_t ui_cooldown_until_us(void);
 
 /**
  * Check if Takion overflow gate is active

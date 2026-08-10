@@ -7,12 +7,20 @@
 #include "host_metrics.h"
 #include "host_quit.h"
 
+// Defensive include: ChiakiStreamConnectionDisconnectDelivery is already visible
+// transitively via context.h -> stream_state.h -> chiaki/session.h, but include
+// it explicitly since header guards make this harmless either way.
+#include <chiaki/streamconnection.h>
+
 #include <psp2/kernel/processmgr.h>
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
 #define LOSS_RETRY_MAX_ATTEMPTS 2
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
+#define POST_STOP_GUARD_DISCONNECT_ACKED_US (2 * 1000 * 1000ULL)
+#define POST_STOP_GUARD_DISCONNECT_UNACKED_US (8 * 1000 * 1000ULL)
+#define RP_IN_USE_AUTO_RETRY_DELAY_US (6 * 1000 * 1000ULL)
 #define RESTART_HANDSHAKE_COOLOFF_FIRST_US (8 * 1000 * 1000ULL)
 #define RESTART_HANDSHAKE_COOLOFF_REPEAT_US (12 * 1000 * 1000ULL)
 #define RETRY_FAIL_DELAY_US (5 * 1000 * 1000ULL)
@@ -20,6 +28,14 @@
 
 void host_handle_quit_event(ChiakiEvent *event) {
   bool user_stop_requested = context.stream.stop_requested || context.stream.stop_requested_by_user;
+  // Snapshot BEFORE host_shutdown_media_pipeline() (called below) clears
+  // is_streaming -- this tells the guard-mapping below whether a real RP
+  // session was ever live on the console, or the connect was cancelled
+  // before the first video frame arrived. is_streaming has several writers
+  // that clear it during teardown, but host_video_cb() (host_callbacks.c) is
+  // the only site that ever sets it true, so a snapshot taken here reflects
+  // whether streaming genuinely started this session.
+  bool had_streamed = context.stream.is_streaming;
   const char *reason_label = host_quit_reason_label(event->quit.reason);
   LOGE("EventCB CHIAKI_EVENT_QUIT (%s | code=%d \"%s\")",
        event->quit.reason_str ? event->quit.reason_str : "unknown", event->quit.reason,
@@ -105,7 +121,18 @@ void host_handle_quit_event(ChiakiEvent *event) {
          (restart_source_snapshot[0] ? restart_source_snapshot : "unknown"),
          restart_handshake_failures, (unsigned long long)(cooloff_us / 1000ULL));
   }
-  if (context.active_host && (remote_in_use || remote_crash)) {
+  // A single auto-retry is armed for the *first* RP_IN_USE after a plain user
+  // reconnect attempt -- distinct from arm_retry_holdoff below, which only fires
+  // after a soft-restart already failed.
+  bool arm_rp_in_use_auto_retry = remote_in_use && !user_stop_requested && !restart_context &&
+                                  !context.stream.restart_failure_active && context.active_host &&
+                                  !context.stream.rp_in_use_retry_used;
+  // The arm_rp_in_use_auto_retry hint is emitted later, once retry_at is known
+  // (its actual delay can exceed RP_IN_USE_AUTO_RETRY_DELAY_US when a stale
+  // cooldown is still active -- see the "take the later of" comment below), so
+  // the countdown text always matches the real wait. The remote_in_use/remote_crash
+  // error hint has no such dependency and stays here.
+  if (context.active_host && (remote_in_use || remote_crash) && !arm_rp_in_use_auto_retry) {
     const char *hint = remote_in_use ? "Remote Play already active on console"
                                      : "Console Remote Play crashed - wait a moment";
     host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
@@ -132,13 +159,70 @@ void host_handle_quit_event(ChiakiEvent *event) {
     throttle_until = context.stream.retry_holdoff_until_us;
   }
   if (context.stream.stop_requested) {
-    context.stream.next_stream_allowed_us = 0;
+    // User-requested stop: gate the reconnect cooldown on whether — and how
+    // far — our own teardown got. Three-way mapping using the full
+    // ChiakiStreamConnectionDisconnectDelivery enum (not collapsed to a
+    // bool), because "never sent" means two very different things depending
+    // on whether a real session was ever live:
+    //   - !had_streamed && NOT_SENT: cancelled before the stream ever
+    //     established (e.g. during PSN auth/handshake) -- chiaki_takion_connect()
+    //     may never have even succeeded, so there's no RP session on the PS5
+    //     for a guard to protect. Instant re-press allowed.
+    //   - ACKED: the PS5 confirmed it saw our DISCONNECT -- short guard.
+    //   - SENT_UNACKED, or NOT_SENT after a real stream was live (transport
+    //     died before/during teardown, see GH #208): the PS5 may still
+    //     believe the session is live -- full guard.
+    context.stream.post_stop_guard = true;
+    ChiakiStreamConnectionDisconnectDelivery disconnect_delivery =
+        chiaki_stream_connection_disconnect_delivery(&context.stream.session.stream_connection);
+    uint64_t guard_us;
+    const char *guard_reason;
+    if (!had_streamed && disconnect_delivery == CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT) {
+      guard_us = 0;
+      guard_reason = "cancelled before stream started, no guard";
+    } else if (disconnect_delivery == CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED) {
+      guard_us = POST_STOP_GUARD_DISCONNECT_ACKED_US;
+      guard_reason = "DISCONNECT acked";
+    } else {
+      guard_us = POST_STOP_GUARD_DISCONNECT_UNACKED_US;
+      guard_reason = disconnect_delivery == CHIAKI_STREAM_CONNECTION_DISCONNECT_SENT_UNACKED
+                         ? "DISCONNECT sent but not acked"
+                         : "DISCONNECT never sent after stream was live (transport failure)";
+    }
+    context.stream.next_stream_allowed_us = guard_us ? now_us + guard_us : 0;
+    LOGD("Post-stop reconnect guard: %s, %llu ms before reconnect is allowed", guard_reason,
+         (unsigned long long)(guard_us / 1000ULL));
   } else {
+    context.stream.post_stop_guard = false;
     context.stream.next_stream_allowed_us = throttle_until;
   }
   if (context.stream.next_stream_allowed_us > now_us) {
     uint64_t wait_ms = (context.stream.next_stream_allowed_us - now_us + 999) / 1000ULL;
     LOGD("Stream cooldown engaged for %llu ms", wait_ms);
+  }
+  if (arm_rp_in_use_auto_retry) {
+    // next_stream_allowed_us is already final at this point (throttle_until, since
+    // remote_in_use implies user_stop_requested is false and the stop_requested
+    // branch above was not taken) -- take the later of the fixed retry delay and
+    // the cooldown gate so the auto-retry never fires while still gated.
+    uint64_t retry_at = now_us + RP_IN_USE_AUTO_RETRY_DELAY_US;
+    if (context.stream.next_stream_allowed_us > retry_at)
+      retry_at = context.stream.next_stream_allowed_us;
+    context.stream.rp_in_use_retry_at_us = retry_at;
+    context.stream.rp_in_use_retry_pending = true;
+    // Snapshot the PSN-vs-LAN choice from the connect attempt that just failed
+    // with RP_IN_USE, so the armed retry (ui.c) restores the user's original
+    // "Internet" selection instead of silently falling back to LAN. Cannot use
+    // context.stream.force_psn_holepunch here -- host_stream() already consumed
+    // and cleared it unconditionally at the top of this same connect attempt.
+    context.stream.rp_in_use_retry_psn_holepunch = context.stream.last_connect_used_psn_holepunch;
+    uint64_t retry_delay_us = retry_at - now_us;
+    char hint_msg[64];
+    sceClibSnprintf(hint_msg, sizeof(hint_msg), "Console busy - retrying in %llus...",
+                    (unsigned long long)((retry_delay_us + 999999ULL) / 1000000ULL));
+    host_set_hint(context.active_host, hint_msg, false, retry_delay_us);
+    LOGD("RP_IN_USE auto-retry armed: retrying in %llu ms",
+         (unsigned long long)((retry_at - now_us) / 1000ULL));
   }
   if (!user_stop_requested) {
     bool is_error = chiaki_quit_reason_is_error(event->quit.reason);

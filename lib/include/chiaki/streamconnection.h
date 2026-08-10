@@ -22,6 +22,12 @@ extern "C" {
 
 typedef struct chiaki_session_t ChiakiSession;
 
+typedef enum {
+	CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT = 0,
+	CHIAKI_STREAM_CONNECTION_DISCONNECT_SENT_UNACKED,
+	CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED,
+} ChiakiStreamConnectionDisconnectDelivery;
+
 typedef struct chiaki_stream_connection_t
 {
 	struct chiaki_session_t *session;
@@ -77,6 +83,17 @@ typedef struct chiaki_stream_connection_t
 	 * message that would otherwise touch a finalized send buffer.
 	 */
 	bool transport_failed;
+	/**
+	 * Bounded DISCONNECT-ack tracking, protected by state_mutex like the
+	 * other fields above. disconnect_seq_num is the send-buffer sequence
+	 * number of the most recently sent DISCONNECT message; disconnect_ack_pending
+	 * is true while chiaki_stream_connection_run() is waiting on its ack;
+	 * disconnect_delivery records the outcome for callers outside the
+	 * session thread (see chiaki_stream_connection_disconnect_delivery()).
+	 */
+	ChiakiSeqNum32 disconnect_seq_num;
+	bool disconnect_ack_pending;
+	ChiakiStreamConnectionDisconnectDelivery disconnect_delivery;
 	char *remote_disconnect_reason;
 	// FIXME ywnico a workaround to deal with bang being called twice
 	// I'm not sure what the real problem is...something with the threading implementation on vita...?
@@ -111,6 +128,13 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_toggle_mute_direct_message(
  * To be called from a thread other than the one chiaki_stream_connection_run() is running on to stop stream_connection
  */
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnection *stream_connection);
+
+/**
+ * Get the delivery status of the most recent DISCONNECT message.
+ * Safe to call after the session thread (chiaki_stream_connection_run) has
+ * returned, before chiaki_stream_connection_fini() — locks/unlocks state_mutex internally.
+ */
+CHIAKI_EXPORT ChiakiStreamConnectionDisconnectDelivery chiaki_stream_connection_disconnect_delivery(ChiakiStreamConnection *stream_connection);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_request_idr(ChiakiStreamConnection *stream_connection);
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end);

@@ -57,15 +57,19 @@ typedef struct vita_chiaki_stream_t {
   uint64_t last_rtt_refresh_us;            // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;         // Timestamp for latest metrics sample
   uint64_t next_stream_allowed_us;         // Cooldown gate after quit
-  uint32_t retry_holdoff_ms;               // Active adaptive holdoff duration
-  uint64_t retry_holdoff_until_us;         // Holdoff deadline after RP_IN_USE races
-  bool retry_holdoff_active;               // Whether adaptive holdoff is currently armed
-  uint32_t frame_loss_events;              // Count of frame loss events reported by Chiaki
-  uint32_t total_frames_lost;              // Frames lost across the current session
-  uint64_t loss_window_start_us;           // Sliding window start for adaptive mitigations
-  uint32_t loss_window_event_count;        // Events within the current sliding window
-  uint32_t loss_window_frame_accum;        // Frames dropped inside the active loss window
-  uint32_t loss_burst_frame_accum;         // Frames dropped within the short-term burst bucket
+  bool post_stop_guard;                  // True only for the cooldown window following a deliberate
+                                         // user stop; suppresses the "Streaming stopped" banner
+                                         // since the console card already shows its own
+                                         // "Console releasing session..." hint for that case.
+  uint32_t retry_holdoff_ms;             // Active adaptive holdoff duration
+  uint64_t retry_holdoff_until_us;       // Holdoff deadline after RP_IN_USE races
+  bool retry_holdoff_active;             // Whether adaptive holdoff is currently armed
+  uint32_t frame_loss_events;            // Count of frame loss events reported by Chiaki
+  uint32_t total_frames_lost;            // Frames lost across the current session
+  uint64_t loss_window_start_us;         // Sliding window start for adaptive mitigations
+  uint32_t loss_window_event_count;      // Events within the current sliding window
+  uint32_t loss_window_frame_accum;      // Frames dropped inside the active loss window
+  uint32_t loss_burst_frame_accum;       // Frames dropped within the short-term burst bucket
   uint32_t loss_counter_saturated_mask;  // Bitmask of loss accumulators that already logged uint32
                                          // saturation
   uint64_t loss_burst_start_us;          // Timestamp when the current burst started
@@ -141,8 +145,22 @@ typedef struct vita_chiaki_stream_t {
   uint32_t unrecovered_idr_requests;  // IDR attempts in rolling window
   uint64_t unrecovered_idr_window_start_us;
   bool restart_failure_active;
-  bool force_psn_holepunch;  // Set by UI when user selects Internet in the connect popup;
-                             // consumed and cleared at the top of host_stream().
+  bool rp_in_use_retry_pending;        // A single auto-retry after RP_IN_USE is armed and waiting
+  uint64_t rp_in_use_retry_at_us;      // When the armed auto-retry is allowed to fire
+  bool rp_in_use_retry_used;           // This session has already used its one auto-retry
+  bool rp_in_use_retry_psn_holepunch;  // Snapshot of last_connect_used_psn_holepunch taken when the
+                                       // RP_IN_USE auto-retry was armed; restored into
+                                       // force_psn_holepunch right before the retry's
+                                       // start_connection_thread() call so the user's
+                                       // PSN-vs-LAN choice survives the retry.
+  bool force_psn_holepunch;            // Set by UI when user selects Internet in the connect popup;
+                                       // consumed and cleared at the top of host_stream().
+  bool last_connect_used_psn_holepunch;  // Durable copy of the psn_remote decision computed in
+                                         // host_stream(), taken BEFORE force_psn_holepunch is
+                                         // cleared there. force_psn_holepunch itself is already
+                                         // false by the time host_quit.c runs after a connect
+                                         // attempt, so this is the only reliable source for
+                                         // arming rp_in_use_retry_psn_holepunch above.
   char psn_selected_addr[PSN_SELECTED_ADDR_SIZE];  // Resolved PSN-path IP written by holepunch;
                                                    // consumed by host_stream
 

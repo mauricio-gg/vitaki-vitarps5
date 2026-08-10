@@ -823,7 +823,8 @@ void ui_cards_render_grid(void) {
   // --- Cooldown banner (rendered first so it's behind cards) ---
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint64_t cooldown_until_us = stream_cooldown_until_us();
-  bool cooldown_active = cooldown_until_us && cooldown_until_us > now_us;
+  bool cooldown_active =
+      cooldown_until_us && cooldown_until_us > now_us && !context.stream.post_stop_guard;
   if (!cooldown_active && context.stream.disconnect_banner_until_us &&
       context.stream.disconnect_banner_until_us <= now_us) {
     context.stream.disconnect_reason[0] = '\0';

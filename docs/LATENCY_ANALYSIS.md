@@ -98,6 +98,15 @@ PS5 → Network → Vita Receive → Video Decode → Display
   no longer freezes waiting on a dead transport. Sender threads racing the
   teardown are stopped by invalidating `takion->sock` before the fd is closed,
   instead of flooding `EBADF`.
+- The teardown path sends an explicit `DISCONNECT` message on every
+  non-transport-failed teardown, as before. New: it now waits up to
+  `STREAM_CONNECTION_DISCONNECT_ACK_TIMEOUT_MS` (400ms, `lib/src/streamconnection.c`)
+  for the PS5 to ack that message, but only when `should_stop` is set --
+  which covers both a deliberate user-initiated stop AND a soft-restart
+  reconnect cycle (`chiaki_session_request_stream_restart()` in
+  `lib/src/session.c` also routes through `chiaki_stream_connection_stop()`).
+  Handshake-failure and remote-initiated-disconnect teardowns still send
+  the DISCONNECT but do not wait for its ack.
 
 ---
 
