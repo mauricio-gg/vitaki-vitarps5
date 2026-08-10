@@ -4,12 +4,6 @@
 #include <string.h>
 #include <tomlc99/toml.h>
 
-/* arpa/inet.h must precede holepunch.h: the header's regist_local_ip field
- * uses INET6_ADDRSTRLEN, which isn't pulled in transitively otherwise (see
- * vita/src/psn_auth.c for the same include ordering requirement). */
-#include <arpa/inet.h>
-#include <chiaki/remote/holepunch.h>
-
 #include "config.h"
 #include "config_internal.h"
 #include "config_hosts.h"
@@ -417,14 +411,20 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
  * any PSN tokens minted before the fix lack device provenance and are
  * rejected with 403 at the /np/pushNotification WebSocket. Configs below
  * PSN_AUTH_PROVENANCE_CURRENT have those tokens invalidated (forcing
- * re-authentication through the corrected authorize URL) and any
- * stale-format client DUID cleared so ensure_client_duid() (vita/src/
- * psn_auth.c) regenerates it in the upstream 48-char format.
+ * re-authentication through the corrected authorize URL).
+ *
+ * The client DUID itself is intentionally left untouched here: ensure_client_
+ * duid() (vita/src/psn_auth.c) is the sole consumer/producer of
+ * psn_client_duid and already validates it against is_valid_client_duid() on
+ * every use, regenerating on demand. This migration's own format check used
+ * to duplicate that validation with a weaker (length + prefix only) test
+ * that could disagree with is_valid_client_duid() and clear an otherwise-
+ * valid DUID; deferring entirely to ensure_client_duid() removes that risk.
  *
  * `*migrated` is set unconditionally once the provenance check has run so
  * the PSN_AUTH_PROVENANCE_CURRENT marker is written to disk even for a
- * config with no PSN tokens/DUID yet — otherwise a fresh install would
- * re-run this migration (a harmless but wasteful no-op) on every boot.
+ * config with no PSN tokens yet — otherwise a fresh install would re-run
+ * this migration (a harmless but wasteful no-op) on every boot.
  */
 static void migrate_auth_provenance(VitaChiakiConfig *cfg, bool *migrated) {
   if (cfg->psn_auth_provenance >= PSN_AUTH_PROVENANCE_CURRENT)
@@ -437,19 +437,6 @@ static void migrate_auth_provenance(VitaChiakiConfig *cfg, bool *migrated) {
     cfg->psn_oauth_refresh_token = NULL;
     cfg->psn_oauth_expires_at_unix = 0;
     LOGD("PSN provenance migration: invalidating pre-duid tokens (GH #204)");
-  }
-
-  if (cfg->psn_client_duid) {
-    size_t len = strlen(cfg->psn_client_duid);
-    size_t expected_len = CHIAKI_DUID_STR_SIZE - 1;
-    size_t prefix_len = strlen(DUID_PREFIX);
-    bool stale_format =
-        len != expected_len || strncmp(cfg->psn_client_duid, DUID_PREFIX, prefix_len) != 0;
-    if (stale_format) {
-      LOGD("PSN provenance migration: clearing stale-format client DUID (len=%u)", (unsigned)len);
-      free(cfg->psn_client_duid);
-      cfg->psn_client_duid = NULL;
-    }
   }
 
   cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
@@ -487,14 +474,30 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
-  if (access(CFG_FILENAME, F_OK) != 0)
+  if (access(CFG_FILENAME, F_OK) != 0) {
+    /* Fresh install: no legacy tokens exist to migrate, so the provenance
+     * marker is current by definition. Set it now so any config_serialize()
+     * that later persists this in-memory config (e.g. after first login)
+     * writes PSN_AUTH_PROVENANCE_CURRENT instead of the config_set_defaults()
+     * placeholder of 0 -- otherwise the next boot's migrate_auth_provenance()
+     * would see 0 and wipe the freshly-minted GOOD tokens (GH #204). */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     goto config_done;
+  }
 
   toml_table_t *parsed = NULL;
-  if (!config_parse_file_with_queue_fix(&parsed))
+  if (!config_parse_file_with_queue_fix(&parsed)) {
+    /* Parse failure: cfg still holds only config_set_defaults() values (no
+     * tokens were read), so there is nothing pre-fix to migrate. Mark as
+     * current for the same reason as the fresh-install branch above. */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     return;
+  }
 
   if (!config_validate_general_section(parsed)) {
+    /* Invalid [general] table: bail before any PSN token fields are parsed.
+     * Same rationale as the two early-outs above. */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     toml_free(parsed);
     return;
   }

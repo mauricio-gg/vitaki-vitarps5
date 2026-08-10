@@ -15,6 +15,7 @@
 #include "config.h"
 #include "context.h"
 #include "psn_auth.h"
+#include "psn_remote.h"
 #include "vita_dns.h"
 
 #ifndef VITARPS5_PSN_OAUTH_DEVICE_CODE_URL
@@ -993,6 +994,17 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
     psn_auth_set_error("Failed to prepare client device ID");
     return false;
   }
+  /* Belt-and-suspenders: ensure_client_duid() returning true only means it
+   * didn't hit an explicit error path, not that psn_client_duid is
+   * populated. set_config_string() (config.c) can fail its internal
+   * strdup silently and leave the field NULL, and append_form_kv() below
+   * returns true even for an empty value -- either would silently mint a
+   * duid-less token and reproduce GH #204 with no error surfaced. */
+  if (!has_text(context.config.psn_client_duid)) {
+    LOGE("PSN auth: client duid missing after ensure_client_duid() succeeded");
+    psn_auth_set_error("Failed to prepare client device ID");
+    return false;
+  }
 
   CURL *curl = curl_easy_init();
   if (!curl) {
@@ -1015,8 +1027,10 @@ bool psn_auth_begin_device_login(uint64_t now_unix) {
    * /np/pushNotification rejects tokens minted without it with 403 (GH #204).
    * The old 64-char console-style DUID format is what broke QR login
    * (GH #184); upstream chiaki-ng appends a 48-char duid at login
-   * (gui/src/qmlbackend.cpp:1680). ensure_client_duid() runs above (see the
-   * check a few lines up) and guarantees psn_client_duid is valid here. */
+   * (gui/src/qmlbackend.cpp:1680). ensure_client_duid() runs above, and the
+   * has_text() check immediately after it confirms psn_client_duid is
+   * actually populated before we get here -- ensure_client_duid() returning
+   * true alone does not guarantee that (see its call site above). */
   bool form_ok =
       append_form_kv(curl, auth_url, sizeof(auth_url), &off, "service_entity",
                      "urn:service-entity:psn") &&
@@ -1221,6 +1235,16 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
   if (http_code == 200 && apply_token_response(response, now_unix)) {
     LOGD("PSN auth token exchange succeeded response_len=%u",
          (unsigned)(response ? strlen(response) : 0));
+    /* New grant through the corrected authorize URL — provenance has
+     * changed, so a cooldown armed by the old (pre-duid-fix) token no
+     * longer applies. A *refresh* (psn_auth_refresh_token_if_needed(),
+     * below) inherits the original grant's provenance and must NOT reset
+     * the gate: apply_token_response() is also reached from there, which
+     * fires from a 60s background idle timer (ui.c:513-525), at startup
+     * (ui.c:472), and from psn_remote_refresh_hosts() -- resetting on every
+     * background refresh would silently clear the cooldown regardless of
+     * whether the underlying grant actually changed (GH #204). */
+    psn_remote_reset_retry_gate();
     ok = true;
   } else {
     LOGE("PSN auth token exchange rejected status=%ld response_len=%u", http_code,

@@ -32,15 +32,24 @@ typedef enum psn_host_add_result_t {
   PSN_HOST_ADD_RESULT_SKIPPED_OOM = -3,
 } PsnHostAddResult;
 
+/* Sony's documented X-PSN-RETRY-INTERVAL-MAX ceiling is 1200 sec; this gives
+ * generous headroom while still bounding how long a malformed or absurdly
+ * large header value can lock the gate for the process lifetime. */
+#define PSN_WS_RETRY_GATE_MAX_SEC 3600L
+
 /* Sony rate-limits the pushNotification WebSocket: a rejected session_create
  * returns HTTP 403 with X-PSN-RETRY-INTERVAL-MIN/MAX headers (typically
- * 120-1200 sec). These statics cache the earliest time a new session_create
- * attempt may be made, so both manual "Connect via Internet" presses and
- * host_recovery auto-restarts (both funnel through
- * psn_remote_prepare_connect_host()) back off instead of hammering Sony's
- * endpoint and escalating the throttle (GH #204). */
-static uint64_t s_ws_retry_not_before_unix = 0;
-static uint64_t s_ws_retry_wait_sec = 0;
+ * 120-1200 sec). This cache of the earliest time a new session_create
+ * attempt may be made is read/written from two threads: VitaConnWorker
+ * (vita/src/ui/ui_state.c) and the Chiaki session event thread (vita/src/
+ * host_quit.c -> host_stream()); both funnel through
+ * psn_remote_prepare_connect_host()) so they back off instead of hammering
+ * Sony's endpoint and escalating the throttle (GH #204). `volatile` matches
+ * this codebase's convention for cross-thread flags -- a 64-bit value is not
+ * atomic on 32-bit ARM, but the single-active-stream invariant (only one of
+ * the two threads is ever driving a connection attempt at a time) serializes
+ * access in practice, so a plain volatile is safe here. */
+static volatile uint64_t s_ws_retry_not_before_unix = 0;
 
 static bool psn_uid_is_zero(const uint8_t uid[32]) {
   if (!uid)
@@ -245,17 +254,10 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
   }
   *out_session = NULL;
 
-  uint64_t now_unix_gate = (uint64_t)time(NULL);
-  if (now_unix_gate < s_ws_retry_not_before_unix) {
-    uint64_t remaining_sec = s_ws_retry_not_before_unix - now_unix_gate;
-    char message[160];
-    snprintf(message, sizeof(message), "PSN cooldown active (Sony rate limit). Retry in %llu sec.",
-             (unsigned long long)remaining_sec);
-    LOGE("PSN remote prepare failed: %s", message);
-    psn_remote_set_error(message);
-    return 1;
-  }
-
+  /* Check host/token validity before the Sony rate-limit gate so a missing
+   * device UID or an expired/unrefreshable OAuth token surfaces its own
+   * actionable error instead of being masked by a stale "Sony rate limit"
+   * message from an unrelated prior 403 (optional fix from GH #204 review). */
   if (psn_uid_is_zero(host->psn_device_uid)) {
     LOGE("PSN remote prepare failed: missing PSN device UID");
     psn_remote_set_error(
@@ -274,6 +276,24 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     LOGE("PSN remote prepare failed: missing OAuth access token");
     psn_remote_set_error("Missing PSN access token. Re-authenticate in Profile.");
     return 1;
+  }
+
+  /* time(NULL) failure (returns (time_t)-1) is treated as "cannot evaluate
+   * the gate" and falls through without blocking the attempt, matching the
+   * startup-clock-read convention in vita/src/ui.c:465-467. */
+  time_t gate_now_t = time(NULL);
+  if (gate_now_t != (time_t)-1) {
+    uint64_t now_unix_gate = (uint64_t)gate_now_t;
+    if (now_unix_gate < s_ws_retry_not_before_unix) {
+      uint64_t remaining_sec = s_ws_retry_not_before_unix - now_unix_gate;
+      char message[160];
+      snprintf(message, sizeof(message),
+               "PSN cooldown active (Sony rate limit). Retry in %llu sec.",
+               (unsigned long long)remaining_sec);
+      LOGE("PSN remote prepare failed: %s", message);
+      psn_remote_set_error(message);
+      return 1;
+    }
   }
 
   ChiakiHolepunchSession session = chiaki_holepunch_session_init(token, &context.log);
@@ -305,18 +325,31 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
       if (ws_http_code == 403 && (retry_interval_min > 0 || retry_interval_max > 0)) {
         /* Arm the cooldown gate using Sony's advertised interval. Prefer the
          * minimum (conservative but not excessive); fall back to the max if
-         * the min was omitted. */
+         * the min was omitted. Clamp to PSN_WS_RETRY_GATE_MAX_SEC so a
+         * malformed or absurdly large header can't lock the gate for the
+         * process lifetime. */
         long wait_sec = retry_interval_min > 0 ? retry_interval_min : retry_interval_max;
-        s_ws_retry_wait_sec = (uint64_t)wait_sec;
-        s_ws_retry_not_before_unix = (uint64_t)time(NULL) + s_ws_retry_wait_sec;
-        LOGD("PSN WS retry gate armed: wait=%llu sec (retry_min=%ld retry_max=%ld)",
-             (unsigned long long)s_ws_retry_wait_sec, retry_interval_min, retry_interval_max);
+        if (wait_sec > PSN_WS_RETRY_GATE_MAX_SEC)
+          wait_sec = PSN_WS_RETRY_GATE_MAX_SEC;
+        /* time(NULL) failure (returns (time_t)-1) is treated as "cannot
+         * arm the gate" rather than computing a garbage deadline, matching
+         * the clock-read convention in vita/src/ui.c:465-467. */
+        time_t arm_now_t = time(NULL);
+        if (arm_now_t != (time_t)-1) {
+          s_ws_retry_not_before_unix = (uint64_t)arm_now_t + (uint64_t)wait_sec;
+          LOGD("PSN WS retry gate armed: wait=%ld sec (retry_min=%ld retry_max=%ld)", wait_sec,
+               retry_interval_min, retry_interval_max);
+        } else {
+          LOGE("PSN WS retry gate arm skipped: time(NULL) failed");
+        }
 
+        /* Report the clamped wait_sec actually armed on the gate, not the
+         * raw Sony-advertised min/max -- otherwise this message could
+         * promise a shorter or longer wait than PSN_WS_RETRY_GATE_MAX_SEC
+         * actually enforces. */
         char message[160];
         snprintf(message, sizeof(message),
-                 "PSN cloud connection was rejected by Sony. Retry in %ld-%ld sec.",
-                 retry_interval_min > 0 ? retry_interval_min : retry_interval_max,
-                 retry_interval_max > 0 ? retry_interval_max : retry_interval_min);
+                 "PSN cloud connection was rejected by Sony. Retry in %ld sec.", wait_sec);
         psn_remote_set_error(message);
       } else {
         psn_remote_set_error("PSN cloud connection was rejected by Sony.");
@@ -464,6 +497,23 @@ void psn_remote_clear_cached_hosts(void) {
 #if CHIAKI_CAN_USE_HOLEPUNCH
   remove_existing_psn_hosts();
   update_context_hosts();
+#endif
+}
+
+/* psn_remote_reset_retry_gate — Clear the Sony WS retry-interval cooldown.
+ *
+ * A user whose stale/pre-fix token armed the gate (a rejected session_create
+ * due to the missing-duid bug, GH #204) must not stay locked out for Sony's
+ * advertised interval after successfully re-authenticating with a corrected,
+ * duid-bearing token. Call this only from a path that mints a *new*
+ * authorization grant (see vita/src/psn_auth.c:
+ * psn_auth_submit_authorization_response()) -- not from a token *refresh*,
+ * which inherits the original grant's provenance and has no bearing on
+ * whether a prior 403 still applies. No-op when the holepunch stack is
+ * disabled for this build, since the gate does not exist in that config. */
+void psn_remote_reset_retry_gate(void) {
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  s_ws_retry_not_before_unix = 0;
 #endif
 }
 
