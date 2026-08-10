@@ -424,6 +424,18 @@ static void *ctrl_thread_func(void *user)
 			remote_counter = message.remote_counter;
 			while(true)
 			{
+				// Every case below (and the former default branch) reads at least message.data+2. The
+				// data_size >= 4 check just above this while(true) only ran once, against the top-level
+				// message, before this loop started walking the subMessage chain -- a subMessage reached
+				// on a later iteration (including one with data_size == 0, where message.data is NULL) is
+				// not covered by that earlier check. Re-validate here, once, for every case, and discard
+				// (along with any remaining subMessage chain) rather than read out of bounds.
+				if(message.data_size < 4)
+				{
+					CHIAKI_LOGV(ctrl->session->log, "Ctrl received rudp chunk (subtype 0x%02x, data_size %zu) too small to parse, discarding", message.subtype, message.data_size);
+					chiaki_rudp_message_pointers_free(&message);
+					break;
+				}
 				switch(message.subtype) // wrong but works ...
 				{
 					case 0x02:
@@ -434,8 +446,10 @@ static void *ctrl_thread_func(void *user)
 						chiaki_rudp_ack_packet(ctrl->session->rudp, ack_counter);
 						chiaki_rudp_send_ack_message(ctrl->session->rudp, remote_counter);
 						int offset = rudp_packet_type_data_offset(message.subtype);
-						// ctrl message header is 8 bytes
-						if((message.data_size - offset) < 8)
+						// ctrl message header is 8 bytes; compare as size_t so a short chunk (data_size <
+						// offset, e.g. subtype 0x12's offset of 8) can't underflow the subtraction and pass
+						// this guard before the ntohl() read below.
+						if(message.data_size < (size_t)offset + 8)
 							break;
 						// check if message is ctrl message by making sure the payload size (size of message - 8 byte header is correct)
 						uint32_t ctrl_payload_size = ntohl(*(uint32_t*)(message.data + offset));
@@ -449,6 +463,20 @@ static void *ctrl_thread_func(void *user)
 						ack_counter = ntohs(*((chiaki_unaligned_uint16_t *)(message.data + 2)));
 						chiaki_rudp_ack_packet(ctrl->session->rudp, ack_counter);
 						break;
+					case 0x30:
+						// Session-class selective-ack/gap-report chunk: [console counter 2B][peer-ack of our
+						// last accepted counter 2B][6B ext] (low byte of the wire type field is a decrementing
+						// credit/window counter, not part of the type -- see the RudpPacketType enum comment
+						// in rudp.h). Mirror case 0x24: feed the peer-ack to chiaki_rudp_ack_packet() so
+						// send_buffer slots for our outstanding chiaki_rudp_send_ctrl_message() sends actually
+						// get released -- without this the 16-slot send buffer fills and we retransmit-storm.
+						// Also keep replying with our own ack, matching the previous default-branch behavior
+						// for this chunk type (it's the console's most common one; changing our on-wire
+						// behavior toward it is out of scope for this fix).
+						ack_counter = ntohs(*((chiaki_unaligned_uint16_t *)(message.data + 2)));
+						chiaki_rudp_ack_packet(ctrl->session->rudp, ack_counter);
+						chiaki_rudp_send_ack_message(ctrl->session->rudp, remote_counter);
+						break;
 					case 0xC0:
 						CHIAKI_LOGI(ctrl->session->log, "Received rudp finish message, stopping ctrl.");
 						ctrl_failed(ctrl, CHIAKI_QUIT_REASON_CTRL_UNKNOWN);
@@ -457,10 +485,9 @@ static void *ctrl_thread_func(void *user)
 						CHIAKI_LOGI(ctrl->session->log, "Received message of unknown type: 0x%04x", message.type);
 						chiaki_rudp_ack_packet(ctrl->session->rudp, ack_counter);
 						chiaki_rudp_send_ack_message(ctrl->session->rudp, remote_counter);
-						// we already checked before if data size was at least 4
 						int offset2 = 4;
-						// ctrl message header is 8 bytes
-						if((message.data_size - offset2) < 8)
+						// ctrl message header is 8 bytes; size_t-safe, see the comment on the 0x02 case above.
+						if(message.data_size < (size_t)offset2 + 8)
 							break;
 						uint32_t ctrl_payload_size2 = ntohl(*(uint32_t*)(message.data + offset2));
 						if((message.data_size - offset2 - 8) == ctrl_payload_size2)
