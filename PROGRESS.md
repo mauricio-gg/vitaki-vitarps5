@@ -79,7 +79,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### 4. Latency Reduction Initiative *(Active — PRs #213/#215 merged; Hardware validation + GH #214 next)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by understanding and fixing root causes of lag spikes.
 - **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling.
-- **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression. ENOBUFS-burst validation complete (log 13382891119); transport-death banner items pending.
+- **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression. ENOBUFS-burst validation complete (log 18107437792); transport-death banner items pending.
 - **Completed (PR #213):** Post-FEC effective loss reporting (4128b99a, v0.1.844+). Fixes PS5 bitrate floor-throttling via outcome-aware accounting; also fixes audio race, frameprocessor flushed flag, alloc_frame stale counters. Hardware A/B validation PENDING.
 - **Completed (PR #215):** Reliable stop-to-reconnect (91b8c049, v0.1.844+). Fixes RP_IN_USE rejection via bounded DISCONNECT ack-wait + delivery-aware post-stop guard; single auto-retry on forced rejection. Hardware validation PENDING.
 - **Current Focus:** Hardware validation of PRs #213/#215 combined session (bitrate stability + reconnect reliability), then GH #214 investigation (should_stop sticky latch).

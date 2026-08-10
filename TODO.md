@@ -142,7 +142,7 @@ Only move a task to "Done" after the reviewer signs off.
 2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Partial validation complete (ENOBUFS-burst DONE, transport-death pending)
    - *Goal:* Validate ENOBUFS transient-retry fix and mid-stream DISCONNECT propagation work correctly end-to-end on Vita hardware.
    - *Validation Checklist:*
-     - [x] ENOBUFS burst → single WARN + continued streaming (validated 2026-08-10: log 13382891119 shows 3 ENOBUFS events survived, no freeze, zero EBADF)
+     - [x] ENOBUFS burst → single WARN + continued streaming (validated 2026-08-10: log 18107437792 shows 3 ENOBUFS events survived, no freeze, zero EBADF)
      - [ ] Transport death → "Transport disconnected" banner within ~2s, no force-close required
      - [ ] Console sleep still reports REMOTE_SHUTDOWN (unchanged behavior)
      - [ ] User stop unchanged (session teardown clean)
