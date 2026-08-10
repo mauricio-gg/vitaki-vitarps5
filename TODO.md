@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-06-25 (PSN QR login fix validated and merged in PR #184; Motion macroblocking investigation doc created; Bitrate metrics PR #181-183 shipped)
+Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix documented in review; hardware validation checklist prepared)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -168,6 +168,23 @@ Only move a task to "Done" after the reviewer signs off.
    - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
 ### 📥 In Review
+1. **PSN WebSocket 403 Fix (GH #204)**
+   - *Owner:* Implementation agents (dc093a4b, 17456f71)
+   - *Summary:* Fixed PSN internet remote play 403 Forbidden by re-adopting upstream's 48-char duid format (prefix + 16 random bytes) and restoring duid to OAuth authorize URL. PR #184 had removed duid to fix QR login (#202), but the real issue was Vita's invalid 64-char duid format. Includes one-time token migration marker and Sony retry-interval gating.
+   - *Changes:*
+     - `lib/include/chiaki/remote/holepunch.h`: DUID_PREFIX, CHIAKI_DUID_STR_SIZE 65→49
+     - `vita/src/psn_auth.c`: Restored duid parameter, added is_valid_client_duid() validation
+     - `vita/src/config.c`: One-time migration marker (psn_auth_provenance=1)
+     - `vita/src/psn_remote.c`: Sony retry-interval gate honors X-PSN-RETRY-INTERVAL-MIN/MAX headers
+     - `lib/src/remote/holepunch.c`: Device-list fetch timeout 2s→10s
+   - *Status:* Code review complete, builds pass (testing + test), formatted
+   - *Needs:* Hardware validation checklist (see `docs/ai/PSN_REMOTEPLAY_WEBSOCKET_403_STATUS.md`):
+     - [ ] QR login does not regress (authorization page loads)
+     - [ ] PSN WebSocket 101 Switching Protocols (not 403)
+     - [ ] Migration one-shot fires (pre-duid tokens invalidated)
+     - [ ] Sony cooldown gate honored after 403
+     - [ ] LAN remote play regression check
+
 2. **Add latency mode presets (1.2–3.8 Mbps)**
    - *Owner:* Implementation agent
    - *Summary:* Introduced `latency_mode` config/UI dropdown plus bitrate overrides in `vita/src/host.c` so users can pick Ultra Low → Max bandwidth targets. Added presets to config serialization and documented options in README.
