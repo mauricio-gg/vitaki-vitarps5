@@ -56,9 +56,9 @@ This is the same root mechanism documented in `docs/ai/FPS_HEALTH_INVESTIGATION.
 | Reference frame slots (receiver) | 16 | `lib/src/videoreceiver.c:22-46` | Max reference frames tracked by `add_ref_frame()` / `have_ref_frame()` |
 | `REF_FRAMES` (Vita HW decoder) | 8 | `vita/include/video.h:35` | Max reference frames the Vita hardware decoder retains in memory |
 | `TAKION_JITTER_MAX_THRESHOLD_US` | 100,000 μs (100 ms) | `lib/src/takion.c:62` | Jitter buffer ceiling on Vita (vs. 20 ms on desktop) |
-| `CONGESTION_CONTROL_INTERVAL_MS` | 200 ms | `lib/src/congestioncontrol.c:5` | Loss reporting interval to PS5 (PS5 ignores for bitrate adjustment) |
+| `CONGESTION_CONTROL_INTERVAL_MS` | 200 ms | `lib/src/congestioncontrol.c:5` | Loss reporting interval to PS5 (PS5 ratchets `target_bitrate` down on nonzero reported loss and never raises it back mid-session — see Candidate Root Cause "#3 — No Client-Side Loss/Bitrate Adaptation" below) |
 | FEC parity ratio | PS5-dictated per packet | `lib/src/frameprocessor.c:259-267` | Determines max erasures recoverable via Jerasure/Reed-Solomon |
-| Reorder queue size | 256 entries | `lib/src/takion.c` | RTP packet reorder queue capacity |
+| Reorder queue size | 256 entries | `lib/src/takion.c` | CONTROL-channel message reorder queue capacity (`takion->data_queue`) — video/audio AV packets bypass this queue entirely and go straight to `takion_handle_packet_av()`, so it never buffers or drops streaming packets |
 
 ---
 
@@ -116,7 +116,7 @@ Request an IDR on the **first unrecoverable missing reference** (not just after 
 
 **The Problem:**
 - `lib/src/congestioncontrol.c:5` defines `CONGESTION_CONTROL_INTERVAL_MS = 200`, sending loss reports to the PS5 every 200ms.
-- The PS5 Remote Play server **ignores client-reported loss for bitrate adjustment** (confirmed by chiaki-ng community; they cap reported loss at 10% to prevent PS5 over-throttling).
+- The PS5's congestion response is a **downward-only ratchet**, not a simple ignore: any nonzero reported loss steps `target_bitrate` down (observed 5825k → 2591k over 75s from 1-2 lost units per 200ms window) and nothing raises it back mid-session. The 10% cap on reported loss (`CONGESTION_MAX_REPORTED_LOSS`, `lib/src/congestioncontrol.c`) exists to bound how hard a single burst can drive the ratchet down, not to stop the PS5 from adapting at all. See PR #213 (GH #206), which fixed a related bug where loss was reported pre-FEC — before FEC had a chance to recover it — needlessly ratcheting the bitrate down for losses that never reached the user.
 - No mid-session bitrate renegotiation exists (`vita/src/host.c:271-273`). Stream bitrate is fixed at session start.
 - Recovery from a bitrate mismatch requires a full stream restart (`vita/src/host_recovery.c:30-50`).
 

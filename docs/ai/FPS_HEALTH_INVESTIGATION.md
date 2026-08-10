@@ -17,7 +17,7 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 3. Incomplete I-frame means every subsequent P-frame in the chain also fails (H.264 inter-prediction)
 4. IDR recovery request takes 50-200ms round trip; 3-9 more P-frames are lost by then
 5. Cascade repeats until next successful IDR, but new losses start another cascade
-6. PS5 encoder does NOT adaptively lower bitrate in response to congestion control feedback
+6. PS5's congestion response is a downward-only ratchet on reported loss — `target_bitrate` staircases down and never recovers mid-session, regardless of how transient the loss was (evidence: sessions 11782861312, 18107437792; see PR #213 / GH #206, which fixed pre-FEC loss reporting so FEC-recovered losses stopped needlessly driving the ratchet down)
 
 ### Evidence from Log Sessions
 
@@ -138,15 +138,15 @@ FPS drops are **NOT** caused by Vita-side bottlenecks. The single-buffer decode 
 
 ### 4. Congestion Control Self-Adaptation (MEDIUM IMPACT)
 
-**Problem:** PS5 ignores congestion control feedback. The Vita client reports loss every 200ms via `chiaki_congestion_control_send()` (`lib/src/congestioncontrol.c:47-80`), but PS5 continues sending at negotiated bitrate.
+**Problem:** PS5's congestion response is a downward-only ratchet, not a real adaptive controller. The Vita client reports loss every 200ms via `chiaki_congestion_control_send()` (`lib/src/congestioncontrol.c:47-80`); any nonzero reported loss steps `target_bitrate` down, but nothing in the protocol ever raises it back up mid-session — a transient Wi-Fi blip permanently degrades the rest of the session.
 
 **Current flow** (`lib/src/congestioncontrol.c:47-80`):
 - Runs on dedicated thread, sleeps 200ms between reports
 - Sends `TAKION_PACKET_TYPE_CONGESTION` with `packet_stats` data
-- PS5 receives but does not adapt — no bitrate reduction observed in any session
+- PS5 receives and does ratchet `target_bitrate` down on nonzero reported loss, but never raises it again — recovery requires a full stream restart. PR #213 (GH #206) fixed loss being reported pre-FEC (i.e. before FEC had a chance to recover it), which had been needlessly triggering the ratchet for losses invisible to the user.
 
 **Proposed changes:**
-- Since PS5 won't adapt, the Vita client must self-adapt:
+- Since the PS5 never un-ratchets mid-session, the Vita client must self-adapt by restarting the stream once bitrate has been ratcheted down too far:
   - When congestion control detects sustained loss (3+ reports with drops), trigger soft restart at lower bitrate
   - Use the existing `request_stream_restart_coordinated()` infrastructure
   - This is more responsive than waiting for stuck-bitrate detector (5s) or cadence alarm (12s)

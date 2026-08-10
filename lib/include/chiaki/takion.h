@@ -175,9 +175,22 @@ typedef struct chiaki_takion_t
 
 	bool enable_dualsense;
 
+	/**
+	 * Drop counters for the CONTROL-channel reorder queue (takion->data_queue).
+	 * Video/audio (AV) packets bypass this queue entirely -- see
+	 * takion_handle_packet()'s dispatch on base_type in takion.c -- so these
+	 * counts never reflect video/audio loss. Per-reason fields accumulate
+	 * between log emissions and are zeroed by takion_log_drop_summary() once
+	 * it actually logs (rate-limited to TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS).
+	 */
 	struct
 	{
-		uint64_t drops_since_log;
+		uint64_t drops_since_log;         // sum of all reasons below, since last log emission
+		uint64_t drops_dup_since_log;      // CHIAKI_REORDER_QUEUE_DROP_DUPLICATE
+		uint64_t drops_late_since_log;     // CHIAKI_REORDER_QUEUE_DROP_LATE
+		uint64_t drops_overflow_since_log; // CHIAKI_REORDER_QUEUE_DROP_OVERFLOW
+		uint64_t drops_gap_skip_since_log; // CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP
+		uint64_t drops_flush_since_log;    // CHIAKI_REORDER_QUEUE_DROP_FLUSH
 		uint64_t last_log_ms;
 		uint64_t last_seq_num;
 	} recv_drop_stats;
