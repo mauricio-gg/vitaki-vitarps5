@@ -17,6 +17,30 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define VIDEO_GAP_REPORT_FORCE_SPAN 12
 // Guard against pathological spans from corrupted sequence state.
 #define VIDEO_SPAN_SANITY_MAX 4096U
+// Rate-limit re-reports of a growing same-start corrupt-frame range during a
+// single stall. Hardware evidence (24402261711_vitarps5-testing.log, lines
+// 1719-1853) shows one burst (frames 175-222) producing 14 separate
+// reason=held/reason=fec_failed reports over ~1.3s of wall time (mean
+// interval ~90-100ms, individual gaps ranging ~16-235ms) as the HOLD_MS
+// batching above was repeatedly bypassed by the FORCE_SPAN check once the
+// gap outgrew it. That burst pattern lines up with the PS5's aggregate
+// downward-only bitrate ratchet observed across the session
+// (5825000 -> 5480000 -> 5184000 -> ... -> 3579000 in this log). A 500ms
+// cooldown cuts a burst like this from ~14 reports to roughly 3 (the
+// immediate first report plus ~2 periodic refreshes) while still keeping
+// the console's view of the burst reasonably current.
+#define VIDEO_CORRUPT_REPORT_COOLDOWN_MS 500
+// Bypass the cooldown immediately once the range has grown by this many
+// frames since the last report, so a single large jump (e.g. a bigger
+// resync gap) isn't silently under-reported for a full cooldown window.
+// This is a safety valve for large jumps, not a steady-frame-rate refresh
+// path: per-report growth in the cited burst never exceeded 12 frames
+// (typically 1-4), and 32 frames at 60fps (~533ms) is already longer than
+// the cooldown itself, so it will not trigger at steady 60fps growth — the
+// cooldown-elapsed refresh above is what carries a steadily-growing burst.
+// Kept above VIDEO_GAP_REPORT_FORCE_SPAN (12) so it doesn't also fire on
+// every initial force-spanned detection.
+#define VIDEO_CORRUPT_REPORT_GROWTH_BYPASS_SPAN 32
 #define IDR_REQUEST_COOLDOWN_MS 100
 #define IDR_REQUEST_TIMEOUT_MS 1000
 #define CASCADE_SKIP_THRESHOLD 3
@@ -71,17 +95,33 @@ static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs)
 	return lhs + rhs;
 }
 
-static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end)
+static bool should_skip_corrupt_report(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end, uint64_t now_ms)
 {
 	if(video_receiver->last_reported_corrupt_start != start)
+		return false; // first report of a new burst always fires immediately, uncooled
+	if(seq16_inclusive_ge(video_receiver->last_reported_corrupt_end, end))
+		return true; // no new information beyond what was already reported
+
+	// Same burst, range has expanded: rate-limit the re-report unless either
+	// the growth since the last report or the elapsed time justify refreshing
+	// the console's view of the burst's extent now.
+	uint32_t growth = seq16_span(video_receiver->last_reported_corrupt_end, end) - 1U;
+	if(growth >= VIDEO_CORRUPT_REPORT_GROWTH_BYPASS_SPAN)
 		return false;
-	return seq16_inclusive_ge(video_receiver->last_reported_corrupt_end, end);
+	uint64_t elapsed_ms = now_ms - video_receiver->last_reported_corrupt_at_ms;
+	return elapsed_ms < VIDEO_CORRUPT_REPORT_COOLDOWN_MS;
 }
 
-static void report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end, const char *reason)
+// Reports the given range to the console unless should_skip_corrupt_report()
+// suppresses it (cooldown active on a still-expanding same-start burst).
+// Returns true iff a report was actually emitted, so callers that track a
+// "pending" flag for the range know whether they can safely clear it, or
+// must keep it set for a later retry once the cooldown/growth condition
+// allows the console to eventually learn the burst's full extent.
+static bool report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, ChiakiSeqNum16 start, ChiakiSeqNum16 end, const char *reason, uint64_t now_ms)
 {
-	if(should_skip_corrupt_report(video_receiver, start, end))
-		return;
+	if(should_skip_corrupt_report(video_receiver, start, end, now_ms))
+		return false;
 	CHIAKI_LOGW(video_receiver->log, "Detected missing or corrupt frame(s) from %d to %d%s%s",
 				(int)start,
 			(int)end,
@@ -90,6 +130,8 @@ static void report_corrupt_frame_range(ChiakiVideoReceiver *video_receiver, Chia
 	stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, start, end);
 	video_receiver->last_reported_corrupt_start = start;
 	video_receiver->last_reported_corrupt_end = end;
+	video_receiver->last_reported_corrupt_at_ms = now_ms;
+	return true;
 }
 
 static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64_t now_ms, bool force)
@@ -113,11 +155,20 @@ static void flush_pending_gap_report(ChiakiVideoReceiver *video_receiver, uint64
 		span < VIDEO_GAP_REPORT_FORCE_SPAN)
 		return;
 
-	report_corrupt_frame_range(video_receiver,
+	// Only clear the pending flag when a report actually went out. If it was
+	// suppressed by the cooldown, leave gap_report_start/end/pending intact so
+	// the next call (this function runs on every incoming AV packet, see
+	// chiaki_video_receiver_av_packet) retries and emits as soon as the
+	// cooldown elapses or the range grows past the bypass threshold — without
+	// this, a cooldown-skipped report would silently drop the burst's tail
+	// forever instead of merely being delayed.
+	bool reported = report_corrupt_frame_range(video_receiver,
 		(ChiakiSeqNum16)video_receiver->gap_report_start,
 		(ChiakiSeqNum16)video_receiver->gap_report_end,
-		force ? "forced" : "held");
-	video_receiver->gap_report_pending = false;
+		force ? "forced" : "held",
+		now_ms);
+	if(reported)
+		video_receiver->gap_report_pending = false;
 }
 
 static void video_receiver_maybe_request_idr(ChiakiVideoReceiver *video_receiver, uint64_t now_ms, const char *reason)
@@ -191,6 +242,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->gap_report_deadline_ms = 0;
 	video_receiver->last_reported_corrupt_start = 0;
 	video_receiver->last_reported_corrupt_end = 0;
+	video_receiver->last_reported_corrupt_at_ms = 0;
 	video_receiver->cur_frame_seen_last_unit = false;
 	video_receiver->cur_frame_first_packet_ms = 0;
 	video_receiver->stage_window_start_ms = 0;
@@ -314,7 +366,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 				&flush_end);
 			if(gap_action == CHIAKI_VIDEO_GAP_UPDATE_FLUSH_PREVIOUS)
 			{
-				report_corrupt_frame_range(video_receiver, flush_start, flush_end, "forced");
+				report_corrupt_frame_range(video_receiver, flush_start, flush_end, "forced", now_ms);
 			}
 			video_receiver->gap_report_pending = gap_state.pending;
 			video_receiver->gap_report_start = gap_state.start;
@@ -439,7 +491,11 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		{
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
-			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed");
+			// Reuse flush_start_ms (captured at function entry) instead of a fresh
+			// clock read -- both represent "now" within this same flush call, and
+			// avoiding a third chiaki_time_now_monotonic_ms() call here is a small
+			// but free win on the latency-sensitive recv thread.
+			report_corrupt_frame_range(video_receiver, next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur, "fec_failed", flush_start_ms);
 			uint32_t lost = seq16_span(next_frame_expected, (ChiakiSeqNum16)video_receiver->frame_index_cur);
 			if(lost > 0 && lost < 1000U)
 				video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, lost);

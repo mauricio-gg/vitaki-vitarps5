@@ -42,6 +42,7 @@ typedef struct chiaki_video_receiver_t
 	uint16_t gap_report_start;
 	uint16_t gap_report_end;
 	uint64_t gap_report_deadline_ms;
+	uint64_t last_reported_corrupt_at_ms; // Timestamp of last emitted corrupt-frame report, for re-report cooldown
 	uint16_t last_reported_corrupt_start;
 	uint16_t last_reported_corrupt_end;
 	bool cur_frame_seen_last_unit;
