@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-08-10 (GH #208 ENOBUFS fix merged as 205eed56; GH #206 proximity A/B evidence collected + signal-strength hypothesis refuted; GH #188 decode-thread decoupling COMPLETE)
+Last Updated: 2026-08-10 (PRs #213, #215, #216 merged; GH #206 narrowed; GH #208 ENOBUFS-burst validated; next: hardware validation #213/#215 + #214 investigation)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -76,22 +76,17 @@ A living reference for larger initiatives. Update this document when we start or
 - **Spec:** `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
 - **Status:** T1-T6 in progress on worktrees.
 
-### 4. Latency Reduction Initiative *(Active — GH #208 fixed; GH #206 continues with loss-report capping)*
+### 4. Latency Reduction Initiative *(Active — PRs #213/#215 merged; Hardware validation + GH #214 next)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by understanding and fixing root causes of lag spikes.
-- **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling, indicating another root cause.
-- **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression discovered during GH #206 proximity testing. Hardware validation pending.
-- **Current Focus:** Loss-report capping (~10% chiaki-ng-style) + client-side burst absorption. GH #206 investigation established that Vita Wi-Fi burstiness is intrinsic (not signal-quality dependent); next step is to limit PS5 congestion-control reactions and absorb packet clusters on Vita side.
-- **Key Findings (2026-08-10):**
-  - **GH #188 Hardware A/B (log 11782861312):** Decode now runs cleanly on dedicated thread (1.8ms avg/2.4ms max), but jitter unchanged (45–87ms avg, 207ms max). Decode-on-recv-thread coupling was NOT the jitter source.
-  - **Three-factor lag model (GH #206):**
-    1. Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50 (base RTT 6–10ms, actual 63–84ms; one session zero client drops yet 64ms jitter)
-    2. Receive queue pinned at 256 slots dripping 1046 single-packet drops despite drain cap already being 256/wakeup — drain cap is not the bottleneck; deficit is elsewhere (recv-thread scheduling during bursts / sustained arrival rate exceeds drain rate)
-    3. **PS5 bitrate floor-throttling in response to loss reports** — contradicts "PS5 ignores congestion control" belief; throttles 4977k → 1597k floor per session
-  - Earlier findings (2026-06-27): Wi-Fi power-save hint (PR #198, no benefit), LAN bitrate lowering ruled out as red herring
-- **Proposed GH #206 Work:**
-  - Drain-deficit instrumentation in `lib/src/takion.c`
-  - chiaki-ng-style loss-report capping (~10%) in `lib/src/congestioncontrol.c`
-  - Controlled Wi-Fi proximity A/B testing (RSSI > 80)
+- **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling.
+- **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression. ENOBUFS-burst validation complete (log 18107437792); transport-death banner items pending.
+- **Completed (PR #213):** Post-FEC effective loss reporting (4128b99a, v0.1.844+). Fixes PS5 bitrate floor-throttling via outcome-aware accounting; also fixes audio race, frameprocessor flushed flag, alloc_frame stale counters. Hardware A/B validation PENDING.
+- **Completed (PR #215):** Reliable stop-to-reconnect (91b8c049, v0.1.844+). Fixes RP_IN_USE rejection via bounded DISCONNECT ack-wait + delivery-aware post-stop guard; single auto-retry on forced rejection. Hardware validation PENDING.
+- **Current Focus:** Hardware validation of PRs #213/#215 combined session (bitrate stability + reconnect reliability), then GH #214 investigation (should_stop sticky latch).
+- **GH #206 Findings (Narrowed 2026-08-10):**
+  - Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong signal confirms intrinsic Vita Wi-Fi burstiness
+  - **Three-factor lag model:** (a) genuine Wi-Fi jitter ~60ms, (b) receive queue dripping 1046 drops (drain-rate deficit), (c) PS5 bitrate ratchet in response to loss (now fixed by PR #213)
+  - **Remaining scope:** PR #213 hardware A/B validation, whole-frame-gap blindness (missing IDR recovery), jitter-buffer clamp adaptation
 
 ### 5. Controller Layout Redesign *(COMPLETE ✅)*
 - **Objective:** Redesign the controller configuration screen with an immersive visual layout featuring procedurally rendered Vita controller diagrams and interactive button mapping views.
@@ -153,6 +148,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-08-10 | **PRs #213, #215, #216 Merged — Three Major Stability Fixes** — Post-FEC loss reporting (PR #213, 4128b99a): fixes PS5 bitrate floor-throttling via outcome-aware accounting after FEC flush + 1Hz CONGESTION/LOSS diagnostics; also fixes audio push_seq race + frameprocessor never-set flushed flag + alloc_frame stale counters; 3 code-guardian rounds. Reliable stop-to-reconnect (PR #215, 91b8c049): fixes RP_IN_USE rejection after deliberate stop via bounded 400ms DISCONNECT ack-wait + delivery-aware post-stop guard (0s/2s/8s per state); single RP_IN_USE auto-retry on forced rejection; 3 rounds with dual independent reviewers. Truthful control-channel drop logging (PR #216, 287c6287): fixes misleading Takion queue-overflow evidence (control-channel-only queue artifact) + corrects stale "PS5 ignores congestion feedback" claims in docs (now ratchet-model accurate). All three merged to v0.1.844+. Hardware validation combined checklist added to TODO.md item 3. GH #214 (should_stop sticky latch bug) added as HIGH priority to TODO.md item 4. See DONE.md for full details. | @mauricio-gg |
 | 2026-08-10 | **GH #206 Proximity A/B Complete + GH #208 ENOBUFS Fix Merged** — Proximity A/B test (log 13382891119, RSSI 84→100 next to router) confirmed signal-strength hypothesis REFUTED: jitter remained 50–90ms despite strong signal. Vita Wi-Fi burstiness is intrinsic to stack, not client issue. PS5 throttling milder (~5.4Mbps vs prior 1.6Mbps), 249 overflow drops in ~30s. **Concurrently:** GH #208 (PR #209) merged as 205eed56 (v0.1.842) — transient ENOBUFS now retries instead of killing recv thread; mid-stream DISCONNECT propagates cleanly; EBADF flood eliminated. Code-guardian reviewed (blocker + 6 findings, then approved). Proximity A/B evidence added to TODO.md GH #206 item; GH #208 validation checklist added to TODO.md item 2. **Next priority:** Loss-report capping (~10% chiaki-ng-style in lib/src/congestioncontrol.c) + client-side burst absorption. See DONE.md (GH #208 section) and TODO.md (items 1-2). | @mauricio-gg |
 | 2026-08-10 | **GH #188 COMPLETE — Decode-thread decoupling (PR #199)** merged to main with excellent performance (1.8ms avg/2.4ms max, `decode_q_drops=0`, zero regressions on hardware A/B log 11782861312). **BUT:** Jitter theory disproven — jitter remained 45–87ms avg after decoupling. **New root cause (GH #206):** Three-factor model: (a) genuine Wi-Fi jitter ~60ms at RSSI ~50, (b) receive queue 1046 single-packet drops despite drain cap already 256/wakeup, (c) PS5 bitrate floor-throttling (4977k → 1597k) in response to loss reports (contradicts "PS5 ignores congestion control"). Proposed GH #206 work: drain-deficit instrumentation, loss-report capping, Wi-Fi proximity A/B. See TODO.md item 1 (reprioritized to GH #206) and DONE.md (GH #188 section). | @mauricio-gg |
 | 2026-08-10 | GH #204 PSN WebSocket 403 fix hardware validated (build c476f4b3, v0.1.838): Core functionality confirmed — internet connect end-to-end ✅, WebSocket 101 (403 resolved) ✅, clean console-sleep shutdown ✅ (49s stream at 4ms RTT / 3.5Mbps / 30fps). Two additional commits validated (cafe92eb RUDP gap-report fix, c476f4b3 four upstream holepunch parity ports) after code-guardian review. Regression tests queued: LAN connectivity, off-network (hotspot) connect, one-shot token-migration re-test on old config, QR login re-confirmation post-flash. PR #205 pending merge; keep in "In Review" state until merge + regression suite closes. See `docs/ai/PSN_REMOTEPLAY_WEBSOCKET_403_STATUS.md` hardware validation section. | @mauricio-gg |

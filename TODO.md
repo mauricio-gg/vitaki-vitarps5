@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-10 (GH #208 ENOBUFS transient-retry fix merged as 205eed56; GH #206 proximity A/B evidence collected; GH #188 decode-decouple COMPLETE)
+Last Updated: 2026-08-10 (PRs #213, #215, #216 merged; GH #206 narrowed by proximity A/B; GH #208 ENOBUFS-burst validation DONE; next: hardware validation #213/#215, then #214 investigation)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -135,21 +135,47 @@ Only move a task to "Done" after the reviewer signs off.
 1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
    - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops despite drain cap already being 256/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
    - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559. **Proximity A/B result (2026-08-10, log 13382891119):** RSSI 84→100 next to router, jitter still 50–90ms — signal-strength hypothesis refuted; Vita Wi-Fi burstiness is intrinsic to stack. PS5 throttling milder this run (~5.4Mbps target vs prior 1.6Mbps floor). 249 overflow drops in ~30s. Rules out signal quality; remaining factors are intrinsic Wi-Fi burstiness (jitter) and the queue drain deficit (drops).
-   - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
-   - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
-   - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
+   - *Narrowed Scope (2026-08-10):* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness (not client issue). Remaining work: (a) PR #213 hardware A/B to validate post-FEC loss reporting fixes PS5 throttling, (b) whole-frame-gap blindness (missing IDR recovery when reference chain broken), (c) jitter-buffer clamp adaptation (absorb bursts better).
+   - *Impact:* Post-FEC loss reporting fixes (PR #213 merged) should improve PS5 bitrate stability; validated via hardware A/B with ratchet-model telemetry.
+   - *Next Step:* Hardware validation of PR #213 + PR #215 (combined session); confirm CONGESTION/LOSS logs show post-FEC accounting, no staircase pattern, target holds ~5.8Mbps 10+ min.
 
-2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Pending
+2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Partial validation complete (ENOBUFS-burst DONE, transport-death pending)
    - *Goal:* Validate ENOBUFS transient-retry fix and mid-stream DISCONNECT propagation work correctly end-to-end on Vita hardware.
    - *Validation Checklist:*
-     - [ ] ENOBUFS burst → single WARN + continued streaming (transient retry + 400-consecutive escalation working)
+     - [x] ENOBUFS burst → single WARN + continued streaming (validated 2026-08-10: log 18107437792 shows 3 ENOBUFS events survived, no freeze, zero EBADF)
      - [ ] Transport death → "Transport disconnected" banner within ~2s, no force-close required
      - [ ] Console sleep still reports REMOTE_SHUTDOWN (unchanged behavior)
      - [ ] User stop unchanged (session teardown clean)
      - [ ] EBADF flood eliminated (≤1 rate-limited log line/s, socket invalidated before close)
    - *Evidence:* Build v0.1.842; code-guardian reviewed (blocker + 6 findings fixed, then approved); merged as 205eed56
 
-3. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
+3. **Hardware Validation: PRs #213 + #215 Combined Session** ⭐ **NEXT PRIORITY**
+   - *Goal:* Validate post-FEC loss reporting (PR #213) + reliable stop-to-reconnect (PR #215) together on hardware. Combined checklist ensures both features work without regression.
+   - *PR #213 (post-FEC effective loss reporting):**
+     - Root cause: loss reported to PS5 pre-FEC + PS5's downward-only bitrate ratchet (5825k→2591k over 75s from 0.8–5% loss reports, under inert 10% cap)
+     - Fix: post-flush FEC-outcome-aware accounting, recovered-loss safety valve (divisor 4), 1Hz CONGESTION/LOSS diagnostics
+     - Merged: 4128b99a (v0.1.844+)
+   - *PR #215 (reliable stop-to-reconnect):**
+     - Root cause: fire-and-forget DISCONNECT (19ms teardown) + user stop clearing its own cooldown, PS5 releasing sessions asynchronously 4–9s
+     - Fix: bounded 400ms DISCONNECT ack-wait, delivery-aware post-stop guard (0s never-streamed / 2s acked / 8s unacked) with countdown hint, "Streaming stopped" banner suppressed on deliberate stops, single RP_IN_USE auto-retry
+     - Merged: 91b8c049 (v0.1.844+)
+   - *Combined Hardware Validation Checklist:*
+     - [ ] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show raw_lost>0 / fec_recovered≈raw_lost / reported≈0 (post-FEC accounting working)
+     - [ ] **No staircase pattern:** bitrate holds steady ~5.8Mbps for 10+ min sessions, no downward ratchet under normal loss
+     - [ ] **Forced loss still reports:** Intentional 5% packet drop still triggers loss report + IDR (recovery path active)
+     - [ ] **PR #215 Stop-to-Reconnect:** stop→immediate reconnect succeeds ×10 runs without RP_IN_USE rejection
+     - [ ] **Auto-retry visible:** RP_IN_USE rejection (if forced) shows overlay + single auto-retry fires
+     - [ ] **Cancel-during-connect instant:** pressing stop during connect handshake kills immediately (no hung state)
+   - *Next Step:* Run combined session on `./tools/build.sh --env testing`, capture logs with both PRs, verify checklist items, document any regressions.
+
+4. **GH #214 Investigation: should_stop Sticky Latch Bug** ⭐ **HIGH PRIORITY NEXT**
+   - *Goal:* Investigate and fix streamconnection `should_stop` sticky latch that never resets per-run, causing soft restarts to bail at first CHECK_STOP.
+   - *Evidence:* Likely explains `classified=handshake_init_ack` restart-failure telemetry from earlier testing.
+   - *Impact:* Soft restart reliability is critical for mid-session recovery; sticky latch causes restarts to fail silently on second and later attempts.
+   - *Scope:* Investigate `lib/src/streamconnection.c` for `should_stop` latch logic, determine reset logic per-run, propose fix with per-run state clearing.
+   - *Next Step:* Spike the `should_stop` field usage across lib/src/streamconnection.c and life-cycle handlers; identify why it doesn't reset on new sessions.
+
+5. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
    - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
    - *Lever 1:* ENOBUFS/EBADF escalation in `lib/src/takion.c` send path
    - *Lever 2:* DISCONNECT-during-streaming path in `lib/src/streamconnection.c` (currently gated to STATE_TAKION_CONNECT, line ~435)

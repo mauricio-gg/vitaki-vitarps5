@@ -4,7 +4,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
-## 2026-08-10 (GH #188 Decode-Thread Decouple A/B Completion)
+## 2026-08-10 (PRs #213, #215, #216 Merged + GH #188 Decode-Thread Decouple A/B Completion)
 
 ### GH #188 / PR #199 - H.264 Decode-Thread Decoupling (MERGED)
 - [x] **Decouple sceAvcdecDecode from Takion recv thread (PR #199)**
@@ -40,6 +40,30 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - Merged as commit 205eed56 (2026-08-10)
   - Build version: v0.1.842
   - Evidence: Proximity A/B test log 13382891119 (same session that triggered ENOBUFS freeze; now continues streaming with single WARN)
+
+### PR #213 - Post-FEC Effective Loss Reporting (MERGED 4128b99a)
+- [x] **Fix PS5 bitrate floor-throttling via post-FEC loss accounting**
+  - **Root Cause:** Loss reported to PS5 pre-FEC + PS5's downward-only bitrate ratchet (5825k→2591k over 75s from 0.8–5% loss reports, under inert 10% cap)
+  - **Fix:** Post-flush FEC-outcome-aware accounting (source-only), recovered-loss safety valve (divisor 4), 1Hz CONGESTION/LOSS diagnostic logging
+  - **Additional Bugs Fixed:** Audio push_seq race, seq-math integer promotion + inverted max-loss branch, never-set frameprocessor `flushed` flag (late units corrupted compacted buffer + false duplicate errors), alloc_frame stale counters (underflow hazard)
+  - **Code Review:** 3 rounds (code-guardian), all findings fixed
+  - **Hardware A/B:** PENDING (checklist: CONGESTION/LOSS shows raw_lost>0/fec_recovered≈raw_lost/reported≈0; no staircase, target holds ~5.8Mbps 10+min; forced loss still reports + IDR)
+
+### PR #215 - Reliable Stop-to-Reconnect Path (MERGED 91b8c049)
+- [x] **Fix RP_IN_USE reconnect rejection after deliberate stop**
+  - **Root Cause:** Fire-and-forget DISCONNECT (19ms teardown) + user stop clearing its own cooldown, PS5 releasing sessions asynchronously 4–9s
+  - **Fix:** Bounded 400ms DISCONNECT ack-wait (existing DATA_ACK machinery), delivery-aware post-stop guard (0s never-streamed / 2s acked / 8s unacked) with visible countdown hint at all three gate sites, "Streaming stopped" banner suppressed on deliberate stops, single RP_IN_USE auto-retry (UI-loop-fired, overlay visible, PSN/LAN route preserved)
+  - **Code Review:** 3 rounds (dual independent reviewers on round one), all findings fixed
+  - **Hardware Validation:** PENDING (checklist: "DISCONNECT acked after N ms" line on user stop; stop→immediate reconnect no RP_IN_USE ×10; forced RP_IN_USE → one auto-retry; cancel-during-connect instant re-press)
+
+### PR #216 - Truthful Control-Channel Drop Logging + Docs Corrections (MERGED 287c6287)
+- [x] **Fix misleading Takion receive queue overflow evidence + correct stale PS5 congestion control claims**
+  - **Root Cause of Log Artifact:** Control-channel-only queue (video bypasses), count-pinned-at-1 logging artifact, benign dup/late retransmit drops
+  - **Fix:** Rate-limited logging with per-reason buckets (dup/late/overflow/gap_skip/flush) for accurate telemetry; updated docs to reflect ratchet model (PS5 **does** throttle in response to loss reports)
+
+### New Follow-Up Issues
+- **GH #212 (low priority):** videoreceiver alloc_frame error discarded → stale unit_slots geometry
+- **GH #214 (HIGH priority):** streamconnection `should_stop` sticky latch never reset per-run — soft restarts bail at first CHECK_STOP; explains `classified=handshake_init_ack` restart-failure telemetry
 
 ### Root-Cause Discovery: Jitter Theory DISPROVEN
 - [x] **Original hypothesis: Decode-on-recv-thread coupling inflates jitter by ~55ms — REJECTED**
