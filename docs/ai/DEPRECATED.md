@@ -1,6 +1,8 @@
 # Deprecated Work
 
-Currently, no epics or features have been formally deprecated. This document will track any planned work that is explicitly dropped or redirected.
+**Note:** The canonical deprecation tracker for this project lives at repo-root [`DEPRECATED.md`](/DEPRECATED.md). This file is historical documentation of the deprecation structure and past examples.
+
+Currently, no epics or features have been formally deprecated in this archive. This document will track any planned work that is explicitly dropped or redirected.
 
 ## Structure for Future Deprecations
 
