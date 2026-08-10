@@ -76,19 +76,21 @@ A living reference for larger initiatives. Update this document when we start or
 - **Spec:** `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
 - **Status:** T1-T6 in progress on worktrees.
 
-### 4. Latency Reduction Initiative *(Active)*
-- **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by improving PS5 negotiation, Vita scheduling, and Wi-Fi guidance.
-- **Current Focus:** Decode-thread decoupling (GH #188) to unhide true network jitter and eliminate ~55ms self-inflicted measurement inflation.
-- **Status:** A/B investigation complete; PR #198 (Wi-Fi power-save hint) closed without merge (no benefit). Next: implement GH #188 decode-thread separation.
-- **Recent Findings (2026-06-27):**
-  - Wi-Fi power-save hint (`scePowerSetUsingWireless(1)`) confirmed applied, but no measurable jitter/RTT improvement
-  - LAN bitrate lowering (6000→3500 kbps) ruled out as red herring (PS5 self-throttles to 1.5 Mbps floor regardless)
-  - Root cause: sceAvcdecDecode inflates measured jitter by ~55ms running synchronously on Takion recv thread
-  - **Action:** Decouple decode to dedicated thread + SPSC queue for honest network metrics
-- **Upcoming Milestones:**
-  1. Implement single-consumer decode thread with bounded SPSC queue.
-  2. Validate no frame corruption regressions on hardware.
-  3. Re-measure network jitter with honest metrics (decode overhead removed).
+### 4. Latency Reduction Initiative *(Active - Refocused on GH #206)*
+- **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by understanding and fixing root causes of lag spikes.
+- **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling, indicating another root cause.
+- **Current Focus:** GH #206 - Root-cause investigation of Wi-Fi burst jitter + receive-queue overflow driving PS5 bitrate floor-throttling.
+- **Key Findings (2026-08-10):**
+  - **GH #188 Hardware A/B (log 11782861312):** Decode now runs cleanly on dedicated thread (1.8ms avg/2.4ms max), but jitter unchanged (45–87ms avg, 207ms max). Decode-on-recv-thread coupling was NOT the jitter source.
+  - **Three-factor lag model (GH #206):**
+    1. Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50 (base RTT 6–10ms, actual 63–84ms; one session zero client drops yet 64ms jitter)
+    2. Receive/reorder queue pinned at 256 slots dripping 1046 single-packet drops (drain cap 64/wakeup)
+    3. **PS5 bitrate floor-throttling in response to loss reports** — contradicts "PS5 ignores congestion control" belief; throttles 4977k → 1597k floor per session
+  - Earlier findings (2026-06-27): Wi-Fi power-save hint (PR #198, no benefit), LAN bitrate lowering ruled out as red herring
+- **Proposed GH #206 Work:**
+  - Drain-deficit instrumentation in `lib/src/takion.c`
+  - chiaki-ng-style loss-report capping (~10%) in `lib/src/congestioncontrol.c`
+  - Controlled Wi-Fi proximity A/B testing (RSSI > 80)
 
 ### 5. Controller Layout Redesign *(COMPLETE ✅)*
 - **Objective:** Redesign the controller configuration screen with an immersive visual layout featuring procedurally rendered Vita controller diagrams and interactive button mapping views.
@@ -150,6 +152,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-08-10 | **GH #188 COMPLETE — Decode-thread decoupling (PR #199)** merged to main with excellent performance (1.8ms avg/2.4ms max, `decode_q_drops=0`, zero regressions on hardware A/B log 11782861312). **BUT:** Jitter theory disproven — jitter remained 45–87ms avg after decoupling. **New root cause (GH #206):** Three-factor model: (a) genuine Wi-Fi jitter ~60ms at RSSI ~50, (b) receive queue 1046 single-packet drops with 64/wakeup drain cap, (c) PS5 bitrate floor-throttling (4977k → 1597k) in response to loss reports (contradicts "PS5 ignores congestion control"). Proposed GH #206 work: drain-deficit instrumentation, loss-report capping, Wi-Fi proximity A/B. See TODO.md item 1 (reprioritized to GH #206) and DONE.md (GH #188 section). | @mauricio-gg |
 | 2026-08-10 | GH #204 PSN WebSocket 403 fix hardware validated (build c476f4b3, v0.1.838): Core functionality confirmed — internet connect end-to-end ✅, WebSocket 101 (403 resolved) ✅, clean console-sleep shutdown ✅ (49s stream at 4ms RTT / 3.5Mbps / 30fps). Two additional commits validated (cafe92eb RUDP gap-report fix, c476f4b3 four upstream holepunch parity ports) after code-guardian review. Regression tests queued: LAN connectivity, off-network (hotspot) connect, one-shot token-migration re-test on old config, QR login re-confirmation post-flash. PR #205 pending merge; keep in "In Review" state until merge + regression suite closes. See `docs/ai/PSN_REMOTEPLAY_WEBSOCKET_403_STATUS.md` hardware validation section. | @mauricio-gg |
 | 2026-06-27 | Wi-Fi power-save hint A/B COMPLETE: scePowerSetUsingWireless(1) applied and confirmed (return 0x0, log t=308ms), but 3 hardware runs showed no measurable jitter/RTT improvement. PR #198 closed without merge. LAN bitrate lowering (6000→3500 kbps) ruled out as red herring (PS5 self-throttles to 1.5 Mbps regardless). **Key finding:** sceAvcdecDecode inflates measured jitter by ~55ms (runs synchronously on Takion recv thread at `lib/src/takion.c:76-84`). GH #188 (decode-thread decoupling) confirmed as next actionable lever to unhide true network metrics. | @mauricio-gg |
 | 2026-06-26 | RWND experiment closure + metrics validation (PR #193, v0.1.784): A/B tested TAKION_A_RWND 512KB→256KB, found no latency benefit + 4× more freezes, reverted to 512KB (final). `vita/src/host_metrics.c` on-device validation confirms `windowed_bitrate_mbps` now prints honest bitrate every cycle (no more 0↔2 Mbps artifact). GH #188 (Wi-Fi/jitter-buffer bufferbloat) is the next domain focus. | @mauricio-gg |

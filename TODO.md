@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged from main; GH #188 decode-decouple in progress on this branch)
+Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged; GH #188 decode-decouple COMPLETE, merged to main on 2026-08-10)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -33,10 +33,11 @@ Only move a task to "Done" after the reviewer signs off.
    - *Goal:* Instrument receive/reorder/fallback reason paths and tune loss gates/cooldowns so transient bursts request IDR first instead of entering reconnect oscillation.
    - *Next Step:* Add compact counters and reason tagging around `handle_loss_event()` and stream restart scheduling in `vita/src/host.c`.
    - *Related:* Motion-triggered macroblocking investigation (`docs/ai/MOTION_MACROBLOCKING_INVESTIGATION.md`) — queued for future PR once code changes are ready.
-5. **Decode/render split prototype (separate branch after packet track)**
+5. **Decode-vs-present timing optimization (low priority after GH #206)**
    - *Owner:* Implementation agent
-   - *Goal:* Decouple decode from present path so `sceAvcdecDecode` is not blocked by `vita2d_wait_rendering_done()`, then validate cadence gains without introducing corruption regressions.
-   - *Next Step:* Create `feat/decode-render-split` from updated `main` after packet-track validation and implement a bounded decoded-frame handoff queue.
+   - *Goal:* GH #188 (PR #199) already decoupled decode to dedicated thread (1.8ms avg/2.4ms max). Only remaining question is whether `vita2d_wait_rendering_done()` in present path blocks decode thread. Current data suggests low priority.
+   - *Status:* Hardware A/B (log 11782861312) shows decode is clean; no corruption regressions, no queue drops (`decode_q_drops=0`). If future testing shows GPU stalls affecting overall cadence, revisit with 2-texture ring buffer.
+   - *Next Step:* Defer until GH #206 investigation completes; re-evaluate based on whether present path is a bottleneck.
 6. **Startup transport hardening (separate PR/branch)**
    - *Owner:* Implementation agent
    - *Goal:* Isolate initial-session transport failures (early Takion queue overflow and reconnect churn into `RP_IN_USE`) without mixing this work into active-session decode stability tuning.
@@ -131,13 +132,12 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Decouple sceAvcdecDecode from Takion recv thread (GH #188)** ⭐ **HIGH PRIORITY**
-   - *Goal:* Move H.264 decode off Takion network recv thread → dedicated single-consumer decode thread. Removes ~55ms self-inflicted jitter inflation from measured network metrics.
-   - *Evidence:* A/B testing on 2026-06-27 confirmed decode inflates jitter by ~55ms (sceAvcdecDecode runs synchronously on recv thread; see `lib/src/takion.c:76-84`, `vita/src/video.c:543-575`)
-   - *Impact:* Network jitter measurements will become honest (not conflated with decode time), enabling clearer diagnosis of actual Wi-Fi/congestion issues
-   - *Files:* `vita/src/video.c` (decode loop), `vita/include/context.h` (add SPSC handoff queue), `lib/src/takion.c` (remove decode blocking)
-   - *Architecture:* Single-writer (frame assembler) → bounded queue → single-reader decode thread; ensure `frame_texture` safe handoff via volatile flags + `vita2d_wait_rendering_done()`
-   - *Next Step:* Design SPSC queue capacity (start with 2-4 decoded frames), implement decode thread spawn/shutdown, validate no corruption regressions on hardware
+1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
+   - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops with drain cap 64/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
+   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief.
+   - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
+   - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
+   - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
 
 2. **Implement adaptive jitter buffer** 
    - *Goal:* Replace static reorder queue timeout with adaptive algorithm that adjusts playout delay based on measured network jitter

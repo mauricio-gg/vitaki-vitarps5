@@ -4,6 +4,42 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-08-10 (GH #188 Decode-Thread Decouple A/B Completion)
+
+### GH #188 / PR #199 - H.264 Decode-Thread Decoupling (MERGED)
+- [x] **Decouple sceAvcdecDecode from Takion recv thread (PR #199)**
+  - Implementation: `sceAvcdecDecode` moved to dedicated VitaDecode thread (USER_1) via SPSC queue in `vita/src/video.c`
+  - Hardware A/B validated on log 11782861312 (build 300719a0, merged 2026-08-10)
+  - **Key Results:**
+    - Decode performance: 1.8ms avg / 2.4ms max (excellent, off critical path)
+    - Queue health: `decode_q_drops=0` across all sessions (no overflow)
+    - Frame integrity: Zero gap-skips, zero missing references, no regressions
+    - Video playback: Smooth, no corruption or stuttering observed
+  - **Architecture:** Single-writer recv thread → bounded SPSC queue → single-reader decode thread; safe handoff via `frame_ready_for_display` volatile bool + `vita2d_wait_rendering_done()`
+  - Files: `vita/src/video.c:490-549` (decode loop + thread spawn/shutdown), `vita/include/context.h` (SPSC queue), `lib/src/takion.c` (removed decode blocking)
+
+### Root-Cause Discovery: Jitter Theory DISPROVEN
+- [x] **Original hypothesis: Decode-on-recv-thread coupling inflates jitter by ~55ms — REJECTED**
+  - Baseline jitter before PR #199: 45–87ms avg (207ms max)
+  - Jitter after PR #199 (decode now off recv): 45–87ms avg (207ms max) — **NO CHANGE**
+  - **Conclusion:** Decode-recv coupling was NOT the source of inflated jitter
+  - **Decision:** Merged as neutral-positive architectural improvement (cleaner code, honest thread budgeting) despite disproven jitter theory
+  - Actual root cause tracked separately in GH #206
+
+### New Root-Cause Understanding (GH #206 - "Wi-Fi burst jitter + receive-queue overflow drive PS5 bitrate floor-throttling")
+- [x] **Identified: Three-factor lag driver**
+  - (a) **Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50** (base RTT 6–10ms, actual 63–84ms; one session had zero client drops yet 64ms jitter)
+  - (b) **Receive/reorder queue pinned at 256 slots dripping 1046 single-packet drops** (drain cap 64/wakeup in `lib/src/takion.c:1143`)
+  - (c) **PS5 congestion control throttling target_bitrate 4977k → 1597k floor** within each session in response to reported loss
+    - **Note:** This CONTRADICTS earlier belief that "PS5 ignores congestion control feedback"
+    - Loss-report rate ~200ms interval, PS5 reacts within ~1 generation (6–10s per session)
+
+### Next Priority: GH #206 Investigation
+- Proposed work: Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10%), controlled Wi-Fi proximity A/B (RSSI > 80)
+- Rationale: Understanding true source of lag enables targeted fixes vs. continued architectural thrashing
+
+---
+
 ## 2026-06-27 (Wi-Fi Power-Save Hint A/B Investigation)
 
 ### Wi-Fi Jitter Reduction Investigation: A/B Testing Round
