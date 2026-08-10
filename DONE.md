@@ -62,6 +62,33 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-06-26 – Dead-Stream Watchdog PR Reverted; Reorder Queue Fix Merged
+
+### Hardware Validation Queue – Streaming Robustness Improvements
+- [x] PR #195: Reorder queue head-of-line deadlock fix – Merged to main at commit `cbcb9dc` (2026-06-26)
+  * Eliminated HOL deadlock when packet reorder queue reaches capacity
+  * Prevents Takion receive thread stall on healthy streams during burst loss
+  * Validated with hardware A/B testing; stable improvement confirmed
+  * Status: COMPLETE and MERGED
+
+- [x] PR #196: Dead-stream watchdog (frame stall detection) – Closed without merge (reverted)
+  * Root cause: Torn 64-bit read on ARMv7 (uint64_t last_decoded_frame_us accessed without lock from UI + decode threads)
+  * Secondary cause: RP_IN_USE reconnect rejection (PS5 hadn't released old session yet)
+  * Result: False positive frame stall detection → spurious teardown → ~14s self-inflicted outage on healthy stream (log 20639381559)
+  * Decision: Deprecated app-level watchdog approach in favor of lib-side transport-layer detection
+  * Status: REVERTED; see DEPRECATED.md for forward direction (Takion socket monitoring, streamconnection.c DISCONNECT handling)
+
+**Context:**
+Two independent streaming robustness improvements scheduled for hardware validation. PR #195 (reorder queue fix) validated and merged successfully. PR #196 (watchdog) identified a critical regression during A/B testing: app-level frame stall detection is incompatible with 32-bit ARM's inability to safely read 64-bit timestamps across threads without atomics. Root-cause documented; next direction is to move detection to transport layer (lib-side) where socket state is observable.
+
+**Files Modified:**
+- PR #195: `lib/src/reorderqueue.c`, `lib/src/videoreceiver.c`
+- PR #196: (Reverted; branch `fix/dead-stream-watchdog` kept on remote for reference)
+
+**Note:** Content salvaged from PR #197 (closed without merge; targeted wrong-location tracker copies at docs/ instead of repo root).
+
+---
+
 ## 2026-06-25 (PSN Login Fix & Bitrate Metrics)
 
 ### PSN QR Login Fix

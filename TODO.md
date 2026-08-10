@@ -132,9 +132,18 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
+1. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
+   - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
+   - *Lever 1:* ENOBUFS/EBADF escalation in `lib/src/takion.c` send path
+   - *Lever 2:* DISCONNECT-during-streaming path in `lib/src/streamconnection.c` (currently gated to STATE_TAKION_CONNECT, line ~435)
+   - *Deliverable:* Clean session teardown before PS5 releases old session (avoid RP_IN_USE reconnect rejection)
+   - *Context:* Replaces reverted app-level watchdog approach (PR #196); see DEPRECATED.md for root-cause analysis
+   - *Status:* Salvaged from PR #197 (closed without merge; documentation originally placed in wrong location)
+   - *Next Step:* Investigate transport-layer socket monitoring pattern and plan lib-side instrumentation
+
+2. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
    - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops with drain cap 64/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
-   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief.
+   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559.
    - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
    - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
    - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
