@@ -82,6 +82,7 @@ _Static_assert(WEBSOCKET_PONG_TIMEOUT_SEC < WEBSOCKET_PING_INTERVAL_SEC,
 #define SESSION_CREATION_TIMEOUT_SEC 30
 #define SESSION_START_TIMEOUT_SEC 30
 #define SESSION_DELETION_TIMEOUT_SEC 3
+#define DEVICE_LIST_FETCH_TIMEOUT_SEC 10L
 #define SELECT_CANDIDATE_TIMEOUT_SEC 0.5F
 #define SELECT_CANDIDATE_TRIES 20
 #define SELECT_CANDIDATE_CONNECTION_SEC 5
@@ -581,7 +582,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     headers = curl_slist_append(headers, oauth_header);
 
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+    // 2s starved the device-list fetch on WAN/mobile links; GH #204
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, DEVICE_LIST_FETCH_TIMEOUT_SEC);
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);

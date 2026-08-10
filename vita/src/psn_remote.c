@@ -32,6 +32,16 @@ typedef enum psn_host_add_result_t {
   PSN_HOST_ADD_RESULT_SKIPPED_OOM = -3,
 } PsnHostAddResult;
 
+/* Sony rate-limits the pushNotification WebSocket: a rejected session_create
+ * returns HTTP 403 with X-PSN-RETRY-INTERVAL-MIN/MAX headers (typically
+ * 120-1200 sec). These statics cache the earliest time a new session_create
+ * attempt may be made, so both manual "Connect via Internet" presses and
+ * host_recovery auto-restarts (both funnel through
+ * psn_remote_prepare_connect_host()) back off instead of hammering Sony's
+ * endpoint and escalating the throttle (GH #204). */
+static uint64_t s_ws_retry_not_before_unix = 0;
+static uint64_t s_ws_retry_wait_sec = 0;
+
 static bool psn_uid_is_zero(const uint8_t uid[32]) {
   if (!uid)
     return true;
@@ -179,6 +189,15 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
 
   copy_host(host, src, false);
   host->source = VITA_HOST_SOURCE_PSN_REMOTE;
+  /* Standalone PSN cards (no LAN-discovered counterpart to merge with, see
+   * host_storage.c's MAC-based dedup) previously only got psn_remote_available
+   * set via that merge, so the "Internet available" badge and long-press
+   * "Connect via" popup never appeared away from the home network even though
+   * PSN internet connect was the only way to reach this console (GH #204).
+   * host_stream()'s LAN-vs-PSN routing is driven by host->source, not this
+   * flag, so setting it here is display-only and does not change connect
+   * behavior for standalone cards. */
+  host->psn_remote_available = true;
   host->remoteplay_enabled = device->remoteplay_enabled;
   memcpy(host->psn_device_uid, device->device_uid, sizeof(host->psn_device_uid));
   host->type |= REGISTERED;
@@ -225,6 +244,17 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     return 1;
   }
   *out_session = NULL;
+
+  uint64_t now_unix_gate = (uint64_t)time(NULL);
+  if (now_unix_gate < s_ws_retry_not_before_unix) {
+    uint64_t remaining_sec = s_ws_retry_not_before_unix - now_unix_gate;
+    char message[160];
+    snprintf(message, sizeof(message), "PSN cooldown active (Sony rate limit). Retry in %llu sec.",
+             (unsigned long long)remaining_sec);
+    LOGE("PSN remote prepare failed: %s", message);
+    psn_remote_set_error(message);
+    return 1;
+  }
 
   if (psn_uid_is_zero(host->psn_device_uid)) {
     LOGE("PSN remote prepare failed: missing PSN device UID");
@@ -273,6 +303,15 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     LOGE("PSN remote prepare failed: session_create: %s", chiaki_error_string(err));
     if (err == CHIAKI_ERR_HTTP_NONOK) {
       if (ws_http_code == 403 && (retry_interval_min > 0 || retry_interval_max > 0)) {
+        /* Arm the cooldown gate using Sony's advertised interval. Prefer the
+         * minimum (conservative but not excessive); fall back to the max if
+         * the min was omitted. */
+        long wait_sec = retry_interval_min > 0 ? retry_interval_min : retry_interval_max;
+        s_ws_retry_wait_sec = (uint64_t)wait_sec;
+        s_ws_retry_not_before_unix = (uint64_t)time(NULL) + s_ws_retry_wait_sec;
+        LOGD("PSN WS retry gate armed: wait=%llu sec (retry_min=%ld retry_max=%ld)",
+             (unsigned long long)s_ws_retry_wait_sec, retry_interval_min, retry_interval_max);
+
         char message[160];
         snprintf(message, sizeof(message),
                  "PSN cloud connection was rejected by Sony. Retry in %ld-%ld sec.",
@@ -290,6 +329,8 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
     chiaki_holepunch_session_discard(session);
     return 1;
   }
+  /* Session create succeeded — clear any previously armed Sony retry gate. */
+  s_ws_retry_not_before_unix = 0;
 
   err = chiaki_holepunch_session_create_offer(session);
   if (err != CHIAKI_ERR_SUCCESS) {
