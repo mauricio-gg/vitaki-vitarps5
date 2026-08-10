@@ -15,6 +15,11 @@
 #define CFG_FILENAME "ux0:data/vita-chiaki/chiaki.toml"
 #endif
 
+/* 1 = tokens minted with 48-char upstream duid in authorize URL (GH #204).
+ * Configs at a lower provenance value predate the duid fix and have their
+ * PSN OAuth tokens invalidated by migrate_auth_provenance() in config.c. */
+#define PSN_AUTH_PROVENANCE_CURRENT 1
+
 typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_ULTRA_LOW = 0,  // Minimum bandwidth (≈1.2 Mbps)
   VITA_LATENCY_MODE_LOW,            // Low bandwidth (≈1.8 Mbps)
@@ -41,6 +46,7 @@ typedef struct vita_chiaki_config_t {
   char *psn_oauth_scope;
   char *psn_oauth_redirect_uri;
   char *psn_client_duid;
+  int psn_auth_provenance;
   bool psn_remoteplay_enabled;
   /// Whether discovery is enabled by default
   bool auto_discovery;

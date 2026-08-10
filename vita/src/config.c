@@ -36,6 +36,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->psn_oauth_scope = NULL;
   cfg->psn_oauth_redirect_uri = NULL;
   cfg->psn_client_duid = NULL;
+  cfg->psn_auth_provenance = 0;
   cfg->psn_remoteplay_enabled = false;
   cfg->auto_discovery = true;
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
@@ -355,6 +356,10 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
   if (datum.ok)
     cfg->psn_client_duid = datum.u.s;
 
+  datum = toml_int_in(settings, "psn_auth_provenance");
+  if (datum.ok)
+    cfg->psn_auth_provenance = (int)datum.u.i;
+
   datum = toml_int_in(settings, "controller_map_id");
   if (datum.ok)
     cfg->controller_map_id = datum.u.i;
@@ -399,15 +404,57 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
   }
 }
 
+/*
+ * migrate_auth_provenance — One-time migration for GH #204.
+ *
+ * Commit 57391ae dropped the `duid` param from the OAuth authorize URL, so
+ * any PSN tokens minted before the fix lack device provenance and are
+ * rejected with 403 at the /np/pushNotification WebSocket. Configs below
+ * PSN_AUTH_PROVENANCE_CURRENT have those tokens invalidated (forcing
+ * re-authentication through the corrected authorize URL).
+ *
+ * The client DUID itself is intentionally left untouched here: ensure_client_
+ * duid() (vita/src/psn_auth.c) is the sole consumer/producer of
+ * psn_client_duid and already validates it against is_valid_client_duid() on
+ * every use, regenerating on demand. This migration's own format check used
+ * to duplicate that validation with a weaker (length + prefix only) test
+ * that could disagree with is_valid_client_duid() and clear an otherwise-
+ * valid DUID; deferring entirely to ensure_client_duid() removes that risk.
+ *
+ * `*migrated` is set unconditionally once the provenance check has run so
+ * the PSN_AUTH_PROVENANCE_CURRENT marker is written to disk even for a
+ * config with no PSN tokens yet — otherwise a fresh install would re-run
+ * this migration (a harmless but wasteful no-op) on every boot.
+ */
+static void migrate_auth_provenance(VitaChiakiConfig *cfg, bool *migrated) {
+  if (cfg->psn_auth_provenance >= PSN_AUTH_PROVENANCE_CURRENT)
+    return;
+
+  if (cfg->psn_oauth_access_token || cfg->psn_oauth_refresh_token) {
+    free(cfg->psn_oauth_access_token);
+    cfg->psn_oauth_access_token = NULL;
+    free(cfg->psn_oauth_refresh_token);
+    cfg->psn_oauth_refresh_token = NULL;
+    cfg->psn_oauth_expires_at_unix = 0;
+    LOGD("PSN provenance migration: invalidating pre-duid tokens (GH #204)");
+  }
+
+  cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
+  *migrated = true;
+}
+
 static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
                                               bool migrated_root_settings,
                                               bool migrated_resolution_policy,
-                                              bool migrated_plaintext_tokens) {
+                                              bool migrated_plaintext_tokens,
+                                              bool migrated_auth_provenance) {
   if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy ||
-        migrated_plaintext_tokens))
+        migrated_plaintext_tokens || migrated_auth_provenance))
     return;
 
-  if (migrated_plaintext_tokens) {
+  if (migrated_auth_provenance) {
+    LOGD("Migrating PSN auth provenance (GH #204); rewriting %s", CFG_FILENAME);
+  } else if (migrated_plaintext_tokens) {
     LOGD("Migrating legacy plaintext PSN tokens to encrypted storage; rewriting %s", CFG_FILENAME);
   } else if (migrated_root_settings) {
     LOGD("Recovered settings via root-level fallback and rewriting %s", CFG_FILENAME);
@@ -427,14 +474,30 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
-  if (access(CFG_FILENAME, F_OK) != 0)
+  if (access(CFG_FILENAME, F_OK) != 0) {
+    /* Fresh install: no legacy tokens exist to migrate, so the provenance
+     * marker is current by definition. Set it now so any config_serialize()
+     * that later persists this in-memory config (e.g. after first login)
+     * writes PSN_AUTH_PROVENANCE_CURRENT instead of the config_set_defaults()
+     * placeholder of 0 -- otherwise the next boot's migrate_auth_provenance()
+     * would see 0 and wipe the freshly-minted GOOD tokens (GH #204). */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     goto config_done;
+  }
 
   toml_table_t *parsed = NULL;
-  if (!config_parse_file_with_queue_fix(&parsed))
+  if (!config_parse_file_with_queue_fix(&parsed)) {
+    /* Parse failure: cfg still holds only config_set_defaults() values (no
+     * tokens were read), so there is nothing pre-fix to migrate. Mark as
+     * current for the same reason as the fresh-install branch above. */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     return;
+  }
 
   if (!config_validate_general_section(parsed)) {
+    /* Invalid [general] table: bail before any PSN token fields are parsed.
+     * Same rationale as the two early-outs above. */
+    cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
     toml_free(parsed);
     return;
   }
@@ -443,9 +506,11 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool migrated_root_settings = false;
   bool migrated_resolution_policy = false;
   bool migrated_plaintext_tokens = false;
+  bool migrated_auth_provenance = false;
   toml_table_t *settings = toml_table_in(parsed, "settings");
 
   parse_basic_settings(cfg, settings, &migrated_plaintext_tokens);
+  migrate_auth_provenance(cfg, &migrated_auth_provenance);
   parse_resolution_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                   &migrated_root_settings, &migrated_resolution_policy);
   parse_fps_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
@@ -467,7 +532,8 @@ void config_parse(VitaChiakiConfig *cfg) {
   config_parse_manual_hosts(cfg, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
-                                    migrated_resolution_policy, migrated_plaintext_tokens);
+                                    migrated_resolution_policy, migrated_plaintext_tokens,
+                                    migrated_auth_provenance);
 
 config_done:
   LOGD(
@@ -619,6 +685,10 @@ bool config_serialize(VitaChiakiConfig *cfg) {
   if (cfg->psn_client_duid) {
     fprintf(fp, "psn_client_duid = \"%s\"\n", cfg->psn_client_duid);
   }
+  /* Unconditional: the migration marker must land on disk even for configs
+   * with no PSN tokens/DUID yet, so a fresh install never re-runs the
+   * pre-duid token invalidation on a later boot (GH #204). */
+  fprintf(fp, "psn_auth_provenance = %d\n", cfg->psn_auth_provenance);
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
   BoolSerializeSpec bool_settings[] = {
       {"circle_btn_confirm", cfg->circle_btn_confirm},

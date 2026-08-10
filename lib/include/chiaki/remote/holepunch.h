@@ -39,14 +39,21 @@
 extern "C" {
 #endif
 
-#define DUID_PREFIX "00000007000a00c00001028700140000"
+/* Upstream chiaki-ng client-duid prefix (gui/src/qmlbackend.cpp).
+ * 16-char prefix + 16 random bytes hex-encoded = 48 chars total.
+ * This is the client device identity sent with the OAuth authorize request;
+ * it is a distinct identifier domain from the console's deviceUniqueId
+ * (a 64-hex-char value handled separately elsewhere in this file). */
+#define DUID_PREFIX "0000000700410080"
 #ifdef _WIN32
 #define CHIAKI_SSIZET_TYPE int
 #else
 #define CHIAKI_SSIZET_TYPE ssize_t
 #endif
 
-#define CHIAKI_DUID_STR_SIZE 65
+/* Client DUID string buffer size: 48 hex chars (DUID_PREFIX + 16 random
+ * bytes hex-encoded) + 1 for the NUL terminator. */
+#define CHIAKI_DUID_STR_SIZE 49
 
 /** Handle to holepunching session state */
 typedef struct session_t* ChiakiHolepunchSession;

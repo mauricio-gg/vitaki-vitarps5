@@ -13,6 +13,12 @@
 #include <sys/socket.h>
 #endif
 
+// Number of chiaki_rudp_send_recv() attempts for the PSN session-request HTTP header exchange. Raised
+// from 3 to 5: with the send_recv drain fix (rudp.c) this only matters on a genuine timeout now, since
+// benign peer control chunks (selective-acks, stale FINISH, duplicate responses, ...) no longer burn a
+// try, but the extra headroom still helps on a lossy path.
+#define HTTP_PSN_SEND_RECV_TRIES 5
+
 CHIAKI_EXPORT void chiaki_http_header_free(ChiakiHttpHeader *header)
 {
 	while(header)
@@ -213,13 +219,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_send_recv_http_header_psn(ChiakiRudp rudp, 
 	int received;
 	RudpMessage message;
 	ChiakiErrorCode err;
-	err = chiaki_rudp_send_recv(rudp, &message, (uint8_t *)send_buf, send_buf_size, *remote_counter, SESSION_MESSAGE, CTRL_MESSAGE, 2, 3);
+	err = chiaki_rudp_send_recv(rudp, &message, (uint8_t *)send_buf, send_buf_size, *remote_counter, SESSION_MESSAGE, CTRL_MESSAGE, 2, HTTP_PSN_SEND_RECV_TRIES);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(log, "Didn't receive http session message response");
 		return err;
 	}
 	received = message.data_size - 2;
+	// NOTE: the "+2" payload offset assumed here is wrong for CTRL subtypes 0x12/0x26, which carry
+	// their payload at offsets 8/6 respectively (see rudp_packet_type_data_offset() in ctrl.c). This is
+	// a pre-existing upstream bug (regist works despite it) and is intentionally left alone in this pass.
 	memcpy(buf, message.data + 2, received);
 	*remote_counter = message.remote_counter;
 	chiaki_rudp_message_pointers_free(&message);
@@ -228,6 +237,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_send_recv_http_header_psn(ChiakiRudp rudp, 
 		return received == 0 ? CHIAKI_ERR_DISCONNECTED : CHIAKI_ERR_NETWORK;
 
 	*received_size += received;
+	CHIAKI_LOGV(log, "Rudp http header recv: copied %d bytes, received_size=%zu", received, *received_size);
 	for(; received > 0; buf++, received--)
 	{
 		switch(*buf)
@@ -252,6 +262,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_send_recv_http_header_psn(ChiakiRudp rudp, 
 	if(nl_state == 4)
 	{
 		*header_size = *received_size - received;
+		CHIAKI_LOGV(log, "Rudp http header recv: header_size=%zu received_size=%zu", *header_size, *received_size);
 	}
 
 	return CHIAKI_ERR_SUCCESS;

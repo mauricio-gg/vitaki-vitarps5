@@ -714,11 +714,14 @@ void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selecte
   }
 
   // Internet connectivity badge: radio-wave arcs drawn left of the status dot.
-  // Visually indicates that PSN internet connectivity is also available for this host.
-  // Only shown when the LAN card has a matching PSN remote entry (has_internet), and
-  // never on cooldown cards where the top-right corner is already occupied by "Please wait".
-  // Guard on status_tex so we don't attempt to position the badge against a null texture
-  // when no status dot was resolved for this card (e.g. unknown status code).
+  // Visually indicates that this host is reachable over the internet via PSN remote play
+  // (has_internet — see ui_types.h). Shown on both a LAN card with a merged PSN remote
+  // entry and a standalone PSN_REMOTE card with no LAN route; the badge only communicates
+  // "internet route available", unlike the dual-press "Connect via" popup in ui_screens.c,
+  // which additionally requires a non-PSN source since it offers a LAN option too.
+  // Never shown on cooldown cards where the top-right corner is already occupied by
+  // "Please wait". Guard on status_tex so we don't attempt to position the badge against
+  // a null texture when no status dot was resolved for this card (e.g. unknown status code).
   if (console->has_internet && !is_cooldown_card && status_tex &&
       psn_auth_token_is_valid((uint64_t)time(NULL))) {
     // Outermost arc (r=13) rightmost point = badge_cx + 13*scale = card_w - 45*scale,
