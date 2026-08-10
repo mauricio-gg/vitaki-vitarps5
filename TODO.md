@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged; GH #188 decode-decouple COMPLETE, merged to main on 2026-08-10)
+Last Updated: 2026-08-10 (GH #208 ENOBUFS transient-retry fix merged as 205eed56; GH #206 proximity A/B evidence collected; GH #188 decode-decouple COMPLETE)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -134,12 +134,22 @@ Only move a task to "Done" after the reviewer signs off.
 ### 📝 Latency & Performance
 1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
    - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops despite drain cap already being 256/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
-   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559.
+   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559. **Proximity A/B result (2026-08-10, log 13382891119):** RSSI 84→100 next to router, jitter still 50–90ms — signal-strength hypothesis refuted; Vita Wi-Fi burstiness is intrinsic to stack. PS5 throttling milder this run (~5.4Mbps target vs prior 1.6Mbps floor). 249 overflow drops in ~30s. Confirms drain-deficit is primary bottleneck, not signal quality.
    - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
    - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
    - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
 
-2. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
+2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Pending
+   - *Goal:* Validate ENOBUFS transient-retry fix and mid-stream DISCONNECT propagation work correctly end-to-end on Vita hardware.
+   - *Validation Checklist:*
+     - [ ] ENOBUFS burst → single WARN + continued streaming (transient retry + 400-consecutive escalation working)
+     - [ ] Transport death → "Transport disconnected" banner within ~2s, no force-close required
+     - [ ] Console sleep still reports REMOTE_SHUTDOWN (unchanged behavior)
+     - [ ] User stop unchanged (session teardown clean)
+     - [ ] EBADF flood eliminated (≤1 rate-limited log line/s, socket invalidated before close)
+   - *Evidence:* Build v0.1.842; code-guardian reviewed (blocker + 6 findings fixed, then approved); merged as 205eed56
+
+3. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
    - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
    - *Lever 1:* ENOBUFS/EBADF escalation in `lib/src/takion.c` send path
    - *Lever 2:* DISCONNECT-during-streaming path in `lib/src/streamconnection.c` (currently gated to STATE_TAKION_CONNECT, line ~435)
