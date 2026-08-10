@@ -218,13 +218,14 @@ bool ui_cooldown_active(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
   if (now_us >= until_us) {
     context.stream.next_stream_allowed_us = 0;
+    context.stream.post_stop_guard = false;
     return false;
   }
 
   return true;
 }
 
-uint64_t ui_cooldown_remaining_us(void) {
+uint64_t ui_cooldown_until_us(void) {
   return context.stream.next_stream_allowed_us;
 }
 
@@ -320,7 +321,7 @@ bool stream_cooldown_active(void) {
  * Original function name used in ui.c
  */
 uint64_t stream_cooldown_until_us(void) {
-  return ui_cooldown_remaining_us();
+  return ui_cooldown_until_us();
 }
 
 /**

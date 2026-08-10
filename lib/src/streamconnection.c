@@ -35,6 +35,12 @@
 #define HEARTBEAT_INTERVAL_MS 1000
 #define STREAM_CONNECTION_MAGIC 0x53434E58u
 
+// Bounded wait for the PS5 to ack our DISCONNECT message before closing Takion.
+// Covers the initial send plus ~2 retransmit cycles of the send buffer's
+// TAKION_DATA_RESEND_TIMEOUT_MS=200 (see lib/src/takionsendbuffer.c) -- long enough
+// to survive one lost packet + retransmit, short enough not to make user-stop feel sluggish.
+#define STREAM_CONNECTION_DISCONNECT_ACK_TIMEOUT_MS 400
+
 
 typedef enum {
 	STATE_IDLE,
@@ -101,6 +107,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
 	stream_connection->transport_failed = false;
+	stream_connection->disconnect_seq_num = 0;
+	stream_connection->disconnect_ack_pending = false;
+	stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
 	stream_connection->remote_disconnect_reason = NULL;
 	stream_connection->magic = STREAM_CONNECTION_MAGIC;
 	stream_connection->drop_events = 0;
@@ -157,6 +166,13 @@ static bool state_finished_cond_check(void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;
 	return stream_connection->state_finished || stream_connection->should_stop || stream_connection->remote_disconnected;
+}
+
+static bool stream_connection_disconnect_acked_or_failed(void *user)
+{
+	ChiakiStreamConnection *stream_connection = user;
+	return stream_connection->disconnect_delivery == CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED
+			|| stream_connection->transport_failed;
 }
 
 static bool stream_connection_validate_magic(ChiakiStreamConnection *stream_connection, const char *caller)
@@ -242,9 +258,15 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	 * (session.c's restart loop, see vita/src/host_recovery.c). Latches from a
 	 * previous run's teardown -- in particular the mid-stream transport-failure
 	 * path in stream_connection_takion_cb() -- must not survive into the next
-	 * attempt, or it instantly false-fails via state_finished_cond_check(). */
+	 * attempt, or it instantly false-fails via state_finished_cond_check(). The
+	 * same rationale applies to the disconnect-ack fields below: a stale ACKED
+	 * from a previous run must not let this run's disconnect wait believe its
+	 * own DISCONNECT was acked when it wasn't. */
 	stream_connection->remote_disconnected = false;
 	stream_connection->transport_failed = false;
+	stream_connection->disconnect_seq_num = 0;
+	stream_connection->disconnect_ack_pending = false;
+	stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
 	free(stream_connection->remote_disconnect_reason);
 	stream_connection->remote_disconnect_reason = NULL;
 	err = chiaki_takion_connect(&stream_connection->takion, &takion_info, socket);
@@ -390,7 +412,34 @@ disconnect:
 	// chiaki_takion_send_buffer_fini() before firing the DISCONNECT event
 	// that got us here -- sending would touch a torn-down send buffer.
 	if(!stream_connection->transport_failed)
+	{
 		stream_connection_send_disconnect(stream_connection);
+		// The bounded ack-wait only applies when should_stop is set --
+		// covering both a real user-initiated stop (host.c's
+		// request_stream_stop()) AND a soft-restart reconnect cycle
+		// (chiaki_session_request_stream_restart() in session.c also routes
+		// through chiaki_stream_connection_stop(), which sets should_stop).
+		// Both cases benefit from confirming the PS5 actually released the
+		// prior session before the client tries to reconnect. Handshake-failure
+		// paths (bang/streaminfo timeout, send-big failure, feedback-sender
+		// init failure) and a remote-initiated disconnect reach this label with
+		// should_stop still false -- DISCONNECT is still sent as a courtesy,
+		// but the client does not wait for an ack on those paths.
+		if(stream_connection->disconnect_ack_pending && stream_connection->should_stop)
+		{
+			uint64_t wait_start_ms = chiaki_time_now_monotonic_ms();
+			ChiakiErrorCode wait_err = chiaki_cond_timedwait_pred(&stream_connection->state_cond,
+					&stream_connection->state_mutex, STREAM_CONNECTION_DISCONNECT_ACK_TIMEOUT_MS,
+					stream_connection_disconnect_acked_or_failed, stream_connection);
+			(void)wait_err;
+			if(stream_connection->disconnect_delivery == CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED)
+				CHIAKI_LOGI(session->log, "StreamConnection DISCONNECT acked after %llu ms",
+						(unsigned long long)(chiaki_time_now_monotonic_ms() - wait_start_ms));
+			else
+				CHIAKI_LOGI(session->log, "StreamConnection DISCONNECT not acked within %d ms, closing anyway",
+						STREAM_CONNECTION_DISCONNECT_ACK_TIMEOUT_MS);
+		}
+	}
 
 	if(stream_connection->should_stop)
 	{
@@ -470,6 +519,16 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 			break;
 		case CHIAKI_TAKION_EVENT_TYPE_DATA:
 			stream_connection_takion_data(stream_connection, event->data.data_type, event->data.buf, event->data.buf_size);
+			break;
+		case CHIAKI_TAKION_EVENT_TYPE_DATA_ACK:
+			chiaki_mutex_lock(&stream_connection->state_mutex);
+			if(stream_connection->disconnect_ack_pending && event->data_ack.seq_num == stream_connection->disconnect_seq_num)
+			{
+				stream_connection->disconnect_ack_pending = false;
+				stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED;
+				chiaki_cond_signal(&stream_connection->state_cond);
+			}
+			chiaki_mutex_unlock(&stream_connection->state_mutex);
 			break;
 		case CHIAKI_TAKION_EVENT_TYPE_AV:
 			stream_connection_takion_av(stream_connection, event->av);
@@ -1153,7 +1212,14 @@ static ChiakiErrorCode stream_connection_send_disconnect(ChiakiStreamConnection 
 	CHIAKI_LOGI(stream_connection->log, "StreamConnection sending Disconnect");
 
 	buf_size = stream.bytes_written;
-	ChiakiErrorCode err = chiaki_takion_send_message_data(&stream_connection->takion, 1, 1, buf, buf_size, NULL);
+	// state_mutex is already held by the caller (chiaki_stream_connection_run at the
+	// disconnect: label) -- do not lock/unlock it here.
+	ChiakiErrorCode err = chiaki_takion_send_message_data(&stream_connection->takion, 1, 1, buf, buf_size, &stream_connection->disconnect_seq_num);
+	if(err == CHIAKI_ERR_SUCCESS)
+	{
+		stream_connection->disconnect_ack_pending = true;
+		stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_SENT_UNACKED;
+	}
 
 	return err;
 }
@@ -1236,6 +1302,18 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamC
 		CHIAKI_LOGW(stream_connection->log, "Failed to lock diagnostics mutex while recording corrupt frame diagnostics");
 	}
 	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 2, buf, stream.bytes_written, NULL);
+}
+
+CHIAKI_EXPORT ChiakiStreamConnectionDisconnectDelivery chiaki_stream_connection_disconnect_delivery(ChiakiStreamConnection *stream_connection)
+{
+	if(!stream_connection_validate_magic(stream_connection, "disconnect_delivery"))
+		return CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
+	ChiakiErrorCode err = chiaki_mutex_lock(&stream_connection->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
+	ChiakiStreamConnectionDisconnectDelivery delivery = stream_connection->disconnect_delivery;
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return delivery;
 }
 
 CHIAKI_EXPORT void chiaki_stream_connection_report_drop(ChiakiStreamConnection *stream_connection, uint32_t dropped_packets)

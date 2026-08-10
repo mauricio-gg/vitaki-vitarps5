@@ -144,6 +144,7 @@ static void poll_psn_auth_code_ime(uint64_t now_unix);
 static void draw_profile_login_assist_panel(int x, int y, int width, int height, bool selected);
 static void profile_refresh_login_qr(const char *url);
 static void execute_psn_logout(void);
+static void show_cooldown_hint(VitaChiakiHost *host);
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -480,6 +481,23 @@ static void poll_psn_auth_code_ime(uint64_t now_unix) {
   }
 }
 
+/**
+ * Show the "console releasing session" hint when a connect attempt is
+ * blocked by the post-stop/error cooldown gate. Duration is computed from
+ * context.stream.next_stream_allowed_us so the hint self-expires exactly
+ * when the gate clears.
+ */
+static void show_cooldown_hint(VitaChiakiHost *host) {
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  uint64_t remaining_us = context.stream.next_stream_allowed_us > now_us
+                              ? context.stream.next_stream_allowed_us - now_us
+                              : 0;
+  char hint_msg[64];
+  snprintf(hint_msg, sizeof(hint_msg), "Console releasing session... ready in %llus",
+           (unsigned long long)((remaining_us + 999999ULL) / 1000000ULL));
+  host_set_hint(host, hint_msg, false, remaining_us);
+}
+
 // ============================================================================
 // Touch Input Handler
 // ============================================================================
@@ -612,8 +630,16 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
 
           if (takion_cooldown_gate_active()) {
             LOGD("Touch connect ignored — network recovery cooldown active");
+            show_cooldown_hint(context.active_host);
             return UI_SCREEN_TYPE_MAIN;
           }
+          // A manual connect attempt cancels any pending RP_IN_USE auto-retry
+          // (Piece C) rather than racing with it, and earns a fresh one-shot
+          // auto-retry budget of its own -- each explicit user press is
+          // naturally bounded (it requires the user to act), so there's no
+          // risk of an unbounded retry loop from resetting this here.
+          context.stream.rp_in_use_retry_pending = false;
+          context.stream.rp_in_use_retry_used = false;
 
           bool discovered =
               (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
@@ -684,8 +710,16 @@ static UIScreenType main_menu_activate_selected_card(void) {
   context.active_host = card->host;
   if (takion_cooldown_gate_active()) {
     LOGD("Ignoring connect request — network recovery cooldown active");
+    show_cooldown_hint(context.active_host);
     return UI_SCREEN_TYPE_MAIN;
   }
+  // A manual connect attempt cancels any pending RP_IN_USE auto-retry
+  // (Piece C) rather than racing with it, and earns a fresh one-shot
+  // auto-retry budget of its own -- each explicit user press is naturally
+  // bounded (it requires the user to act), so there's no risk of an
+  // unbounded retry loop from resetting this here.
+  context.stream.rp_in_use_retry_pending = false;
+  context.stream.rp_in_use_retry_used = false;
 
   bool discovered =
       (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
@@ -3569,6 +3603,11 @@ UIScreenType ui_screen_draw_waking(void) {
     if (ready && !context.stream.session_init) {
       if (takion_cooldown_gate_active()) {
         LOGD("Deferring stream start — network recovery cooldown active");
+        // Per-frame call is safe: host_set_hint() (host_feedback.c) only writes
+        // fields and reads a timestamp -- no logging, so it can't spam -- and the
+        // duration is recomputed from next_stream_allowed_us every call, so the
+        // countdown stays accurate while this per-frame poll keeps re-entering.
+        show_cooldown_hint(context.active_host);
         return UI_SCREEN_TYPE_WAKING;
       }
       LOGD("Console awake, preparing stream startup");

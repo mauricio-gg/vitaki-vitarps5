@@ -497,6 +497,37 @@ void draw_ui() {
       host_finalize_deferred_session();
     }
 
+    // --- RP_IN_USE single auto-retry (armed by host_handle_quit_event in
+    // host_quit.c) --- Must run on this UI main-loop thread, never on the
+    // chiaki event callback thread: that thread only arms the flag, the
+    // actual reconnect kickoff happens here. Gated on screen == MAIN so the
+    // retry never hijacks Settings/Profile/Messages/PIN-entry/Controller
+    // config if the user navigated away while the timer was counting down;
+    // rp_in_use_retry_pending is left armed (not cleared) whenever the
+    // connect can't actually be attempted yet, so it fires later once the
+    // user returns to MAIN or the in-flight connection finishes.
+    if (context.stream.rp_in_use_retry_pending && screen == UI_SCREEN_TYPE_MAIN &&
+        sceKernelGetProcessTimeWide() >= context.stream.rp_in_use_retry_at_us) {
+      bool connection_busy = context.stream.session_init || ui_state_connection_thread_active();
+      if (context.active_host && !connection_busy) {
+        context.stream.rp_in_use_retry_pending = false;
+        context.stream.rp_in_use_retry_used = true;
+        // Restore the PSN-vs-LAN choice snapshotted when the retry was armed
+        // (host_quit.c) -- host_stream() consumes and clears force_psn_holepunch
+        // on every connect attempt, so it must be re-applied here.
+        context.stream.force_psn_holepunch = context.stream.rp_in_use_retry_psn_holepunch;
+        ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
+        if (start_connection_thread(context.active_host)) {
+          screen = UI_SCREEN_TYPE_WAKING;
+        } else {
+          /* Thread never started -- clear the flag so it cannot bleed into
+           * the next connection attempt. */
+          context.stream.force_psn_holepunch = false;
+          ui_connection_cancel();
+        }
+      }
+    }
+
     /* Drain any pending config persist on every idle frame. config_persist_pending
      * can be set by any refresh path (startup, idle timer, pre-stream token check),
      * so draining it here — outside the 60s gate — ensures a power-cycle right after

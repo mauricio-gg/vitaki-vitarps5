@@ -128,7 +128,6 @@ static void request_stream_stop(const char *reason) {
     }
   }
   context.stream.teardown_in_progress = true;
-  context.stream.next_stream_allowed_us = 0;
   chiaki_session_stop(&context.stream.session);
 }
 
@@ -147,6 +146,11 @@ int host_stream(VitaChiakiHost *host) {
    * is cleared immediately so it cannot bleed into a subsequent call. */
   bool psn_remote =
       (host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) || context.stream.force_psn_holepunch;
+  // Durable copy for a later RP_IN_USE auto-retry (host_quit.c) to snapshot from --
+  // force_psn_holepunch itself is cleared on the very next line, so by the time
+  // host_quit.c runs after this attempt's quit event, only this copy still reflects
+  // whether the user's most recent connect choice targeted PSN/Internet.
+  context.stream.last_connect_used_psn_holepunch = psn_remote;
   context.stream.force_psn_holepunch = false;
   context.stream.psn_selected_addr[0] = '\0';
   LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
