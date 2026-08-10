@@ -163,6 +163,134 @@ static void test_gap_update_wraparound_extend(void) {
   assert(state.end == (ChiakiSeqNum16)0);
 }
 
+// chiaki_corrupt_report_classify() backs the corrupt-frame report cooldown in
+// lib/src/videoreceiver.c (report_corrupt_frame_range()). It decides whether
+// a candidate report [start, end] should be EMITted, is already OBSOLETE
+// (no new info beyond the last report), or must be DEFERred (rate-limited,
+// caller must retry later).
+
+static void test_corrupt_report_classify_new_burst_always_emits(void) {
+  // A different start must never be rate-limited, even if it arrives
+  // immediately after an unrelated report -- it's what drives PS5-side
+  // recovery for a fresh gap.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)10, (ChiakiSeqNum16)12, 1000,
+      (ChiakiSeqNum16)50, (ChiakiSeqNum16)52, 1001,
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_EMIT);
+}
+
+static void test_corrupt_report_classify_obsolete_when_fully_covered(void) {
+  // Same start, new end already covered by the last reported end -> nothing
+  // new to send.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)10, (ChiakiSeqNum16)20, 1000,
+      (ChiakiSeqNum16)10, (ChiakiSeqNum16)15, 1100,
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_OBSOLETE);
+
+  // Exact repeat of the same range is also obsolete.
+  d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)10, (ChiakiSeqNum16)20, 1000,
+      (ChiakiSeqNum16)10, (ChiakiSeqNum16)20, 1100,
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_OBSOLETE);
+}
+
+static void test_corrupt_report_classify_minimal_growth_boundary(void) {
+  // end == last_end + 1 is the smallest possible expansion (growth == 1).
+  // Well under the bypass threshold and only 1ms into the cooldown -> defer.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)179, 1001,
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_DEFER);
+}
+
+static void test_corrupt_report_classify_expansion_inside_cooldown_defers(void) {
+  // Same start, small growth, cooldown not yet elapsed -> this is the exact
+  // shape of the hardware-log spam this cooldown was added to fix (see
+  // 24402261711_vitarps5-testing.log lines 1719-1853, e.g. "175 to 178" then
+  // "175 to 179" a few ms later).
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)181, 1100, // 100ms elapsed of 500ms cooldown
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_DEFER);
+}
+
+static void test_corrupt_report_classify_expansion_after_cooldown_emits(void) {
+  // Same small growth as above, but the full cooldown window has elapsed --
+  // this is the periodic refresh that keeps the console's view of an
+  // ongoing burst current without spamming it every frame advance.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)181, 1500, // elapsed_ms == cooldown_ms
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_EMIT);
+}
+
+static void test_corrupt_report_classify_growth_bypass_threshold(void) {
+  // growth == growth_bypass_span (32) bypasses the cooldown immediately,
+  // even though only 50ms of the 500ms cooldown has elapsed -- a single
+  // large jump must not wait out the full cooldown.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)210, 1050, // growth = 210 - 178 = 32
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_EMIT);
+
+  // One frame short of the threshold, same elapsed time, stays deferred.
+  d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)209, 1050, // growth = 209 - 178 = 31
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_DEFER);
+}
+
+static void test_corrupt_report_classify_wraparound_growth(void) {
+  // last_end=65530, end=5 wraps across the 16-bit boundary. seq16_span()
+  // must compute the true inclusive distance (12, so growth=11), not treat
+  // this as a huge or negative value that would spuriously bypass the
+  // cooldown.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)65530, (ChiakiSeqNum16)65530, 1000,
+      (ChiakiSeqNum16)65530, (ChiakiSeqNum16)5, 1050, // growth=11 < 32, 50ms elapsed
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_DEFER);
+
+  // Same wrapped range after the cooldown elapses -> emits.
+  d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)65530, (ChiakiSeqNum16)65530, 1000,
+      (ChiakiSeqNum16)65530, (ChiakiSeqNum16)5, 1600,
+      false, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_EMIT);
+}
+
+static void test_corrupt_report_classify_bypass_cooldown_for_retirement(void) {
+  // Same inputs as a cooldown-deferred expansion, but bypass_cooldown=true
+  // (the caller is retiring this range for good -- e.g. gap-hold
+  // FLUSH_PREVIOUS, or frame_index_prev_complete advancing past a
+  // fec_failed range's pinned start) must force an emit even though the
+  // cooldown/growth checks alone would defer it. Without this, a
+  // cooldown-deferred range whose start is about to become unreachable
+  // would be silently dropped forever instead of merely delayed.
+  ChiakiCorruptReportDisposition d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)179, 1001, // 1ms elapsed, growth=1
+      true /* bypass_cooldown */, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_EMIT);
+
+  // But bypass_cooldown must not resurrect information that's genuinely
+  // obsolete (already fully covered by the last report) -- OBSOLETE still
+  // wins, since there's nothing new to tell the console.
+  d = chiaki_corrupt_report_classify(
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1000,
+      (ChiakiSeqNum16)175, (ChiakiSeqNum16)178, 1001,
+      true /* bypass_cooldown */, 500, 32);
+  assert(d == CHIAKI_CORRUPT_REPORT_OBSOLETE);
+}
+
 // chiaki_packet_stats_get's seq contribution used to report seq_diff (i.e.
 // MAXIMUM loss) whenever seq_received exceeded the expected span, instead of
 // 0. Isolate the seq-only contribution by resetting on read (gen_ fields
@@ -245,6 +373,14 @@ void run_packet_path_tests(void) {
   test_gap_update_flush_previous_on_new_range();
   test_gap_update_none_for_stale_end_and_null_state();
   test_gap_update_wraparound_extend();
+  test_corrupt_report_classify_new_burst_always_emits();
+  test_corrupt_report_classify_obsolete_when_fully_covered();
+  test_corrupt_report_classify_minimal_growth_boundary();
+  test_corrupt_report_classify_expansion_inside_cooldown_defers();
+  test_corrupt_report_classify_expansion_after_cooldown_emits();
+  test_corrupt_report_classify_growth_bypass_threshold();
+  test_corrupt_report_classify_wraparound_growth();
+  test_corrupt_report_classify_bypass_cooldown_for_retirement();
   test_packet_stats_seq_received_exceeds_span_reports_zero_lost();
   test_packet_stats_seq_16bit_wrap();
   test_packet_stats_push_generation_aggregation();

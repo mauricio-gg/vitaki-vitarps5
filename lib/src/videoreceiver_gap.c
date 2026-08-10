@@ -48,3 +48,37 @@ CHIAKI_EXPORT ChiakiVideoGapUpdateAction chiaki_video_gap_report_update(
 
 	return CHIAKI_VIDEO_GAP_UPDATE_NONE;
 }
+
+CHIAKI_EXPORT ChiakiCorruptReportDisposition chiaki_corrupt_report_classify(
+		ChiakiSeqNum16 last_start,
+		ChiakiSeqNum16 last_end,
+		uint64_t last_at_ms,
+		ChiakiSeqNum16 start,
+		ChiakiSeqNum16 end,
+		uint64_t now_ms,
+		bool bypass_cooldown,
+		uint64_t cooldown_ms,
+		uint32_t growth_bypass_span)
+{
+	if(last_start != start)
+		return CHIAKI_CORRUPT_REPORT_EMIT; // first report of a new burst always fires immediately, uncooled
+
+	if(seq16_inclusive_ge(last_end, end))
+		return CHIAKI_CORRUPT_REPORT_OBSOLETE; // no new information beyond what was already reported
+
+	if(bypass_cooldown)
+		return CHIAKI_CORRUPT_REPORT_EMIT; // finalization: this range retires now and is never offered again
+
+	// Same burst, range has expanded: rate-limit the re-report unless either
+	// the growth since the last report or the elapsed time justify refreshing
+	// the console's view of the burst's extent now.
+	uint32_t growth = seq16_span(last_end, end) - 1U;
+	if(growth >= growth_bypass_span)
+		return CHIAKI_CORRUPT_REPORT_EMIT;
+
+	uint64_t elapsed_ms = now_ms - last_at_ms;
+	if(elapsed_ms >= cooldown_ms)
+		return CHIAKI_CORRUPT_REPORT_EMIT;
+
+	return CHIAKI_CORRUPT_REPORT_DEFER;
+}
