@@ -49,7 +49,7 @@ CHIAKI_EXPORT ChiakiVideoGapUpdateAction chiaki_video_gap_report_update(
 	return CHIAKI_VIDEO_GAP_UPDATE_NONE;
 }
 
-CHIAKI_EXPORT ChiakiCorruptReportDisposition chiaki_corrupt_report_classify(
+CHIAKI_EXPORT ChiakiVideoCorruptReportDisposition chiaki_video_corrupt_report_classify(
 		ChiakiSeqNum16 last_start,
 		ChiakiSeqNum16 last_end,
 		uint64_t last_at_ms,
@@ -58,27 +58,36 @@ CHIAKI_EXPORT ChiakiCorruptReportDisposition chiaki_corrupt_report_classify(
 		uint64_t now_ms,
 		bool bypass_cooldown,
 		uint64_t cooldown_ms,
-		uint32_t growth_bypass_span)
+		uint32_t growth_bypass_span,
+		uint32_t span_sanity_max)
 {
-	if(last_start != start)
-		return CHIAKI_CORRUPT_REPORT_EMIT; // first report of a new burst always fires immediately, uncooled
+	// Pathological span guard: checked first, ahead of every other branch
+	// (including bypass_cooldown and the new-burst fast path), so nothing --
+	// not even a retirement report -- can slip a corrupted-sequence-state or
+	// multi-thousand-frame span past it. See the @param span_sanity_max doc
+	// above for why.
+	if(chiaki_seq16_span(start, end) > span_sanity_max)
+		return CHIAKI_VIDEO_CORRUPT_REPORT_OBSOLETE;
 
-	if(seq16_inclusive_ge(last_end, end))
-		return CHIAKI_CORRUPT_REPORT_OBSOLETE; // no new information beyond what was already reported
+	if(last_start != start)
+		return CHIAKI_VIDEO_CORRUPT_REPORT_EMIT; // first report of a new burst always fires immediately, uncooled
+
+	if(chiaki_seq16_inclusive_ge(last_end, end))
+		return CHIAKI_VIDEO_CORRUPT_REPORT_OBSOLETE; // no new information beyond what was already reported
 
 	if(bypass_cooldown)
-		return CHIAKI_CORRUPT_REPORT_EMIT; // finalization: this range retires now and is never offered again
+		return CHIAKI_VIDEO_CORRUPT_REPORT_EMIT; // finalization: this range retires now and is never offered again
 
 	// Same burst, range has expanded: rate-limit the re-report unless either
 	// the growth since the last report or the elapsed time justify refreshing
 	// the console's view of the burst's extent now.
-	uint32_t growth = seq16_span(last_end, end) - 1U;
+	uint32_t growth = chiaki_seq16_span(last_end, end) - 1U;
 	if(growth >= growth_bypass_span)
-		return CHIAKI_CORRUPT_REPORT_EMIT;
+		return CHIAKI_VIDEO_CORRUPT_REPORT_EMIT;
 
 	uint64_t elapsed_ms = now_ms - last_at_ms;
 	if(elapsed_ms >= cooldown_ms)
-		return CHIAKI_CORRUPT_REPORT_EMIT;
+		return CHIAKI_VIDEO_CORRUPT_REPORT_EMIT;
 
-	return CHIAKI_CORRUPT_REPORT_DEFER;
+	return CHIAKI_VIDEO_CORRUPT_REPORT_DEFER;
 }
