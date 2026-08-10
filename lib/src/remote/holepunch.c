@@ -60,6 +60,7 @@
 #include <chiaki/stoppipe.h>
 #include <chiaki/thread.h>
 #include <chiaki/base64.h>
+#include <chiaki/rpcrypt.h>
 #include <chiaki/random.h>
 #include <chiaki/sock.h>
 #include <chiaki/time.h>
@@ -502,7 +503,7 @@ static bool get_client_addr_remote_stun(Session *session, char *address, uint16_
 static ChiakiErrorCode get_stun_servers(Session *session);
 // static bool get_mac_addr(ChiakiLog *log, uint8_t *mac_addr);
 static void log_session_state(Session *session);
-static ChiakiErrorCode decode_customdata1(const char *customdata1, uint8_t *out, size_t out_len);
+static ChiakiErrorCode decode_customdata1(ChiakiLog *log, const char *customdata1, uint8_t *out, size_t out_len);
 static ChiakiErrorCode check_candidates(
     Session *session, Candidate *local_candidates, Candidate *candidates_received, size_t num_candidates, chiaki_socket_t *out,
     Candidate *out_candidate);
@@ -1265,7 +1266,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
                 err = CHIAKI_ERR_UNKNOWN;
                 break;
             }
-            err = decode_customdata1(custom_data1, session->custom_data1, sizeof(session->custom_data1));
+            err = decode_customdata1(session->log, custom_data1, session->custom_data1, sizeof(session->custom_data1));
             if (err != CHIAKI_ERR_SUCCESS)
             {
                 CHIAKI_LOGE(session->log, "chiaki_holepunch_session_start: Failed to decode \"customData1\": '%s' with error %s", custom_data1, chiaki_error_string(err));
@@ -5266,31 +5267,64 @@ static void log_session_state(Session *session)
  * Decode the customdata1 for use.
  *
  * Performs two rounds of base64 decoding on the raw customdata1 string received
- * over the websocket. The actual decoded length may be less than out_len (e.g.,
- * ~18 bytes into a 32-byte buffer); the caller must not assume the buffer is
- * fully populated. The downstream consumer (chiaki_rpcrypt_init_regist_psn)
- * reads only the first CHIAKI_RPCRYPT_KEY_SIZE (16) bytes via pointer arithmetic,
- * so partial fills are safe as long as the decoded result is at least 16 bytes.
+ * over the websocket. The downstream consumer (chiaki_rpcrypt_init_regist_psn)
+ * reads exactly CHIAKI_RPCRYPT_KEY_SIZE (16) bytes; `out` (session->custom_data1)
+ * is sized 32 bytes purely as local headroom (see holepunch.h), it is not itself
+ * the expected decoded length.
  *
+ * upstream chiaki-ng 254d37ae ("Change custom decode function to accept up to 4
+ * extra characters as new psn update seems to use extra chars", fixes
+ * streetpea/chiaki-ng#727): tolerate up to CUSTOMDATA1_EXTRA_BYTES_MAX trailing
+ * bytes beyond the 16 actually consumed, instead of rejecting the message outright.
+ *
+ * The effective accepted window here is 16-18 bytes, not 16-20: the caller's
+ * `strlen(custom_data1) != 32` gate (holepunch.c:1263) fixes round1's input at
+ * exactly 32 base64 characters, i.e. exactly 24 raw bytes, and those 24 bytes
+ * fed back through base64 as round2's input cap round2_len at 18 (24 chars / 4
+ * groups * 3 bytes/group). CUSTOMDATA1_EXTRA_BYTES_MAX=4 (upstream's constant,
+ * kept here for parity) implies an upper bound of 20, but that bound can never
+ * actually be reached given the current gate and 24-byte intermediate buffers.
+ * If a future PSN payload needs more than 18 decoded bytes, this tolerance
+ * alone will not fix it — the strlen gate and customdata1_round1/round2 buffers
+ * below would need to be widened too.
+ *
+ * @param[in]  log         Pointer to a ChiakiLog for reporting unexpected lengths.
  * @param[in]  customdata1 Null-terminated base64-encoded string from the websocket.
  * @param[out] out         Output buffer to receive decoded bytes.
  * @param[in]  out_len     Capacity of out in bytes. Returns CHIAKI_ERR_BUF_TOO_SMALL
  *                         if the decoded result would not fit.
  */
-static ChiakiErrorCode decode_customdata1(const char *customdata1, uint8_t *out, size_t out_len)
+#define CUSTOMDATA1_EXTRA_BYTES_MAX 4
+
+static ChiakiErrorCode decode_customdata1(ChiakiLog *log, const char *customdata1, uint8_t *out, size_t out_len)
 {
     uint8_t customdata1_round1[24];
-    size_t decoded_len = sizeof(customdata1_round1);
-    ChiakiErrorCode err = chiaki_base64_decode(customdata1, strlen(customdata1), customdata1_round1, &decoded_len);
+    uint8_t customdata1_round2[24];
+    size_t round1_len = sizeof(customdata1_round1);
+    size_t round2_len = sizeof(customdata1_round2);
+    ChiakiErrorCode err = chiaki_base64_decode(customdata1, strlen(customdata1), customdata1_round1, &round1_len);
     if (err != CHIAKI_ERR_SUCCESS)
         return err;
-    err = chiaki_base64_decode((const char*)customdata1_round1, decoded_len, out, &decoded_len);
+    err = chiaki_base64_decode((const char*)customdata1_round1, round1_len, customdata1_round2, &round2_len);
     if (err != CHIAKI_ERR_SUCCESS)
         return err;
-    /* Reject only if the decoded bytes won't fit; a result smaller than out_len
-     * is valid because the consumer reads a fixed prefix (CHIAKI_RPCRYPT_KEY_SIZE). */
-    if (decoded_len > out_len)
+    if (round2_len < (size_t)CHIAKI_RPCRYPT_KEY_SIZE)
+        return CHIAKI_ERR_UNKNOWN;
+    if (round2_len > (size_t)CHIAKI_RPCRYPT_KEY_SIZE + CUSTOMDATA1_EXTRA_BYTES_MAX)
+    {
+        CHIAKI_LOGV(log, "decode_customdata1: customData1 decoded to %zu bytes (max %zu)",
+            round2_len, (size_t)CHIAKI_RPCRYPT_KEY_SIZE + CUSTOMDATA1_EXTRA_BYTES_MAX);
+        return CHIAKI_ERR_UNKNOWN;
+    }
+    if (round2_len > (size_t)CHIAKI_RPCRYPT_KEY_SIZE)
+        CHIAKI_LOGI(log, "decode_customdata1: customData1 contains %zu extra byte(s); ignoring extras",
+            round2_len - (size_t)CHIAKI_RPCRYPT_KEY_SIZE);
+    /* Defensive: round2_len is bounded by sizeof(customdata1_round2) (24) and can
+     * never exceed out_len (32), but guard the memcpy explicitly rather than
+     * relying on that invariant. */
+    if (round2_len > out_len)
         return CHIAKI_ERR_BUF_TOO_SMALL;
+    memcpy(out, customdata1_round2, round2_len);
     return CHIAKI_ERR_SUCCESS;
 }
 
@@ -5459,27 +5493,49 @@ cleanup:
     return err;
 }
 
+/* upstream chiaki-ng c0b7170b: "Fix potential notifications being ignored in
+ * holepunch code" — the previous implementation dequeued (and freed) every
+ * notification ahead of the target to find it, silently destroying queued
+ * notifications that other wait_for_notification() callers hadn't seen yet.
+ * This caused "Timed out waiting for holepunch session start notifications"
+ * when a SESSION_MESSAGE_CREATED notification got dropped as collateral
+ * damage of clearing an unrelated, earlier notification. Unlink only the
+ * single target node from the queue instead. */
 static ChiakiErrorCode clear_notification(
     Session *session, Notification *notification)
 {
-    bool found = false;
     NotificationQueue *nq = session->ws_notification_queue;
     chiaki_mutex_lock(&session->notif_mutex);
-    while (nq->rear != NULL)
+    Notification *prev = NULL;
+    Notification *curr = nq->front;
+    while (curr != NULL && curr != notification)
     {
-        if(nq->front == notification)
-        {
-            found = true;
-            dequeueNq(nq);
-            break;
-        }
-        dequeueNq(nq);
+        prev = curr;
+        curr = curr->next;
     }
-    chiaki_mutex_unlock(&session->notif_mutex);
-    if (found)
-        return CHIAKI_ERR_SUCCESS;
-    else
+
+    if (curr == NULL)
+    {
+        chiaki_mutex_unlock(&session->notif_mutex);
         return CHIAKI_ERR_UNKNOWN;
+    }
+
+    if (prev)
+        prev->next = curr->next;
+    else
+        nq->front = curr->next;
+
+    if (curr == nq->rear)
+        nq->rear = prev;
+
+    json_object_put(curr->json);
+    curr->json = NULL;
+    free(curr->json_buf);
+    curr->json_buf = NULL;
+    free(curr);
+
+    chiaki_mutex_unlock(&session->notif_mutex);
+    return CHIAKI_ERR_SUCCESS;
 }
 
 /**
@@ -5524,11 +5580,46 @@ static ChiakiErrorCode wait_for_session_message(
         if (err != CHIAKI_ERR_SUCCESS)
         {
             CHIAKI_LOGE(session->log, "Failed to parse holepunch session message");
+            /* upstream chiaki-ng 02d673eb7 ("Cleanup code"): call
+             * session_message_free() on the parse-error path for parity with
+             * upstream's structure. This is a NULL-safe no-op here, not a leak
+             * fix: session_message_parse() frees its own local allocation and
+             * sets it to NULL itself in its `cleanup:` label (holepunch.c:5893-5897)
+             * before returning an error, and never assigns *out on that path, so
+             * `msg` here is provably NULL already. */
+            session_message_free(msg);
+            return err;
+        }
+        /* upstream chiaki-ng df4d6e929 ("Terminate session if terminate message
+         * received over holepunch session"): handle SESSION_MESSAGE_ACTION_TERMINATE
+         * explicitly instead of falling through to the generic ignore path below,
+         * which silently dropped the message and kept waiting instead of treating
+         * the session as ended.
+         *
+         * Two accepted limitations, both matching upstream as-is:
+         * (a) CHIAKI_ERR_CANCELED is the same error code used for a user-initiated
+         *     cancel, so console-side termination is indistinguishable from the
+         *     user pressing cancel to callers further up the stack.
+         * (b) The TERMINATE notification itself is left in ws_notification_queue
+         *     (no clear_notification() call here). This is latent-safe today
+         *     because no in-tree caller retries wait_for_session_message() after
+         *     receiving CHIAKI_ERR_CANCELED. */
+        if (msg->action & SESSION_MESSAGE_ACTION_TERMINATE)
+        {
+            CHIAKI_LOGW(session->log, "Holepunch session received Terminate message, terminating %d", msg->action);
+            err = CHIAKI_ERR_CANCELED;
+            /* upstream chiaki-ng 02d673eb7: free the message on the TERMINATE path too. */
+            session_message_free(msg);
             return err;
         }
         if (!(msg->action & types))
         {
             CHIAKI_LOGV(session->log, "Ignoring holepunch session message with action %d", msg->action);
+            /* upstream chiaki-ng 02d673eb7: free the message we're about to
+             * discard — previously only the notification was cleared, leaking
+             * every ignored SessionMessage. */
+            session_message_free(msg);
+            msg = NULL;
             clear_notification(session, notif);
             continue;
         }
@@ -6030,14 +6121,21 @@ static ChiakiErrorCode short_message_serialize(
 static ChiakiErrorCode session_message_free(SessionMessage *message)
 {
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
-    if (message->conn_request != NULL)
+    /* upstream chiaki-ng 02d673eb7 ("Cleanup code"): guard against a NULL
+     * message. Callers (e.g. wait_for_session_message()'s parse-error path)
+     * may pass a NULL message when session_message_parse() failed before
+     * populating *out. */
+    if (message)
     {
-        if (message->conn_request->candidates != NULL)
-            free(message->conn_request->candidates);
-        free(message->conn_request);
+        if (message->conn_request != NULL)
+        {
+            if (message->conn_request->candidates != NULL)
+                free(message->conn_request->candidates);
+            free(message->conn_request);
+        }
+        message->notification = NULL;
+        free(message);
     }
-    message->notification = NULL;
-    free(message);
     return err;
 }
 
