@@ -12,6 +12,9 @@ add_executable(vitarps5_tests
     ../lib/src/reorderqueue.c
     ../lib/src/videoreceiver_gap.c
     ../lib/src/base64.c
+    ../lib/src/packetstats.c
+    ../lib/src/thread.c
+    ../lib/src/time.c
 )
 
 target_include_directories(vitarps5_tests PRIVATE
@@ -30,6 +33,12 @@ target_compile_definitions(vitarps5_tests PRIVATE
 # token_crypto.c uses OpenSSL EVP (AES-256-GCM, SHA-256, RAND_bytes).
 # On the host build OpenSSL is always available through chiaki-lib's dependency.
 find_package(OpenSSL REQUIRED)
-target_link_libraries(vitarps5_tests OpenSSL::Crypto)
+
+# packetstats.c needs chiaki_mutex_* from thread.c, whose non-Vita/Switch/Windows
+# path uses pthread. Link Threads explicitly for portability, even though it's
+# already available implicitly via libSystem on this Darwin host.
+find_package(Threads REQUIRED)
+
+target_link_libraries(vitarps5_tests OpenSSL::Crypto Threads::Threads)
 
 add_test(NAME vitarps5_config_tests COMMAND vitarps5_tests)

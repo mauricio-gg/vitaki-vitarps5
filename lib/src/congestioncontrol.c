@@ -10,6 +10,12 @@
  * Clamping at 10% matches chiaki-ng's approach. */
 #define CONGESTION_MAX_REPORTED_LOSS 0.10
 
+/* Fraction of FEC-recovered units still reported as lost so the PS5 backs off
+ * when FEC is heavily exercised. Integer division gives a natural deadband:
+ * light recoverable loss (1-2 units / 200ms) reports 0. */
+#define CONGESTION_FEC_RECOVERED_LOSS_DIVISOR 4
+#define CONGESTION_LOG_INTERVAL_TICKS 5 /* 5 x 200ms = 1s */
+
 static void *congestion_control_thread_func(void *user)
 {
 	ChiakiCongestionControl *control = user;
@@ -29,36 +35,68 @@ static void *congestion_control_thread_func(void *user)
 
 		uint64_t received = 0;
 		uint64_t lost = 0;
-		chiaki_packet_stats_get(control->stats, true, &received, &lost);
+		uint64_t recovered = 0;
+		chiaki_packet_stats_get(control->stats, true, &received, &lost, &recovered);
+
+		/* Discount FEC-recovered units into the reported loss (deadbanded by the
+		 * divisor) so the PS5 still backs off when FEC is heavily exercised, even
+		 * though the recovered units themselves aren't raw loss. */
+		uint64_t reported_lost = lost + recovered / CONGESTION_FEC_RECOVERED_LOSS_DIVISOR;
 
 		/* Clamp reported loss ratio to CONGESTION_MAX_REPORTED_LOSS so burst
-		 * spikes don't cause the PS5 to over-throttle its encoder.
-		 * Re-derive lost from received so the ratio is exactly the cap. */
-		uint64_t total = received + lost;
-		uint64_t raw_lost = lost;
+		 * spikes don't cause the PS5 to over-throttle its encoder. */
+		uint64_t raw_reported_lost = reported_lost;
+		uint64_t total = received + reported_lost;
 		if(total > 0)
 		{
-			double loss_ratio = (double)lost / (double)total;
+			double loss_ratio = (double)reported_lost / (double)total;
 			if(loss_ratio > CONGESTION_MAX_REPORTED_LOSS)
 			{
-				lost = (uint64_t)(((double)received * CONGESTION_MAX_REPORTED_LOSS)
+				reported_lost = (uint64_t)(((double)received * CONGESTION_MAX_REPORTED_LOSS)
 					/ (1.0 - CONGESTION_MAX_REPORTED_LOSS));
-				total = received + lost;
 			}
 		}
 
 		ChiakiTakionCongestionPacket packet = { 0 };
 		packet.received = (uint16_t)received;
-		packet.lost = (uint16_t)lost;
-		control->packet_loss = total > 0 ? (double)lost / total : 0;
-		if(raw_lost != lost)
+		packet.lost = (uint16_t)reported_lost;
+		if(raw_reported_lost != reported_lost)
 			CHIAKI_LOGV(control->log,
 				"Sending Congestion Control Packet, received: %u, lost: %u (capped from %u)",
-				(unsigned int)packet.received, (unsigned int)packet.lost, (unsigned int)raw_lost);
+				(unsigned int)packet.received, (unsigned int)packet.lost, (unsigned int)raw_reported_lost);
 		else
 			CHIAKI_LOGV(control->log, "Sending Congestion Control Packet, received: %u, lost: %u",
 				(unsigned int)packet.received, (unsigned int)packet.lost);
 		chiaki_takion_send_congestion(control->takion, &packet);
+
+		/* 1Hz aggregate CONGESTION/LOSS log: the per-tick CHIAKI_LOGV above is too
+		 * noisy for routine visibility, so accumulate across CONGESTION_LOG_INTERVAL_TICKS
+		 * ticks and emit one CHIAKI_LOGD summary per second. Includes the pre-cap
+		 * post-FEC-discount value alongside the post-cap value actually sent, so
+		 * cap activation (precap != reported) is visible in the aggregate too,
+		 * not just in the per-tick CHIAKI_LOGV "(capped from ...)" line. */
+		control->log_accum_received += received;
+		control->log_accum_raw_lost += lost;
+		control->log_accum_recovered += recovered;
+		control->log_accum_reported_lost_precap += raw_reported_lost;
+		control->log_accum_reported_lost += reported_lost;
+		control->log_accum_ticks++;
+		if(control->log_accum_ticks >= CONGESTION_LOG_INTERVAL_TICKS)
+		{
+			CHIAKI_LOGD(control->log,
+				"CONGESTION/LOSS received=%llu raw_lost=%llu fec_recovered=%llu reported_precap=%llu reported=%llu",
+				(unsigned long long)control->log_accum_received,
+				(unsigned long long)control->log_accum_raw_lost,
+				(unsigned long long)control->log_accum_recovered,
+				(unsigned long long)control->log_accum_reported_lost_precap,
+				(unsigned long long)control->log_accum_reported_lost);
+			control->log_accum_received = 0;
+			control->log_accum_raw_lost = 0;
+			control->log_accum_recovered = 0;
+			control->log_accum_reported_lost_precap = 0;
+			control->log_accum_reported_lost = 0;
+			control->log_accum_ticks = 0;
+		}
 	}
 
 	chiaki_bool_pred_cond_unlock(&control->stop_cond);
@@ -70,7 +108,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionCo
 	control->takion = takion;
 	control->stats = stats;
 	control->log = log;
-	control->packet_loss = 0;
+	control->log_accum_received = 0;
+	control->log_accum_raw_lost = 0;
+	control->log_accum_recovered = 0;
+	control->log_accum_reported_lost_precap = 0;
+	control->log_accum_reported_lost = 0;
+	control->log_accum_ticks = 0;
 
 	ChiakiErrorCode err = chiaki_bool_pred_cond_init(&control->stop_cond);
 	if(err != CHIAKI_ERR_SUCCESS)

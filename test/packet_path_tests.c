@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "chiaki/reorderqueue.h"
+#include "chiaki/packetstats.h"
 #include "../lib/src/videoreceiver_gap.h"
 
 static void test_reorder_find_first_set_after_skip_and_drop(void) {
@@ -162,6 +163,80 @@ static void test_gap_update_wraparound_extend(void) {
   assert(state.end == (ChiakiSeqNum16)0);
 }
 
+// chiaki_packet_stats_get's seq contribution used to report seq_diff (i.e.
+// MAXIMUM loss) whenever seq_received exceeded the expected span, instead of
+// 0. Isolate the seq-only contribution by resetting on read (gen_ fields
+// start and stay at 0), so the returned `lost` IS the seq-only lost value.
+static void test_packet_stats_seq_received_exceeds_span_reports_zero_lost(void) {
+  ChiakiPacketStats stats;
+  assert(chiaki_packet_stats_init(&stats) == CHIAKI_ERR_SUCCESS);
+
+  stats.seq_min = 0;
+  stats.seq_max = 10;    // expected span = 10
+  stats.seq_received = 15; // more received than the span implies
+
+  uint64_t received = 0;
+  uint64_t lost = 0;
+  uint64_t recovered = 0;
+  chiaki_packet_stats_get(&stats, true, &received, &lost, &recovered);
+
+  assert(received == 15);
+  assert(lost == 0);
+  assert(recovered == 0);
+
+  chiaki_packet_stats_fini(&stats);
+}
+
+// ChiakiSeqNum16 is uint16_t; seq_max - seq_min must wrap at 16 bits (not
+// promote to a huge 64-bit value) when seq_max < seq_min.
+static void test_packet_stats_seq_16bit_wrap(void) {
+  ChiakiPacketStats stats;
+  assert(chiaki_packet_stats_init(&stats) == CHIAKI_ERR_SUCCESS);
+
+  stats.seq_min = (ChiakiSeqNum16)65530;
+  stats.seq_max = (ChiakiSeqNum16)5; // wrapped: true span is (65536 - 65530) + 5 = 11
+  stats.seq_received = 8;            // 8 of the 11 expected arrived -> 3 lost
+
+  uint64_t received = 0;
+  uint64_t lost = 0;
+  uint64_t recovered = 0;
+  chiaki_packet_stats_get(&stats, true, &received, &lost, &recovered);
+
+  assert(received == 8);
+  assert(lost == 3); // would be an enormous value without the (uint16_t) truncation fix
+
+  chiaki_packet_stats_fini(&stats);
+}
+
+// chiaki_packet_stats_push_generation must aggregate lost/recovered independently:
+// a FEC_RECOVERED-style push reports the shortfall as `recovered` with zero raw
+// loss, while a FEC_FAILED-style push reports the shortfall as raw `lost`.
+static void test_packet_stats_push_generation_aggregation(void) {
+  ChiakiPacketStats stats;
+  assert(chiaki_packet_stats_init(&stats) == CHIAKI_ERR_SUCCESS);
+
+  const uint64_t expected = 16;
+  const uint64_t recovered_n = 2;
+  chiaki_packet_stats_push_generation(&stats, expected, 0, recovered_n);
+
+  uint64_t received = 0;
+  uint64_t lost = 0;
+  uint64_t recovered = 0;
+  chiaki_packet_stats_get(&stats, true, &received, &lost, &recovered);
+  assert(lost == 0);
+  assert(recovered == recovered_n);
+
+  const uint64_t actual = 12;
+  const uint64_t expected2 = 16;
+  chiaki_packet_stats_push_generation(&stats, actual, expected2 - actual, 0);
+
+  chiaki_packet_stats_get(&stats, true, &received, &lost, &recovered);
+  assert(lost == expected2 - actual);
+  assert(recovered == 0);
+
+  chiaki_packet_stats_fini(&stats);
+}
+
 void run_packet_path_tests(void) {
   test_reorder_find_first_set_after_skip_and_drop();
   test_reorder_wraparound_progression();
@@ -170,4 +245,7 @@ void run_packet_path_tests(void) {
   test_gap_update_flush_previous_on_new_range();
   test_gap_update_none_for_stale_end_and_null_state();
   test_gap_update_wraparound_extend();
+  test_packet_stats_seq_received_exceeds_span_reports_zero_lost();
+  test_packet_stats_seq_16bit_wrap();
+  test_packet_stats_push_generation_aggregation();
 }

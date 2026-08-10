@@ -285,9 +285,6 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 	if(video_receiver->frame_index_cur < 0 ||
 		chiaki_seq_num_16_gt(frame_index, (ChiakiSeqNum16)video_receiver->frame_index_cur))
 	{
-		if(video_receiver->packet_stats)
-			chiaki_frame_processor_report_packet_stats(&video_receiver->frame_processor, video_receiver->packet_stats);
-
 		// last frame not flushed yet?
 		if(video_receiver->frame_index_cur >= 0 && video_receiver->frame_index_prev != video_receiver->frame_index_cur)
 		{
@@ -395,10 +392,36 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		video_receiver->cur_frame_first_packet_ms = 0;
 		video_receiver->cur_frame_seen_last_unit = false;
+
+		// Report once for this abandoned generation before giving up on it.
+		if(video_receiver->packet_stats)
+			chiaki_frame_processor_report_frame_stats(&video_receiver->frame_processor, CHIAKI_FRAME_OUTCOME_ABANDONED, video_receiver->packet_stats);
 		return CHIAKI_ERR_UNKNOWN;
 	}
 
 	ChiakiFrameProcessorFlushResult flush_result = chiaki_frame_processor_flush(&video_receiver->frame_processor, &frame, &frame_size);
+
+	if(video_receiver->packet_stats)
+	{
+		ChiakiFrameProcessorFrameOutcome outcome;
+		switch(flush_result)
+		{
+			case CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_SUCCESS:
+				outcome = CHIAKI_FRAME_OUTCOME_DELIVERED;
+				break;
+			case CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_SUCCESS:
+				outcome = CHIAKI_FRAME_OUTCOME_FEC_RECOVERED;
+				break;
+			case CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED:
+				outcome = CHIAKI_FRAME_OUTCOME_FEC_FAILED;
+				break;
+			case CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED:
+			default:
+				outcome = CHIAKI_FRAME_OUTCOME_ABANDONED;
+				break;
+		}
+		chiaki_frame_processor_report_frame_stats(&video_receiver->frame_processor, outcome, video_receiver->packet_stats);
+	}
 
 	if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED
 		|| flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
