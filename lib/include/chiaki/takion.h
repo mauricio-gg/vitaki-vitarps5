@@ -182,6 +182,29 @@ typedef struct chiaki_takion_t
 		uint64_t last_seq_num;
 	} recv_drop_stats;
 
+	/**
+	 * Consecutive transient recv() error tracking (e.g. ENOBUFS) used by
+	 * takion_recv()'s retry/escalation logic. Touched only from the takion
+	 * thread, so no locking is needed.
+	 */
+	struct
+	{
+		uint32_t consecutive; // resets to 0 on every successful recv
+		uint64_t first_ms;    // set when consecutive goes 0 -> 1; for the escalation log's elapsed-time figure only
+		uint64_t log_ms;      // rate-limits the retry WARN to once per TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS
+	} transient_recv;
+
+	/**
+	 * Timestamp of the last rate-limited send-failure log line (raw send
+	 * errors and skipped sends on an invalidated socket). Written from
+	 * whichever sender thread hits a send failure, without a lock: a
+	 * concurrent 64-bit read-modify-write can in principle tear on 32-bit
+	 * ARM, but the value is milliseconds-since-boot so the high word stays
+	 * zero for a very long time in practice -- worst case is an extra log
+	 * line or a slightly stretched suppression window, not a crash.
+	 */
+	uint64_t send_error_log_ms;
+
 #ifdef VITARPS5_ENHANCED_RECOVERY
 	/**
 	 * Typed back-pointer to the owning StreamConnection.

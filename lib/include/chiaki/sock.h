@@ -20,6 +20,7 @@ typedef SOCKET chiaki_socket_t;
 #define CHIAKI_SOCKET_ERROR_FMT "%d"
 #define CHIAKI_SOCKET_ERROR_VALUE (WSAGetLastError())
 #define CHIAKI_SOCKET_EINPROGRESS (WSAGetLastError() == WSAEWOULDBLOCK)
+#define CHIAKI_SOCKET_RECV_ERR_TRANSIENT (WSAGetLastError() == WSAENOBUFS)
 #define CHIAKI_SOCKET_BUF_TYPE char*
 // #elif defined(__PSVITA__)
 // #include <psp2/net/net.h>
@@ -40,6 +41,7 @@ typedef int chiaki_socket_t;
 #define CHIAKI_SOCKET_ERROR_FMT "%s"
 #define CHIAKI_SOCKET_ERROR_VALUE (strerror(errno))
 #define CHIAKI_SOCKET_EINPROGRESS (errno == EINPROGRESS)
+#define CHIAKI_SOCKET_RECV_ERR_TRANSIENT (errno == ENOBUFS)
 #define CHIAKI_SOCKET_BUF_TYPE void *
 #endif
 

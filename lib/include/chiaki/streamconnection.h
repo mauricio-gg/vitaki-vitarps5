@@ -68,6 +68,15 @@ typedef struct chiaki_stream_connection_t
 	bool state_failed;
 	bool should_stop;
 	bool remote_disconnected;
+	/**
+	 * Set when the Takion transport died on its own (e.g. a persistent recv()
+	 * failure) rather than through the normal should_stop / remote-disconnect
+	 * handshake. By the time the DISCONNECT event that sets this arrives, the
+	 * takion thread has already torn down its send buffer, so this flag tells
+	 * chiaki_stream_connection_run() to skip sending a graceful disconnect
+	 * message that would otherwise touch a finalized send buffer.
+	 */
+	bool transport_failed;
 	char *remote_disconnect_reason;
 	// FIXME ywnico a workaround to deal with bang being called twice
 	// I'm not sure what the real problem is...something with the threading implementation on vita...?
