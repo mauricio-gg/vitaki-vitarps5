@@ -9,7 +9,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 ### GH #188 / PR #199 - H.264 Decode-Thread Decoupling (MERGED)
 - [x] **Decouple sceAvcdecDecode from Takion recv thread (PR #199)**
   - Implementation: `sceAvcdecDecode` moved to dedicated VitaDecode thread (USER_1) via SPSC queue in `vita/src/video.c`
-  - Hardware A/B validated on log 11782861312 (build 300719a0, merged 2026-08-10)
+  - Hardware A/B validated on log 11782861312 (build 300719a0; PR #199 merged to main as commit 48c860e7)
   - **Key Results:**
     - Decode performance: 1.8ms avg / 2.4ms max (excellent, off critical path)
     - Queue health: `decode_q_drops=0` across all sessions (no overflow)
@@ -29,10 +29,13 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 ### New Root-Cause Understanding (GH #206 - "Wi-Fi burst jitter + receive-queue overflow drive PS5 bitrate floor-throttling")
 - [x] **Identified: Three-factor lag driver**
   - (a) **Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50** (base RTT 6–10ms, actual 63–84ms; one session had zero client drops yet 64ms jitter)
-  - (b) **Receive/reorder queue pinned at 256 slots dripping 1046 single-packet drops** (drain cap 64/wakeup in `lib/src/takion.c:1143`)
+  - (b) **Receive queue pinned at 256 slots dripping 1046 single-packet drops despite drain cap already being 256/wakeup** (constant `TAKION_RECV_DRAIN_MAX` at `lib/src/takion.c:71`, raised from 64 by commit a9b61cb1; drain loop at `lib/src/takion.c:1261-1276`). Drain cap is not the bottleneck; deficit is elsewhere (recv-thread scheduling during bursts / sustained arrival rate exceeds drain rate).
   - (c) **PS5 congestion control throttling target_bitrate 4977k → 1597k floor** within each session in response to reported loss
     - **Note:** This CONTRADICTS earlier belief that "PS5 ignores congestion control feedback"
     - Loss-report rate ~200ms interval, PS5 reacts progressively within each session
+
+### GH Issue #188 Literal Proposal (Carried Forward to GH #206)
+- GH #188 issue body proposed client-side loss/bitrate adaptation (~10% loss-report cap); PR #199 auto-closed issue without implementing that proposal. The adaptation strategy is carried forward in GH #206 investigation as one of the proposed work items (chiaki-ng-style loss-report capping).
 
 ### Next Priority: GH #206 Investigation
 - Proposed work: Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10%), controlled Wi-Fi proximity A/B (RSSI > 80)
@@ -55,14 +58,14 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 - [x] **Real next lever identified: decode-thread decoupling (GH #188)**
   - A/B testing revealed sceAvcdecDecode runs synchronously on Takion recv thread
-  - Synchronous decode inflates measured jitter by ~55ms (sceAvcdecDecode overhead, see `lib/src/takion.c:76-84`)
-  - This is self-inflicted jitter inflation; not a network problem
-  - Network jitter metrics are currently dishonest; honest measurement requires decode off recv thread
+  - **Superseded 2026-08-10** — the claimed jitter inflation of ~55ms was later disproven by GH #188 hardware A/B testing; jitter remained unchanged after decoupling. See GH #188 A/B section above for corrected analysis.
+  - This appeared to be self-inflicted jitter inflation; not a network problem
+  - Network jitter metrics were suspected to be dishonest; honest measurement requires decode off recv thread
   - **Next actionable step:** Decouple decode to dedicated thread → SPSC queue → honest network jitter visibility
 
 ---
 
-## 2026-06-26 – Dead-Stream Watchdog PR Reverted; Reorder Queue Fix Merged
+## 2026-06-26 (Dead-Stream Watchdog PR Reverted; Reorder Queue Fix Merged)
 
 ### Hardware Validation Queue – Streaming Robustness Improvements
 - [x] PR #195: Reorder queue head-of-line deadlock fix – Merged to main at commit `cbcb9dc` (2026-06-26)
@@ -82,7 +85,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 Two independent streaming robustness improvements scheduled for hardware validation. PR #195 (reorder queue fix) validated and merged successfully. PR #196 (watchdog) identified a critical regression during A/B testing: app-level frame stall detection is incompatible with 32-bit ARM's inability to safely read 64-bit timestamps across threads without atomics. Root-cause documented; next direction is to move detection to transport layer (lib-side) where socket state is observable.
 
 **Files Modified:**
-- PR #195: `lib/src/reorderqueue.c`, `lib/src/videoreceiver.c`
+- PR #195: `lib/src/takion.c`, `vita/src/video.c`
 - PR #196: (Reverted; branch `fix/dead-stream-watchdog` kept on remote for reference)
 
 **Note:** Content salvaged from PR #197 (closed without merge; targeted wrong-location tracker copies at docs/ instead of repo root).

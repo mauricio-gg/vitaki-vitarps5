@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged from main; GH #188 decode-thread decoupling remains active priority)
+Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged from main; GH #188 decode-thread decoupling COMPLETE; current priority is GH #206 Wi-Fi/queue investigation)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -84,7 +84,7 @@ A living reference for larger initiatives. Update this document when we start or
   - **GH #188 Hardware A/B (log 11782861312):** Decode now runs cleanly on dedicated thread (1.8ms avg/2.4ms max), but jitter unchanged (45–87ms avg, 207ms max). Decode-on-recv-thread coupling was NOT the jitter source.
   - **Three-factor lag model (GH #206):**
     1. Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50 (base RTT 6–10ms, actual 63–84ms; one session zero client drops yet 64ms jitter)
-    2. Receive/reorder queue pinned at 256 slots dripping 1046 single-packet drops (drain cap 64/wakeup)
+    2. Receive queue pinned at 256 slots dripping 1046 single-packet drops despite drain cap already being 256/wakeup — drain cap is not the bottleneck; deficit is elsewhere (recv-thread scheduling during bursts / sustained arrival rate exceeds drain rate)
     3. **PS5 bitrate floor-throttling in response to loss reports** — contradicts "PS5 ignores congestion control" belief; throttles 4977k → 1597k floor per session
   - Earlier findings (2026-06-27): Wi-Fi power-save hint (PR #198, no benefit), LAN bitrate lowering ruled out as red herring
 - **Proposed GH #206 Work:**

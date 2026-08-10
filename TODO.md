@@ -132,7 +132,14 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
+1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
+   - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops despite drain cap already being 256/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
+   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559.
+   - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
+   - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
+   - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
+
+2. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
    - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
    - *Lever 1:* ENOBUFS/EBADF escalation in `lib/src/takion.c` send path
    - *Lever 2:* DISCONNECT-during-streaming path in `lib/src/streamconnection.c` (currently gated to STATE_TAKION_CONNECT, line ~435)
@@ -141,14 +148,7 @@ Only move a task to "Done" after the reviewer signs off.
    - *Status:* Salvaged from PR #197 (closed without merge; documentation originally placed in wrong location)
    - *Next Step:* Investigate transport-layer socket monitoring pattern and plan lib-side instrumentation
 
-2. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
-   - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops with drain cap 64/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
-   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559.
-   - *Proposed Work:* Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10% in `lib/src/congestioncontrol.c`), and controlled Wi-Fi proximity A/B (RSSI > 80).
-   - *Impact:* Understanding true source of lag enables targeted fixes vs. continued architectural thrashing.
-   - *Next Step:* Design instrumentation for receive queue drain deficit and loss-report capping, A/B test with proper Wi-Fi isolation.
-
-2. **Implement adaptive jitter buffer** 
+3. **Implement adaptive jitter buffer** 
    - *Goal:* Replace static reorder queue timeout with adaptive algorithm that adjusts playout delay based on measured network jitter
    - *Files:* `lib/src/reorderqueue.c`, `lib/include/chiaki/reorderqueue.h`, `lib/src/takion.c`
    - *Algorithm:* Measure inter-arrival jitter using EWMA (α=0.125), calculate dynamic threshold (2.5× jitter + safety margin), skip gaps after adaptive timeout instead of blocking indefinitely
@@ -156,33 +156,34 @@ Only move a task to "Done" after the reviewer signs off.
    - *References:* RFC 5764 (RTP jitter buffer), WebRTC NetEq, `docs/LATENCY_ANALYSIS.md`
    - *Next Step:* Add `JitterStats` struct, implement measurement in `push()`, modify `pull()` with adaptive timeout
 
-2. **Expose low-bandwidth profile in config/UI**
+4. **Expose low-bandwidth profile in config/UI**
    - Allow selecting 360p / <2 Mbps preset through the modern settings once backend supports it.
 
-3. **Graceful mid-stream packet-loss fallback**
+5. **Graceful mid-stream packet-loss fallback**
    - Automatically lower bitrate without tearing down the whole UI when Ultra Low still drops frames.
    - Keep discovery paused, show a "reconnecting" overlay, and restart video/audio while preserving ctrl state.
 
-4. **Preserve controller responsiveness through fallbacks**
+6. **Preserve controller responsiveness through fallbacks**
    - Instrument `input_thread_func()` to log when pad packets stall, then cache/synchronize pad state so restarts don't add extra lag.
    - Investigate keeping ctrl alive while video/audio reconnect to avoid input gaps.
    - Latest telemetry (`vitarps5.log:11302-11324`) shows the controller gate stays closed for ~6.3 s during packet-loss retries despite gameplay resuming, so we need to re-arm `inputs_ready` (or keep ctrl alive) much earlier in the reconnect flow.
 
-5. **Calibrate loss-detection thresholds**
+7. **Calibrate loss-detection thresholds**
    - Tune `LOSS_EVENT_MIN_FRAMES`, `LOSS_RETRY_DELAY_US`, and related constants in `vita/src/host.c:34-210` so the soft reconnect only fires after sustained loss bursts, preventing extra latency from single-frame hiccups.
 
-6. **Keep controller thread alive during soft restarts**
+8. **Keep controller thread alive during soft restarts**
    - Augment `request_stream_restart()`/Chiaki restart handling so controller packets continue flowing while the stream connection rebuilds, preventing the brief input pause currently logged around `context.stream.fast_restart_active` in `vita/src/host.c:129-234`.
 
-7. **Instrument soft-reconnect metrics**
+9. **Instrument soft-reconnect metrics**
    - Add log hooks or UI indicators around the new soft restart path and packet-loss counters (`vita/src/host.c:373-520`, `vita/src/video.c`) to correlate lag spikes with the fallback path, supporting the ongoing investigation in `docs/INCOMPLETE_FEATURES.md`.
 
-8. **Upstream protocol support for dynamic bitrate**
-   - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).
-   - Document needed evidence so we can eventually reconfigure without a teardown.
-9. **Classify pixelation root cause from testing logs**
-   - Compare packet-loss indicators (missing references, corrupt frame bursts) against decode pressure indicators (queue depth/drops, decode anomalies) to avoid tuning the wrong subsystem.
-   - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
+10. **Upstream protocol support for dynamic bitrate**
+    - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).
+    - Document needed evidence so we can eventually reconfigure without a teardown.
+
+11. **Classify pixelation root cause from testing logs**
+    - Compare packet-loss indicators (missing references, corrupt frame bursts) against decode pressure indicators (queue depth/drops, decode anomalies) to avoid tuning the wrong subsystem.
+    - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
 ### 📥 In Review
 1. **PSN WebSocket 403 Fix (GH #204)**
