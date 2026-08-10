@@ -31,6 +31,17 @@ extern "C" {
 typedef struct rudp_t* ChiakiRudp;
 typedef struct rudp_message_t RudpMessage;
 
+/**
+ * NOTE on the low byte of these values: for several of the message families the console appears to
+ * treat the low byte of the 16-bit type field as a decrementing credit/window counter rather than
+ * part of the type itself -- e.g. observed on-wire values 0x302F/0x302E/0x302D/... during session
+ * request handshakes decode as [console counter (2B)][peer-ack, i.e. last accepted counter of ours
+ * (2B)][6B 0x10-extension], with only the high byte (0x30) staying constant. STREAM_CONNECTION_SWITCH_ACK
+ * (0x242E) and UNKNOWN (0x022F) below are themselves instances of this: they share the high byte
+ * (0x24, 0x02) of ACK and CTRL_MESSAGE respectively with the low byte decremented, i.e. they are not
+ * distinct message types. Left un-renamed to avoid an invasive rename across the codebase; treat the
+ * high byte as the authoritative type discriminator when classifying an unfamiliar value.
+ */
 typedef enum rudp_packet_type_t
 {
     INIT_REQUEST = 0x8030,

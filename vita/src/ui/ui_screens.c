@@ -803,9 +803,10 @@ UIScreenType ui_screen_draw_main(void) {
    *   - When the popup is open, input is forwarded to ui_connect_popup_update()
    *     regardless of content focus (modal focus is active, so
    *     ui_focus_is_content() returns false while the popup is open).
-   *   - Dual-source card (has_internet == true): short press → LAN immediately;
-   *     long-press (≥600 ms) → show "Connect via" popup.
-   *   - Single-source card: immediate connect on press (unchanged behaviour).
+   *   - Dual-source card (has_internet == true AND a non-PSN LAN source): short
+   *     press → LAN immediately; long-press (≥600 ms) → show "Connect via" popup.
+   *   - Single-source card (including a standalone PSN_REMOTE card, which has no
+   *     LAN route to offer): immediate connect on press (unchanged behaviour).
    */
   if (ui_connect_popup_is_active()) {
     /* Popup is open — let it consume input and act on the result. */
@@ -824,7 +825,14 @@ UIScreenType ui_screen_draw_main(void) {
     /* result == 2 (cancel) or -1 (still active) — nothing to do. */
   } else if (ui_focus_is_content() && num_hosts > 0) {
     ConsoleCardInfo *sel = ui_cards_get_selected_card();
-    bool dual = sel && sel->has_internet;
+    /* has_internet alone isn't sufficient: a standalone PSN_REMOTE card (no
+     * LAN-discovered host merged in) also has_internet == true, but it has no
+     * LAN route to offer. Its "Local Network" popup option would be
+     * misinformation for a console reachable only over the internet, so the
+     * dual-route press UX requires a non-PSN source in addition to the
+     * internet flag (GH #204). */
+    bool dual =
+        sel && sel->has_internet && sel->host && sel->host->source != VITA_HOST_SOURCE_PSN_REMOTE;
 
     if (dual) {
       /*

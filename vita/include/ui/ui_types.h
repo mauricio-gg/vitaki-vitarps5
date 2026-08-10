@@ -160,7 +160,11 @@ typedef struct console_card_info_t {
   int state;             // 0=Unknown, 1=Ready, 2=Standby
   bool is_registered;    // Has valid credentials
   bool is_discovered;    // From network discovery
-  bool has_internet;     // PSN_REMOTE entry was merged into this LAN-discovered host
+  bool has_internet;     // Host is reachable over the internet via PSN remote play (mirrors
+                         // VitaChiakiHost.psn_remote_available). True for both a LAN host with a
+                         // merged PSN_REMOTE entry AND a standalone PSN_REMOTE card with no LAN
+                         // route -- callers that need "has both a LAN and an internet route" must
+                         // additionally check host->source != VITA_HOST_SOURCE_PSN_REMOTE.
   VitaChiakiHost *host;  // Original vitaki host reference
 } ConsoleCardInfo;
 

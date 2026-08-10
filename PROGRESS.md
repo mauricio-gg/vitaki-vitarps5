@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-06-27 (Wi-Fi power-save hint A/B completed: no jitter benefit. Decode-thread decoupling GH #188 confirmed as next active priority.)
+Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged from main; GH #188 decode-thread decoupling remains active priority)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -150,6 +150,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-08-10 | GH #204 PSN WebSocket 403 fix hardware validated (build c476f4b3, v0.1.838): Core functionality confirmed — internet connect end-to-end ✅, WebSocket 101 (403 resolved) ✅, clean console-sleep shutdown ✅ (49s stream at 4ms RTT / 3.5Mbps / 30fps). Two additional commits validated (cafe92eb RUDP gap-report fix, c476f4b3 four upstream holepunch parity ports) after code-guardian review. Regression tests queued: LAN connectivity, off-network (hotspot) connect, one-shot token-migration re-test on old config, QR login re-confirmation post-flash. PR #205 pending merge; keep in "In Review" state until merge + regression suite closes. See `docs/ai/PSN_REMOTEPLAY_WEBSOCKET_403_STATUS.md` hardware validation section. | @mauricio-gg |
 | 2026-06-27 | Wi-Fi power-save hint A/B COMPLETE: scePowerSetUsingWireless(1) applied and confirmed (return 0x0, log t=308ms), but 3 hardware runs showed no measurable jitter/RTT improvement. PR #198 closed without merge. LAN bitrate lowering (6000→3500 kbps) ruled out as red herring (PS5 self-throttles to 1.5 Mbps regardless). **Key finding:** sceAvcdecDecode inflates measured jitter by ~55ms (runs synchronously on Takion recv thread at `lib/src/takion.c:76-84`). GH #188 (decode-thread decoupling) confirmed as next actionable lever to unhide true network metrics. | @mauricio-gg |
 | 2026-06-26 | RWND experiment closure + metrics validation (PR #193, v0.1.784): A/B tested TAKION_A_RWND 512KB→256KB, found no latency benefit + 4× more freezes, reverted to 512KB (final). `vita/src/host_metrics.c` on-device validation confirms `windowed_bitrate_mbps` now prints honest bitrate every cycle (no more 0↔2 Mbps artifact). GH #188 (Wi-Fi/jitter-buffer bufferbloat) is the next domain focus. | @mauricio-gg |
 | 2026-06-25 | Bitrate metrics hardening shipped (PR #183, v0.1.783): windowed Mbps time-based formula (3-slot ring window, fixes ~100 Mbps spikes on buffer realloc), NET_UNSTABLE overlay debounce (500ms, prevents rapid redundant activation during recv bursts). GH issue #178 (lib-layer gen/reconnect_gen tagging) deferred to future spike work. | @mauricio-gg |
