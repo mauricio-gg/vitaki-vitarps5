@@ -4,6 +4,28 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-06-27 (Wi-Fi Power-Save Hint A/B Investigation)
+
+### Wi-Fi Jitter Reduction Investigation: A/B Testing Round
+- [x] **Wi-Fi power-save hint A/B (PR #198, scePowerSetUsingWireless(1))**
+  - Applied hint on branch `fix/wifi-using-wireless-hint`; confirmed applied (return `0x0`, log-verified at t=308ms)
+  - Ran 3 hardware A/B runs: measured network jitter (median ~60ms before and after), RTT (unchanged)
+  - **Result:** No measurable jitter or RTT improvement. PR #198 closed without merge.
+
+- [x] **LAN bitrate lowering ruled out (6000→3500 kbps)**
+  - Investigated as secondary candidate; determined to be a red herring
+  - Root cause: PS5 self-throttles to its 1.5 Mbps floor under congestion regardless of requested ceiling
+  - Lower bitrate ceiling cannot raise delivered throughput; dropped from active investigation
+
+- [x] **Real next lever identified: decode-thread decoupling (GH #188)**
+  - A/B testing revealed sceAvcdecDecode runs synchronously on Takion recv thread
+  - Synchronous decode inflates measured jitter by ~55ms (sceAvcdecDecode overhead, see `lib/src/takion.c:76-84`)
+  - This is self-inflicted jitter inflation; not a network problem
+  - Network jitter metrics are currently dishonest; honest measurement requires decode off recv thread
+  - **Next actionable step:** Decouple decode to dedicated thread → SPSC queue → honest network jitter visibility
+
+---
+
 ## 2026-06-25 (PSN Login Fix & Bitrate Metrics)
 
 ### PSN QR Login Fix

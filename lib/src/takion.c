@@ -1125,11 +1125,10 @@ static void *takion_thread_func(void *user)
 	ChiakiTakion *takion = user;
 
 #ifdef __PSVITA__
-	/* Pin network recv+decode thread to USER_0 at prio 64. H.264 decode
-	 * (sceAvcdecDecode) runs synchronously on this thread, so it belongs
-	 * on USER_0 alongside the decode work. USER_2 = audio. The one-time
-	 * re-pin in vita_h264_decode_frame() (video.c) is now redundant but
-	 * harmless. */
+	/* Pin network recv thread to USER_0 at prio 64. H.264 decode
+	 * (sceAvcdecDecode) runs on a dedicated VitaDecode thread (USER_1) —
+	 * the per-call re-pin block in vita_h264_decode_frame() was removed
+	 * when decode was decoupled from this thread. USER_2 = audio. */
 	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
 	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 #endif
