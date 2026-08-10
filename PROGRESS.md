@@ -76,7 +76,7 @@ A living reference for larger initiatives. Update this document when we start or
 - **Spec:** `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
 - **Status:** T1-T6 in progress on worktrees.
 
-### 4. Latency Reduction Initiative *(Active - GH #206/208 Phase Complete, Loss-Report Capping Next)*
+### 4. Latency Reduction Initiative *(Active — GH #208 fixed; GH #206 continues with loss-report capping)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by understanding and fixing root causes of lag spikes.
 - **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling, indicating another root cause.
 - **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression discovered during GH #206 proximity testing. Hardware validation pending.

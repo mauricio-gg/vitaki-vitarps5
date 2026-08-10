@@ -33,7 +33,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - **Fix:** Invalidate `takion->sock` before closing fd so sender threads hit closed-socket check (not EBADF); rate-limit send logging to ~1 line/s; made `session.c` quit mapping NULL-safe (closed pre-existing latent crash on cleanup).
 
 - [x] **Code Review (code-guardian, 2 rounds)**
-  - Round 1: 1 blocker (race condition on state reset) + 6 required findings (edge cases, missing validation)
+  - Round 1: 1 blocker (stale latched disconnect state broke recovery restarts) + 6 required findings (edge cases, missing validation)
   - Round 2: All findings fixed; APPROVED
 
 - [x] **Build & Evidence**
