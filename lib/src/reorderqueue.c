@@ -70,7 +70,7 @@ CHIAKI_EXPORT void chiaki_reorder_queue_fini(ChiakiReorderQueue *queue)
 			uint64_t seq_num = add(queue->begin, i);
 			ChiakiReorderQueueEntry *entry = &queue->queue[idx(seq_num)];
 			if(entry->set)
-				queue->drop_cb(seq_num, entry->user, queue->drop_cb_user);
+				queue->drop_cb(seq_num, entry->user, queue->drop_cb_user, CHIAKI_REORDER_QUEUE_DROP_FLUSH);
 		}
 	}
 	free(queue->queue);
@@ -80,12 +80,16 @@ CHIAKI_EXPORT void chiaki_reorder_queue_push(ChiakiReorderQueue *queue, uint64_t
 {
 	assert(queue->count <= QUEUE_SIZE);
 	uint64_t end = add(queue->begin, queue->count);
+	ChiakiReorderQueueDropReason drop_reason;
 
 	if(ge(seq_num, queue->begin) && lt(seq_num, end))
 	{
 		ChiakiReorderQueueEntry *entry = &queue->queue[idx(seq_num)];
 		if(entry->set) // received twice
+		{
+			drop_reason = CHIAKI_REORDER_QUEUE_DROP_DUPLICATE;
 			goto drop_it;
+		}
 		entry->user = user;
 		entry->set = true;
 		if(queue->first_set_hint_index == FIRST_SET_HINT_INVALID)
@@ -104,7 +108,10 @@ CHIAKI_EXPORT void chiaki_reorder_queue_push(ChiakiReorderQueue *queue, uint64_t
 	}
 
 	if(lt(seq_num, queue->begin))
+	{
+		drop_reason = CHIAKI_REORDER_QUEUE_DROP_LATE;
 		goto drop_it;
+	}
 
 	// => ge(seq_num, queue->end) == 1
 	assert(ge(seq_num, end));
@@ -115,14 +122,17 @@ CHIAKI_EXPORT void chiaki_reorder_queue_push(ChiakiReorderQueue *queue, uint64_t
 	if(lt(total_end, new_end))
 	{
 		if(queue->drop_strategy == CHIAKI_REORDER_QUEUE_DROP_STRATEGY_END)
+		{
+			drop_reason = CHIAKI_REORDER_QUEUE_DROP_OVERFLOW;
 			goto drop_it;
+		}
 
 		// drop first until empty or enough space
 		while(queue->count > 0 && lt(total_end, new_end))
 		{
 			ChiakiReorderQueueEntry *entry = &queue->queue[idx(queue->begin)];
 			if(entry->set && queue->drop_cb)
-				queue->drop_cb(queue->begin, entry->user, queue->drop_cb_user);
+				queue->drop_cb(queue->begin, entry->user, queue->drop_cb_user, CHIAKI_REORDER_QUEUE_DROP_OVERFLOW);
 			queue->begin = add(queue->begin, 1);
 			queue->count--;
 			free_elems = QUEUE_SIZE - queue->count;
@@ -163,7 +173,7 @@ CHIAKI_EXPORT void chiaki_reorder_queue_push(ChiakiReorderQueue *queue, uint64_t
 	return;
 drop_it:
 	if(queue->drop_cb)
-		queue->drop_cb(seq_num, user, queue->drop_cb_user);
+		queue->drop_cb(seq_num, user, queue->drop_cb_user, drop_reason);
 }
 
 CHIAKI_EXPORT bool chiaki_reorder_queue_pull(ChiakiReorderQueue *queue, uint64_t *seq_num, void **user)
@@ -250,8 +260,19 @@ CHIAKI_EXPORT void chiaki_reorder_queue_drop(ChiakiReorderQueue *queue, uint64_t
 	if(!entry->set)
 		return;
 
+	/* Reason attribution: this function discards an already-buffered element
+	 * at an arbitrary index, outside the normal push()/pull() flow. Its only
+	 * caller today is takion.c's deferred bad-MAC recheck (a packet that
+	 * arrived before crypt was available and turns out to fail MAC
+	 * validation once crypt catches up). None of the five reasons describe
+	 * "invalid data" directly, so this is attributed as GAP_SKIP: like
+	 * chiaki_reorder_queue_skip_gap(), it turns a set slot back into an
+	 * empty one without the caller ever receiving the payload — the same
+	 * user-visible effect, just at an arbitrary offset instead of always
+	 * the head. If a second caller with different semantics shows up, split
+	 * this into its own reason instead of overloading GAP_SKIP further. */
 	if(queue->drop_cb)
-		queue->drop_cb(seq_num, entry->user, queue->drop_cb_user);
+		queue->drop_cb(seq_num, entry->user, queue->drop_cb_user, CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP);
 	entry->set = false;
 	entry->user = NULL;
 
@@ -297,7 +318,7 @@ CHIAKI_EXPORT void chiaki_reorder_queue_skip_gap(ChiakiReorderQueue *queue)
 	if(queue->drop_cb)
 	{
 		// Call drop_cb with the entry's user pointer (NULL if gap, actual pointer if set)
-		queue->drop_cb(queue->begin, entry->set ? entry->user : NULL, queue->drop_cb_user);
+		queue->drop_cb(queue->begin, entry->set ? entry->user : NULL, queue->drop_cb_user, CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP);
 	}
 	if(entry->set)
 	{

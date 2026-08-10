@@ -1033,28 +1033,69 @@ static ChiakiErrorCode takion_handshake(ChiakiTakion *takion, uint32_t *seq_num_
 
 #define TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS 1000
 
+/**
+ * Emit a rate-limited summary of drops from the CONTROL-channel reorder
+ * queue (takion->data_queue). Video/audio packets never enter this queue --
+ * see the base_type dispatch in takion_handle_packet() -- so this log line
+ * only ever reflects control-channel loss (session negotiation, feedback,
+ * etc.), never streaming packet loss.
+ *
+ * Called from takion_data_drop() on every single drop event, but only
+ * actually logs (and resets the accumulators) once per
+ * TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS, so bursts of drops are batched into
+ * one accurate line instead of one (misleadingly reset-to-1) line per drop.
+ *
+ * @param force Bypass the rate limit and log immediately (used at teardown).
+ */
 static void takion_log_drop_summary(ChiakiTakion *takion, uint64_t now_ms, bool force)
 {
 	uint64_t drops = takion->recv_drop_stats.drops_since_log;
 	if(!drops && !force)
 		return;
 
-	unsigned long long queue_slots = (unsigned long long)chiaki_reorder_queue_size(&takion->data_queue);
 	uint64_t interval_ms = takion->recv_drop_stats.last_log_ms ? now_ms - takion->recv_drop_stats.last_log_ms : 0;
-	const char *prefix = drops ? "overflow" : "summary";
-	const char *format = drops
-			? "Takion receive queue %s (%llu slots). Dropped %llu packet(s) over last %llums (last seq %#llx)"
-			: "Takion receive queue %s (%llu slots). No drops in last %llums (last seq %#llx)";
+	if(!force && takion->recv_drop_stats.last_log_ms && interval_ms < TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS)
+		return; // accumulate silently; not yet time to emit
+
+	if(!drops)
+	{
+		/* Only reachable with force==true: nothing to report at teardown.
+		 * Suppress when interval_ms == 0 -- takion_thread_func() makes two
+		 * back-to-back force calls at error_reoder_queue: and beach: (the
+		 * second reports FLUSH drops chiaki_reorder_queue_fini() generates
+		 * for whatever the first call didn't already flush). If the queue
+		 * was already empty at fini(), this second call would otherwise
+		 * print a contradictory "no drops in last 0ms" immediately after
+		 * the first call's real summary line. */
+		if(interval_ms > 0)
+		{
+			CHIAKI_LOGW(takion->log,
+					"Takion control-channel reorder queue: no drops in last %llums (last seq %#llx)",
+					(unsigned long long)interval_ms,
+					(unsigned long long)takion->recv_drop_stats.last_seq_num);
+		}
+		takion->recv_drop_stats.last_log_ms = now_ms;
+		return;
+	}
 
 	CHIAKI_LOGW(takion->log,
-			format,
-			prefix,
-			queue_slots,
-			(unsigned long long)(drops ? drops : 0),
+			"Takion control-channel reorder queue dropped %llu packet(s) over last %llums "
+			"(dup=%llu late=%llu overflow=%llu gap_skip=%llu flush=%llu, last seq %#llx)",
+			(unsigned long long)drops,
 			(unsigned long long)interval_ms,
+			(unsigned long long)takion->recv_drop_stats.drops_dup_since_log,
+			(unsigned long long)takion->recv_drop_stats.drops_late_since_log,
+			(unsigned long long)takion->recv_drop_stats.drops_overflow_since_log,
+			(unsigned long long)takion->recv_drop_stats.drops_gap_skip_since_log,
+			(unsigned long long)takion->recv_drop_stats.drops_flush_since_log,
 			(unsigned long long)takion->recv_drop_stats.last_seq_num);
 
 	takion->recv_drop_stats.drops_since_log = 0;
+	takion->recv_drop_stats.drops_dup_since_log = 0;
+	takion->recv_drop_stats.drops_late_since_log = 0;
+	takion->recv_drop_stats.drops_overflow_since_log = 0;
+	takion->recv_drop_stats.drops_gap_skip_since_log = 0;
+	takion->recv_drop_stats.drops_flush_since_log = 0;
 	takion->recv_drop_stats.last_log_ms = now_ms;
 }
 
@@ -1123,7 +1164,7 @@ static void takion_log_jitter_summary(ChiakiTakion *takion, uint64_t now_ms, boo
 	takion->jitter_stats.last_log_ms = now_ms;
 }
 
-static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
+static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user, ChiakiReorderQueueDropReason reason)
 {
 	TakionDataPacketEntry *entry = elem_user;
 	// cb_user is wired through chiaki_reorder_queue_set_drop_cb() in takion_thread_func().
@@ -1139,7 +1180,28 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 		return;
 	}
 	takion->recv_drop_stats.drops_since_log++;
+	switch(reason)
+	{
+		case CHIAKI_REORDER_QUEUE_DROP_DUPLICATE:
+			takion->recv_drop_stats.drops_dup_since_log++;
+			break;
+		case CHIAKI_REORDER_QUEUE_DROP_LATE:
+			takion->recv_drop_stats.drops_late_since_log++;
+			break;
+		case CHIAKI_REORDER_QUEUE_DROP_OVERFLOW:
+			takion->recv_drop_stats.drops_overflow_since_log++;
+			break;
+		case CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP:
+			takion->recv_drop_stats.drops_gap_skip_since_log++;
+			break;
+		case CHIAKI_REORDER_QUEUE_DROP_FLUSH:
+			takion->recv_drop_stats.drops_flush_since_log++;
+			break;
+	}
 	takion->recv_drop_stats.last_seq_num = seq_num;
+	// Only accumulate here; takion_log_drop_summary() itself is rate-limited
+	// to TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS and decides whether this call
+	// actually emits a log line.
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
 #ifdef VITARPS5_ENHANCED_RECOVERY
 	/* Use the typed stream_connection pointer rather than casting the generic
@@ -1152,8 +1214,16 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user)
 #endif /* VITARPS5_ENHANCED_RECOVERY */
 	if(!entry)
 	{
-		CHIAKI_LOGE(takion->log, "Takion data drop callback received null entry for seq=%#llx",
-			(unsigned long long)seq_num);
+		/* Expected input, not an error: chiaki_reorder_queue_skip_gap() passes
+		 * elem_user=NULL when the head slot it force-advances past was never
+		 * received (a true gap, not a buffered packet) -- see its doc comment
+		 * in reorderqueue.h. takion_relieve_full_queue_head() only ever calls
+		 * skip_gap() on empty head slots, so this path is the common case
+		 * under sustained overflow, not a rare fault. Logging it (even at
+		 * LOGD) would fire up to TAKION_OVERFLOW_FORCE_SKIP_MAX times per
+		 * push; jitter_stats.gaps_skipped already tracks this via the
+		 * existing PIPE/JITTER summary, so no separate log line is needed
+		 * here. */
 		return;
 	}
 	free(entry->packet_buf);
@@ -1181,7 +1251,18 @@ static void *takion_thread_func(void *user)
 		goto beach;
 
 	takion->recv_drop_stats.drops_since_log = 0;
-	takion->recv_drop_stats.last_log_ms = 0;
+	takion->recv_drop_stats.drops_dup_since_log = 0;
+	takion->recv_drop_stats.drops_late_since_log = 0;
+	takion->recv_drop_stats.drops_overflow_since_log = 0;
+	takion->recv_drop_stats.drops_gap_skip_since_log = 0;
+	takion->recv_drop_stats.drops_flush_since_log = 0;
+	/* Seed to stream start, not 0, so the first drop summary's "over last
+	 * %llums" window is measured from here rather than fabricated as 0ms
+	 * (now_ms - 0). This also makes the rate limit in takion_log_drop_summary()
+	 * apply from the very first drop, delaying its first emission by at most
+	 * one TAKION_RECV_OVERFLOW_LOG_INTERVAL_MS -- an acceptable trade for an
+	 * accurate window. */
+	takion->recv_drop_stats.last_log_ms = chiaki_time_now_monotonic_ms();
 	takion->recv_drop_stats.last_seq_num = 0;
 
 	// Initialize adaptive jitter buffer stats
@@ -1258,6 +1339,11 @@ static void *takion_thread_func(void *user)
 				if(takion_handle_packet_mac(takion, base_type, packet->packet_buf, packet->packet_size) != CHIAKI_ERR_SUCCESS)
 				{
 					CHIAKI_LOGW(takion->log, "Found an invalid MAC");
+					/* Reaches takion_data_drop() with reason CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP
+					 * (see the attribution comment above chiaki_reorder_queue_drop() in
+					 * reorderqueue.c) -- bad-MAC drops are counted under gap_skip= in the
+					 * "Takion control-channel reorder queue dropped..." summary, not under
+					 * a dedicated bucket. */
 					chiaki_reorder_queue_drop(&takion->data_queue, i);
 				}
 			}
@@ -1367,6 +1453,15 @@ static void *takion_thread_func(void *user)
 	chiaki_takion_send_buffer_fini(&takion->send_buffer);
 
 error_reoder_queue:
+	/* LOAD-BEARING FALL-THROUGH: this label has no goto-only entry point of
+	 * its own on the success path -- control reaches beach: below by falling
+	 * off the end of this block. Do not add an early return/goto that skips
+	 * over chiaki_reorder_queue_fini() or the beach: block: fini() emits
+	 * CHIAKI_REORDER_QUEUE_DROP_FLUSH drops (via the drop_cb wired in this
+	 * function) for any packets still buffered in the queue at teardown, and
+	 * beach:'s takion_log_drop_summary() call below is what reports them.
+	 * Skipping the fall-through silently drops that FLUSH accounting from
+	 * the summary log. */
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), true);
 	takion_log_jitter_summary(takion, chiaki_time_now_monotonic_ms(), true);
 	chiaki_reorder_queue_fini(&takion->data_queue);

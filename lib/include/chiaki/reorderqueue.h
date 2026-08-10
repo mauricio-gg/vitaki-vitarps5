@@ -17,13 +17,30 @@ typedef enum chiaki_reorder_queue_drop_strategy_t {
 	CHIAKI_REORDER_QUEUE_DROP_STRATEGY_END // drop packet with highest number
 } ChiakiReorderQueueDropStrategy;
 
+/**
+ * Why an element was dropped instead of delivered. Passed to
+ * ChiakiReorderQueueDropCb so callers can attribute drops accurately instead
+ * of lumping every drop under a single "overflow" bucket.
+ */
+typedef enum chiaki_reorder_queue_drop_reason_t {
+	CHIAKI_REORDER_QUEUE_DROP_DUPLICATE, // seq_num already has a set entry in the window
+	CHIAKI_REORDER_QUEUE_DROP_LATE,      // seq_num < begin, window already moved past it
+	CHIAKI_REORDER_QUEUE_DROP_OVERFLOW,  // queue is full (DROP_STRATEGY_END rejects the new packet,
+	                                      // DROP_STRATEGY_BEGIN evicts the oldest to make room)
+	CHIAKI_REORDER_QUEUE_DROP_GAP_SKIP,  // head slot force-advanced past by chiaki_reorder_queue_skip_gap()
+	                                      // (whether or not it held data), or an arbitrary already-buffered
+	                                      // slot discarded by chiaki_reorder_queue_drop() -- see the
+	                                      // reason-attribution comment above that function's definition
+	CHIAKI_REORDER_QUEUE_DROP_FLUSH      // queue torn down (chiaki_reorder_queue_fini()) with elements still buffered
+} ChiakiReorderQueueDropReason;
+
 typedef struct chiaki_reorder_queue_entry_t
 {
 	void *user;
 	bool set;
 } ChiakiReorderQueueEntry;
 
-typedef void (*ChiakiReorderQueueDropCb)(uint64_t seq_num, void *elem_user, void *cb_user);
+typedef void (*ChiakiReorderQueueDropCb)(uint64_t seq_num, void *elem_user, void *cb_user, ChiakiReorderQueueDropReason reason);
 typedef bool (*ChiakiReorderQueueSeqNumGt)(uint64_t a, uint64_t b);
 typedef bool (*ChiakiReorderQueueSeqNumLt)(uint64_t a, uint64_t b);
 typedef uint64_t (*ChiakiReorderQueueSeqNumAdd)(uint64_t a, uint64_t b);
@@ -93,9 +110,11 @@ static inline uint64_t chiaki_reorder_queue_begin_seq(ChiakiReorderQueue *queue)
 /**
  * Push a packet into the queue.
  *
- * Depending on the set drop strategy, this might drop elements and call the drop callback with the dropped elements.
- * The callback will also be called with the new element íf there is already an element with the same sequence number
- * or if the sequence number is less than queue->begin, i.e. the next element to be pulled.
+ * Depending on the set drop strategy, this might drop elements and call the drop callback with the dropped elements
+ * (reason CHIAKI_REORDER_QUEUE_DROP_OVERFLOW). The callback will also be called with the new element itself, with
+ * reason CHIAKI_REORDER_QUEUE_DROP_DUPLICATE, if there is already an element with the same sequence number, or with
+ * reason CHIAKI_REORDER_QUEUE_DROP_LATE if the sequence number is less than queue->begin, i.e. the next element to
+ * be pulled.
  *
  * @param seq_num
  * @param user pointer to be associated with the element
