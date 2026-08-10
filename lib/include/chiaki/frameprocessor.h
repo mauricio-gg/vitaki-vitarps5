@@ -46,6 +46,7 @@ typedef struct chiaki_frame_processor_t
 	ChiakiFrameUnit *unit_slots;
 	size_t unit_slots_size;
 	bool flushed; // whether we have already flushed the current frame, i.e. are only interested in stats, not data.
+	bool stats_reported; // whether packet stats for the current frame have already been reported, to avoid double-reporting.
 	ChiakiStreamStats stream_stats;
 } ChiakiFrameProcessor;
 
@@ -56,10 +57,18 @@ typedef enum chiaki_frame_flush_result_t {
 	CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED = 3
 } ChiakiFrameProcessorFlushResult;
 
+typedef enum chiaki_frame_processor_frame_outcome_t {
+	CHIAKI_FRAME_OUTCOME_DELIVERED,
+	CHIAKI_FRAME_OUTCOME_FEC_RECOVERED,
+	CHIAKI_FRAME_OUTCOME_FEC_FAILED,
+	CHIAKI_FRAME_OUTCOME_ABANDONED
+} ChiakiFrameProcessorFrameOutcome;
+
 CHIAKI_EXPORT void chiaki_frame_processor_init(ChiakiFrameProcessor *frame_processor, ChiakiLog *log);
 CHIAKI_EXPORT void chiaki_frame_processor_fini(ChiakiFrameProcessor *frame_processor);
 
-CHIAKI_EXPORT void chiaki_frame_processor_report_packet_stats(ChiakiFrameProcessor *frame_processor, ChiakiPacketStats *packet_stats);
+CHIAKI_EXPORT void chiaki_frame_processor_report_frame_stats(ChiakiFrameProcessor *frame_processor,
+	ChiakiFrameProcessorFrameOutcome outcome, ChiakiPacketStats *packet_stats);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProcessor *frame_processor, ChiakiTakionAVPacket *packet);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcessor *frame_processor, ChiakiTakionAVPacket *packet);
 

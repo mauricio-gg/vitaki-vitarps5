@@ -57,6 +57,7 @@ CHIAKI_EXPORT void chiaki_frame_processor_init(ChiakiFrameProcessor *frame_proce
 	frame_processor->unit_slots = NULL;
 	frame_processor->unit_slots_size = 0;
 	frame_processor->flushed = true;
+	frame_processor->stats_reported = true; // virgin processor: nothing to report
 	chiaki_stream_stats_reset(&frame_processor->stream_stats);
 	/* CHIAKI_NEW uses plain malloc (not calloc), so explicitly zero the monotonic
 	 * counters that chiaki_stream_stats_reset() intentionally leaves untouched. */
@@ -79,10 +80,20 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 	}
 
 	frame_processor->flushed = false;
+	frame_processor->stats_reported = false;
 	frame_processor->units_source_expected = packet->units_in_frame_total - packet->units_in_frame_fec;
 	frame_processor->units_fec_expected = packet->units_in_frame_fec;
 	if(frame_processor->units_fec_expected < 1)
 		frame_processor->units_fec_expected = 1;
+
+	// Reset received counters here, before any early return below, so a
+	// mid-allocation failure (malformed packet) never leaves stale counts from
+	// the previous frame in place. That keeps units_source_received <=
+	// units_source_expected an unconditional invariant -- the stats reporter
+	// relies on it, and a stale received count could otherwise underflow
+	// expected - actual into a huge bogus loss value.
+	frame_processor->units_source_received = 0;
+	frame_processor->units_fec_received = 0;
 
 	frame_processor->buf_size_per_unit = packet->data_size;
 	if(packet->is_video && packet->unit_index < frame_processor->units_source_expected)
@@ -101,9 +112,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 		CHIAKI_LOGE(frame_processor->log, "Frame Processor doesn't handle empty units");
 		return CHIAKI_ERR_BUF_TOO_SMALL;
 	}
-
-	frame_processor->units_source_received = 0;
-	frame_processor->units_fec_received = 0;
 
 	size_t unit_slots_size_required = frame_processor->units_source_expected + frame_processor->units_fec_expected;
 	if(unit_slots_size_required > UNIT_SLOTS_MAX)
@@ -224,11 +232,57 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 	return CHIAKI_ERR_SUCCESS;
 }
 
-CHIAKI_EXPORT void chiaki_frame_processor_report_packet_stats(ChiakiFrameProcessor *frame_processor, ChiakiPacketStats *packet_stats)
+CHIAKI_EXPORT void chiaki_frame_processor_report_frame_stats(ChiakiFrameProcessor *frame_processor,
+	ChiakiFrameProcessorFrameOutcome outcome, ChiakiPacketStats *packet_stats)
 {
-	uint64_t received = frame_processor->units_source_received + frame_processor->units_fec_received;
-	uint64_t expected = frame_processor->units_source_expected + frame_processor->units_fec_expected;
-	chiaki_packet_stats_push_generation(packet_stats, received, expected - received);
+	// Report at most once per frame: alloc_frame() clears this guard, and every
+	// call site (cascade-skip, post-flush) reports exactly once per frame.
+	if(frame_processor->stats_reported)
+		return;
+	frame_processor->stats_reported = true;
+
+	// Mirrors flush()'s own early-out: an unallocated/reset processor has nothing
+	// meaningful to report.
+	if(frame_processor->units_source_expected == 0)
+		return;
+
+	// Source units only. FEC parity units are deliberately excluded from this
+	// accounting: chiaki_frame_processor_flush_possible() gates a flush on
+	// units_source_received + units_fec_received >= units_source_expected, so a
+	// flush commonly fires the moment the last SOURCE unit lands, before any
+	// parity for this frame has necessarily arrived at all. Whether parity
+	// happened to show up by flush time is an artifact of arrival timing, not a
+	// signal of real loss or real recovery -- folding it into "expected" would
+	// report a near-constant phantom count on every frame regardless of actual
+	// network health. Source counts don't have this problem: units_source_received
+	// <= units_source_expected always holds (put_unit() increments a given unit
+	// index at most once, so duplicates can't inflate it), and both counts are
+	// fully settled by the time this function runs.
+	uint64_t expected = frame_processor->units_source_expected;
+	uint64_t actual = frame_processor->units_source_received;
+
+	if(outcome == CHIAKI_FRAME_OUTCOME_FEC_RECOVERED)
+	{
+		// FEC decode only ever runs when units_source_received < units_source_expected
+		// at flush time, and this outcome means it succeeded: the frame was fully
+		// delivered, so the source shortfall is genuine FEC recovery, not raw loss.
+		chiaki_packet_stats_push_generation(packet_stats, expected, 0, expected - actual);
+	}
+	else
+	{
+		// DELIVERED: FEC was never invoked, so actual == expected and this reports
+		// (expected, 0, 0) -- a full, lossless generation.
+		// FEC_FAILED: FEC ran and could not recover; the source shortfall is real
+		// loss the user experienced, reported as raw lost.
+		// ABANDONED: cascade-skipped frames are dropped without ever reaching
+		// chiaki_frame_processor_flush(), so `actual` reflects whatever source
+		// units happened to have arrived before the skip -- usually all of them,
+		// since cascades stem from reference-chain damage on EARLIER frames, not
+		// loss on this one. Any genuine shortfall here is still reported as raw
+		// loss, same as FEC_FAILED; nothing in this branch inflates it beyond
+		// what actually failed to arrive.
+		chiaki_packet_stats_push_generation(packet_stats, actual, expected - actual, 0);
+	}
 }
 
 static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_processor)
@@ -345,5 +399,6 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 
 	*frame = frame_processor->frame_buf;
 	*frame_size = cur;
+	frame_processor->flushed = true;
 	return result;
 }
