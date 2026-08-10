@@ -315,6 +315,47 @@ The GH #204 fix (correct duid format + restoration of duid parameter) is built a
 - Revert the `duid` removal from PR #184's commit 57391ae in the git history notes
 - Document why duid format (not presence) was the real #184 root cause
 
+## Hardware Validation Results (August 10, 2026)
+
+**GH #204 Fix Validation Status: IN REVIEW — Core functionality validated, regression testing ongoing**
+
+### Validated on Vita Hardware (Build c476f4b3, v0.1.838)
+
+✅ **Internet Connect End-to-End**
+- PSN login → device list → session init → holepunch + RUDP session request all successful
+
+✅ **WebSocket 101 (403 Resolved)**
+- Push-notification websocket handshake returns HTTP/1.1 101 Switching Protocols (no 403)
+- Duid validation working; upstream 48-char format accepted
+
+✅ **Clean Console-Sleep Shutdown**
+- 49-second stream at RTT 4ms / 3.5 Mbps / 30fps maintained throughout
+- Console sleep via home menu → "Console shutdown" quit event → graceful exit (no crash, no orphaned threads)
+
+✅ **Two Additional Commits Validated** (Code Guardian rounds 2)
+- cafe92eb "fix(rudp): drain unexpected messages and retransmit with original counter" — RUDP session-request handling (0x30 gap-report + retry-counter bug)
+- c476f4b3 "fix(psn): port four upstream chiaki-ng holepunch fixes" — clear_notification, TERMINATE, free parity, decode tolerance
+
+### Validation Checklist Status
+
+- [x] WebSocket 101 (not 403) — ✅ Confirmed on Vita
+- [x] Internet connect end-to-end — ✅ Confirmed
+- [x] Clean console shutdown — ✅ Confirmed
+- [ ] **LAN regression check** — ⏳ Open
+- [ ] **Off-network (hotspot) connect** — ⏳ Open (not yet tested)
+- [ ] **One-shot token-migration verification** — ⏳ Open (old config re-test needed)
+- [ ] **QR login regression** — ⏳ Presumed passed (implicit if re-authenticated post-flash; confirm)
+
+### PR Status
+
+**Current:** PR #205 (GH #204 fix suite including cafe92eb + c476f4b3) — Pending merge
+- Code review: ✅ Complete (two guardian rounds, all findings addressed)
+- Build: ✅ Release + testing + test all pass
+- Format: ✅ Compliance check complete
+- Hardware validation: 🔄 In progress (core path validated, regression tests queued)
+
+**Action:** Keep in "In Review" state until PR #205 merges and LAN regression is confirmed.
+
 ## Validation Baseline (Prior Investigation, June 2026)
 
 Latest successful Vita testing build during the original websocket investigation:
@@ -322,8 +363,9 @@ Latest successful Vita testing build during the original websocket investigation
 - `./tools/build.sh --env testing`
 - artifact: `VitakiForkv0.1.612.vpk`
 
-**Current fix baseline (GH #204):**
+**GH #204 Hardware-Validated Build:**
 - Branch: `fix/psn-duid-websocket-403`
-- Commits: dc093a4b, 17456f71
-- Status: Code review complete, hardware validation pending
-- Build: `./tools/build.sh --env testing` (testing + test builds pass)
+- Commits: dc093a4b, 17456f71 + cafe92eb + c476f4b3
+- Build artifact: v0.1.838 (c476f4b3)
+- Status: Core validation complete (internet connect ✅, WebSocket 101 ✅, console-sleep shutdown ✅), regression testing ongoing (LAN/off-network/token-migration/QR-login)
+- Build command: `./tools/build.sh --env testing` (all targets pass)
