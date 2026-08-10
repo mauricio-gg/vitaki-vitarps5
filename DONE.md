@@ -18,6 +18,29 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - **Architecture:** Single-writer recv thread → bounded SPSC queue → single-reader decode thread; safe handoff via `frame_ready_for_display` volatile bool + `vita2d_wait_rendering_done()`
   - Files: `vita/src/video.c` (SPSC ring + decode thread spawn/shutdown), `vita/include/video.h` (`vita_video_decode_queue_drops()` getter), `vita/src/host_metrics.c` (`decode_q_drops` in PIPE/FPS), `lib/src/takion.c` (stale comment update)
 
+### GH #208 / PR #209 - ENOBUFS Session-Freeze Fix (MERGED 205eed56)
+- [x] **Fix transient ENOBUFS handling in takion_recv (lib/src/takion.c)**
+  - **Root Cause:** `recv()` on Takion UDP socket treated transient ENOBUFS (kernel buffer full, recoverable) as fatal error, killing the recv thread mid-stream. Session would freeze waiting on dead socket.
+  - **Fix:** Retry recv with 5ms sleep (`TAKION_RECV_TRANSIENT_RETRY_DELAY_MS`), escalate to hard failure only after 400 consecutive errors (~2s of sustained buffer-full). Count-only escalation (not time-windowed) so long idle gaps between packets can't falsely trip threshold. Non-blocking drain-loop call stays zero-cost poll: counts error but never sleeps.
+  - **Validation:** Prevents transient buffer-full errors from causing session-freezes; keeps recovery-restart loop active.
+
+- [x] **Propagate mid-stream DISCONNECT events (lib/src/streamconnection.c)**
+  - **Root Cause:** `stream_connection_takion_cb()` only handled DISCONNECT during handshake state; mid-stream DISCONNECT was silently ignored, so session remained frozen waiting on dead transport.
+  - **Fix:** Mid-stream DISCONNECT now propagates via `remote_disconnected` → "Transport disconnected" banner within ~2s; session cleanly tears down instead of hanging.
+
+- [x] **Eliminate EBADF flood on socket close (lib/src/takion.c, session.c)**
+  - **Root Cause:** Sender threads racing teardown would attempt writes to already-closed fd, flooding logs with 1,363+ EBADF lines per failed session. Additionally, `chiaki_congestion_control_stop()` was commented-out in upstream teardown, leaving sender threads running.
+  - **Fix:** Invalidate `takion->sock` before closing fd so sender threads hit closed-socket check (not EBADF); rate-limit send logging to ~1 line/s; made `session.c` quit mapping NULL-safe (closed pre-existing latent crash on cleanup).
+
+- [x] **Code Review (code-guardian, 2 rounds)**
+  - Round 1: 1 blocker (stale latched disconnect state broke recovery restarts) + 6 required findings (edge cases, missing validation)
+  - Round 2: All findings fixed; APPROVED
+
+- [x] **Build & Evidence**
+  - Merged as commit 205eed56 (2026-08-10)
+  - Build version: v0.1.842
+  - Evidence: Proximity A/B test log 13382891119 (same session that triggered ENOBUFS freeze; now continues streaming with single WARN)
+
 ### Root-Cause Discovery: Jitter Theory DISPROVEN
 - [x] **Original hypothesis: Decode-on-recv-thread coupling inflates jitter by ~55ms — REJECTED**
   - Baseline jitter before PR #199: 45–87ms avg (207ms max)

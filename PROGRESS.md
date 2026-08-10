@@ -1,6 +1,6 @@
 ## PROGRESS · Roadmap & Epics
 
-Last Updated: 2026-08-10 (GH #204 PSN WebSocket 403 fix merged from main; GH #188 decode-thread decoupling COMPLETE; current priority is GH #206 Wi-Fi/queue investigation)
+Last Updated: 2026-08-10 (GH #208 ENOBUFS fix merged as 205eed56; GH #206 proximity A/B evidence collected + signal-strength hypothesis refuted; GH #188 decode-thread decoupling COMPLETE)
 
 A living reference for larger initiatives. Update this document when we start or finish an epic, or when priorities shift.
 
@@ -76,10 +76,11 @@ A living reference for larger initiatives. Update this document when we start or
 - **Spec:** `docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md`
 - **Status:** T1-T6 in progress on worktrees.
 
-### 4. Latency Reduction Initiative *(Active - Refocused on GH #206)*
+### 4. Latency Reduction Initiative *(Active — GH #208 fixed; GH #206 continues with loss-report capping)*
 - **Objective:** Bring Vita remote-play latency below 50 ms local / 100 ms remote by understanding and fixing root causes of lag spikes.
 - **Completed (GH #188):** Decode-thread decoupling (PR #199, merged 2026-08-10). Implementation excellent (1.8ms avg/2.4ms max, zero queue drops), but **jitter theory disproven** — jitter remained 45–87ms avg after decoupling, indicating another root cause.
-- **Current Focus:** GH #206 - Root-cause investigation of Wi-Fi burst jitter + receive-queue overflow driving PS5 bitrate floor-throttling.
+- **Completed (GH #208):** Transient ENOBUFS retry + mid-stream DISCONNECT propagation (PR #209 merged as 205eed56, v0.1.842). Session-freeze fix addresses stability regression discovered during GH #206 proximity testing. Hardware validation pending.
+- **Current Focus:** Loss-report capping (~10% chiaki-ng-style) + client-side burst absorption. GH #206 investigation established that Vita Wi-Fi burstiness is intrinsic (not signal-quality dependent); next step is to limit PS5 congestion-control reactions and absorb packet clusters on Vita side.
 - **Key Findings (2026-08-10):**
   - **GH #188 Hardware A/B (log 11782861312):** Decode now runs cleanly on dedicated thread (1.8ms avg/2.4ms max), but jitter unchanged (45–87ms avg, 207ms max). Decode-on-recv-thread coupling was NOT the jitter source.
   - **Three-factor lag model (GH #206):**
@@ -152,6 +153,7 @@ A living reference for larger initiatives. Update this document when we start or
 ### Status Log
 | Date | Update | Owner |
 |------|--------|-------|
+| 2026-08-10 | **GH #206 Proximity A/B Complete + GH #208 ENOBUFS Fix Merged** — Proximity A/B test (log 13382891119, RSSI 84→100 next to router) confirmed signal-strength hypothesis REFUTED: jitter remained 50–90ms despite strong signal. Vita Wi-Fi burstiness is intrinsic to stack, not client issue. PS5 throttling milder (~5.4Mbps vs prior 1.6Mbps), 249 overflow drops in ~30s. **Concurrently:** GH #208 (PR #209) merged as 205eed56 (v0.1.842) — transient ENOBUFS now retries instead of killing recv thread; mid-stream DISCONNECT propagates cleanly; EBADF flood eliminated. Code-guardian reviewed (blocker + 6 findings, then approved). Proximity A/B evidence added to TODO.md GH #206 item; GH #208 validation checklist added to TODO.md item 2. **Next priority:** Loss-report capping (~10% chiaki-ng-style in lib/src/congestioncontrol.c) + client-side burst absorption. See DONE.md (GH #208 section) and TODO.md (items 1-2). | @mauricio-gg |
 | 2026-08-10 | **GH #188 COMPLETE — Decode-thread decoupling (PR #199)** merged to main with excellent performance (1.8ms avg/2.4ms max, `decode_q_drops=0`, zero regressions on hardware A/B log 11782861312). **BUT:** Jitter theory disproven — jitter remained 45–87ms avg after decoupling. **New root cause (GH #206):** Three-factor model: (a) genuine Wi-Fi jitter ~60ms at RSSI ~50, (b) receive queue 1046 single-packet drops despite drain cap already 256/wakeup, (c) PS5 bitrate floor-throttling (4977k → 1597k) in response to loss reports (contradicts "PS5 ignores congestion control"). Proposed GH #206 work: drain-deficit instrumentation, loss-report capping, Wi-Fi proximity A/B. See TODO.md item 1 (reprioritized to GH #206) and DONE.md (GH #188 section). | @mauricio-gg |
 | 2026-08-10 | GH #204 PSN WebSocket 403 fix hardware validated (build c476f4b3, v0.1.838): Core functionality confirmed — internet connect end-to-end ✅, WebSocket 101 (403 resolved) ✅, clean console-sleep shutdown ✅ (49s stream at 4ms RTT / 3.5Mbps / 30fps). Two additional commits validated (cafe92eb RUDP gap-report fix, c476f4b3 four upstream holepunch parity ports) after code-guardian review. Regression tests queued: LAN connectivity, off-network (hotspot) connect, one-shot token-migration re-test on old config, QR login re-confirmation post-flash. PR #205 pending merge; keep in "In Review" state until merge + regression suite closes. See `docs/ai/PSN_REMOTEPLAY_WEBSOCKET_403_STATUS.md` hardware validation section. | @mauricio-gg |
 | 2026-06-27 | Wi-Fi power-save hint A/B COMPLETE: scePowerSetUsingWireless(1) applied and confirmed (return 0x0, log t=308ms), but 3 hardware runs showed no measurable jitter/RTT improvement. PR #198 closed without merge. LAN bitrate lowering (6000→3500 kbps) ruled out as red herring (PS5 self-throttles to 1.5 Mbps regardless). **Key finding:** sceAvcdecDecode inflates measured jitter by ~55ms (runs synchronously on Takion recv thread at `lib/src/takion.c:76-84`). GH #188 (decode-thread decoupling) confirmed as next actionable lever to unhide true network metrics. | @mauricio-gg |
