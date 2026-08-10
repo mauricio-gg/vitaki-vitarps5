@@ -83,6 +83,22 @@ PS5 → Network → Vita Receive → Video Decode → Display
 - Network handling through Chiaki library
 - `vita/src/host.c` - Connection management
 
+**Implemented (GH #208, ENOBUFS session-freeze fix):**
+- `takion_recv()` (`lib/src/takion.c`) previously treated a transient `ENOBUFS`
+  from `recv()` on the Takion UDP socket as fatal, killing the recv thread.
+  It now retries the recv with a short sleep (`TAKION_RECV_TRANSIENT_RETRY_DELAY_MS`,
+  5ms), escalating to a hard failure only after `TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE`
+  (400) *consecutive* transient errors on the blocking recv call -- intentionally
+  count-only rather than time-windowed, so long idle gaps between packets can't
+  falsely trip escalation. The non-blocking drain-loop call stays a zero-cost
+  poll: it counts the error but never sleeps.
+- The resulting `DISCONNECT` event is now propagated mid-stream by
+  `stream_connection_takion_cb()` (`lib/src/streamconnection.c`) instead of
+  being silently ignored outside the initial connect handshake, so the session
+  no longer freezes waiting on a dead transport. Sender threads racing the
+  teardown are stopped by invalidating `takion->sock` before the fd is closed,
+  instead of flooding `EBADF`.
+
 ---
 
 ### 4. Input Handling (`vita/src/host.c`)

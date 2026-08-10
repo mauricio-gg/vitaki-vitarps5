@@ -101,6 +101,22 @@
 
 #define TAKION_EXPECT_TIMEOUT_MS 5000
 
+/* ENOBUFS (and platform equivalents) from recv() is a transient kernel/driver
+ * condition, not a dead link -- retry with a short sleep instead of tearing
+ * the connection down on the first hiccup. Escalate to a hard failure only
+ * after this many CONSECUTIVE transient errors on the blocking recv call
+ * (intentionally count-only, not time-windowed: the takion thread can be
+ * quiet for long stretches between packets, and a time window would trip on
+ * two isolated errors minutes apart that never actually persisted). */
+#define TAKION_RECV_TRANSIENT_RETRY_DELAY_MS 5
+#define TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE 400
+#define TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS 1000
+
+// Rate limit for send-failure logging in chiaki_takion_send_raw(). Once the
+// socket is torn down mid-stream, every still-running sender thread
+// (feedback, congestion control, ...) would otherwise log on every attempt.
+#define TAKION_SEND_ERROR_LOG_INTERVAL_MS 1000
+
 /**
  * Base type of Takion packets. Lower nibble of the first byte in datagrams.
  */
@@ -268,6 +284,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->gkcrypt_remote = NULL;
 	takion->cb = info->cb;
 	takion->cb_user = info->cb_user;
+	takion->transient_recv.consecutive = 0;
+	takion->transient_recv.first_ms = 0;
+	takion->transient_recv.log_ms = 0;
+	takion->send_error_log_ms = 0;
 #ifdef VITARPS5_ENHANCED_RECOVERY
 	/* Initialise to NULL; set by the StreamConnection attach path only.
 	 * Senkusha and any other non-StreamConnection caller leave this NULL so
@@ -583,6 +603,21 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_crypt_advance_key_pos(ChiakiTakion *
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_raw(ChiakiTakion *takion, const uint8_t *buf, size_t buf_size)
 {
+	if(CHIAKI_SOCKET_IS_INVALID(takion->sock))
+	{
+		// takion->sock is invalidated once the recv thread tears down (see
+		// takion_thread_func()'s beach: label). Bail out instead of calling
+		// send() on a stale/closed fd. send_error_log_ms is unsynchronized
+		// across sender threads -- see the field comment in takion.h.
+		uint64_t now = chiaki_time_now_monotonic_ms();
+		if(now - takion->send_error_log_ms >= TAKION_SEND_ERROR_LOG_INTERVAL_MS)
+		{
+			CHIAKI_LOGW(takion->log, "Takion send raw skipped: socket invalid");
+			takion->send_error_log_ms = now;
+		}
+		return CHIAKI_ERR_DISCONNECTED;
+	}
+
 	// #ifdef __PSVITA__
 	// 	int r = sceNetSend(takion->sock, buf, buf_size, 0);
 	// #else
@@ -590,7 +625,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_raw(ChiakiTakion *takion, const
 	// #endif
 	if(r < 0)
 	{
-		CHIAKI_LOGE(takion->log, "Takion failed to send raw: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+		uint64_t now = chiaki_time_now_monotonic_ms();
+		if(now - takion->send_error_log_ms >= TAKION_SEND_ERROR_LOG_INTERVAL_MS)
+		{
+			CHIAKI_LOGE(takion->log, "Takion failed to send raw: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+			takion->send_error_log_ms = now;
+		}
 		return CHIAKI_ERR_NETWORK;
 	}
 	return CHIAKI_ERR_SUCCESS;
@@ -1324,8 +1364,6 @@ static void *takion_thread_func(void *user)
 		}
 	}
 
-	// chiaki_congestion_control_stop(&congestion_control);
-
 	chiaki_takion_send_buffer_fini(&takion->send_buffer);
 
 error_reoder_queue:
@@ -1342,40 +1380,92 @@ beach:
 		event.type = CHIAKI_TAKION_EVENT_TYPE_DISCONNECT;
 		takion->cb(&event, takion->cb_user);
 	}
-	if(takion->close_socket)
-	{
-		CHIAKI_SOCKET_CLOSE(takion->sock);
-		takion->sock = CHIAKI_INVALID_SOCKET;
-	}
+	// Invalidate takion->sock BEFORE closing it (rather than after, as before)
+	// so any sender thread still racing this teardown (chiaki_takion_send_raw())
+	// that passes the invalid-socket guard is guaranteed to see a live fd, never
+	// a closed/recycled one. This also covers callers that don't own the fd
+	// (close_socket == false, e.g. Senkusha's MTU probe -- see senkusha.c) by
+	// stopping their sends without touching a socket this instance doesn't own.
+	chiaki_socket_t sock = takion->sock;
+	takion->sock = CHIAKI_INVALID_SOCKET;
+	if(takion->close_socket && !CHIAKI_SOCKET_IS_INVALID(sock))
+		CHIAKI_SOCKET_CLOSE(sock);
 	return NULL;
 }
 
 static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *buf_size, uint64_t timeout_ms)
 {
-	ChiakiErrorCode err = chiaki_stop_pipe_select_single(&takion->stop_pipe, takion->sock, false, timeout_ms);
-	if(err == CHIAKI_ERR_TIMEOUT || err == CHIAKI_ERR_CANCELED)
-		return err;
-	if(err != CHIAKI_ERR_SUCCESS)
+	while(true)
 	{
-		CHIAKI_LOGE(takion->log, "Takion select failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
-		return err;
-	}
+		ChiakiErrorCode err = chiaki_stop_pipe_select_single(&takion->stop_pipe, takion->sock, false, timeout_ms);
+		if(err == CHIAKI_ERR_TIMEOUT || err == CHIAKI_ERR_CANCELED)
+			return err;
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(takion->log, "Takion select failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+			return err;
+		}
 
-	// #ifdef __PSVITA__
-	// 	int received_sz = sceNetRecv(takion->sock, buf, *buf_size, 0);
-	// #else
-		int received_sz = recv(takion->sock, buf, *buf_size, 0);
-	// #endif
-	if(received_sz <= 0)
-	{
-		if(received_sz < 0)
-			CHIAKI_LOGE(takion->log, "Takion recv failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
-		else
-			CHIAKI_LOGE(takion->log, "Takion recv returned 0");
-		return CHIAKI_ERR_NETWORK;
+		// #ifdef __PSVITA__
+		// 	int received_sz = sceNetRecv(takion->sock, buf, *buf_size, 0);
+		// #else
+			int received_sz = recv(takion->sock, buf, *buf_size, 0);
+		// #endif
+		if(received_sz < 0 && CHIAKI_SOCKET_RECV_ERR_TRANSIENT)
+		{
+			// Transient kernel-side condition (e.g. ENOBUFS from a driver/queue
+			// hiccup), not a dead link. Track it regardless of caller; retry with
+			// a short sleep and escalate on persistence for any non-zero-timeout
+			// caller (the blocking main recv, UINT64_MAX, and the 5000ms handshake
+			// calls alike). Only the non-blocking drain caller (timeout_ms == 0)
+			// defers this: it has a zero-cost-poll contract, so it just counts the
+			// occurrence and returns immediately -- the next non-zero-timeout call
+			// picks the retry/escalation back up using the same counters.
+			uint64_t now = chiaki_time_now_monotonic_ms();
+			if(takion->transient_recv.consecutive == 0)
+				takion->transient_recv.first_ms = now;
+			takion->transient_recv.consecutive++;
+
+			if(timeout_ms == 0)
+				return CHIAKI_ERR_TIMEOUT;
+
+			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE)
+			{
+				CHIAKI_LOGE(takion->log, "Takion recv: transient error persisted for %u consecutive attempts over %llu ms, giving up",
+						takion->transient_recv.consecutive, (unsigned long long)(now - takion->transient_recv.first_ms));
+				return CHIAKI_ERR_NETWORK;
+			}
+
+			// Logging (not just escalation) is rate-limited: consecutive resets to
+			// 0 on every successful recv, so a fail/succeed/fail alternation would
+			// otherwise log on every other packet instead of once per burst.
+			if(now - takion->transient_recv.log_ms >= TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS)
+			{
+				CHIAKI_LOGW(takion->log, "Takion recv: transient error (" CHIAKI_SOCKET_ERROR_FMT "), retrying", CHIAKI_SOCKET_ERROR_VALUE);
+				takion->transient_recv.log_ms = now;
+			}
+
+			ChiakiErrorCode sleep_err = chiaki_stop_pipe_sleep(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS);
+			if(sleep_err == CHIAKI_ERR_CANCELED)
+				return sleep_err;
+			continue;
+		}
+
+		if(received_sz <= 0)
+		{
+			if(received_sz < 0)
+				CHIAKI_LOGE(takion->log, "Takion recv failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
+			else
+				CHIAKI_LOGE(takion->log, "Takion recv returned 0");
+			return CHIAKI_ERR_NETWORK;
+		}
+
+		if(takion->transient_recv.consecutive)
+			takion->transient_recv.consecutive = 0;
+
+		*buf_size = (size_t)received_sz;
+		return CHIAKI_ERR_SUCCESS;
 	}
-	*buf_size = (size_t)received_sz;
-	return CHIAKI_ERR_SUCCESS;
 }
 
 static ChiakiErrorCode takion_handle_packet_mac(ChiakiTakion *takion, uint8_t base_type, uint8_t *buf, size_t buf_size)

@@ -100,6 +100,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->state_failed = false;
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
+	stream_connection->transport_failed = false;
 	stream_connection->remote_disconnect_reason = NULL;
 	stream_connection->magic = STREAM_CONNECTION_MAGIC;
 	stream_connection->drop_events = 0;
@@ -237,6 +238,15 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	stream_connection->state = STATE_TAKION_CONNECT;
 	stream_connection->state_finished = false;
 	stream_connection->state_failed = false;
+	/* chiaki_stream_connection_run() is re-entered on every stream restart
+	 * (session.c's restart loop, see vita/src/host_recovery.c). Latches from a
+	 * previous run's teardown -- in particular the mid-stream transport-failure
+	 * path in stream_connection_takion_cb() -- must not survive into the next
+	 * attempt, or it instantly false-fails via state_finished_cond_check(). */
+	stream_connection->remote_disconnected = false;
+	stream_connection->transport_failed = false;
+	free(stream_connection->remote_disconnect_reason);
+	stream_connection->remote_disconnect_reason = NULL;
 	err = chiaki_takion_connect(&stream_connection->takion, &takion_info, socket);
 	if(!socket)
 		free(takion_info.sa);
@@ -376,7 +386,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 
 disconnect:
 	CHIAKI_LOGI(session->log, "StreamConnection is disconnecting");
-	stream_connection_send_disconnect(stream_connection);
+	// If the transport itself failed, the takion thread already ran
+	// chiaki_takion_send_buffer_fini() before firing the DISCONNECT event
+	// that got us here -- sending would touch a torn-down send buffer.
+	if(!stream_connection->transport_failed)
+		stream_connection_send_disconnect(stream_connection);
 
 	if(stream_connection->should_stop)
 	{
@@ -436,6 +450,20 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 			{
 				stream_connection->state_finished = event->type == CHIAKI_TAKION_EVENT_TYPE_CONNECTED;
 				stream_connection->state_failed = event->type == CHIAKI_TAKION_EVENT_TYPE_DISCONNECT;
+				chiaki_cond_signal(&stream_connection->state_cond);
+			}
+			else if(event->type == CHIAKI_TAKION_EVENT_TYPE_DISCONNECT
+					&& !stream_connection->should_stop && !stream_connection->remote_disconnected)
+			{
+				// Takion's recv thread died on its own mid-stream (e.g. persistent
+				// transient recv errors) rather than through a clean should_stop or
+				// remote-disconnect handshake. Without this, chiaki_stream_connection_run()'s
+				// main heartbeat wait never wakes up and the session freezes.
+				CHIAKI_LOGE(stream_connection->log, "StreamConnection: Takion transport disconnected mid-stream");
+				stream_connection->transport_failed = true;
+				stream_connection->remote_disconnected = true;
+				if(!stream_connection->remote_disconnect_reason)
+					stream_connection->remote_disconnect_reason = strdup("Transport disconnected");
 				chiaki_cond_signal(&stream_connection->state_cond);
 			}
 			chiaki_mutex_unlock(&stream_connection->state_mutex);

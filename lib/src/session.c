@@ -734,11 +734,17 @@ ctrl_failed:
 		if(err == CHIAKI_ERR_DISCONNECTED)
 		{
 			CHIAKI_LOGE(session->log, "Remote disconnected from StreamConnection");
-			if(!strcmp(session->stream_connection.remote_disconnect_reason, "Server shutting down"))
+			// remote_disconnect_reason is normally always set alongside
+			// remote_disconnected, but both its writers (streamconnection.c's
+			// disconnect-message handler and the mid-stream transport-failure
+			// path) reach it via strdup(), which can return NULL under OOM --
+			// guard rather than assume non-NULL.
+			const char *reason = session->stream_connection.remote_disconnect_reason;
+			if(reason && !strcmp(reason, "Server shutting down"))
 				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
 			else
 				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
-			session->quit_reason_str = strdup(session->stream_connection.remote_disconnect_reason);
+			session->quit_reason_str = reason ? strdup(reason) : NULL;
 		}
 		else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)
 		{
