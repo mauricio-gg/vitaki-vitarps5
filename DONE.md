@@ -14,9 +14,9 @@ This document tracks completed work, organized by batch/date, preserving epic gr
     - Decode performance: 1.8ms avg / 2.4ms max (excellent, off critical path)
     - Queue health: `decode_q_drops=0` across all sessions (no overflow)
     - Frame integrity: Zero gap-skips, zero missing references, no regressions
-    - Video playback: Smooth, no corruption or stuttering observed
+    - Video playback: no decode-side corruption or regressions; display_fps 23–26 vs 30 was network-side (PS5 bitrate throttling, see GH #206)
   - **Architecture:** Single-writer recv thread → bounded SPSC queue → single-reader decode thread; safe handoff via `frame_ready_for_display` volatile bool + `vita2d_wait_rendering_done()`
-  - Files: `vita/src/video.c:490-549` (decode loop + thread spawn/shutdown), `vita/include/context.h` (SPSC queue), `lib/src/takion.c` (removed decode blocking)
+  - Files: `vita/src/video.c` (SPSC ring + decode thread spawn/shutdown), `vita/include/video.h` (`vita_video_decode_queue_drops()` getter), `vita/src/host_metrics.c` (`decode_q_drops` in PIPE/FPS), `lib/src/takion.c` (stale comment update)
 
 ### Root-Cause Discovery: Jitter Theory DISPROVEN
 - [x] **Original hypothesis: Decode-on-recv-thread coupling inflates jitter by ~55ms — REJECTED**
@@ -32,7 +32,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - (b) **Receive/reorder queue pinned at 256 slots dripping 1046 single-packet drops** (drain cap 64/wakeup in `lib/src/takion.c:1143`)
   - (c) **PS5 congestion control throttling target_bitrate 4977k → 1597k floor** within each session in response to reported loss
     - **Note:** This CONTRADICTS earlier belief that "PS5 ignores congestion control feedback"
-    - Loss-report rate ~200ms interval, PS5 reacts within ~1 generation (6–10s per session)
+    - Loss-report rate ~200ms interval, PS5 reacts progressively within each session
 
 ### Next Priority: GH #206 Investigation
 - Proposed work: Drain-deficit instrumentation, chiaki-ng-style loss-report capping (~10%), controlled Wi-Fi proximity A/B (RSSI > 80)
