@@ -204,7 +204,7 @@ void vita_audio_cleanup() {
 void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
   if (!did_secondary_init) {
     // Set audio thread priority for low latency
-    sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+    sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_AUDIO_THREAD_PRIORITY);
     sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_2);
 
     frame_size = samples_count;

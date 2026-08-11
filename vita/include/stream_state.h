@@ -249,6 +249,19 @@ typedef struct vita_chiaki_stream_t {
   uint32_t latency_sample_n;   // Sample count backing the above (0 = no data this window)
   uint32_t latency_dropped_n;  // latency_window_dropped_count snapshot for the window that
                                // just closed (0 = this window's ring never wrapped)
+
+  // --- PIPE/INPUT: controller-poll-origin to feedback-sender-wire latency ---
+  // Backing ring (input_latency_samples_us[]) lives in ChiakiFeedbackSender
+  // (lib/include/chiaki/feedbacksender.h), not here: lib/ must not include
+  // vita/-app headers, so host_metrics_update_latency() reaches directly into
+  // stream_connection->feedback_sender under its state_mutex to reduce and
+  // reset that ring, publishing only the reduced summary into these fields --
+  // mirrors the latency_p50_ms/p95_ms/max_ms/sample_n/dropped_n cluster above.
+  uint32_t input_latency_p50_us;
+  uint32_t input_latency_p95_us;
+  uint32_t input_latency_max_us;
+  uint32_t input_latency_sample_n;
+  uint32_t input_latency_dropped_n;
   // Code review fix: was a function-local `static` in host_metrics.c with no way for
   // host_metrics_reset_stream() to clear it across a session reset. See host_metrics.c.
   uint64_t latency_log_last_us;

@@ -357,6 +357,25 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession 
 	return CHIAKI_ERR_SUCCESS;
 }
 
+#ifdef __PSVITA__
+// Vita-only sibling of chiaki_session_set_controller_state() above, carrying
+// origin_us through to chiaki_feedback_sender_set_controller_state_ts() for
+// PIPE/INPUT latency instrumentation. Same outer/inner lock ordering as the
+// function above (feedback_sender_mutex outer, feedback_sender's own
+// state_mutex inner, acquired inside the _ts() call) -- do not reorder.
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state_ts(ChiakiSession *session, ChiakiControllerState *state, uint64_t origin_us)
+{
+	ChiakiErrorCode err = chiaki_mutex_lock(&session->stream_connection.feedback_sender_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	session->controller_state = *state;
+	if(session->stream_connection.feedback_sender_active)
+		chiaki_feedback_sender_set_controller_state_ts(&session->stream_connection.feedback_sender, &session->controller_state, origin_us);
+	chiaki_mutex_unlock(&session->stream_connection.feedback_sender_mutex);
+	return CHIAKI_ERR_SUCCESS;
+}
+#endif
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size)
 {
 	uint8_t *buf = malloc(pin_size);

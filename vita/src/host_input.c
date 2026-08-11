@@ -8,6 +8,7 @@
 #include <psp2/kernel/threadmgr.h>
 
 #include <math.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 typedef struct mapped_touch_slot_t {
@@ -37,6 +38,25 @@ typedef struct mapped_touch_slot_t {
 #define MOTION_ACCEL_DEADBAND 0.004f   // G
 #define MOTION_GYRO_DEADBAND 0.002f    // rad/s
 #define MOTION_ORIENT_DEADBAND 0.001f  // unit quaternion component
+
+// Analog stick deadband, in the same units as the stored controller_state
+// left_x/left_y/right_x/right_y fields: raw_adc is the Vita's 8-bit ADC
+// reading (0-255) from sceCtrlPeekBufferPositive2(), converted below via
+// (raw_adc - 128) * 2 * 0x7F, i.e. * 254. One raw ADC count of jitter
+// therefore produces a delta of 254 in the stored int16_t value, and
+// controller_state_equals_for_feedback_state() compares with no epsilon --
+// so any 1-LSB ADC flicker while the stick is held registers as a "real"
+// input change on every 2ms poll (ms_per_loop). This deadband and
+// feedbacksender.c's FEEDBACK_STATE_TIMEOUT_MIN_MS floor are independent,
+// complementary protections, not a hand-off from one to the other: this
+// deadband suppresses ADC-jitter-driven sends so the floor engages less
+// often in practice (fewer packets deferred, better latency in practice),
+// while the floor remains the hard cap for genuine sustained stick motion
+// that this deadband intentionally does not suppress. 512 is ~2 ADC counts
+// of noise floor -- comfortably above single-LSB jitter -- while staying
+// well under 2% of full stick travel (+/-~32512) and imperceptible against
+// real analog input.
+#define STICK_DEADBAND 512
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
@@ -137,6 +157,17 @@ static inline void write_motion_sample(float *dst, float new_val, float deadband
     *dst = new_val;
 }
 
+// Same deadband contract as write_motion_sample(), but for the int16_t
+// analog stick axes (see STICK_DEADBAND above): writes new_val into *dst
+// only if it differs from the current value by at least `deadband`,
+// otherwise keeps the old value so single-ADC-count jitter doesn't register
+// as a controller_state change. Plain integer arithmetic -- these are exact
+// ADC-derived values, not floats, so no fabsf()/NaN handling is needed.
+static inline void write_stick_sample(int16_t *dst, int16_t new_val, int16_t deadband) {
+  if (abs((int)new_val - (int)*dst) >= deadband)
+    *dst = new_val;
+}
+
 // Same deadband contract as write_motion_sample(), but for all four
 // quaternion components together: gates on whichever component moved the
 // most instead of deadbanding each independently, so the four writes stay
@@ -182,7 +213,7 @@ static uint16_t map_touchpad_y(int y, int max_y) {
 }
 
 void *host_input_thread_func(void *user) {
-  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 96);
+  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_INPUT_THREAD_PRIORITY);
   sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
 
   sceMotionStartSampling();
@@ -310,10 +341,14 @@ void *host_input_thread_func(void *user) {
       write_motion_sample(&stream->controller_state.gyro_z, motion.angularVelocity.z,
                           MOTION_GYRO_DEADBAND);
 
-      stream->controller_state.left_x = (ctrl.lx - 128) * 2 * 0x7F;
-      stream->controller_state.left_y = (ctrl.ly - 128) * 2 * 0x7F;
-      stream->controller_state.right_x = (ctrl.rx - 128) * 2 * 0x7F;
-      stream->controller_state.right_y = (ctrl.ry - 128) * 2 * 0x7F;
+      write_stick_sample(&stream->controller_state.left_x, (ctrl.lx - 128) * 2 * 0x7F,
+                         STICK_DEADBAND);
+      write_stick_sample(&stream->controller_state.left_y, (ctrl.ly - 128) * 2 * 0x7F,
+                         STICK_DEADBAND);
+      write_stick_sample(&stream->controller_state.right_x, (ctrl.rx - 128) * 2 * 0x7F,
+                         STICK_DEADBAND);
+      write_stick_sample(&stream->controller_state.right_y, (ctrl.ry - 128) * 2 * 0x7F,
+                         STICK_DEADBAND);
 
       stream->controller_state.buttons = 0x00;
       stream->controller_state.l2_state = 0x00;
@@ -549,7 +584,8 @@ void *host_input_thread_func(void *user) {
         }
       }
 
-      chiaki_session_set_controller_state(&stream->session, &stream->controller_state);
+      chiaki_session_set_controller_state_ts(&stream->session, &stream->controller_state,
+                                             start_time_us);
       context.stream.cached_controller_state = stream->controller_state;
       context.stream.cached_controller_valid = true;
       context.stream.last_input_packet_us = sceKernelGetProcessTimeWide();

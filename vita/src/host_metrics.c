@@ -172,6 +172,11 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.latency_sample_n = 0;
   context.stream.latency_dropped_n = 0;
   context.stream.latency_log_last_us = 0;
+  context.stream.input_latency_p50_us = 0;
+  context.stream.input_latency_p95_us = 0;
+  context.stream.input_latency_max_us = 0;
+  context.stream.input_latency_sample_n = 0;
+  context.stream.input_latency_dropped_n = 0;
   context.stream.decode_q_occ_avg = 0;
   context.stream.decode_q_occ_max = 0;
   context.stream.audio_q_occ_avg = 0;
@@ -437,6 +442,67 @@ void host_metrics_update_latency(void) {
       context.stream.latency_window_sample_count = 0;
       context.stream.latency_window_write_idx = 0;
     }
+
+    // PIPE/INPUT: reduce this window's controller-poll-origin -> feedback-sender-wire
+    // latency samples (ring lives in ChiakiFeedbackSender, lib/include/chiaki/feedbacksender.h
+    // -- see the field comment there and in stream_state.h for why it's not duplicated
+    // vita-side) to p50/p95/max and reset the ring for the next window. Non-blocking
+    // outer/inner trylock, same lock order used everywhere else in this codebase
+    // (feedback_sender_mutex outer, the feedback sender's own state_mutex inner -- see
+    // session.c:350-356/chiaki_session_set_controller_state()); if either is busy or the
+    // feedback sender isn't active, skip this window's publish and leave the previous
+    // values in place (same graceful-degradation style as diag_snapshot_stale above).
+    //
+    // Snapshot-then-reduce (mirrors the diag_mutex trylock block above): the raw samples
+    // are memcpy'd into a stack-local array and the counts reset while state_mutex is
+    // held, then both mutexes are released BEFORE sort_latency_samples() runs. Sorting is
+    // O(n^2) over up to FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP elements and must never
+    // run while holding state_mutex: that mutex is also needed by the priority-65 feedback
+    // sender thread to send and by chiaki_feedback_sender_set_controller_state_ts() to
+    // enqueue new samples, so sorting under lock would stall the real-time input path
+    // once per second.
+    {
+      uint32_t in_n = 0;
+      uint32_t dropped_n = 0;
+      bool have_snapshot = false;
+      uint32_t local_samples[FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP];
+      if (chiaki_mutex_trylock(&stream_connection->feedback_sender_mutex) == CHIAKI_ERR_SUCCESS) {
+        if (stream_connection->feedback_sender_active) {
+          ChiakiFeedbackSender *feedback_sender = &stream_connection->feedback_sender;
+          if (chiaki_mutex_trylock(&feedback_sender->state_mutex) == CHIAKI_ERR_SUCCESS) {
+            in_n = feedback_sender->input_latency_sample_count;
+            if (in_n > FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP)
+              in_n = FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP;  // defensive: local_samples is sized
+                                                                // to this cap
+            if (in_n > 0)
+              memcpy(local_samples, feedback_sender->input_latency_samples_us,
+                     in_n * sizeof(uint32_t));
+            dropped_n = feedback_sender->input_latency_dropped_count;
+            feedback_sender->input_latency_sample_count = 0;
+            feedback_sender->input_latency_dropped_count = 0;
+            chiaki_mutex_unlock(&feedback_sender->state_mutex);
+            have_snapshot = true;
+          }
+        }
+        chiaki_mutex_unlock(&stream_connection->feedback_sender_mutex);
+      }
+      if (have_snapshot) {
+        if (in_n > 0) {
+          sort_latency_samples(local_samples, in_n);
+          context.stream.input_latency_p50_us =
+              local_samples[percentile_index(in_n, LATENCY_PERCENTILE_P50)];
+          context.stream.input_latency_p95_us =
+              local_samples[percentile_index(in_n, LATENCY_PERCENTILE_P95)];
+          context.stream.input_latency_max_us = local_samples[in_n - 1];
+        } else {
+          context.stream.input_latency_p50_us = 0;
+          context.stream.input_latency_p95_us = 0;
+          context.stream.input_latency_max_us = 0;
+        }
+        context.stream.input_latency_sample_n = in_n;
+        context.stream.input_latency_dropped_n = dropped_n;
+      }
+    }
   }
 
   if (!context.config.show_latency)
@@ -488,6 +554,10 @@ void host_metrics_update_latency(void) {
         context.stream.decode_q_occ_max, context.stream.audio_q_occ_avg / OCC_AVG_FIXED_POINT_SCALE,
         context.stream.audio_q_occ_avg % OCC_AVG_FIXED_POINT_SCALE, context.stream.audio_q_occ_max,
         (unsigned long long)stream_connection->takion.video_jitter_stats.jitter_us);
+    LOGD("PIPE/INPUT p50_us=%u p95_us=%u max_us=%u n=%u dropped=%u",
+         context.stream.input_latency_p50_us, context.stream.input_latency_p95_us,
+         context.stream.input_latency_max_us, context.stream.input_latency_sample_n,
+         context.stream.input_latency_dropped_n);
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "

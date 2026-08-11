@@ -55,6 +55,15 @@
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
+#ifdef __PSVITA__
+// Recv thread priority (lib-local, not shared via a header with vita/ --
+// same lib/vita layering reason used throughout this codebase's thread
+// priority constants). Already correct as of commit 135e8fb6 (GH #188,
+// June 2026) -- this PR only hoists the pre-existing literal into a named
+// constant, it does not change or "fix" this value.
+#define TAKION_RECV_THREAD_PRIORITY 64
+#endif
+
 // Adaptive jitter buffer requires larger queue to handle burst packet loss.
 // Keep enough headroom for startup bursts without changing queue semantics.
 #define TAKION_REORDER_QUEUE_SIZE_EXP 8 // => 256 entries
@@ -1239,7 +1248,7 @@ static void *takion_thread_func(void *user)
 	 * (sceAvcdecDecode) runs on a dedicated VitaDecode thread (USER_1) —
 	 * the per-call re-pin block in vita_h264_decode_frame() was removed
 	 * when decode was decoupled from this thread. USER_2 = audio. */
-	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, TAKION_RECV_THREAD_PRIORITY);
 	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 #endif
 
