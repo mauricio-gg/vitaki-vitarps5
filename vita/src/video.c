@@ -96,6 +96,19 @@ static volatile bool incoming_frame_corrupt = false;
  * in videoreceiver.c which never carries a real frame timestamp). */
 static volatile uint64_t incoming_frame_first_packet_ms = 0;
 
+/* PIPE/DISPLAY investigation (2026-08): process-time timestamp (sceKernelGetProcessTimeWide(),
+ * same clock as every other stamp in this file) taken the instant decode_frame_now() finishes
+ * a successful sceAvcdecDecode for the frame currently sitting in frame_texture. Set alongside
+ * incoming_frame_first_packet_ms/incoming_frame_corrupt in decode_frame_now() under `mtx`, on
+ * the decode thread; read by vita_video_render_latest_frame() on the UI thread at render entry
+ * to measure the "decode done -> UI picked it up" span (see the display_pickup_* fields in
+ * stream_state.h). Same single-writer(decode thread)/single-reader(UI thread) volatile
+ * handshake as incoming_frame_corrupt / frame_ready_for_display above -- Cortex-A9 cache
+ * coherency makes plain volatile sufficient here, per established project convention.
+ * 0 = no valid timestamp yet (never decoded a frame this session); the reader must check for
+ * this explicitly rather than computing a bogus multi-decade span against process-start. */
+static volatile uint64_t incoming_frame_decode_done_us = 0;
+
 /* Consecutive corrupt-frame presentations. Reset on any clean frame.
  * When it reaches FREEZE_MAX_STREAK the freeze is released unconditionally. */
 static int frozen_frame_streak = 0;
@@ -730,6 +743,8 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
      * so the decode thread is never stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
     incoming_frame_first_packet_ms = frame_first_packet_ms;
+    // PIPE/DISPLAY: stamp decode-done for the pickup_us span (see field comment above).
+    incoming_frame_decode_done_us = sceKernelGetProcessTimeWide();
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
       context.stream.frame_overwrite_count++;
@@ -841,6 +856,27 @@ static void draw_streaming(vita2d_texture *tex) {
   }
 }
 
+/* PIPE/DISPLAY: record one stage-span sample (microseconds) into a display-pipeline ring,
+ * overwrite-oldest on wrap. Same idiom as the PIPE/LATENCY ring below (see its comment at the
+ * `latency_window_samples_ms` write site) -- dropping the newest sample instead would hide
+ * exactly the late-window stall this instrumentation exists to catch. Factored into one helper
+ * (rather than four inlined copies) since vita_video_render_latest_frame() below writes to four
+ * structurally-identical rings per call. UI-thread-only caller, so no locking is needed -- see
+ * the PIPE/DISPLAY field comment in stream_state.h. */
+static void record_display_stage_sample(uint32_t *samples, uint32_t *sample_count,
+                                        uint32_t *write_idx, uint32_t *dropped_count,
+                                        uint64_t elapsed_us) {
+  uint32_t clamped_us = (uint32_t)(elapsed_us > UINT32_MAX ? UINT32_MAX : elapsed_us);
+  uint32_t idx = *write_idx;
+  samples[idx] = clamped_us;
+  *write_idx = (idx + 1) % LATENCY_WINDOW_SAMPLE_CAP;
+  if (*sample_count < LATENCY_WINDOW_SAMPLE_CAP) {
+    (*sample_count)++;
+  } else {
+    (*dropped_count)++;
+  }
+}
+
 bool vita_video_render_latest_frame(void) {
   if (!frame_ready_for_display)
     return false;
@@ -850,6 +886,25 @@ bool vita_video_render_latest_frame(void) {
    * paced-drop path (which never swaps buffers, and therefore never has a real display
    * timestamp) and the display path both see the same frame's timestamp consistently. */
   uint64_t frame_first_packet_ms_snapshot = incoming_frame_first_packet_ms;
+  /* PIPE/DISPLAY: snapshot decode-done and read the render-entry clock together, before
+   * should_drop_frame_for_pacing(), for the same reason as the snapshot above -- the
+   * paced-drop path returns early and both this function's callers must see a consistent
+   * "when did the UI thread pick this frame up" instant regardless of which path is taken. */
+  uint64_t decode_done_us_snapshot = incoming_frame_decode_done_us;
+  uint64_t render_entry_us = sceKernelGetProcessTimeWide();
+  /* Cross-thread read (decode thread writes, UI thread reads) -- unlike the same-thread
+   * sequential reads later in this function, this one needs the same defensive
+   * clock-read-out-of-order guard used by feedback_sender_record_input_latency()
+   * (lib/src/feedbacksender.c) rather than being assumed monotonic by construction.
+   * 0 means no frame has ever been decoded this session; skip rather than compute a
+   * nonsense multi-decade span against process start. */
+  bool pickup_valid = decode_done_us_snapshot != 0 && render_entry_us >= decode_done_us_snapshot;
+  if (pickup_valid) {
+    record_display_stage_sample(
+        context.stream.display_pickup_samples_us, &context.stream.display_pickup_sample_count,
+        &context.stream.display_pickup_write_idx, &context.stream.display_pickup_dropped_count,
+        render_entry_us - decode_done_us_snapshot);
+  }
 
   bool drop_frame = should_drop_frame_for_pacing();
   if (drop_frame) {
@@ -872,6 +927,11 @@ bool vita_video_render_latest_frame(void) {
         LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
       frozen_frame_streak = 0;
     }
+    // PIPE/DISPLAY: pickup_us was already recorded above (real regardless of pacing);
+    // snapshot/draw/swap never happen on this path (no buffer swap occurs), so recording
+    // zeros for them would corrupt those rings' percentiles with fake zero-latency
+    // samples. Track this as a distinct counter instead.
+    context.stream.display_paced_count++;
     return true;  // consumed the frame but skipped display
   }
 
@@ -911,6 +971,13 @@ bool vita_video_render_latest_frame(void) {
     present_texture = frame_texture;
   }
 
+  /* PIPE/DISPLAY: read here, right after the if/else chain above, NOT inside any one
+   * branch -- the corrupt/freeze and cap-release branches skip snapshot_last_good_frame()
+   * (so their snapshot_us is genuinely ~0, a real measurement worth keeping), but the
+   * boundary itself must land at the same point in all three branches for draw_us below to
+   * mean the same thing regardless of which branch was taken. */
+  uint64_t after_snapshot_us = sceKernelGetProcessTimeWide();
+
   vita2d_start_drawing();
 
   draw_streaming(present_texture);
@@ -918,11 +985,29 @@ bool vita_video_render_latest_frame(void) {
 
   vita2d_end_drawing();
 
+  /* PIPE/DISPLAY: vita2d command submission (draw_streaming + overlay + end_drawing) is
+   * done; wait_rendering_done()/swap_buffers() below is the GPU-wait + swap span. */
+  uint64_t after_draw_us = sceKernelGetProcessTimeWide();
+
   vita2d_wait_rendering_done();
   vita2d_swap_buffers();
 
   // D7: Track actual frames rendered to screen per second
   uint64_t now_us = sceKernelGetProcessTimeWide();
+  // PIPE/DISPLAY: now_us above is already "right after vita2d_swap_buffers()" -- reused
+  // as the swap-span endpoint instead of taking a redundant fifth clock read.
+  record_display_stage_sample(
+      context.stream.display_snapshot_samples_us, &context.stream.display_snapshot_sample_count,
+      &context.stream.display_snapshot_write_idx, &context.stream.display_snapshot_dropped_count,
+      after_snapshot_us - render_entry_us);
+  record_display_stage_sample(
+      context.stream.display_draw_samples_us, &context.stream.display_draw_sample_count,
+      &context.stream.display_draw_write_idx, &context.stream.display_draw_dropped_count,
+      after_draw_us - after_snapshot_us);
+  record_display_stage_sample(context.stream.display_swap_samples_us,
+                              &context.stream.display_swap_sample_count,
+                              &context.stream.display_swap_write_idx,
+                              &context.stream.display_swap_dropped_count, now_us - after_draw_us);
   {
     if (context.stream.display_fps_window_start_us == 0)
       context.stream.display_fps_window_start_us = now_us;
@@ -1050,6 +1135,7 @@ void vita_h264_start() {
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
+  incoming_frame_decode_done_us = 0;
   frozen_frame_streak = 0;
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
@@ -1112,6 +1198,7 @@ void vita_h264_stop() {
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
+  incoming_frame_decode_done_us = 0;
   frozen_frame_streak = 0;
 
   /* --- Decode thread shutdown (GH #188) ---

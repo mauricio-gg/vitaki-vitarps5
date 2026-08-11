@@ -266,6 +266,76 @@ typedef struct vita_chiaki_stream_t {
   // host_metrics_reset_stream() to clear it across a session reset. See host_metrics.c.
   uint64_t latency_log_last_us;
 
+  // --- PIPE/DISPLAY: decode-done to on-screen split (2026-08) ---
+  // PIPE/LATENCY only accounts for ~27ms of the observed ~80ms first-packet-arrival ->
+  // swap latency (avg_assemble_ms + decode_avg_ms + avg_submit_ms); ~50ms is unexplained
+  // and lives entirely between "decode finished" and "pixels on screen". This splits that
+  // gap into four spans, each with its own ring so a stage-specific stall (GPU wait,
+  // memcpy, etc.) is visible instead of averaged away:
+  //   pickup_us   -- decode-done (decode thread) to render entry (UI thread picks the
+  //                  frame up on its next pass; the ONLY cross-thread span here).
+  //   snapshot_us -- render entry to just after the corrupt/clean/cap-release branch
+  //                  that may call snapshot_last_good_frame() (the ~2MB memcpy).
+  //   draw_us     -- end of that branch to vita2d_end_drawing() (vita2d command
+  //                  submission for this frame).
+  //   swap_us     -- vita2d_end_drawing() to vita2d_swap_buffers() (GPU wait + swap).
+  // All four are written by vita_video_render_latest_frame() (UI thread) and reduced/reset
+  // by host_metrics_update_latency() (also UI thread, same call-once-per-loop-iteration
+  // relationship as the latency_window_* cluster above) -- sequential on one thread, no
+  // locking needed for the rings or reduced fields below. Same overwrite-oldest-on-wrap
+  // ring semantics as latency_window_samples_ms above (see its comment): dropping the
+  // newest sample would hide exactly the late-window stall this instrumentation exists to
+  // catch.
+  //
+  // On the paced-drop path (should_drop_frame_for_pacing() == true) the frame is consumed
+  // but never drawn or swapped, so only pickup_us has a real value -- recording a 0 for
+  // snapshot/draw/swap there would corrupt their percentiles with fake zero-latency
+  // samples. Paced-drop occurrences are counted separately in display_paced_count instead;
+  // pickup_us IS still recorded for those frames (the pickup span is real and happens
+  // regardless of pacing), so its ring naturally receives more samples per window than the
+  // other three -- display_sample_n below (published by host_metrics.c) tracks the
+  // synchronized snapshot/draw/swap count (all three are always written together on the
+  // non-paced path only).
+  uint32_t display_pickup_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
+  uint32_t display_pickup_sample_count;
+  uint32_t display_pickup_write_idx;
+  uint32_t display_pickup_dropped_count;
+  uint32_t display_snapshot_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
+  uint32_t display_snapshot_sample_count;
+  uint32_t display_snapshot_write_idx;
+  uint32_t display_snapshot_dropped_count;
+  uint32_t display_draw_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
+  uint32_t display_draw_sample_count;
+  uint32_t display_draw_write_idx;
+  uint32_t display_draw_dropped_count;
+  uint32_t display_swap_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
+  uint32_t display_swap_sample_count;
+  uint32_t display_swap_write_idx;
+  uint32_t display_swap_dropped_count;
+  // display_paced_count: number of paced-drop frames this window (pickup-only samples,
+  // see above). Reset each window close alongside the rings.
+  uint32_t display_paced_count;
+  // Reduced p50/p95 outputs, published once per ~1s window by
+  // host_metrics_update_latency(). No _max_us fields (unlike latency_max_ms above) --
+  // four extra maxima would clutter the PIPE/DISPLAY line without adding much beyond
+  // what p95 already shows; p50/p95 is sufficient to see whether a stage's typical case
+  // or its tail is where the ~50ms is hiding.
+  uint32_t display_pickup_p50_us;
+  uint32_t display_pickup_p95_us;
+  uint32_t display_snapshot_p50_us;
+  uint32_t display_snapshot_p95_us;
+  uint32_t display_draw_p50_us;
+  uint32_t display_draw_p95_us;
+  uint32_t display_swap_p50_us;
+  uint32_t display_swap_p95_us;
+  // display_sample_n: the synchronized snapshot/draw/swap sample count for the window that
+  // just closed (all three rings always wrap together -- see comment above -- so any one
+  // ring's count/dropped represents all three; pickup's true count is
+  // display_sample_n + display_paced_n).
+  uint32_t display_sample_n;
+  uint32_t display_dropped_n;
+  uint32_t display_paced_n;
+
   // Decode queue occupancy (vita/src/video.c). Time-weighted (area-under-the-depth-curve
   // divided by window duration), not a naive average of push/pop samples: see the
   // decode_q_occ_area_us comment in video.c for why a push/pop-only sample is structurally

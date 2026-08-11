@@ -48,6 +48,33 @@ static uint32_t percentile_index(uint32_t count, uint32_t percentile) {
   return idx;
 }
 
+/* PIPE/DISPLAY: reduce one display-pipeline stage ring (see vita/src/video.c
+ * record_display_stage_sample() and the field comment in stream_state.h) to p50/p95, then
+ * reset the ring for the next window -- same sort/percentile-index/reset pattern as the
+ * PIPE/LATENCY reduce block below, factored into a helper since PIPE/DISPLAY has four
+ * structurally-identical rings to reduce per window instead of one. out_n/out_dropped
+ * report this window's sample count and overwrite count (snapshotted BEFORE reset) so the
+ * caller can decide which ring's counts to publish -- see the call site below for why only
+ * one of the four is actually printed. */
+static void reduce_display_stage_ring(uint32_t *samples, uint32_t *count, uint32_t *write_idx,
+                                      uint32_t *dropped_count, uint32_t *out_p50, uint32_t *out_p95,
+                                      uint32_t *out_n, uint32_t *out_dropped) {
+  uint32_t n = *count;
+  if (n > 0) {
+    sort_latency_samples(samples, n);
+    *out_p50 = samples[percentile_index(n, LATENCY_PERCENTILE_P50)];
+    *out_p95 = samples[percentile_index(n, LATENCY_PERCENTILE_P95)];
+  } else {
+    *out_p50 = 0;
+    *out_p95 = 0;
+  }
+  *out_n = n;
+  *out_dropped = *dropped_count;
+  *count = 0;
+  *write_idx = 0;
+  *dropped_count = 0;
+}
+
 void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
@@ -172,6 +199,39 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.latency_sample_n = 0;
   context.stream.latency_dropped_n = 0;
   context.stream.latency_log_last_us = 0;
+
+  // PIPE/DISPLAY instrumentation
+  memset(context.stream.display_pickup_samples_us, 0,
+         sizeof(context.stream.display_pickup_samples_us));
+  context.stream.display_pickup_sample_count = 0;
+  context.stream.display_pickup_write_idx = 0;
+  context.stream.display_pickup_dropped_count = 0;
+  memset(context.stream.display_snapshot_samples_us, 0,
+         sizeof(context.stream.display_snapshot_samples_us));
+  context.stream.display_snapshot_sample_count = 0;
+  context.stream.display_snapshot_write_idx = 0;
+  context.stream.display_snapshot_dropped_count = 0;
+  memset(context.stream.display_draw_samples_us, 0, sizeof(context.stream.display_draw_samples_us));
+  context.stream.display_draw_sample_count = 0;
+  context.stream.display_draw_write_idx = 0;
+  context.stream.display_draw_dropped_count = 0;
+  memset(context.stream.display_swap_samples_us, 0, sizeof(context.stream.display_swap_samples_us));
+  context.stream.display_swap_sample_count = 0;
+  context.stream.display_swap_write_idx = 0;
+  context.stream.display_swap_dropped_count = 0;
+  context.stream.display_paced_count = 0;
+  context.stream.display_pickup_p50_us = 0;
+  context.stream.display_pickup_p95_us = 0;
+  context.stream.display_snapshot_p50_us = 0;
+  context.stream.display_snapshot_p95_us = 0;
+  context.stream.display_draw_p50_us = 0;
+  context.stream.display_draw_p95_us = 0;
+  context.stream.display_swap_p50_us = 0;
+  context.stream.display_swap_p95_us = 0;
+  context.stream.display_sample_n = 0;
+  context.stream.display_dropped_n = 0;
+  context.stream.display_paced_n = 0;
+
   context.stream.input_latency_p50_us = 0;
   context.stream.input_latency_p95_us = 0;
   context.stream.input_latency_max_us = 0;
@@ -443,6 +503,49 @@ void host_metrics_update_latency(void) {
       context.stream.latency_window_write_idx = 0;
     }
 
+    // PIPE/DISPLAY: reduce this window's decode-done -> on-screen split samples (written by
+    // vita_video_render_latest_frame() in video.c, see the field comment in stream_state.h)
+    // to p50/p95 per stage and reset the four rings for the next window. Runs
+    // unconditionally here, same as the PIPE/LATENCY reduce above, so stale samples never
+    // linger across a show_latency toggle; only the LOGD print further down is gated.
+    {
+      uint32_t discard_n, discard_dropped;
+      uint32_t snapshot_n, snapshot_dropped;
+
+      reduce_display_stage_ring(
+          context.stream.display_pickup_samples_us, &context.stream.display_pickup_sample_count,
+          &context.stream.display_pickup_write_idx, &context.stream.display_pickup_dropped_count,
+          &context.stream.display_pickup_p50_us, &context.stream.display_pickup_p95_us, &discard_n,
+          &discard_dropped);
+      reduce_display_stage_ring(
+          context.stream.display_snapshot_samples_us, &context.stream.display_snapshot_sample_count,
+          &context.stream.display_snapshot_write_idx,
+          &context.stream.display_snapshot_dropped_count, &context.stream.display_snapshot_p50_us,
+          &context.stream.display_snapshot_p95_us, &snapshot_n, &snapshot_dropped);
+      reduce_display_stage_ring(
+          context.stream.display_draw_samples_us, &context.stream.display_draw_sample_count,
+          &context.stream.display_draw_write_idx, &context.stream.display_draw_dropped_count,
+          &context.stream.display_draw_p50_us, &context.stream.display_draw_p95_us, &discard_n,
+          &discard_dropped);
+      reduce_display_stage_ring(
+          context.stream.display_swap_samples_us, &context.stream.display_swap_sample_count,
+          &context.stream.display_swap_write_idx, &context.stream.display_swap_dropped_count,
+          &context.stream.display_swap_p50_us, &context.stream.display_swap_p95_us, &discard_n,
+          &discard_dropped);
+      (void)discard_n;
+      (void)discard_dropped;
+
+      // snapshot/draw/swap rings wrap in lockstep -- all three are always written
+      // together on the non-paced path (see the display_pickup_* field comment in
+      // stream_state.h) -- so snapshot's n/dropped represents all three; pickup's own
+      // n/dropped are internal ring bookkeeping only and are not separately published
+      // (pickup's true sample count for the window is display_sample_n + display_paced_n).
+      context.stream.display_sample_n = snapshot_n;
+      context.stream.display_dropped_n = snapshot_dropped;
+      context.stream.display_paced_n = context.stream.display_paced_count;
+      context.stream.display_paced_count = 0;
+    }
+
     // PIPE/INPUT: reduce this window's controller-poll-origin -> feedback-sender-wire
     // latency samples (ring lives in ChiakiFeedbackSender, lib/include/chiaki/feedbacksender.h
     // -- see the field comment there and in stream_state.h for why it's not duplicated
@@ -558,6 +661,18 @@ void host_metrics_update_latency(void) {
          context.stream.input_latency_p50_us, context.stream.input_latency_p95_us,
          context.stream.input_latency_max_us, context.stream.input_latency_sample_n,
          context.stream.input_latency_dropped_n);
+    // PIPE/DISPLAY: the decode-done -> on-screen split this whole instrumentation pass
+    // exists to produce -- see the PIPE/DISPLAY field comment in stream_state.h for the
+    // four stage definitions and how paced-drop frames (n vs. paced) are handled.
+    LOGD(
+        "PIPE/DISPLAY pickup_p50_us=%u pickup_p95_us=%u snapshot_p50_us=%u snapshot_p95_us=%u "
+        "draw_p50_us=%u draw_p95_us=%u swap_p50_us=%u swap_p95_us=%u n=%u dropped=%u paced=%u",
+        context.stream.display_pickup_p50_us, context.stream.display_pickup_p95_us,
+        context.stream.display_snapshot_p50_us, context.stream.display_snapshot_p95_us,
+        context.stream.display_draw_p50_us, context.stream.display_draw_p95_us,
+        context.stream.display_swap_p50_us, context.stream.display_swap_p95_us,
+        context.stream.display_sample_n, context.stream.display_dropped_n,
+        context.stream.display_paced_n);
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
