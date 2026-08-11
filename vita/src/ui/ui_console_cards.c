@@ -32,6 +32,17 @@ static int selected_console_index = 0;
 /** Console card cache to prevent flickering during discovery updates */
 static ConsoleCardCache card_cache = {0};
 
+/** Set by ui_cards_mark_dirty() (called from host_storage.c/discovery.c/psn_remote.c on host
+ * removal) to force the next ui_cards_update_cache() call to bypass the throttle. Writers just
+ * do a plain `cards_dirty = true;` (safe: a single-word store is atomic on Vita's Cortex-A9,
+ * matching the project's existing volatile-flag pattern, e.g. frame_ready_for_display in
+ * video.c); the single reader in ui_cards_update_cache() consumes it via
+ * __atomic_exchange_n(..., __ATOMIC_SEQ_CST) so its read-and-clear can't drop a concurrent
+ * mark_dirty() call. `volatile` is kept alongside the atomic builtin -- redundant here since
+ * the exchange already forces a real memory access, but harmless and keeps this flag visually
+ * consistent with the rest of the file's volatile cross-thread flags. */
+static volatile bool cards_dirty = false;
+
 /** Card focus animation state */
 static CardFocusAnimState card_focus_anim = {.focused_card_index = -1,
                                              .current_scale = CONSOLE_CARD_FOCUS_SCALE_MIN,
@@ -161,6 +172,7 @@ static void utf16_to_utf8(const SceWChar16 *src, size_t src_max, char *dst, size
 void ui_cards_init(void) {
   selected_console_index = 0;
   memset(&card_cache, 0, sizeof(card_cache));
+  cards_dirty = false;
   card_focus_anim.focused_card_index = -1;
   card_focus_anim.current_scale = CONSOLE_CARD_FOCUS_SCALE_MIN;
   card_focus_anim.focus_start_us = 0;
@@ -237,11 +249,26 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
 // Cache Management
 // ============================================================================
 
+void ui_cards_mark_dirty(void) {
+  cards_dirty = true;
+}
+
 void ui_cards_update_cache(bool force_update) {
   uint64_t current_time = sceKernelGetProcessTimeWide();
 
-  // Only update cache if enough time has passed or if forced
-  if (!force_update &&
+  /* Atomically consume-and-clear the dirty flag now, before the rebuild loop below reads
+   * context.hosts[] -- not after the rebuild completes. A plain read-then-clear ("bool
+   * was_dirty = cards_dirty; cards_dirty = false;") has a window between the two statements:
+   * a ui_cards_mark_dirty() call from another thread landing in that window would be silently
+   * clobbered by the unconditional `= false` write, losing the removal until the next 10s
+   * throttle window. __atomic_exchange_n reads and clears in one indivisible step, so any
+   * ui_cards_mark_dirty() call is either captured in was_dirty here, or happens strictly after
+   * the exchange and leaves cards_dirty true for the next ui_cards_update_cache() call to pick
+   * up -- no mutation is ever lost. */
+  bool was_dirty = __atomic_exchange_n(&cards_dirty, false, __ATOMIC_SEQ_CST);
+
+  // Only update cache if enough time has passed, or if forced/dirty
+  if (!force_update && !was_dirty &&
       (current_time - card_cache.last_update_time) < CARD_CACHE_UPDATE_INTERVAL_US) {
     return;
   }
@@ -280,8 +307,14 @@ void ui_cards_update_cache(bool force_update) {
     memcpy(temp_cards, sorted, sizeof(ConsoleCardInfo) * num_hosts);
   }
 
-  /* Update cache — allow 0 results when filter is active (to show "no matches") */
-  if (num_hosts > 0 || filter_active) {
+  /* Update cache — allow 0 results when filter is active (to show "no matches"), or when
+   * this rebuild was explicitly requested (force_update) or triggered by a dirty-flagged
+   * host removal (was_dirty). Without those two, a removal that empties the list would hit
+   * neither condition below, so the write (and last_update_time) would be skipped and the
+   * stale, now-empty-list-worthy cache would keep re-triggering a rebuild every frame
+   * instead of converging. Bare `num_hosts > 0` stays as the unforced throttle path so
+   * ordinary polling doesn't flicker the grid to empty on a transient zero-host read. */
+  if (num_hosts > 0 || filter_active || force_update || was_dirty) {
     card_cache.num_cards = num_hosts;
     if (num_hosts > 0)
       memcpy(card_cache.cards, temp_cards, sizeof(ConsoleCardInfo) * num_hosts);

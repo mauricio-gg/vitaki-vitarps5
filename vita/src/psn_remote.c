@@ -9,6 +9,7 @@
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui/ui_state.h"
+#include "ui/ui_console_cards.h"
 
 /* Last error string and setter live outside the holepunch guard so they are
  * available to all build configurations, including the stub paths that
@@ -114,13 +115,22 @@ static VitaChiakiHost *find_registered_source_for_device(const char *device_name
 }
 
 static void remove_existing_psn_hosts(void) {
+  /* Tracks whether any host's console-card-visible state actually changed below, so the
+   * console-card cache gets invalidated once per call (not once per loop iteration) -- see
+   * ui_cards_mark_dirty(). Covers both loops: the psn_remote_available flip in the first loop
+   * feeds the card's internet badge, and the host removals in the second loop feed card
+   * presence/absence -- either one needs a cache invalidation to reach the UI next frame. */
+  bool hosts_changed = false;
+
   /* Clear the merge flag on all non-PSN hosts first so that stale
    * psn_remote_available values don't persist when a PSN device is
    * removed from the account or the user signs out. */
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     VitaChiakiHost *host = context.hosts[i];
-    if (host && host->source != VITA_HOST_SOURCE_PSN_REMOTE)
+    if (host && host->source != VITA_HOST_SOURCE_PSN_REMOTE && host->psn_remote_available) {
       host->psn_remote_available = false;
+      hosts_changed = true;
+    }
   }
 
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
@@ -140,7 +150,11 @@ static void remove_existing_psn_hosts(void) {
       context.active_host = NULL;
     host_free(host);
     context.hosts[i] = NULL;
+    hosts_changed = true;
   }
+
+  if (hosts_changed)
+    ui_cards_mark_dirty();
 }
 
 static size_t count_psn_context_hosts(void) {
