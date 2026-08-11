@@ -4,6 +4,56 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
+## 2026-08-11 (Root-Cause Investigation Complete; PRs #223, #227, #228 Merged + Follow-Up Issues Filed)
+
+### Root-Cause Analysis Completion
+- [x] **Latency root-cause investigation complete (session log 24402261711, build 287c6287)**
+  - **Findings:** User-reported "latency regressed" was NOT a code regression — direct A/B showed pre-#213 baseline (log 18107437792) was worse (59 nonzero loss ticks, floor 2427k) vs fresh run (log 24402261711) (3 ticks, floor 3579k).
+  - **Three-factor model identified:**
+    1. **Loss reports** — Fixed by PR #213 (post-FEC accounting)
+    2. **Corrupt-frame reports** (dominant remaining driver) — Fixed by PR #223 (500ms cooldown + coalescing); upstream chiaki reports each gap once; VitaRPS5 fork regression from PR #63 caused 17 wire sends for same expanding range 175→222
+    3. **PS5 delay measurement** — Proven by step-down with loss=0 and no corrupt reports (log line 6010)
+  - **Stalls are network-side Wi-Fi radio bursts**, not client blockage
+  - **Subjective regression explained by:** Monotonic per-session decay + GH #214 breaking soft restart (only ratchet reset) + post-#209 sessions surviving degraded instead of dying
+
+### PR #223 - Corrupt-Frame Report Coalescing (MERGED)
+- [x] **Reduce burst-tail corrupt-report wire sends via coalescing (GH #218)**
+  - **Root Cause:** Upstream chiaki reports each gap once; VitaRPS5 fork regression (PR #63) re-reports expanding range, emitting 17 wire sends for same stall
+  - **Fix:** 500ms cooldown + 32-frame growth bypass on same-start expansion re-reports; pure classifier `chiaki_video_corrupt_report_classify` with exactly 15 unit-test assertions
+  - **Burst-tail completeness via retirement hook:** Span-sanity guard (4096) hoisted to cover all four report sites
+  - **Expected:** ~17 → ~3-4 sends per burst
+  - **Hardware Validation:** Pending
+  - **Files:** `lib/src/videoreceiver_gap.{c,h}` (classifier), `lib/src/videoreceiver.c` (four report sites + constants), `lib/include/chiaki/videoreceiver.h`, `test/packet_path_tests.c` (unit tests)
+  - **Code Review:** 3 rounds (code-guardian), all findings fixed; APPROVED
+
+### PR #227 - Should_Stop Sticky Latch Fix (MERGED)
+- [x] **Fix GH #214: streamconnection should_stop never resets, breaks soft restarts**
+  - **Root Cause:** `should_stop` sticky latch was never reset per-run; soft restarts would bail at first CHECK_STOP on second+ restart attempts
+  - **Fix:** `chiaki_stream_connection_prepare_restart()` inside the state_mutex critical section; restart refused (correctly reported as DISCONNECTED) when remote teardown raced in; request rollback prevents `host_recovery` retry deadlock
+  - **Impact:** Soft restart (the user-accessible ratchet reset) works again
+  - **Hardware Validation:** Pending
+  - **Code Review:** 6 total rounds (code-guardian scrutiny), all findings fixed; APPROVED
+
+### PR #228 - Diagnostics A/B Toggle (MERGED, Part of GH #221)
+- [x] **Add VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED compile A/B toggle**
+  - **Purpose:** Comparative parity accounting diagnostic for GH #221 (structural missing-frame accounting audit)
+  - **Default:** OFF (production path unchanged); ON arm: `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1 ./tools/build.sh --env testing`
+  - **Telemetry:** CONGESTION/RECEIVED_MODE log line; testing log queue 256→512 (ceiling 1024, both clamps unified)
+  - **Wholly-missing-frame accounting:** Audited + documented on GH #221 (structural, no code)
+  - **Hardware Validation:** Pending (parity A/B run per GH #221)
+
+### Follow-Up Issues Filed (GH #218-#226)
+- [x] **GH #218** (closes with PR #223) — Corrupt-frame report coalescing
+- [x] **GH #219** — Persistent control-channel late reorder drops
+- [x] **GH #220** — RECV_MALLOC_BURST churn
+- [x] **GH #221** — Parity denominator A/B + missing-frame blindness (open, hardware run pending)
+- [x] **GH #222** — Test suite never executes (cross-compile only)
+- [x] **GH #224** — Classifier PATHOLOGICAL disposition + fec_failed WARN latch follow-ups
+- [x] **GH #225** — Late stop during senkusha gap
+- [x] **GH #226** — Streamconnection mutex-held error returns
+
+---
+
 ## 2026-08-10 (PRs #213, #215, #216 Merged + GH #188 Decode-Thread Decouple A/B Completion)
 
 ### GH #188 / PR #199 - H.264 Decode-Thread Decoupling (MERGED)
