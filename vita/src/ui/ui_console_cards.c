@@ -194,19 +194,19 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   bool discovered = (host->type & DISCOVERED) && (host->discovery_state);
   bool registered = host->type & REGISTERED;
   bool psn_remote = host->source == VITA_HOST_SOURCE_PSN_REMOTE;
-  bool at_rest = discovered && host->discovery_state &&
-                 host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+  bool at_rest =
+      discovered && host->discovery_state_snapshot == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
-  // Copy host name
-  if (discovered && host->discovery_state) {
-    snprintf(card->name, sizeof(card->name), "%s", host->discovery_state->host_name);
-    snprintf(card->ip_address, sizeof(card->ip_address), "%s", host->discovery_state->host_addr);
-  } else if (registered && host->registered_state) {
-    snprintf(card->name, sizeof(card->name), "%s", host->registered_state->server_nickname);
+  /* Read only the inline snapshot fields the discovery thread snprintf's in place --
+   * never discovery_state->host_name/host_addr or registered_state->server_nickname,
+   * which are upstream heap structs another thread can free/re-strdup concurrently. */
+  if (host->display_name[0] || host->hostname[0]) {
+    snprintf(card->name, sizeof(card->name), "%s",
+             host->display_name[0] ? host->display_name : host->hostname);
     snprintf(card->ip_address, sizeof(card->ip_address), "%s", host->hostname);
-  } else if (host->hostname) {
-    snprintf(card->name, sizeof(card->name), "%s", host->hostname);
-    snprintf(card->ip_address, sizeof(card->ip_address), "%s", host->hostname);
+  } else {
+    snprintf(card->name, sizeof(card->name), "%s", "Unknown");
+    card->ip_address[0] = '\0';
   }
 
   // Map host state to console state
@@ -252,7 +252,7 @@ void ui_cards_update_cache(bool force_update) {
 
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
     if (context.hosts[i]) {
-      ConsoleCardInfo temp;
+      ConsoleCardInfo temp = {0};
       ui_cards_map_host(context.hosts[i], &temp);
       /* Skip unregistered hosts if "show only paired" is enabled */
       if (context.config.show_only_paired && !temp.is_registered)

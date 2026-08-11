@@ -310,8 +310,8 @@ void host_handle_quit_event(ChiakiEvent *event) {
       uint64_t wait = desired - now_retry;
       sceKernelDelayThread((unsigned int)wait);
     }
-    context.stream.loss_retry_pending = false;
     context.stream.loss_retry_active = true;
+    context.stream.loss_retry_pending = false;
     context.stream.loss_retry_ready_us = 0;
     context.stream.reconnect_overlay_active = true;
     context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();

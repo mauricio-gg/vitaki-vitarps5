@@ -13,7 +13,10 @@
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "video.h"
+#include "ui.h"
+#include "ui/ui_state.h"
 #include "string.h"
+#include <stdio.h>
 #include <psp2/kernel/processmgr.h>
 #include <chiaki/base64.h>
 #include <chiaki/session.h>
@@ -65,10 +68,10 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
     }
   }
 
-  if (!matched && host->hostname && host->hostname[0]) {
+  if (!matched && host->hostname[0]) {
     for (int i = 0; i < context.config.num_registered_hosts; i++) {
       VitaChiakiHost *candidate = context.config.registered_hosts[i];
-      if (!candidate || !candidate->registered_state || !candidate->hostname)
+      if (!candidate || !candidate->registered_state || !candidate->hostname[0])
         continue;
       if (strcmp(candidate->hostname, host->hostname) == 0) {
         matched = candidate;
@@ -90,26 +93,64 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
     memcpy(host->server_mac, matched->server_mac, sizeof(host->server_mac));
 
   LOGD("Hydrated missing registered_state for host %s from persisted config",
-       host->hostname ? host->hostname : "<null>");
+       host->hostname[0] ? host->hostname : "<null>");
   return true;
 }
 
+/* True while a connect/stream is actively using this host's memory (connection worker alive,
+ * session initialized, connect overlay up, or a packet-loss auto-retry is scheduled/in
+ * flight). Free-guards must use this, not bare pointer identity against context.active_host:
+ * nothing clears context.active_host once a host is selected (see assignments in
+ * ui_screens.c/ui_components.c), so identity alone would make a guard permanent -- e.g. a
+ * once-selected host would survive every subsequent refresh/dedup pass forever, even long
+ * after the connect/stream that justified protecting it has ended.
+ *
+ * loss_retry_pending/loss_retry_active close a real gap that the first three predicates alone
+ * miss: host_quit.c's auto-retry path runs on the Chiaki session's event-callback thread, not
+ * the UI's connection worker thread, so ui_state_connection_thread_active() is already false by
+ * the time it starts (ui_connection_cancel() tore that thread down first). It also clears
+ * session_init before the retry's sleep-then-host_stream() sequence and only sets it again deep
+ * inside that host_stream() call (host.c, well past the hydrate/PSN-auth/holepunch work an
+ * in-flight retry can spend real time in). Without these two flags, a UI-thread refresh/dedup
+ * pass could free and memset the very struct that retry call is reading from mid-flight.
+ * loss_retry_pending covers the pre-retry delay (host_quit.c: set true right after scheduling,
+ * false right before the retry's host_stream() call); loss_retry_active covers that
+ * host_stream() call itself (set true immediately before it, false on either outcome) --
+ * together they span the gap with no seam between them. */
+bool host_in_active_use(const VitaChiakiHost *host) {
+  return host && host == context.active_host &&
+         (ui_state_connection_thread_active() || context.stream.session_init ||
+          context.stream.loss_retry_pending || context.stream.loss_retry_active ||
+          ui_connection_overlay_active());
+}
+
+/* Frees the heap-owned members of a VitaChiakiHost but deliberately does NOT free the
+ * VitaChiakiHost struct itself. Stale VitaChiakiHost* pointers (card->host, context.active_host,
+ * config.registered_hosts[]/manual_hosts[] entries a caller hasn't yet nulled out) can outlive
+ * this call, and freeing the struct would turn every one of those into a use-after-free. Freeing
+ * only the members and clearing the struct keeps such stale pointers readable as an inert, empty
+ * host. This is a known leak; proper VitaChiakiHost lifetime/refcounting is tracked as a
+ * follow-up. */
 void host_free(VitaChiakiHost *host) {
   LOGD("host_free: ptr=%p hostname=%s source=%d type=0x%x", (void *)host,
-       (host && host->hostname) ? host->hostname : "<null>", host ? host->source : -1,
+       (host && host->hostname[0]) ? host->hostname : "<null>", host ? host->source : -1,
        host ? host->type : 0);
-  if (host) {
-    if (host->discovery_state) {
-      destroy_discovery_host(host->discovery_state);
-      host->discovery_state = NULL;
-    }
-    if (host->registered_state) {
-      free(host->registered_state);
-    }
-    if (host->hostname) {
-      free(host->hostname);
-    }
+  if (!host)
+    return;
+  if (host->discovery_state) {
+    destroy_discovery_host(host->discovery_state);
   }
+  if (host->registered_state) {
+    free(host->registered_state);
+  }
+  /* Zero the whole struct (after freeing its only heap-owned members above) so the leaked husk
+   * is fully inert: type/source no longer carry DISCOVERED/MANUALLY_ADDED/REGISTERED flags,
+   * preventing any lingering pointer from matching a freed host by flag, discovery_state_
+   * snapshot resets to CHIAKI_DISCOVERY_HOST_STATE_UNKNOWN (0), status_hint_expire_us/
+   * status_hint_is_error can no longer keep a stale hint alive, and server_mac/psn_device_uid
+   * are cleared so nothing can match a freed host by identity. Every field is either inline
+   * storage or a pointer already freed/nulled above, so a full memset cannot dangle. */
+  memset(host, 0, sizeof(*host));
 }
 
 static void request_stream_stop(const char *reason) {
@@ -155,18 +196,36 @@ int host_stream(VitaChiakiHost *host) {
   context.stream.psn_selected_addr[0] = '\0';
   LOGD("host_stream target: host_ptr=%p source=%d type=0x%x hostname=%s psn_remote=%d uid_zero=%d",
        (void *)host, host ? host->source : -1, host ? host->type : 0,
-       (host && host->hostname) ? host->hostname : "<null>", psn_remote,
+       (host && host->hostname[0]) ? host->hostname : "<null>", psn_remote,
        (host && psn_remote) ? host_psn_uid_is_zero(host->psn_device_uid) : 0);
-  if (!host || (!psn_remote && (!host->hostname || !host->hostname[0]))) {
+  if (!host || (!psn_remote && !host->hostname[0])) {
     return 1;
   }
   if (!host_try_hydrate_registered_state_from_config(host)) {
     LOGE("Missing credentials for host %s; cannot start stream",
-         host->hostname ? host->hostname : "<null>");
+         host->hostname[0] ? host->hostname : "<null>");
     host_set_hint(host, "Missing console credentials. Re-pair may be required.", true,
                   HINT_DURATION_CREDENTIAL_US);
     return 1;
   }
+  if (!host->registered_state) {
+    LOGE("host_stream: registered_state unexpectedly NULL after successful hydrate for host %s",
+         host->hostname[0] ? host->hostname : "<null>");
+    host_set_hint(host, "Missing console credentials. Re-pair may be required.", true,
+                  HINT_DURATION_CREDENTIAL_US);
+    return 1;
+  }
+  /* Local copies of the registration credentials: host->registered_state is discovery/PSN-
+   * refresh owned and can be freed and replaced (host_free(), copy_host()) by other code
+   * while this function is blocked in the PSN auth/holepunch path below, which can run for
+   * a while. Snapshotting here -- right after the hydrate that guarantees the pointer is
+   * valid -- keeps the memcpys near the end of this function safe. Same pattern as the
+   * existing connect_addr local below. */
+  char registered_rp_regist_key[CHIAKI_SESSION_AUTH_SIZE];
+  uint8_t registered_rp_key[0x10];
+  memcpy(registered_rp_regist_key, host->registered_state->rp_regist_key,
+         sizeof(registered_rp_regist_key));
+  memcpy(registered_rp_key, host->registered_state->rp_key, sizeof(registered_rp_key));
   // Drain any pending deferred finalization before starting a new session.
   // Without this, a rapid reconnect could overwrite the session struct while
   // the old session thread is still running (race between event_cb clearing
@@ -280,15 +339,22 @@ int host_stream(VitaChiakiHost *host) {
     profile.bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
   }
 
-  ChiakiConnectInfo chiaki_connect_info = {};
+  /* Local copy of the connect address: host->hostname is a snapshot the discovery thread may
+   * snprintf-overwrite in place at any time, and chiaki_connect_info.host must stay stable
+   * for chiaki_session_init()'s synchronous getaddrinfo() call below (it copies the address
+   * into its own session-owned buffer before returning, so connect_addr only needs to survive
+   * that one call -- this local's scope covers it). */
+  char connect_addr[VITA_HOST_HOSTNAME_LEN];
 #if CHIAKI_CAN_USE_HOLEPUNCH
-  chiaki_connect_info.host = (psn_remote && context.stream.psn_selected_addr[0])
-                                 ? context.stream.psn_selected_addr
-                                 : host->hostname;
+  snprintf(connect_addr, sizeof(connect_addr), "%s",
+           (psn_remote && context.stream.psn_selected_addr[0]) ? context.stream.psn_selected_addr
+                                                               : host->hostname);
 #else
-  chiaki_connect_info.host = host->hostname;
+  snprintf(connect_addr, sizeof(connect_addr), "%s", host->hostname);
 #endif
-  if (!chiaki_connect_info.host || !chiaki_connect_info.host[0]) {
+  ChiakiConnectInfo chiaki_connect_info = {};
+  chiaki_connect_info.host = connect_addr;
+  if (!chiaki_connect_info.host[0]) {
     LOGE("host_stream: resolved host address is empty (psn_remote=%d)", psn_remote);
     host_set_hint(host, "Could not determine host address.", true, HINT_DURATION_CREDENTIAL_US);
 #if CHIAKI_CAN_USE_HOLEPUNCH
@@ -325,10 +391,9 @@ int host_stream(VitaChiakiHost *host) {
     chiaki_connect_info.holepunch_session = holepunch_session;
   }
 #endif
-  memcpy(chiaki_connect_info.regist_key, host->registered_state->rp_regist_key,
+  memcpy(chiaki_connect_info.regist_key, registered_rp_regist_key,
          sizeof(chiaki_connect_info.regist_key));
-  memcpy(chiaki_connect_info.morning, host->registered_state->rp_key,
-         sizeof(chiaki_connect_info.morning));
+  memcpy(chiaki_connect_info.morning, registered_rp_key, sizeof(chiaki_connect_info.morning));
   if (context.stream.cached_controller_valid) {
     chiaki_connect_info.cached_controller_state = context.stream.cached_controller_state;
     chiaki_connect_info.cached_controller_state_valid = true;
@@ -338,7 +403,7 @@ int host_stream(VitaChiakiHost *host) {
   }
 
   LOGD("Initializing Chiaki session (host=%s, bitrate=%u kbps, fps=%u)",
-       host->hostname ? host->hostname : "<null>", profile.bitrate, profile.max_fps);
+       host->hostname[0] ? host->hostname : "<null>", profile.bitrate, profile.max_fps);
   LOGD("Recovery profile: stable_default");
 
   ChiakiErrorCode err =
@@ -369,11 +434,11 @@ int host_stream(VitaChiakiHost *host) {
   }
   context.stream.session_generation = new_generation;
   LOGD("PIPE/SESSION start gen=%u reconnect_gen=%u host=%s", context.stream.session_generation,
-       context.stream.reconnect_generation, host->hostname ? host->hostname : "<null>");
+       context.stream.reconnect_generation, host->hostname[0] ? host->hostname : "<null>");
 
   if (discovery_was_running) {
     LOGD("Suspending discovery during stream");
-    stop_discovery(true);
+    stop_discovery();
     context.discovery_resume_after_stream = true;
   }
   init_controller_map(&(context.stream.vcmi), context.config.controller_map_id);

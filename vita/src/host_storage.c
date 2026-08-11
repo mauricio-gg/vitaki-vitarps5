@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -83,18 +84,15 @@ void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
     }
   }
 
-  VitaChiakiHost *newhost = (VitaChiakiHost *)malloc(sizeof(VitaChiakiHost));
+  VitaChiakiHost *newhost = (VitaChiakiHost *)calloc(1, sizeof(VitaChiakiHost));
   if (!newhost) {
     CHIAKI_LOGE(&(context.log), "Out of memory while saving manual host.");
     return;
   }
   copy_host(newhost, rhost, false);
-  newhost->hostname = strdup(new_hostname);
-  if (!newhost->hostname) {
-    CHIAKI_LOGE(&(context.log), "Out of memory while storing manual hostname.");
-    host_free(newhost);
-    return;
-  }
+  snprintf(newhost->hostname, sizeof(newhost->hostname), "%s", new_hostname);
+  if (!newhost->display_name[0])
+    snprintf(newhost->display_name, sizeof(newhost->display_name), "%s", new_hostname);
   newhost->type = REGISTERED | MANUALLY_ADDED;
   newhost->source = VITA_HOST_SOURCE_MANUAL_REMOTE;
 
@@ -201,11 +199,22 @@ void update_context_hosts() {
       if (mac_addrs_match(&(disc->server_mac), &(psn->server_mac))) {
         disc->psn_remote_available = true;
         memcpy(disc->psn_device_uid, psn->psn_device_uid, sizeof(disc->psn_device_uid));
+        if (host_in_active_use(psn)) {
+          /* Don't free the actively-selected PSN host struct out from under a connect/stream
+           * in progress. The merge re-runs on the next discovery callback and converges once
+           * the connect settles and psn stops being active. */
+          break;
+        }
+        /* Not actively in use: if psn is still the selected-but-idle active_host (e.g. it was
+         * picked but no connect/stream ever started before the LAN discovery merge caught up),
+         * clear the pointer before freeing so it doesn't dangle. */
+        if (context.active_host == psn)
+          context.active_host = NULL;
         LOGD(
             "update_context_hosts dedup: freeing PSN host ptr=%p hostname=%s, keeping LAN host "
             "ptr=%p hostname=%s",
-            (void *)psn, psn->hostname ? psn->hostname : "<null>", (void *)disc,
-            disc->hostname ? disc->hostname : "<null>");
+            (void *)psn, psn->hostname[0] ? psn->hostname : "<null>", (void *)disc,
+            disc->hostname[0] ? disc->hostname : "<null>");
         host_free(psn);
         context.hosts[i] = NULL;
         break;
@@ -217,7 +226,7 @@ void update_context_hosts() {
 
   for (int i = 0; i < context.config.num_manual_hosts; i++) {
     VitaChiakiHost *mhost = context.config.manual_hosts[i];
-    if (!mhost || !mhost->hostname || mac_addr_is_zero(&(mhost->server_mac)))
+    if (!mhost || !mhost->hostname[0] || mac_addr_is_zero(&(mhost->server_mac)))
       continue;
 
     bool already_in_context = false;
@@ -225,7 +234,7 @@ void update_context_hosts() {
       VitaChiakiHost *h = context.hosts[host_idx];
       if (!h)
         continue;
-      if (!h->hostname)
+      if (!h->hostname[0])
         continue;
       if (mac_addrs_match(&(h->server_mac), &(mhost->server_mac))) {
         if ((h->type & DISCOVERED) && hide_remote_if_discovered) {
@@ -268,7 +277,7 @@ void update_context_hosts() {
       LOGE(
           "Context host integrity warning: registered host at slot %d missing registered_state "
           "(hostname=%s)",
-          host_idx, h->hostname ? h->hostname : "<null>");
+          host_idx, h->hostname[0] ? h->hostname : "<null>");
     }
   }
 
@@ -303,10 +312,19 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
   h_dest->remoteplay_enabled = h_src->remoteplay_enabled;
   h_dest->psn_remote_available = h_src->psn_remote_available;
 
-  h_dest->hostname = NULL;
-  if ((h_src->hostname) && copy_hostname) {
-    h_dest->hostname = strdup(h_src->hostname);
+  // Full clear (not just a NUL at index 0) preserves the torn-read invariant on these
+  // inline buffers: without it, a concurrent in-place snprintf (see discovery.c's
+  // set_host_discovery_snapshot) writing a shorter string would leave stale bytes of the
+  // previous longer string past the new NUL terminator; the memset prevents a torn read
+  // from exposing them.
+  memset(h_dest->hostname, 0, sizeof(h_dest->hostname));
+  if (copy_hostname) {
+    snprintf(h_dest->hostname, sizeof(h_dest->hostname), "%s", h_src->hostname);
   }
+  memset(h_dest->display_name, 0, sizeof(h_dest->display_name));
+  snprintf(h_dest->display_name, sizeof(h_dest->display_name), "%s", h_src->display_name);
+  h_dest->discovery_state_snapshot = h_src->discovery_state_snapshot;
+  h_dest->last_discovery_seen_us = h_src->last_discovery_seen_us;
 
   h_dest->registered_state = NULL;
   ChiakiRegisteredHost *rstate_src = h_src->registered_state;
@@ -320,12 +338,22 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
     }
   }
 
-  h_dest->discovery_state = NULL;
-  if (h_src->status_hint[0]) {
-    sceClibSnprintf(h_dest->status_hint, sizeof(h_dest->status_hint), "%s", h_src->status_hint);
-  } else {
-    h_dest->status_hint[0] = '\0';
+  // Nickname fallback tier (precedence documented in host.h:48-51: discovery host_name >
+  // server_nickname > hostname/IP). h_src->display_name is empty for a registered host loaded
+  // straight from config before this fix, and could still be empty for other future callers,
+  // so honor the full precedence chain here rather than only at the discovery-thread callsite.
+  if (!h_dest->display_name[0] && h_dest->registered_state &&
+      h_dest->registered_state->server_nickname[0]) {
+    snprintf(h_dest->display_name, sizeof(h_dest->display_name), "%s",
+             h_dest->registered_state->server_nickname);
   }
+
+  h_dest->discovery_state = NULL;
+  // Full clear (not just a NUL at index 0) prevents a torn read from exposing stale bytes of
+  // a previous longer string -- same invariant as hostname/display_name above: status_hint is
+  // written off-thread (host_set_hint) and read by the UI thread.
+  memset(h_dest->status_hint, 0, sizeof(h_dest->status_hint));
+  sceClibSnprintf(h_dest->status_hint, sizeof(h_dest->status_hint), "%s", h_src->status_hint);
   h_dest->status_hint_is_error = h_src->status_hint_is_error;
   h_dest->status_hint_expire_us = h_src->status_hint_expire_us;
 }

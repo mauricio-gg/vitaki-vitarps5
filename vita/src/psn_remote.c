@@ -127,6 +127,15 @@ static void remove_existing_psn_hosts(void) {
     VitaChiakiHost *host = context.hosts[i];
     if (!host || host->source != VITA_HOST_SOURCE_PSN_REMOTE)
       continue;
+    /* Never free the actively-selected host struct out from under a connect/stream in
+     * progress -- same guard as update_context_hosts() (host_storage.c) and
+     * remove_lost_discovered_hosts() (discovery.c). Leave the entry in place; the next
+     * refresh re-runs and converges once the connect settles and this stops being active. */
+    if (host_in_active_use(host))
+      continue;
+    /* Not actively in use: if this host is still the selected-but-idle active_host (e.g. the
+     * user signed out of PSN while a PSN card was selected but no connect/stream was ever
+     * started), clear the pointer before freeing so it doesn't dangle. */
     if (context.active_host == host)
       context.active_host = NULL;
     host_free(host);
@@ -174,7 +183,7 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
        (src->registered_state && src->registered_state->server_nickname &&
         src->registered_state->server_nickname[0])
            ? src->registered_state->server_nickname
-           : (src->hostname ? src->hostname : "<unnamed>"));
+           : (src->hostname[0] ? src->hostname : "<unnamed>"));
 
   int slot = -1;
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
@@ -213,19 +222,23 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
   host->type &= ~(DISCOVERED | MANUALLY_ADDED);
   if (device->type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5)
     host->target = CHIAKI_TARGET_PS5_1;
-  if (!host->hostname || !host->hostname[0]) {
-    host->hostname = strdup(device->device_name);
+  if (!host->hostname[0]) {
+    snprintf(host->hostname, sizeof(host->hostname), "%s", device->device_name);
+  }
+  if (!host->display_name[0]) {
+    snprintf(host->display_name, sizeof(host->display_name), "%s", device->device_name);
   }
 
   context.hosts[slot] = host;
   LOGD(
       "PSN host refresh device[%u]: added PSN host slot=%d host_ptr=%p hostname=%s source_seed=%s "
       "uid_zero=%d uid_prefix=%08x",
-      (unsigned int)device_index, slot, (void *)host, host->hostname ? host->hostname : "<unnamed>",
+      (unsigned int)device_index, slot, (void *)host,
+      host->hostname[0] ? host->hostname : "<unnamed>",
       (src->registered_state && src->registered_state->server_nickname &&
        src->registered_state->server_nickname[0])
           ? src->registered_state->server_nickname
-          : (src->hostname ? src->hostname : "<unnamed>"),
+          : (src->hostname[0] ? src->hostname : "<unnamed>"),
       psn_uid_is_zero(host->psn_device_uid), psn_uid_debug_prefix(host->psn_device_uid));
   return PSN_HOST_ADD_RESULT_ADDED;
 }
@@ -245,7 +258,7 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
 #if CHIAKI_CAN_USE_HOLEPUNCH
   LOGD(
       "psn_remote_prepare: host_ptr=%p hostname=%s source=%d type=0x%x uid_zero=%d uid_prefix=%08x",
-      (void *)host, host->hostname ? host->hostname : "<null>", host->source, host->type,
+      (void *)host, host->hostname[0] ? host->hostname : "<null>", host->source, host->type,
       psn_uid_is_zero(host->psn_device_uid), psn_uid_debug_prefix(host->psn_device_uid));
   if (!out_session) {
     LOGE("PSN remote prepare failed: missing output session");

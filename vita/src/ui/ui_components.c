@@ -9,6 +9,8 @@
  * Extracted from ui.c during Phase 4 of UI refactoring.
  */
 
+#include <stdio.h>
+
 #include "context.h"
 #include "ui/ui_components.h"
 #include "ui/ui_internal.h"
@@ -635,12 +637,12 @@ static void debug_menu_apply_action(int action_index) {
           h->server_mac[4] = 0x00;
           h->server_mac[5] = (uint8_t)(n + 1);
 
-          h->hostname = strdup(ips[n]);
+          snprintf(h->hostname, sizeof(h->hostname), "%s", ips[n]);
+          snprintf(h->display_name, sizeof(h->display_name), "%s", names[n]);
 
           // Create discovery state
           ChiakiDiscoveryHost *ds = (ChiakiDiscoveryHost *)malloc(sizeof(ChiakiDiscoveryHost));
           if (!ds) {
-            free(h->hostname);
             free(h);
             break;
           }
@@ -652,6 +654,7 @@ static void debug_menu_apply_action(int action_index) {
           ds->host_name = strdup(names[n]);
           ds->host_addr = strdup(ips[n]);
           h->discovery_state = ds;
+          h->discovery_state_snapshot = ds->state;
 
           h->last_discovery_seen_us = sceKernelGetProcessTimeWide();
           h->status_hint[0] = '\0';
