@@ -12,6 +12,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - **B arm results:** 5825k flat, zero step-downs. 1Hz CONGESTION/LOSS diagnostics correct
   - **Pre-fix baseline (log 24402261711):** staircase 5825k→3579k in 66s — eliminated
   - **Verdict:** Post-FEC effective loss reporting working correctly; PS5 bitrate floor-throttling fixed
+  - **⚠️ DISPUTED (2026-08-11, found during PR #236 branch review):** "Post-FEC" is a mislabel. `lib/src/congestioncontrol.c:44` computes `reported_lost = lost + recovered / CONGESTION_FEC_RECOVERED_LOSS_DIVISOR` — FEC-recovered units are **added** to reported loss (deadbanded by 4), never subtracted; the function's own comment at `:41-43` also contradicts its code. Practical impact was ~zero in the logs reviewed for PR #236 (`fec_recovered` totals 15 and 6, rounding to 0 nearly every tick), so the bitrate-stability verdict above is unaffected — the mechanism description was wrong, the observed outcome was not. GH issue to be filed for the accounting-comment correctness fix.
 
 - [x] **PR #215 Reliable Stop-to-Reconnect — VALIDATED**
   - **A arm:** `DISCONNECT acked after 14 ms` + 2s guard; quick reconnect hit RP_IN_USE (0x80108b10), single auto-retry (6s) recovered without user awareness
@@ -49,7 +50,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 - [x] **Latency root-cause investigation complete (session log 24402261711, build 287c6287)**
   - **Findings:** User-reported "latency regressed" was NOT a code regression — direct A/B showed pre-#213 baseline (log 18107437792) was worse (59 nonzero loss ticks, floor 2427k) vs fresh run (log 24402261711) (3 ticks, floor 3579k).
   - **Three-factor model identified:**
-    1. **Loss reports** — Fixed by PR #213 (post-FEC accounting)
+    1. **Loss reports** — Fixed by PR #213 (post-FEC accounting — ⚠️ mislabeled, `congestioncontrol.c:44` **adds** `recovered/4` rather than subtracting; see `TODO.md:220`)
     2. **Corrupt-frame reports** (dominant remaining driver) — Fixed by PR #223 (500ms cooldown + coalescing); upstream chiaki reports each gap once; VitaRPS5 fork regression from PR #63 caused 17 wire sends for same expanding range 175→222
     3. **PS5 delay measurement** — Proven by step-down with loss=0 and no corrupt reports (log line 6010)
   - **Stalls are network-side Wi-Fi radio bursts**, not client blockage
@@ -89,6 +90,13 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 - [x] **GH #224** — Classifier PATHOLOGICAL disposition + fec_failed WARN latch follow-ups
 - [x] **GH #225** — Late stop during senkusha gap
 - [x] **GH #226** — Streamconnection mutex-held error returns
+
+### PR #236 Branch Review — Investigation Findings (2026-08-11)
+Findings surfaced while investigating the ENOBUFS `select()` retry gap (see TODO.md "In Review" item 6 for the code fix itself, still awaiting hardware validation — not listed as done here).
+- [x] **Confirmed settled: Takion reorder queue is genuinely control-channel-only.** `takion.c:1654-1665` — video/audio never call `chiaki_reorder_queue_push()`. Its `late` counter over-counts because anything with `seq < queue->begin` is bucketed LATE with no separate "stale retransmit" reason, so PS5 retransmits of already-consumed control messages inflate it. Confirmed log noise, not a video signal — no further action needed.
+- [x] **Disputed (corrected in place, not deleted): "genuine Wi-Fi arrival-time jitter ~60ms" conclusion.** See the 2026-08-10 section below and TODO.md item 14 — the metric reads a control-channel EWMA plus a one-time Senkusha RTT, not a live measurement. Corrective fix (PR B) queued.
+- [x] **Disputed (corrected in place, not deleted): PR #213 "post-FEC" framing.** See the PR #213 entry above and TODO.md item 15 — `congestioncontrol.c:44` adds recovered loss to reported loss rather than subtracting it. Practical impact ~zero; mechanism description wrong.
+- [x] **Deferred tuning item quantified: PS5 bitrate ratchet down-fast/up-slow asymmetry.** LAN −34% bitrate drop recovering at only +25 kbps/s against loss bursts arriving every ~9s; Internet session shows the same shape at smaller scale. Aggregate loss is small and mostly genuine, so this is a ratchet-shape tuning problem, not a phantom-loss-reporting bug. See TODO.md item 15.
 
 ---
 
@@ -130,9 +138,10 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - Evidence: Proximity A/B test log 13382891119 (same session that triggered ENOBUFS freeze; now continues streaming with single WARN)
 
 ### PR #213 - Post-FEC Effective Loss Reporting (MERGED 4128b99a)
-- [x] **Fix PS5 bitrate floor-throttling via post-FEC loss accounting**
+- [x] **Fix PS5 bitrate floor-throttling via post-FEC loss accounting** (⚠️ "post-FEC" mislabeled — see disputed note two lines below, `TODO.md:220`)
   - **Root Cause:** Loss reported to PS5 pre-FEC + PS5's downward-only bitrate ratchet (5825k→2591k over 75s from 0.8–5% loss reports, under inert 10% cap)
   - **Fix:** Post-flush FEC-outcome-aware accounting (source-only), recovered-loss safety valve (divisor 4), 1Hz CONGESTION/LOSS diagnostic logging
+  - **⚠️ DISPUTED (2026-08-11):** This "post-FEC"/"source-only accounting" description does not match the shipped code. `lib/src/congestioncontrol.c:44` computes `reported_lost = lost + recovered / CONGESTION_FEC_RECOVERED_LOSS_DIVISOR` — recovered units are added to, not subtracted from, reported loss. The 2026-08-11 hardware A/B results below (bitrate stability, staircase elimination) are still valid observations of behavior; only the causal mechanism claimed here is wrong. See TODO.md item 15 for the follow-up correctness fix (GH issue to be filed).
   - **Additional Bugs Fixed:** Audio push_seq race, seq-math integer promotion + inverted max-loss branch, never-set frameprocessor `flushed` flag (late units corrupted compacted buffer + false duplicate errors), alloc_frame stale counters (underflow hazard)
   - **Code Review:** 3 rounds (code-guardian), all findings fixed
   - **Hardware A/B:** PENDING (checklist: CONGESTION/LOSS shows raw_lost>0/fec_recovered≈raw_lost/reported≈0; no staircase, target holds ~5.8Mbps 10+min; forced loss still reports + IDR)
@@ -163,7 +172,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ### New Root-Cause Understanding (GH #206 - "Wi-Fi burst jitter + receive-queue overflow drive PS5 bitrate floor-throttling")
 - [x] **Identified: Three-factor lag driver**
-  - (a) **Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50** (base RTT 6–10ms, actual 63–84ms; one session had zero client drops yet 64ms jitter)
+  - (a) **Genuine Wi-Fi arrival-time jitter ~60ms at RSSI ~50** (base RTT 6–10ms, actual 63–84ms; one session had zero client drops yet 64ms jitter) — **⚠️ DISPUTED (2026-08-11):** this reading comes from `vita/src/host_metrics.c:325-334`'s `RTT = base + jitter`, where `base` (`session.rtt_us`) is set once by the Senkusha handshake and never updated during the stream, and `jitter` is a control-channel-only inter-arrival EWMA (`takion.c:1985-2012`) that video/audio never touch. Not a proven live network measurement — see DONE.md 2026-08-11 batch and TODO.md item 14 for the corrective fix (PR B, `fix/latency-metric-truthfulness`, gated on PR #236 validation). Kept here rather than deleted; the queue-drain and ratchet findings below have independent evidence.
   - (b) **Receive queue pinned at 256 slots dripping 1046 single-packet drops despite drain cap already being 256/wakeup** (constant `TAKION_RECV_DRAIN_MAX` at `lib/src/takion.c:71`, raised from 64 by commit a9b61cb1; drain loop at `lib/src/takion.c:1261-1276`). Drain cap is not the bottleneck; deficit is elsewhere (recv-thread scheduling during bursts / sustained arrival rate exceeds drain rate).
   - (c) **PS5 congestion control throttling target_bitrate 4977k → 1597k floor** within each session in response to reported loss
     - **Note:** This CONTRADICTS earlier belief that "PS5 ignores congestion control feedback"

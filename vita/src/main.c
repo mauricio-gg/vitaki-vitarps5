@@ -80,8 +80,12 @@ static int vita_init() {
   }
 
   SceNetInitParam param;
-  // TODO: this is probably way too large
-  static char memory[4 * 1024 * 1024];
+  // 8 MiB net pool. Takion sets both SO_RCVBUF and SO_SNDBUF to 512KB
+  // (TAKION_A_RWND = 0x80000, takion.c:51) at two setsockopt call sites, and
+  // discovery/ctrl/PSN sockets draw from this same pool. The previous 4 MiB
+  // pool was measured exhausting under sustained LAN streaming throughput,
+  // surfacing as ENOBUFS from send()/recv()/select() and killing sessions.
+  static char memory[8 * 1024 * 1024];
   param.memory = memory;
   param.size = sizeof(memory);
   param.flags = 0;
@@ -90,6 +94,7 @@ static int vita_init() {
     LOGE("sceNetInit failed: %x\n", ret);
     return 1;
   }
+  LOGD("sceNetInit pool size: %u bytes", (unsigned int)param.size);
 
   if ((ret = sceNetCtlInit()) < 0) {
     LOGE("sceNetCtlInit failed %x\n", ret);

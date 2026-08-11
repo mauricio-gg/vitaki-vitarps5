@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-11 (Hardware A/B validation partial: PRs #213/#215/#223 confirmed; #227 pending; #221 inconclusive; 2 checklist rows untested; follow-up issues #219/#220/#221/#222/#224/#225/#226 prioritized)
+Last Updated: 2026-08-11 (PR #236 opened — Takion ENOBUFS `select()` retry-chain hardening, v0.1.898, hardware validation pending; latency-metric truthfulness + PR #213 loss-accounting mislabel flagged as disputed findings; hardware A/B validation of PRs #213/#215/#223 still confirmed, #227 pending, #221 inconclusive)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -134,7 +134,8 @@ Only move a task to "Done" after the reviewer signs off.
 ### 📝 Latency & Performance
 1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** — **Follow-up issues filed (2026-08-11); Hardware A/B validation partial (PRs #213/#215/#223 confirmed)**
    - *Goal:* Root-cause lag spikes and corresponding follow-up work (three-factor model: Wi-Fi jitter ~60ms, receive queue drain deficit, PS5 bitrate ratchet). Hardware validation of PRs #213/#215/#223/#227 + GH #221 parity A/B complete (see TODO item 3). Follow-up tracking issues filed: #219, #220, #221, #222, #224, #225, #226 (#218 closes with PR #223).
-   - *Evidence:* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness. PS5 throttling (steeply asymmetric ratchet: large drops, +25kbps crawl) fixed by PR #213 (post-FEC accounting); soft-restart ratchet reset fixed by PR #227 (should_stop latch); corrupt-frame report spam fixed by PR #223 (500ms coalescing); diagnostics A/B added by PR #228 (GH #221).
+   - *Evidence:* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness. PS5 throttling (steeply asymmetric ratchet: large drops, +25kbps crawl) fixed by PR #213 (post-FEC accounting, but see disputed-mechanism note below); soft-restart ratchet reset fixed by PR #227 (should_stop latch); corrupt-frame report spam fixed by PR #223 (500ms coalescing); diagnostics A/B added by PR #228 (GH #221).
+   - *⚠️ DISPUTED (2026-08-11):* The "jitter 50–90ms" and "genuine Wi-Fi arrival-time jitter ~60ms" readings above are **not proven live-network measurements**. `vita/src/host_metrics.c:325-334` prints `RTT = base + jitter` where `base` (`session.rtt_us`) is written exactly once by the Senkusha handshake (`senkusha.c:382` / `session.c:685`) and never updated during the stream, and `jitter` is an EWMA of **control-channel** packet inter-arrival deviation (`takion.c:1985-2012`) — video/audio never touch it. That's exactly what a control-cadence EWMA would yield regardless of signal quality, which explains why the proximity A/B (moving to RSSI 100) changed nothing. This does not overturn the underlying receive-queue-drain and PS5-ratchet findings, which have independent evidence — only the "it's genuine Wi-Fi jitter" framing of the RTT/jitter number itself. Do not delete the original conclusion; a corrective fix (PR B, `fix/latency-metric-truthfulness`) is queued below (item 14), gated on PR #236 hardware validation.
    - *Remaining Scope:* Follow-up investigation: GH #219 (control-channel late reorder drops), #220 (RECV_MALLOC_BURST churn), #221 (parity A/B inconclusive/benign), #222 (test suite never executes), #224 (classifier PATHOLOGICAL disposition), #225 (late stop during senkusha gap), #226 (streamconnection mutex-held error returns).
    - *Next Step:* Address follow-up issues #219/#220/#221/#222/#224/#225/#226 in priority order.
 
@@ -151,7 +152,7 @@ Only move a task to "Done" after the reviewer signs off.
 3. **Hardware Validation: PRs #213 + #215 + #223 + #227 + #228 Session** 🟡 **PARTIALLY VALIDATED 2026-08-11 — #213/#215/#223 confirmed; #227 pending; #221 inconclusive; 2 checklist rows untested**
    - *Goal:* Validate post-FEC loss reporting (PR #213) + reliable stop-to-reconnect (PR #215) + corrupt-frame coalescing (PR #223) + should_stop fix (PR #227) + diagnostics A/B parity (PR #228/GH #221) together on hardware. Combined checklist ensures all features work without regression.
    - *Hardware Results (Logs 27052669255 = Build A baseline parity_inclusive=0, 27281373937 = Build B parity_inclusive=1, commit 78fe4e86):*
-     - [x] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show correct post-FEC accounting. A: reported=16 aggregate over 126 windows/49795 received (window dip precursor reported=7); one session mild dip 5825k→5691k then full recovery via +25k crawl. B: 5825k flat, zero step-downs. No pathological-span suppressions. Pre-fix staircase (5825k→3579k in 66s, log 24402261711) is gone. ✅ VALIDATED
+     - [x] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show correct post-FEC accounting *(⚠️ DISPUTED 2026-08-11 — see item 15 below: "post-FEC" is a mislabel, `congestioncontrol.c:44` adds recovered-loss to reported loss rather than subtracting it; the bitrate-stability result itself is still validated below)*. A: reported=16 aggregate over 126 windows/49795 received (window dip precursor reported=7); one session mild dip 5825k→5691k then full recovery via +25k crawl. B: 5825k flat, zero step-downs. No pathological-span suppressions. Pre-fix staircase (5825k→3579k in 66s, log 24402261711) is gone. ✅ VALIDATED
      - [x] **No staircase pattern:** Bitrate stable. A: bitrate dip 5825k→5691k then FULL recovery to 5825k. B: 5825k flat throughout. Pre-fix staircase is eliminated. ✅ VALIDATED
      - [ ] **Forced loss still reports:** NOT EXERCISED — no forced-drop arm in this session.
      - [x] **PR #215 Stop-to-Reconnect:** A: `DISCONNECT acked after 14 ms` + 2s guard; quick reconnect hit RP_IN_USE (0x80108b10) and single auto-retry (6s) recovered without user awareness. B: DISCONNECT not acked within 400ms → correct 8s-guard fallback, reconnect succeeded. Both paths exercised. ✅ VALIDATED
@@ -210,6 +211,16 @@ Only move a task to "Done" after the reviewer signs off.
     - Compare packet-loss indicators (missing references, corrupt frame bursts) against decode pressure indicators (queue depth/drops, decode anomalies) to avoid tuning the wrong subsystem.
     - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
+14. **Latency metric truthfulness fix (new, 2026-08-11)** — GH issue to be filed
+    - *Finding:* `vita/src/host_metrics.c:325-334` prints `RTT = base + jitter`, but `base` (`session.rtt_us`) is written once by the Senkusha handshake and never updated during the stream, and `jitter` is a control-channel-only inter-arrival EWMA (`takion.c:1985-2012`) that video/audio never touch. Neither term is a live round trip. See disputed-mechanism note under item 1 above.
+    - *Planned fix:* PR B on branch `fix/latency-metric-truthfulness` — implement a metric that actually measures video/audio path timing. Gated on PR #236's hardware validation landing first.
+    - *Next Step:* File GH issue, then implement live RTT/jitter measurement.
+
+15. **PR #213 loss-accounting mislabel + PS5 ratchet asymmetry (new, 2026-08-11)** — docs corrected here; tuning deferred, GH issue to be filed
+    - *Docs finding:* `lib/src/congestioncontrol.c:44` computes `reported_lost = lost + recovered / CONGESTION_FEC_RECOVERED_LOSS_DIVISOR` — FEC-recovered units are **added** to reported loss (deadbanded by 4), never subtracted. Tracker text describing PR #213 as "post-FEC effective loss reporting" is a mislabel; the function's own comment (`congestioncontrol.c:41-43`) also contradicts its code. Practical impact in the two logs analyzed for PR #236 was ~zero (`fec_recovered` totals 15 and 6, rounding to 0 nearly every tick), so the hardware-validated bitrate-stability result (item 3 above) still stands — only the mechanism description was wrong.
+    - *Ratchet tuning finding:* LAN session 1 measured 5825 → 5429 → 5052 → 4906 → 4779 → 3860 kbps (−34%), recovering at only +25 kbps/s; Internet session measured 3398 → 3185 → 3046 → 2921. Aggregate reported loss was small and mostly genuine (LAN 0.54% raw / 0.24% reported, 6 of 55 seconds nonzero; Internet 0.58% / 0.12%, 5 of 45); the 10% cap is working (127 → 56). Not phantom-loss spam — recovering 3860 → 5825 needs 79 clean seconds while a loss burst arrives every ~9s, so the ratchet's down-fast/up-slow asymmetry is the actual bottleneck.
+    - *Next Step:* GH issue to be filed for both the accounting-comment fix and the ratchet recovery-rate tuning; deferred behind PR #236 hardware validation.
+
 ### 📥 In Review
 1. **PSN WebSocket 403 Fix (GH #204)**
    - *Owner:* Implementation agents (dc093a4b, 17456f71, cafe92eb, c476f4b3)
@@ -251,6 +262,15 @@ Only move a task to "Done" after the reviewer signs off.
    - *Goal:* Instrument Chiaki's internal generation/stream ID propagation so all `PIPE/` log lines include a machine-readable tag identifying which generation (reconnect or initial) they belong to.
    - *Status:* Deferred after PR #183 to focus on other priority work.
    - *Next Step:* Spike Chiaki's generation tracking in `lib/src/takion.c` and `lib/src/session.c` to understand how gen IDs flow through log macro callsites.
+
+6. **PR #236: Takion ENOBUFS `select()` retry-chain hardening (v0.1.898)** — code committed (3cd6223d), hardware validation PENDING
+   - *Owner:* Implementation agent
+   - *Goal (P1, the fix):* PR #209 (GH #208) hardened `recv()` against transient ENOBUFS, but `select()` in the same recv path was left retrying only `EINTR` — so the identical transient errno still killed the recv thread (`CHIAKI_EVENT_QUIT code=11`). Reproduced deterministically 2/2 on hardware logs `36193250515_vitarps5-testing.log` (LAN, kicked out twice) and `36347840658_vitarps5-testing.log` (Internet, laggy), both build `9fa39cd3156d`. Added `CHIAKI_ERR_NETWORK_TRANSIENT`; `stoppipe.c` classifies it, `takion_recv()` owns retry policy, transient counter shared with the recv path.
+   - *P2:* `sceNetInit` pool 4 MiB → 8 MiB (`vita/src/main.c`); replaced a stale "probably way too large" TODO with a measured justification; pool size now logged at init. `TAKION_A_RWND` deliberately left untouched (PR #193 already tested and reverted shrinking it).
+   - *P3:* Feedback sender measured ~170 packets/s vs a DualSense's ~60/s. `next_timeout` never left `FEEDBACK_STATE_TIMEOUT_MIN_MS`, so idle floored at 125/s (the `MIN_MS` throttle TODO was never implemented); Vita MEMS motion was written raw into `controller_state` every 2ms poll and compared with a 1e-7 epsilon so noise looked like input on every poll. All three addressed — result: 170/s → 125/s active, ~5/s idle.
+   - *Accepted tuning gap:* `FEEDBACK_STATE_TIMEOUT_MIN_MS` stays at 8, capping active sends at 125/s rather than the ~60/s originally targeted — closing it would cost up to 8ms input latency. This is a deliberate, recorded decision, not an oversight.
+   - *Pass condition:* Zero `EventCB … code=11` quits over a ≥5 min LAN session. Residual `Takion failed to send raw: No buffer space available` lines *without* a quit still count as a pass.
+   - *Next Step:* Hardware validation on `./tools/build.sh --env testing`, then move to Done.
 
 ---
 

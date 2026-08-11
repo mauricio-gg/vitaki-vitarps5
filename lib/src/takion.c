@@ -1495,6 +1495,45 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 		ChiakiErrorCode err = chiaki_stop_pipe_select_single(&takion->stop_pipe, takion->sock, false, timeout_ms);
 		if(err == CHIAKI_ERR_TIMEOUT || err == CHIAKI_ERR_CANCELED)
 			return err;
+		if(err == CHIAKI_ERR_NETWORK_TRANSIENT)
+		{
+			// select() itself hit a transient kernel-side condition (e.g. ENOBUFS),
+			// not a dead link. Same retry/backoff/escalation treatment as the
+			// recv() transient path below, sharing its takion->transient_recv
+			// counters -- see the field comment in takion.h for why they're
+			// shared rather than split. Also shares that path's timeout_ms==0
+			// zero-cost-poll exemption immediately below: the non-blocking
+			// drain caller (takion.c's drain loop, timeout_ms == 0) must not
+			// be blocked here by the retry sleep, or an ENOBUFS storm would
+			// stall the whole recv thread inside what's meant to be a
+			// non-blocking poll -- see the recv-path comment for the full
+			// rationale.
+			uint64_t now = chiaki_time_now_monotonic_ms();
+			if(takion->transient_recv.consecutive == 0)
+				takion->transient_recv.first_ms = now;
+			takion->transient_recv.consecutive++;
+
+			if(timeout_ms == 0)
+				return CHIAKI_ERR_TIMEOUT;
+
+			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE)
+			{
+				CHIAKI_LOGE(takion->log, "Takion select: transient error persisted for %u consecutive attempts over %llu ms, giving up",
+						takion->transient_recv.consecutive, (unsigned long long)(now - takion->transient_recv.first_ms));
+				return CHIAKI_ERR_NETWORK;
+			}
+
+			if(now - takion->transient_recv.log_ms >= TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS)
+			{
+				CHIAKI_LOGW(takion->log, "Takion select: transient error (" CHIAKI_SOCKET_ERROR_FMT "), retrying", CHIAKI_SOCKET_ERROR_VALUE);
+				takion->transient_recv.log_ms = now;
+			}
+
+			ChiakiErrorCode sleep_err = chiaki_stop_pipe_sleep(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS);
+			if(sleep_err == CHIAKI_ERR_CANCELED)
+				return sleep_err;
+			continue;
+		}
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
 			CHIAKI_LOGE(takion->log, "Takion select failed: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);

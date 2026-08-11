@@ -238,13 +238,31 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stop_pipe_select_single(ChiakiStopPipe *sto
 	{
 		r = select(nfds, &rfds, write ? &wfds : NULL, NULL, timeout);
 #ifdef _WIN32
-	} while(r < 0 && WSAGetLastError() == WSAEINTR)
+	} while(r < 0 && WSAGetLastError() == WSAEINTR);
 #else
 	} while(r < 0 && errno == EINTR);
 #endif
 
 	if(r < 0)
+	{
+		// select() can fail on a transient kernel-side condition (ENOBUFS)
+		// rather than a dead socket/link -- the same class of error
+		// CHIAKI_SOCKET_RECV_ERR_TRANSIENT already classifies for recv().
+		// Report it as a distinct code so the caller can retry with backoff
+		// instead of tearing the connection down on the first hiccup. This
+		// helper only classifies the errno; retry/backoff policy belongs to
+		// the caller (see takion_recv() in takion.c). POSIX-only: this
+		// select()-based branch is the `#else` of the outer `#ifdef _WIN32`
+		// above (line 128) and never compiles on Windows, which instead takes
+		// the WSAWaitForMultipleEvents() path and is intentionally left
+		// unchanged here -- it still returns CHIAKI_ERR_UNKNOWN for every
+		// non-timeout/non-cancel failure, including WSAENOBUFS. Scoped out of
+		// this fix; wire it into that switch's `default:` case if Windows
+		// needs the same transient-retry treatment later.
+		if(CHIAKI_SOCKET_RECV_ERR_TRANSIENT)
+			return CHIAKI_ERR_NETWORK_TRANSIENT;
 		return CHIAKI_ERR_UNKNOWN;
+	}
 
 	if(FD_ISSET(stop_fd, &rfds))
 		return CHIAKI_ERR_CANCELED;

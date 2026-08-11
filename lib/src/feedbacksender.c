@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/feedbacksender.h>
+#include <chiaki/time.h>
 
 #define FEEDBACK_STATE_TIMEOUT_MIN_MS 8 // minimum time to wait between sending 2 packets
 #define FEEDBACK_STATE_TIMEOUT_MAX_MS 200 // maximum time to wait between sending 2 packets
@@ -15,6 +16,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	feedback_sender->takion = takion;
 
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state_prev);
+	chiaki_controller_state_set_idle(&feedback_sender->controller_state_history_prev);
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state);
 	feedback_sender->controller_seq_counter = 0;
 
@@ -163,7 +165,10 @@ static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_s
 
 static void feedback_sender_send_history(ChiakiFeedbackSender *feedback_sender)
 {
-	ChiakiControllerState *state_prev = &feedback_sender->controller_state_prev;
+	// Uses controller_state_history_prev, not controller_state_prev: history
+	// is edge-triggered and evaluated on every real change independent of
+	// the state-packet floor -- see the field comments in feedbacksender.h.
+	ChiakiControllerState *state_prev = &feedback_sender->controller_state_history_prev;
 	ChiakiControllerState *state_now = &feedback_sender->controller_state;
 	uint64_t buttons_prev = state_prev->buttons;
 	uint64_t buttons_now = state_now->buttons;
@@ -250,7 +255,13 @@ static void *feedback_sender_thread_func(void *user)
 	if(err != CHIAKI_ERR_SUCCESS)
 		return NULL;
 
-	uint64_t next_timeout = FEEDBACK_STATE_TIMEOUT_MIN_MS;
+	uint64_t next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
+	uint64_t last_send_ms = 0;
+	// Set (and left set) when a real change had to be deferred by the
+	// MIN_MS floor below; a plain bool because it must NOT re-trip
+	// state_cond_check's predicate (that would spin chiaki_cond_timedwait_pred
+	// instead of actually sleeping out the remaining floor time).
+	bool floor_pending = false;
 	while(true)
 	{
 		err = chiaki_cond_timedwait_pred(&feedback_sender->state_cond, &feedback_sender->state_mutex, next_timeout, state_cond_check, feedback_sender);
@@ -262,21 +273,79 @@ static void *feedback_sender_thread_func(void *user)
 
 		bool send_feedback_state = true;
 		bool send_feedback_history = false;
+		bool real_change = feedback_sender->controller_state_changed;
+		feedback_sender->controller_state_changed = false;
 
-		if(feedback_sender->controller_state_changed)
+		if(real_change)
 		{
-			// TODO: FEEDBACK_STATE_TIMEOUT_MIN_MS
-			feedback_sender->controller_state_changed = false;
+			// History is edge-triggered off its own controller_state_history_prev
+			// and is evaluated/sent on every real wake, independent of the
+			// state-packet floor below: a touchpad click pulses for
+			// TOUCHPAD_CLICK_PULSE_FRAMES * ms_per_loop (~4ms, see host_input.c),
+			// shorter than FEEDBACK_STATE_TIMEOUT_MIN_MS (8ms) -- deferring
+			// history detection along with the state packet would silently drop
+			// a press+release that round-trips entirely inside one deferred
+			// floor window.
+			//
+			// NOTE: controller_state_history_prev is deliberately NOT updated
+			// here. feedback_sender_send_history() below still needs to read it
+			// as the OLD (pre-this-wake) reference to compute its own per-field
+			// diffs (which button/L2/R2/touch actually changed); updating it
+			// eagerly here would make that comparison self-vs-self and always
+			// false, silently dropping every history event. It's advanced once,
+			// after the send, further down.
+			send_feedback_history = !controller_state_equals_for_feedback_history(
+					&feedback_sender->controller_state, &feedback_sender->controller_state_history_prev);
+		}
 
-			// don't need to send feedback state if nothing relevant changed
-			if(controller_state_equals_for_feedback_state(&feedback_sender->controller_state, &feedback_sender->controller_state_prev))
+		if(real_change || floor_pending)
+		{
+			// Never send two feedback-state packets closer together than
+			// FEEDBACK_STATE_TIMEOUT_MIN_MS even if a real change lands sooner:
+			// defer the state send, remember it via floor_pending, and shorten
+			// next_timeout to just the remaining floor time.
+			uint64_t now = chiaki_time_now_monotonic_ms();
+			uint64_t since_last_send = now - last_send_ms;
+			if(since_last_send < FEEDBACK_STATE_TIMEOUT_MIN_MS)
+			{
+				floor_pending = true;
 				send_feedback_state = false;
+				next_timeout = FEEDBACK_STATE_TIMEOUT_MIN_MS - since_last_send;
+			}
+			else
+			{
+				floor_pending = false;
 
-			send_feedback_history = !controller_state_equals_for_feedback_history(&feedback_sender->controller_state, &feedback_sender->controller_state_prev);
-		} // else: timeout
+				// don't need to send feedback state if nothing relevant changed
+				// since the last packet we actually sent
+				if(controller_state_equals_for_feedback_state(&feedback_sender->controller_state, &feedback_sender->controller_state_prev))
+					send_feedback_state = false;
+
+				// The floor is already enforced via since_last_send above;
+				// waiting MAX_MS here (instead of re-arming at MIN_MS) avoids a
+				// redundant duplicate resend of the same state ~MIN_MS after
+				// this send, before the idle backoff would otherwise kick in.
+				next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
+			}
+		}
+		else
+		{
+			// Idle (no pending change): keep the periodic ~1/MAX_MS heartbeat
+			// instead of flooring at MIN_MS, which was previously left
+			// permanently unset after initialization and cost an idle
+			// DualSense up to 125 state packets/s.
+			next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
+		}
 
 		if(send_feedback_state) {
 			feedback_sender_send_state(feedback_sender);
+			last_send_ms = chiaki_time_now_monotonic_ms();
+			// Only advance the state-send reference when a packet was actually
+			// sent (see the field comment in feedbacksender.h) -- advancing it
+			// unconditionally would let a floor-deferred send compare against
+			// a prev that already caught up once the floor clears, and the
+			// send would be skipped entirely.
+			feedback_sender->controller_state_prev = feedback_sender->controller_state;
 			feedback_sender->controller_seq_counter++;
 			if((feedback_sender->controller_seq_counter % 500) == 0) {
 				CHIAKI_LOGI(feedback_sender->log,
@@ -287,7 +356,11 @@ static void *feedback_sender_thread_func(void *user)
 		if(send_feedback_history)
 			feedback_sender_send_history(feedback_sender);
 
-		feedback_sender->controller_state_prev = feedback_sender->controller_state;
+		// Advance the history reference only after send_history() has read it
+		// (see the NOTE above); gated on real_change so an idle/timeout wake
+		// (nothing changed) never touches it.
+		if(real_change)
+			feedback_sender->controller_state_history_prev = feedback_sender->controller_state;
 	}
 
 	chiaki_mutex_unlock(&feedback_sender->state_mutex);
