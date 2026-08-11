@@ -411,9 +411,34 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_request_stream_restart(ChiakiSessio
 	else
 		session->stream_restart_profile_valid = false;
 
+	/* Must stay INSIDE this state_mutex critical section, nested exactly like
+	 * chiaki_session_stop() does it: without this, the interrupt signal is decoupled
+	 * in time from the stream_restart_requested=true write above. If the currently
+	 * running chiaki_stream_connection_run() happens to exit on its own for an
+	 * unrelated reason before this unnested call fires, and session.c's restart loop
+	 * consumes the already-true flag and starts a NEW run before the delayed call
+	 * finally executes, the delayed should_stop=true lands on and kills the NEW run
+	 * instead of the one it was meant to interrupt -- which then gets misclassified
+	 * by session.c's non-restart path as CHIAKI_ERR_CANCELED / CHIAKI_QUIT_REASON_STOPPED,
+	 * silently hiding a failed restart. Nesting eliminates the decoupling window entirely. */
+	err = chiaki_stream_connection_stop(&session->stream_connection);
+	if(err != CHIAKI_ERR_SUCCESS)
+	{
+		/* Roll back the half-armed request inside the same critical section: the caller
+		 * (host_recovery.c's request_stream_restart()) treats a non-SUCCESS return as a
+		 * fully failed attempt and retries chiaki_session_request_stream_restart() from
+		 * scratch. If stream_restart_requested were left true here, that retry would
+		 * immediately hit the stream_restart_requested guard above and return
+		 * CHIAKI_ERR_INVALID_RESPONSE without ever reattempting the stop -- and the
+		 * library would still perform a restart the caller believes never got requested,
+		 * desyncing session state from the Vita UI/client. */
+		session->stream_restart_requested = false;
+		session->stream_restart_profile_valid = false;
+	}
 	chiaki_mutex_unlock(&session->state_mutex);
-	chiaki_stream_connection_stop(&session->stream_connection);
-	return CHIAKI_ERR_SUCCESS;
+	if(err != CHIAKI_ERR_SUCCESS)
+		CHIAKI_LOGE(session->log, "Session failed to signal StreamConnection to stop for restart (%d); restart request rolled back, caller should retry", err);
+	return err;
 }
 
 void chiaki_session_send_event(ChiakiSession *session, ChiakiEvent *event)
@@ -714,15 +739,83 @@ ctrl_failed:
 		err = chiaki_stream_connection_run(&session->stream_connection, data_sock);
 		chiaki_mutex_lock(&session->state_mutex);
 
-		bool restart_requested = session->stream_restart_requested && !session->should_stop;
+		/* A restart request must not paper over a concurrent PS5-initiated teardown that
+		 * arrived in this same window: chiaki_stream_connection_run()'s own per-run reset
+		 * would then wipe remote_disconnect_reason on the "restarted" attempt and the
+		 * teardown would go unreported. Refusing the restart below is NOT enough on its
+		 * own to surface that teardown, though: err coming back from run() cannot be
+		 * trusted to reflect a concurrent teardown when a restart was also in flight.
+		 * streamconnection.c's disconnect: classification checks should_stop before
+		 * remote_disconnected, so should_stop MASKS a concurrent teardown whenever that
+		 * classification block is reached -- and every restart attempt works by calling
+		 * chiaki_stream_connection_stop() (which sets stream_connection->should_stop) to
+		 * interrupt the currently-running chiaki_stream_connection_run() in the first
+		 * place, so that block is always reached with should_stop true. Worse, some
+		 * CHECK_STOP exit paths in chiaki_stream_connection_run() (the one targeting
+		 * close_takion, right after the initial takion-connect wait) bypass the
+		 * disconnect: classification block entirely, returning CHIAKI_ERR_SUCCESS or
+		 * CHIAKI_ERR_TIMEOUT with no teardown classification at all. Either way, err has
+		 * to be reclassified explicitly whenever a real teardown raced the restart --
+		 * driven by the ground-truth remote_disconnected/transport_failed fields rather
+		 * than by err; see restart_refused_by_teardown below. */
+		/* remote_disconnected/transport_failed are read here without holding
+		 * stream_connection->state_mutex (only session->state_mutex is held at this point).
+		 * That's safe because chiaki_stream_connection_run() just returned: on any run where
+		 * chiaki_takion_connect() succeeded, chiaki_takion_close() is called before returning
+		 * (streamconnection.c's disconnect:/close_takion path) and that does a synchronous
+		 * chiaki_thread_join() on the takion thread -- the only thread that writes these two
+		 * fields. So by now that thread is either joined via chiaki_takion_close(), or no
+		 * path that returns from chiaki_stream_connection_run() without having called
+		 * chiaki_takion_close() ever got far enough to start the takion thread in the first
+		 * place. Either way there is no concurrent writer left to race this read. */
+		bool teardown_pending = session->stream_connection.remote_disconnected
+				|| session->stream_connection.transport_failed;
+		bool restart_refused_by_teardown = session->stream_restart_requested
+				&& !session->should_stop && teardown_pending;
+		bool restart_requested = session->stream_restart_requested
+				&& !session->should_stop && !teardown_pending;
+		bool restart_profile_valid = session->stream_restart_profile_valid;
+		session->stream_restart_requested = false; // consumed either way, as defense-in-depth against any future refusal path that doesn't terminate the loop
+		session->stream_restart_profile_valid = false; // cleared unconditionally alongside stream_restart_requested -- don't leave a stale profile flag set past the point its request was consumed/refused
+		if(restart_refused_by_teardown)
+		{
+			CHIAKI_LOGW(session->log, "Soft restart refused: remote teardown pending (remote_disconnected=%d transport_failed=%d)",
+					session->stream_connection.remote_disconnected, session->stream_connection.transport_failed);
+			/* A restart was in flight (which always sets stream_connection->should_stop to
+			 * interrupt the run) at the exact moment a real PS5-initiated teardown also fired.
+			 * remote_disconnected/transport_failed are reset per-run at the top of
+			 * chiaki_stream_connection_run() and set ONLY by an actual teardown event -- they
+			 * are ground truth, never derived from err. So whenever restart_refused_by_teardown
+			 * is true, forcing err = CHIAKI_ERR_DISCONNECTED is always the correct outcome
+			 * regardless of what run() happened to return: if err is CANCELED (should_stop won
+			 * the race at the normal disconnect: classification), correct to override; if err is
+			 * SUCCESS/TIMEOUT (the close_takion CHECK_STOP bypass skipped classification
+			 * entirely), correct to override -- the teardown is real and must be reported; if
+			 * err is already DISCONNECTED, this is an idempotent no-op. Reclassify
+			 * unconditionally rather than gating on err's prior value. Gated on
+			 * restart_refused_by_teardown (not bare teardown_pending) so a genuine
+			 * chiaki_session_stop() racing a remote disconnect still correctly reports STOPPED. */
+			err = CHIAKI_ERR_DISCONNECTED;
+		}
 		if(restart_requested)
 		{
-			if(session->stream_restart_profile_valid)
-			{
+			if(restart_profile_valid)
 				session->connect_info.video_profile = session->stream_restart_profile;
-				session->stream_restart_profile_valid = false;
+			/* Clear the stream_connection-level should_stop latch left over from the
+			 * chiaki_stream_connection_stop() call that chiaki_session_request_stream_restart()
+			 * made to unblock the just-exited run() -- must happen here, still inside this
+			 * session->state_mutex critical section (GH #214). See
+			 * chiaki_stream_connection_prepare_restart()'s doc comment in streamconnection.h
+			 * for why this ordering is required for the swallowed-stop safety proof; do not
+			 * move it after the unlock below or into the ecdh_fini/ecdh_init gap. */
+			if(chiaki_stream_connection_prepare_restart(&session->stream_connection) != CHIAKI_ERR_SUCCESS)
+			{
+				CHIAKI_LOGE(session->log, "Session failed to prepare StreamConnection for restart, aborting session");
+				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN;
+				chiaki_mutex_unlock(&session->state_mutex);
+				chiaki_ecdh_fini(&session->ecdh);
+				break;
 			}
-			session->stream_restart_requested = false;
 			chiaki_mutex_unlock(&session->state_mutex);
 			chiaki_ecdh_fini(&session->ecdh);
 			chiaki_mutex_lock(&session->state_mutex);
