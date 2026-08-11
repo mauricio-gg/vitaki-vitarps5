@@ -261,7 +261,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	 * attempt, or it instantly false-fails via state_finished_cond_check(). The
 	 * same rationale applies to the disconnect-ack fields below: a stale ACKED
 	 * from a previous run must not let this run's disconnect wait believe its
-	 * own DISCONNECT was acked when it wasn't. */
+	 * own DISCONNECT was acked when it wasn't.
+	 *
+	 * should_stop is deliberately NOT reset here (GH #214): this block cannot tell a
+	 * restart's own should_stop apart from a genuine stop landing between runs, so
+	 * clearing it here would swallow that stop. It is instead reset by
+	 * chiaki_stream_connection_prepare_restart() -- see that function's doc comment
+	 * in streamconnection.h for the full ordering proof. Do not "simplify" this by
+	 * moving the reset here. */
 	stream_connection->remote_disconnected = false;
 	stream_connection->transport_failed = false;
 	stream_connection->disconnect_seq_num = 0;
@@ -485,6 +492,19 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnecti
 	ChiakiErrorCode unlock_err = chiaki_mutex_unlock(&stream_connection->state_mutex);
 	err = chiaki_cond_signal(&stream_connection->state_cond);
 	return err == CHIAKI_ERR_SUCCESS ? unlock_err : err;
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_prepare_restart(ChiakiStreamConnection *stream_connection)
+{
+	ChiakiErrorCode err = chiaki_mutex_lock(&stream_connection->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGE(stream_connection->log,
+			"StreamConnection failed to clear should_stop for restart (%d); restart will abort immediately", err);
+		return err;
+	}
+	stream_connection->should_stop = false;
+	return chiaki_mutex_unlock(&stream_connection->state_mutex);
 }
 
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)

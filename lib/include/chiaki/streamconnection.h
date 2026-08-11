@@ -130,6 +130,36 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_toggle_mute_direct_message(
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnection *stream_connection);
 
 /**
+ * Clear should_stop before session.c re-enters chiaki_stream_connection_run() for a soft
+ * stream restart (GH #214).
+ *
+ * CALL THIS ONLY FROM session.c, and ONLY while still holding session->state_mutex in the
+ * SAME critical section that just verified "!session->should_stop" true (i.e. the section
+ * that computed restart_requested). Do not call it from the per-run reset block in
+ * chiaki_stream_connection_run(); see the comment there for why.
+ *
+ * Why calling this from inside session->state_mutex is safe: session->should_stop is monotonic
+ * for the life of a session run. It is set true in exactly three places -- chiaki_session_stop()
+ * and regist_cb()'s two early-setup failure paths (the latter fire only before the streaming
+ * loop even starts) -- and cleared only once, at session init. It never transitions true->false
+ * while a session is actively running. Every writer that can run concurrently with a live
+ * session takes session->state_mutex to make its write; the single init-time clear predates any
+ * other thread and needs no lock. The "!session->should_stop" read that computes
+ * restart_requested in session.c, just before this function is called, is one of those
+ * concurrent-capable accesses too, and likewise takes session->state_mutex. That reduces the
+ * safety of this function to simple lock ordering: that read and this function's should_stop=false
+ * write are one uninterrupted session->state_mutex critical section, so any writer of
+ * session->should_stop is either fully ordered before it (in which case restart_requested already
+ * observed should_stop==true and this function is never reached) or fully ordered after it (in
+ * which case that writer's should_stop=true write -- and its corresponding
+ * chiaki_stream_connection_stop() call -- lands strictly after this function's reset and is never
+ * clobbered by it). Either way the stop is honored, never swallowed. Moving this call outside that
+ * critical section (e.g. after session->state_mutex is unlocked, or into the ecdh_fini/ecdh_init
+ * gap in session.c) breaks this proof.
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_prepare_restart(ChiakiStreamConnection *stream_connection);
+
+/**
  * Get the delivery status of the most recent DISCONNECT message.
  * Safe to call after the session thread (chiaki_stream_connection_run) has
  * returned, before chiaki_stream_connection_fini() — locks/unlocks state_mutex internally.
