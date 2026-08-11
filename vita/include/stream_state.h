@@ -10,6 +10,27 @@
  * INET6_ADDRSTRLEN is 46 bytes; 64 gives comfortable headroom. */
 #define PSN_SELECTED_ADDR_SIZE 64
 
+/* Latency investigation (2026-08): fixed-capacity ring for per-frame end-to-end latency
+ * samples within a single ~1s window. The window-close trigger (refresh_rtt in
+ * host_metrics.c) is evaluated once per UI pass rather than on a hard 1000000us tick, so
+ * real windows run ~1.02-1.06s at 60fps (60-64 samples) and further past that whenever the
+ * UI loop hitches -- exactly when a late-window latency spike is most interesting. 128
+ * gives headroom for a ~2s window at 60fps before the ring wraps. See vita/src/video.c
+ * (writer, at vita2d_swap_buffers() — overwrites the OLDEST sample once full, never drops
+ * the newest) and vita/src/host_metrics.c (reader/reducer, at its existing 1s window). No
+ * heap allocation, no per-frame growth either way. */
+#define LATENCY_WINDOW_SAMPLE_CAP 128
+
+/* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,
+ * and the leading hypothesis under test is a SUB-FRAME persistent depth shift (e.g.
+ * 1.2 -> 1.9), which plain integer division cannot resolve -- both print "1" and the
+ * signal this whole PR exists to find becomes invisible. decode_q_occ_avg/audio_q_occ_avg
+ * below are therefore fixed-point, scaled by this factor (avg_x100=190 means 1.90 frames);
+ * the corresponding *_max fields are genuinely discrete depth counts and stay plain
+ * integers. Shared by vita/src/video.c (decode queue) and vita/src/audio.c (audio ring)
+ * so both occupancy metrics use the same encoding. */
+#define OCC_AVG_FIXED_POINT_SCALE 100u
+
 typedef struct vita_chiaki_stream_t {
   ChiakiSession session;
   ChiakiControllerState controller_state;
@@ -205,4 +226,51 @@ typedef struct vita_chiaki_stream_t {
   uint32_t cascade_alarm_streak;    // Consecutive 1s windows with cascade_delta >= 2 AND low FPS
   bool cascade_alarm_restart_used;  // Once per session
   uint64_t cascade_alarm_last_action_us;  // Cooldown timestamp
+
+  // --- Latency investigation (true end-to-end frame latency, decode/audio occupancy) ---
+  // latency_window_samples_ms: written by vita_video_render_latest_frame() (UI thread) at
+  // vita2d_swap_buffers() time; read, reduced to p50/p95/max and reset by
+  // host_metrics_update_latency() (also UI thread -- called immediately after render each
+  // loop iteration, see vita/src/ui.c) inside its existing 1s refresh_rtt window. Same
+  // thread on both ends, sequential within one loop pass -- no locking needed.
+  uint32_t latency_window_samples_ms[LATENCY_WINDOW_SAMPLE_CAP];
+  uint32_t latency_window_sample_count;  // Valid entries in the ring right now (<= CAP)
+  uint32_t latency_window_write_idx;     // Next ring slot to write; wraps once count==CAP
+  // Code review fix: this used to be session-cumulative (like decode_queue_drops), which
+  // hid whether the window that just closed was itself truncated -- exactly the case that
+  // matters when hunting a post-event latency spike. Now per-window: incremented in
+  // video.c whenever the ring overwrites a still-valid sample, reset (after being
+  // snapshotted into latency_dropped_n below) each window close in host_metrics.c.
+  uint32_t latency_window_dropped_count;
+  uint32_t latency_dropped_total_count;  // Session-cumulative twin, kept for long-run visibility
+  uint32_t latency_p50_ms;  // Published once per ~1s window by host_metrics_update_latency()
+  uint32_t latency_p95_ms;
+  uint32_t latency_max_ms;
+  uint32_t latency_sample_n;   // Sample count backing the above (0 = no data this window)
+  uint32_t latency_dropped_n;  // latency_window_dropped_count snapshot for the window that
+                               // just closed (0 = this window's ring never wrapped)
+  // Code review fix: was a function-local `static` in host_metrics.c with no way for
+  // host_metrics_reset_stream() to clear it across a session reset. See host_metrics.c.
+  uint64_t latency_log_last_us;
+
+  // Decode queue occupancy (vita/src/video.c). Time-weighted (area-under-the-depth-curve
+  // divided by window duration), not a naive average of push/pop samples: see the
+  // decode_q_occ_area_us comment in video.c for why a push/pop-only sample is structurally
+  // biased (every such sample is >=1 by construction, and none fall during the multi-ms
+  // sceAvcdecDecode window where a real backlog would actually sit). Decode thread and recv
+  // thread write under decode_q_mtx; UI thread reads once per ~1s window.
+  volatile uint32_t decode_q_occ_avg;  // Fixed-point x OCC_AVG_FIXED_POINT_SCALE (see above)
+  volatile uint32_t decode_q_occ_max;  // Plain integer frame count (genuinely discrete)
+
+  // Audio ring occupancy in frames (vita/src/audio.c): audio thread writes each ~1s
+  // window, UI thread reads.
+  volatile uint32_t audio_q_occ_avg;  // Fixed-point x OCC_AVG_FIXED_POINT_SCALE (see above)
+  volatile uint32_t audio_q_occ_max;  // Plain integer frame count (genuinely discrete)
+
+  // NET_UNSTABLE banner debounce -- mirrors the UNRECOVERED_FRAME_THRESHOLD pattern in
+  // host_feedback.c. Accumulated frames_lost since the streak last reset (either by
+  // firing the banner or by NET_UNSTABLE_BANNER_DECAY_US of quiet — see host_feedback.c).
+  uint32_t net_unstable_banner_streak;
+  uint64_t net_unstable_last_loss_us;  // Timestamp of the most recent loss event counted
+                                       // into the streak above; drives the decay check.
 } VitaChiakiStream;

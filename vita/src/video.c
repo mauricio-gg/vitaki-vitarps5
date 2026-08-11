@@ -84,6 +84,18 @@ static vita2d_texture *last_good_texture = NULL;
  * the UI thread. Single-writer/single-reader on Vita Cortex-A9 — volatile sufficient. */
 static volatile bool incoming_frame_corrupt = false;
 
+/* Latency investigation (2026-08): first-packet-arrival timestamp (lib-side
+ * chiaki_time_now_monotonic_ms() clock, see videoreceiver.c cur_frame_first_packet_ms) for
+ * the frame currently sitting in frame_texture. Set alongside incoming_frame_corrupt in
+ * decode_frame_now() under `mtx`; read in vita_video_render_latest_frame() on the UI
+ * thread right after vita2d_swap_buffers() to compute true end-to-end frame latency.
+ * Same single-writer(decode thread)/single-reader(UI thread) volatile handshake as
+ * incoming_frame_corrupt / frame_ready_for_display above -- Cortex-A9 cache coherency
+ * makes plain volatile sufficient here, per established project convention. 0 = no valid
+ * timestamp (e.g. header-only callback; see chiaki_video_receiver_stream_info() call site
+ * in videoreceiver.c which never carries a real frame timestamp). */
+static volatile uint64_t incoming_frame_first_packet_ms = 0;
+
 /* Consecutive corrupt-frame presentations. Reset on any clean frame.
  * When it reaches FREEZE_MAX_STREAK the freeze is released unconditionally. */
 static int frozen_frame_streak = 0;
@@ -115,39 +127,6 @@ static void snapshot_last_good_frame(void) {
   uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(frame_texture);
   sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
                 vita2d_texture_get_datap(frame_texture), copy_size);
-}
-
-static void record_incoming_frame_sample(void) {
-  uint64_t now_us = sceKernelGetSystemTimeWide();
-  if (context.stream.fps_window_start_us == 0)
-    context.stream.fps_window_start_us = now_us;
-
-  context.stream.fps_window_frame_count++;
-  if (now_us - context.stream.fps_window_start_us >= 1000000) {
-    context.stream.measured_incoming_fps = context.stream.fps_window_frame_count;
-    if (context.config.show_latency) {
-      uint32_t requested = context.stream.negotiated_fps;
-      if (requested == 0)
-        requested = 30;
-      LOGD("Video FPS — incoming %u fps (requested %u)", context.stream.measured_incoming_fps,
-           requested);
-    }
-    // D1: Publish decode timing window stats
-    if (context.stream.decode_window_count > 0) {
-      context.stream.decode_avg_us =
-          context.stream.decode_window_total_us / context.stream.decode_window_count;
-      context.stream.decode_max_us = context.stream.decode_window_max_us;
-    } else {
-      context.stream.decode_avg_us = 0;
-      context.stream.decode_max_us = 0;
-    }
-    context.stream.decode_window_total_us = 0;
-    context.stream.decode_window_max_us = 0;
-    context.stream.decode_window_count = 0;
-
-    context.stream.fps_window_frame_count = 0;
-    context.stream.fps_window_start_us = now_us;
-  }
 }
 
 static bool should_drop_frame_for_pacing(void) {
@@ -241,6 +220,11 @@ typedef struct {
   uint8_t *data; /* malloc'd once at start, DECODE_SLOT_CAPACITY bytes */
   size_t size;   /* valid compressed-bitstream bytes for this frame */
   bool frame_corrupt;
+  /* Latency investigation: lib-side first-packet-arrival timestamp for this frame
+   * (chiaki_time_now_monotonic_ms() clock -- see videoreceiver.c cur_frame_first_packet_ms),
+   * carried through the queue so end-to-end latency can be measured at display time in
+   * vita_video_render_latest_frame(). 0 if unavailable. */
+  uint64_t frame_first_packet_ms;
 } DecodeSlot;
 
 /* Use a SEPARATE mutex from the existing decode `mtx` so the recv thread's
@@ -260,6 +244,127 @@ static bool decode_thread_started = false;
  * reference chain; a post-decode overwrite counted in frame_overwrite_count
  * does not). Should be ~0 on a healthy LAN; exposed in PIPE/FPS for A/B. */
 static uint32_t decode_queue_drops = 0;
+
+/* Decode queue occupancy (latency investigation, item 2) — TIME-WEIGHTED, not a naive
+ * average of samples taken only at push/pop. Code review (2026-08) caught the original
+ * push/pop-sample design as structurally biased: a sample taken right after a push, or
+ * right before a pop (before decode_q_head advances), is >=1 by construction every single
+ * time, AND no sample is ever taken during the multi-ms sceAvcdecDecode window -- which is
+ * precisely when a real backlog would sit. A healthy stream and one genuinely stuck at
+ * depth 1 both reported "avg=1", which is the exact question this leading-hypothesis
+ * metric exists to answer.
+ *
+ * Instead this tracks depth as a step function: every time depth actually changes (a push
+ * increments it, a head-advance after decode decrements it — both already happen under
+ * decode_q_mtx), we close out the interval the PREVIOUS depth was in effect for and add
+ * depth*duration to a running area accumulator. avg = area / elapsed at window-close. This
+ * correctly attributes the entire sceAvcdecDecode duration to whatever depth was in effect
+ * when decode started (which does not change until the post-decode head-advance), instead
+ * of missing it entirely. Uses sceKernelGetProcessTimeWide() to match every other
+ * timestamp already taken at these call sites (decode_frame_now() timing, etc.) — see the
+ * item-1 clock-domain comment in vita_video_render_latest_frame() for why that's the
+ * correct choice on this file's side of the boundary. */
+static uint64_t decode_q_occ_area_us = 0;          // Σ(depth × duration_us) since window start
+static uint64_t decode_q_occ_window_start_us = 0;  // Window anchor for area -> avg normalization
+static uint64_t decode_q_occ_last_change_us = 0;   // Timestamp of the last depth transition
+static uint32_t decode_q_occ_last_depth = 0;       // Depth in effect since last_change_us
+static uint32_t decode_q_occ_max_sample = 0;       // Peak depth observed since window start
+
+/* Record a depth transition (push or post-decode head-advance). Must be called with
+ * decode_q_mtx held. Closes out the interval the previous depth held (area += depth *
+ * elapsed), then adopts new_depth as the depth in effect going forward. O(1), no
+ * allocation, no I/O beyond the one timestamp syscall the caller already needed anyway. */
+static void record_decode_queue_depth_locked(uint32_t new_depth, uint64_t now_us) {
+  if (decode_q_occ_last_change_us != 0) {
+    uint64_t elapsed_us = now_us - decode_q_occ_last_change_us;
+    decode_q_occ_area_us += (uint64_t)decode_q_occ_last_depth * elapsed_us;
+  }
+  decode_q_occ_last_change_us = now_us;
+  decode_q_occ_last_depth = new_depth;
+  if (new_depth > decode_q_occ_max_sample)
+    decode_q_occ_max_sample = new_depth;
+}
+
+/* Moved below the decode queue occupancy accumulators above (was originally declared near
+ * the top of this file) so its window-close block can reference decode_q_mtx /
+ * decode_q_occ_* without a forward-declaration. Only caller is decode_frame_now(),
+ * further below, so this move is purely a declaration-order fix. */
+static void record_incoming_frame_sample(void) {
+  uint64_t now_us = sceKernelGetSystemTimeWide();
+  if (context.stream.fps_window_start_us == 0)
+    context.stream.fps_window_start_us = now_us;
+
+  context.stream.fps_window_frame_count++;
+  if (now_us - context.stream.fps_window_start_us >= 1000000) {
+    context.stream.measured_incoming_fps = context.stream.fps_window_frame_count;
+    if (context.config.show_latency) {
+      uint32_t requested = context.stream.negotiated_fps;
+      if (requested == 0)
+        requested = 30;
+      LOGD("Video FPS — incoming %u fps (requested %u)", context.stream.measured_incoming_fps,
+           requested);
+    }
+    // D1: Publish decode timing window stats
+    if (context.stream.decode_window_count > 0) {
+      context.stream.decode_avg_us =
+          context.stream.decode_window_total_us / context.stream.decode_window_count;
+      context.stream.decode_max_us = context.stream.decode_window_max_us;
+    } else {
+      context.stream.decode_avg_us = 0;
+      context.stream.decode_max_us = 0;
+    }
+    context.stream.decode_window_total_us = 0;
+    context.stream.decode_window_max_us = 0;
+    context.stream.decode_window_count = 0;
+
+    // Latency investigation (item 2): publish TIME-WEIGHTED decode queue occupancy for
+    // this window (see the decode_q_occ_area_us block above for why). Safe to lock
+    // decode_q_mtx here: decode_thread_func() always unlocks it before calling
+    // decode_frame_now() (which calls this function) and only re-acquires it afterwards
+    // to advance decode_q_head -- so decode_q_mtx is guaranteed free at this point, no
+    // nested-lock/deadlock risk.
+    //
+    // CLOCK DOMAIN: this function's own `now_us` above is sceKernelGetSystemTimeWide()
+    // (pre-existing, used for the fps window) -- a DIFFERENT clock than the
+    // sceKernelGetProcessTimeWide() used for decode_q_occ_last_change_us at the push/pop
+    // sites. Mixing them would corrupt the elapsed-time math, so a fresh
+    // sceKernelGetProcessTimeWide() read is taken here, scoped only to the queue-depth
+    // interval close-out below.
+    chiaki_mutex_lock(&decode_q_mtx);
+    uint64_t proc_now_us = sceKernelGetProcessTimeWide();
+    /* Close out the currently-open depth interval up to this window boundary, so a
+     * long-running decode (which produces no push/pop event of its own) still gets
+     * attributed to whichever window it overlaps at close time. */
+    if (decode_q_occ_last_change_us != 0) {
+      uint64_t elapsed_us = proc_now_us - decode_q_occ_last_change_us;
+      decode_q_occ_area_us += (uint64_t)decode_q_occ_last_depth * elapsed_us;
+      decode_q_occ_last_change_us = proc_now_us;
+    }
+    uint64_t area_us = decode_q_occ_area_us;
+    uint64_t window_elapsed_us =
+        decode_q_occ_window_start_us != 0 ? (proc_now_us - decode_q_occ_window_start_us) : 0;
+    uint32_t occ_max = decode_q_occ_max_sample;
+    decode_q_occ_area_us = 0;
+    decode_q_occ_max_sample = decode_q_occ_last_depth;  // Next window starts from "now", not 0
+    decode_q_occ_window_start_us = proc_now_us;
+    chiaki_mutex_unlock(&decode_q_mtx);
+    /* Code review fix: a 4-slot queue's whole interesting range is 0.00-4.00 frames, and
+     * the hypothesis under test is a SUB-FRAME persistent depth shift -- plain integer
+     * division would floor 1.2 and 1.9 to the same "1", hiding exactly the signal this PR
+     * exists to find. Scale by OCC_AVG_FIXED_POINT_SCALE before dividing (multiply in
+     * 64-bit: area_us is bounded by ~DECODE_QUEUE_DEPTH * 1e6 per window, so
+     * area_us * 100 is comfortably inside uint64_t before the divide). decode_q_occ_avg is
+     * therefore fixed-point (see stream_state.h) -- host_metrics.c formats it as X.XX. */
+    context.stream.decode_q_occ_avg =
+        window_elapsed_us > 0
+            ? (uint32_t)((area_us * (uint64_t)OCC_AVG_FIXED_POINT_SCALE) / window_elapsed_us)
+            : decode_q_occ_last_depth * OCC_AVG_FIXED_POINT_SCALE;
+    context.stream.decode_q_occ_max = occ_max;
+
+    context.stream.fps_window_frame_count = 0;
+    context.stream.fps_window_start_us = now_us;
+  }
+}
 
 typedef struct SceVideodecMemInfo {
   SceUInt32 memSize;
@@ -579,7 +684,8 @@ cleanup:
 /* Performs the actual sceAvcdecDecode synchronously. Called only on the
  * dedicated decode thread (GH #188). buf must be a stable DECODE_SLOT_CAPACITY
  * allocation (not the borrowed frame_buf pointer from videoreceiver). */
-static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
+static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
+                            uint64_t frame_first_packet_ms) {
   chiaki_mutex_lock(&mtx);
 
   if (buf_size > (size_t)sceAvcdecDecodeAvailableSize(decoder)) {
@@ -623,6 +729,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
      * memcpy) is now taken on the UI thread in vita_video_render_latest_frame()
      * so the decode thread is never stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
+    incoming_frame_first_packet_ms = frame_first_packet_ms;
     // D5: Count frames overwritten before display consumed them
     if (frame_ready_for_display)
       context.stream.frame_overwrite_count++;
@@ -635,7 +742,8 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   return 0;
 }
 
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
+                           uint64_t frame_first_packet_ms) {
   /* Early validation — reject garbage before touching the queue. */
   if (buf == NULL || buf_size == 0) {
     LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
@@ -687,7 +795,16 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt) {
   sceClibMemset(slot->data + buf_size, 0, DECODE_SLOT_PAD);
   slot->size = buf_size;
   slot->frame_corrupt = frame_corrupt;
+  slot->frame_first_packet_ms = frame_first_packet_ms;
   decode_q_tail = (decode_q_tail + 1) % DECODE_QUEUE_DEPTH;
+  /* Latency investigation (item 2): depth just changed (increased) — record the
+   * transition for the time-weighted occupancy average while still holding decode_q_mtx.
+   * sceKernelGetProcessTimeWide() to match the clock domain used at the other transition
+   * site (post-decode head-advance in decode_thread_func()) and the window-close reduce
+   * in record_incoming_frame_sample(). */
+  record_decode_queue_depth_locked(
+      (uint32_t)((decode_q_tail + DECODE_QUEUE_DEPTH - decode_q_head) % DECODE_QUEUE_DEPTH),
+      sceKernelGetProcessTimeWide());
 
   chiaki_cond_signal(&decode_q_cond);
   chiaki_mutex_unlock(&decode_q_mtx);
@@ -729,6 +846,10 @@ bool vita_video_render_latest_frame(void) {
     return false;
 
   frame_ready_for_display = false;
+  /* Latency investigation (item 1): snapshot once, before either branch below, so the
+   * paced-drop path (which never swaps buffers, and therefore never has a real display
+   * timestamp) and the display path both see the same frame's timestamp consistently. */
+  uint64_t frame_first_packet_ms_snapshot = incoming_frame_first_packet_ms;
 
   bool drop_frame = should_drop_frame_for_pacing();
   if (drop_frame) {
@@ -801,8 +922,8 @@ bool vita_video_render_latest_frame(void) {
   vita2d_swap_buffers();
 
   // D7: Track actual frames rendered to screen per second
+  uint64_t now_us = sceKernelGetProcessTimeWide();
   {
-    uint64_t now_us = sceKernelGetProcessTimeWide();
     if (context.stream.display_fps_window_start_us == 0)
       context.stream.display_fps_window_start_us = now_us;
     context.stream.display_frame_count++;
@@ -810,6 +931,49 @@ bool vita_video_render_latest_frame(void) {
       context.stream.display_fps = context.stream.display_frame_count;
       context.stream.display_frame_count = 0;
       context.stream.display_fps_window_start_us = now_us;
+    }
+  }
+
+  // Latency investigation (item 1): true end-to-end frame latency, first-packet-arrival
+  // to on-screen swap.
+  //
+  // CLOCK DOMAIN: cur_frame_first_packet_ms (lib/src/videoreceiver.c) is stamped via
+  // chiaki_time_now_monotonic_ms(), which on Vita (lib/src/time.c) resolves to
+  // sceKernelGetProcessTime() -- "process time" in microseconds, monotonic, since process
+  // start. now_us above is read via sceKernelGetProcessTimeWide() -- per the VitaSDK, the
+  // "Wide" entry point reads the exact same process-time clock, just returning a plain
+  // SceUInt64 instead of the SceKernelSysClock the narrow API uses; every other file under
+  // vita/src/ already standardizes on the Wide variant for this reason (see host_metrics.c,
+  // host_feedback.c, ui.c, etc.), while lib/ (shared with non-Vita platforms) goes through
+  // the portable chiaki_time_now_monotonic_us() wrapper around the narrow API. They are NOT
+  // two different clocks needing an epoch/offset conversion -- they are the same underlying
+  // monotonic counter reached via two different VitaSDK entry points. The only real
+  // conversion needed is therefore a UNIT conversion (us -> ms, matching the ms granularity
+  // cur_frame_first_packet_ms already uses), done explicitly right here at the boundary
+  // where the timestamp crosses from "carried through the lib+decode-queue pipeline" to
+  // "compared against a fresh vita-side read".
+  if (frame_first_packet_ms_snapshot > 0) {
+    uint64_t now_ms = now_us / 1000;
+    if (now_ms >= frame_first_packet_ms_snapshot) {
+      uint64_t latency_ms = now_ms - frame_first_packet_ms_snapshot;
+      uint32_t clamped_ms = (uint32_t)(latency_ms > UINT32_MAX ? UINT32_MAX : latency_ms);
+      /* Code review fix: this window's live view is a ring buffer, not a fill-once array.
+       * The window boundary (refresh_rtt in host_metrics.c) is a "check once per UI pass"
+       * gate, not a hard timer, so real windows commonly run past LATENCY_WINDOW_SAMPLE_CAP
+       * worth of frames -- and dropping the NEWEST samples past the cap discards exactly
+       * the late-window spike a post-event latency step would show up as. Always write;
+       * once full, overwrite the oldest slot instead. latency_window_dropped_count now
+       * counts overwrites (i.e. "this window ran long enough to wrap"), not "sample lost
+       * with no record at all" -- host_metrics.c publishes it per-window (latency_dropped_n)
+       * precisely so a truncated window is visible instead of silently reporting stale data. */
+      uint32_t write_idx = context.stream.latency_window_write_idx;
+      context.stream.latency_window_samples_ms[write_idx] = clamped_ms;
+      context.stream.latency_window_write_idx = (write_idx + 1) % LATENCY_WINDOW_SAMPLE_CAP;
+      if (context.stream.latency_window_sample_count < LATENCY_WINDOW_SAMPLE_CAP) {
+        context.stream.latency_window_sample_count++;
+      } else {
+        context.stream.latency_window_dropped_count++;
+      }
     }
   }
 
@@ -847,16 +1011,30 @@ static void *decode_thread_func(void *user) {
     uint8_t *frame_data = decode_queue[popped_idx].data;
     size_t frame_size = decode_queue[popped_idx].size;
     bool corrupt = decode_queue[popped_idx].frame_corrupt;
+    uint64_t frame_first_packet_ms = decode_queue[popped_idx].frame_first_packet_ms;
+    /* Latency investigation (item 2): depth does NOT change here — head is deliberately
+     * held back until decode completes (see comment above) — so there is nothing to
+     * record at this point. The depth transition this slot's occupancy contributed
+     * happened at push time and is recorded at the head-advance below once decode is
+     * actually done; that is what makes the average time-weighted across the whole
+     * sceAvcdecDecode duration instead of blind to it. */
     chiaki_mutex_unlock(&decode_q_mtx);
 
     /* Decode the frame. The slot buffer is exclusively ours until we advance
      * decode_q_head below — the producer will block or drop-oldest on the
      * preceding slots rather than overwriting this one. */
-    decode_frame_now(frame_data, frame_size, corrupt);
+    decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms);
 
     /* Release the slot now that decode is done. Signal any blocked producer. */
     chiaki_mutex_lock(&decode_q_mtx);
     decode_q_head = (decode_q_head + 1) % DECODE_QUEUE_DEPTH;
+    /* Latency investigation (item 2): depth just changed (decreased) — record the
+     * transition. This is the point that finally attributes the full decode duration to
+     * the depth that was in effect while sceAvcdecDecode ran, closing the blind spot the
+     * old push/pop-only sampling had. */
+    record_decode_queue_depth_locked(
+        (uint32_t)((decode_q_tail + DECODE_QUEUE_DEPTH - decode_q_head) % DECODE_QUEUE_DEPTH),
+        sceKernelGetProcessTimeWide());
     chiaki_cond_signal(&decode_q_cond);
     chiaki_mutex_unlock(&decode_q_mtx);
   }
@@ -871,6 +1049,7 @@ void vita_h264_start() {
   vita2d_set_vblank_wait(false);
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
+  incoming_frame_first_packet_ms = 0;
   frozen_frame_streak = 0;
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
@@ -884,6 +1063,11 @@ void vita_h264_start() {
   decode_thread_should_exit = false;
   decode_thread_started = false;
   decode_queue_drops = 0;
+  decode_q_occ_area_us = 0;
+  decode_q_occ_window_start_us = 0;
+  decode_q_occ_last_change_us = 0;
+  decode_q_occ_last_depth = 0;
+  decode_q_occ_max_sample = 0;
 
   /* Allocate all slot buffers up front. On the first allocation failure free
    * any already-allocated slots and skip thread creation entirely — a NULL
@@ -893,6 +1077,7 @@ void vita_h264_start() {
     decode_queue[i].data = malloc(DECODE_SLOT_CAPACITY);
     decode_queue[i].size = 0;
     decode_queue[i].frame_corrupt = false;
+    decode_queue[i].frame_first_packet_ms = 0;
     if (decode_queue[i].data == NULL) {
       LOGE("VIDEO: failed to allocate decode slot %d — decode thread disabled", i);
       for (int j = 0; j < i; j++) {
@@ -926,6 +1111,7 @@ void vita_h264_stop() {
   active_video_thread = false;
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
+  incoming_frame_first_packet_ms = 0;
   frozen_frame_streak = 0;
 
   /* --- Decode thread shutdown (GH #188) ---

@@ -10,6 +10,21 @@
 #define LOSS_ALERT_DURATION_US (5 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
+/* Latency investigation (item 5): NET_UNSTABLE banner used to fire on literally any
+ * frames_lost > 0 (with only a 500ms debounce in video_overlay.c), far too sensitive for
+ * a user-facing indicator. Mirrors UNRECOVERED_FRAME_THRESHOLD's existing streak pattern
+ * above rather than inventing a new mechanism. */
+#define NET_UNSTABLE_BANNER_THRESHOLD 3
+/* Code review fix: host_handle_loss_event() is only ever called from host_callbacks.c
+ * inside `if (frames_lost > 0)`, so the streak can only ever grow -- without an explicit
+ * decay it is a session-lifetime accumulator, not a "recent burst" streak, and three
+ * isolated single-frame blips minutes apart would eventually fire the banner exactly as
+ * wrongly as the pre-fix "any loss" behavior. If no loss event has landed for longer than
+ * this window, treat the next one as the start of a fresh streak. 2s is long enough to
+ * span a couple of the 200ms congestion-control reporting intervals (so a genuine short
+ * burst still accumulates across report boundaries) but short enough that unrelated
+ * blips minutes apart don't compound. */
+#define NET_UNSTABLE_BANNER_DECAY_US (2 * 1000 * 1000ULL)
 #define LOSS_COUNTER_SATURATED_WINDOW_FRAMES (1u << 0)
 #define LOSS_COUNTER_SATURATED_BURST_FRAMES (1u << 1)
 
@@ -83,15 +98,40 @@ void host_handle_takion_overflow(void) {
 }
 
 void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
-  if (frames_lost <= 0)
+  if (frames_lost <= 0) {
+    // Defensive: the current (and only) caller in host_callbacks.c already guards with
+    // `if (frames_lost > 0)`, so this branch is not reachable today. Kept in case a future
+    // caller invokes this function directly with frames_lost <= 0 — the streak should not
+    // survive that either. The streak's real reset mechanism is the decay check below.
+    context.stream.net_unstable_banner_streak = 0;
     return;
+  }
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
+
+  // Item 5 fix (code review): decay the streak when loss events have been absent for a
+  // while, so this behaves like a "recent burst" counter instead of a session-lifetime
+  // total. See NET_UNSTABLE_BANNER_DECAY_US above for why.
+  if (context.stream.net_unstable_banner_streak > 0 &&
+      context.stream.net_unstable_last_loss_us != 0 &&
+      now_us - context.stream.net_unstable_last_loss_us > NET_UNSTABLE_BANNER_DECAY_US) {
+    context.stream.net_unstable_banner_streak = 0;
+  }
+  context.stream.net_unstable_last_loss_us = now_us;
+
   context.stream.frame_loss_events++;
   context.stream.total_frames_lost += (uint32_t)frames_lost;
-  context.stream.loss_alert_until_us = now_us + LOSS_ALERT_DURATION_US;
-  context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
-  vitavideo_show_poor_net_indicator();
+
+  // Item 5: require a short streak of accumulated loss before surfacing the banner,
+  // instead of firing on the very first lost frame. Everything else in this function
+  // (loss window/burst accounting and the recovery escalation below) is unchanged.
+  context.stream.net_unstable_banner_streak += (uint32_t)frames_lost;
+  if (context.stream.net_unstable_banner_streak >= NET_UNSTABLE_BANNER_THRESHOLD) {
+    context.stream.net_unstable_banner_streak = 0;
+    context.stream.loss_alert_until_us = now_us + LOSS_ALERT_DURATION_US;
+    context.stream.loss_alert_duration_us = LOSS_ALERT_DURATION_US;
+    vitavideo_show_poor_net_indicator();
+  }
 
   if (context.config.show_latency &&
       context.stream.frame_loss_events != context.stream.logged_loss_events) {

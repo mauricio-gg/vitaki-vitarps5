@@ -256,6 +256,29 @@ typedef struct chiaki_takion_t
 		uint64_t drain_cycles;            // Number of drain cycles (wakeups)
 		uint32_t startup_log_count;       // counts initial 1s-interval log emissions; switches to 5s after 10
 	} jitter_stats;
+
+	// Genuine video-packet arrival jitter, sampled directly in takion_handle_packet_av()
+	// (lib/src/takion.c). Deliberately a SEPARATE stat from jitter_stats above: that EWMA
+	// only measures control-channel message cadence (chiaki_reorder_queue-backed data
+	// packets) -- video/audio AV packets bypass the reorder queue entirely and never touch
+	// jitter_stats. Latency investigation (2026-08): host_metrics.c was logging
+	// jitter_stats.jitter_us as if it were network jitter for the video stream, which it
+	// never was. Same EWMA shape as jitter_stats (alpha=0.125) for consistency.
+	//
+	// Sampled on FRAME boundaries only (first packet seen of a new frame_index), not per
+	// packet: sampling every packet measures intra-frame packet burst spacing and the
+	// frame-boundary gap (a function of units-per-frame and fps, not the network) and adds
+	// a chiaki_time_now_monotonic_us() syscall per packet (~900-1000/s at 10 Mbps) on the
+	// Takion recv thread -- an observer effect on the exact latency path this instrumentation
+	// must not perturb. Code review finding, 2026-08.
+	struct
+	{
+		uint64_t jitter_us;               // EWMA video-frame inter-arrival jitter (microseconds)
+		uint64_t last_frame_arrival_us;   // Arrival timestamp of the last frame boundary seen
+		uint64_t last_inter_arrival_us;   // Previous frame-to-frame inter-arrival delta
+		ChiakiSeqNum16 last_frame_index;  // frame_index of the last frame boundary seen
+		bool has_last_frame_index;        // false until the first video packet is observed
+	} video_jitter_stats;
 } ChiakiTakion;
 
 

@@ -1281,6 +1281,14 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.drain_cycles = 0;
 	takion->jitter_stats.startup_log_count = 0;
 
+	// Latency investigation: genuine video-packet arrival jitter (separate from
+	// jitter_stats above -- see takion_handle_packet_av()).
+	takion->video_jitter_stats.jitter_us = 0;
+	takion->video_jitter_stats.last_frame_arrival_us = 0;
+	takion->video_jitter_stats.last_inter_arrival_us = 0;
+	takion->video_jitter_stats.last_frame_index = 0;
+	takion->video_jitter_stats.has_last_frame_index = false;
+
 	size_t queue_slots_sz = chiaki_reorder_queue_size(&takion->data_queue);
 	unsigned long long queue_slots = (unsigned long long)queue_slots_sz;
 	CHIAKI_LOGI(takion->log, "Takion receive queue size configured for %llu packets",
@@ -2285,6 +2293,53 @@ static void takion_handle_packet_av(ChiakiTakion *takion, uint8_t base_type, uin
 		if(err == CHIAKI_ERR_BUF_TOO_SMALL)
 			CHIAKI_LOGE(takion->log, "Takion received AV packet that was too small");
 		return;
+	}
+
+	// Latency investigation instrumentation: genuine video-FRAME arrival jitter, sampled
+	// directly on the AV path. jitter_stats (above, control-channel only) never sees this
+	// traffic -- video/audio packets bypass the reorder queue it measures.
+	//
+	// Sampled ONLY on a frame boundary (the first packet we see carrying a new
+	// frame_index), not on every packet. Code review (2026-08) caught two problems with
+	// per-packet sampling: (1) it measures intra-frame packet burst spacing and the
+	// frame-boundary gap -- a function of units-per-frame and fps, not network
+	// conditions: a clean link at N units/frame produces a sawtooth of (N-1) near-zero
+	// deviations and one large one per frame, so the EWMA tracks encoder packetization,
+	// not the network; (2) a chiaki_time_now_monotonic_us() syscall per packet
+	// (~900-1000/s at 10 Mbps) on the Takion recv thread is an observer effect on the
+	// exact latency path this PR must not perturb. Gating on frame_index change cuts the
+	// syscall rate by ~units-per-frame (commonly ~8x) and makes the interval measured
+	// mean something: frame-to-frame cadence.
+	//
+	// The deviation is computed against the PREVIOUS frame-to-frame inter-arrival, not a
+	// hardcoded fps constant -- the same self-normalizing approach jitter_stats above
+	// already uses for the control channel (no sender-side timestamp is available in
+	// ChiakiTakionAVPacket to do a true RFC3550 differential, so this is the closest
+	// equivalent: at a steady frame rate it converges on genuine arrival jitter instead of
+	// moving with encoder GOP/units-per-frame settings).
+	if(base_type == TAKION_PACKET_TYPE_VIDEO &&
+		(!takion->video_jitter_stats.has_last_frame_index ||
+			packet.frame_index != takion->video_jitter_stats.last_frame_index))
+	{
+		uint64_t now_us = chiaki_time_now_monotonic_us();
+		if(takion->video_jitter_stats.last_frame_arrival_us != 0)
+		{
+			uint64_t inter_arrival_us = now_us - takion->video_jitter_stats.last_frame_arrival_us;
+			uint64_t previous_inter_arrival_us = takion->video_jitter_stats.last_inter_arrival_us;
+			if(previous_inter_arrival_us)
+			{
+				uint64_t deviation_us = inter_arrival_us > previous_inter_arrival_us
+					? (inter_arrival_us - previous_inter_arrival_us)
+					: (previous_inter_arrival_us - inter_arrival_us);
+				// EWMA: jitter = (7 * old_jitter + deviation) / 8 (alpha=0.125)
+				takion->video_jitter_stats.jitter_us =
+					(7 * takion->video_jitter_stats.jitter_us + deviation_us) / 8;
+			}
+			takion->video_jitter_stats.last_inter_arrival_us = inter_arrival_us;
+		}
+		takion->video_jitter_stats.last_frame_arrival_us = now_us;
+		takion->video_jitter_stats.last_frame_index = packet.frame_index;
+		takion->video_jitter_stats.has_last_frame_index = true;
 	}
 
 	if(takion->cb)

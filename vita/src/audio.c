@@ -39,6 +39,53 @@ int write_read_framediff;
 static uint64_t audio_catchup_count = 0;
 static uint64_t audio_frames_processed = 0;
 
+/* Latency investigation (item 3): audio ring occupancy window. write_read_framediff
+ * (sampled below) already IS "frames buffered but not yet handed to sceAudioOutOutput" --
+ * exactly the occupancy this item asks for, no new bookkeeping needed to derive it.
+ * Single-writer (audio thread only touches these, same as every other static in this
+ * file); window-closed and published into context.stream.audio_q_occ_avg/max every ~1s,
+ * mirroring video.c's record_incoming_frame_sample() window-close convention (D1 decode
+ * timing) so both occupancy metrics read the same way in the log. */
+#define AUDIO_OCC_WINDOW_US 1000000ULL
+static uint64_t audio_occ_window_start_us = 0;
+static uint32_t audio_occ_window_sum = 0;
+static uint32_t audio_occ_window_count = 0;
+static uint32_t audio_occ_window_max = 0;
+
+static void record_audio_occupancy_sample(void) {
+  /* write_read_framediff is signed (see declaration above) and briefly negative is not
+   * something this code path expects, but a bare (uint32_t) cast of a negative value
+   * would wrap to ~4.29e9 and permanently latch audio_occ_window_max there with no way
+   * to distinguish it from real data. Guard defensively — code review fix. */
+  uint32_t occ = write_read_framediff > 0 ? (uint32_t)write_read_framediff : 0u;
+  audio_occ_window_sum += occ;
+  audio_occ_window_count++;
+  if (occ > audio_occ_window_max)
+    audio_occ_window_max = occ;
+
+  uint64_t now_us = sceKernelGetProcessTimeWide();
+  if (audio_occ_window_start_us == 0)
+    audio_occ_window_start_us = now_us;
+  if (now_us - audio_occ_window_start_us >= AUDIO_OCC_WINDOW_US) {
+    /* Code review fix: same fixed-point rationale as decode_q_occ_avg in video.c -- the
+     * 8-frame audio buffer's interesting range is small enough that plain integer
+     * averaging would hide a sub-frame occupancy shift. audio_occ_window_sum is bounded
+     * by ~frames-per-second (tens to low hundreds), so the x100 multiply is nowhere near
+     * uint32_t overflow, but do it in the same 64-bit pattern as video.c for consistency
+     * and to stay correct if this window's sample count ever grows. */
+    context.stream.audio_q_occ_avg =
+        audio_occ_window_count > 0
+            ? (uint32_t)(((uint64_t)audio_occ_window_sum * OCC_AVG_FIXED_POINT_SCALE) /
+                         audio_occ_window_count)
+            : 0;
+    context.stream.audio_q_occ_max = audio_occ_window_max;
+    audio_occ_window_sum = 0;
+    audio_occ_window_count = 0;
+    audio_occ_window_max = 0;
+    audio_occ_window_start_us = now_us;
+  }
+}
+
 static int audio_port_format(void) {
   return channels == 2 ? SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO
                        : SCE_AUDIO_OUT_PARAM_FORMAT_S16_MONO;
@@ -146,6 +193,12 @@ void vita_audio_cleanup() {
   did_secondary_init = false;
   audio_catchup_count = 0;
   audio_frames_processed = 0;
+  audio_occ_window_start_us = 0;
+  audio_occ_window_sum = 0;
+  audio_occ_window_count = 0;
+  audio_occ_window_max = 0;
+  context.stream.audio_q_occ_avg = 0;
+  context.stream.audio_q_occ_max = 0;
 }
 
 void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
@@ -177,6 +230,7 @@ void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
   write_frame_offset = (write_frame_offset + 1) % buffer_frames;
   write_read_framediff++;
   audio_frames_processed++;
+  record_audio_occupancy_sample();
 
   if (write_read_framediff < device_buffer_frames)
     return;

@@ -42,6 +42,7 @@ int vitavideo_initialized();
 
 int vita_h264_setup(int width, int height);
 void vita_h264_cleanup();
-int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt);
+int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
+                           uint64_t frame_first_packet_ms);
 bool vita_video_render_latest_frame(void);
 uint32_t vita_video_decode_queue_drops(void);
