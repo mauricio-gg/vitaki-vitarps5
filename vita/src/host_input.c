@@ -7,6 +7,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
+#include <math.h>
 #include <unistd.h>
 
 typedef struct mapped_touch_slot_t {
@@ -22,6 +23,20 @@ typedef struct mapped_touch_slot_t {
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 #define TOUCHPAD_CLICK_PULSE_FRAMES 2
+
+// Motion sensor deadband thresholds, in the same units sceMotionGetState()
+// reports: acceleration in G (1.0 == Earth gravity), angularVelocity in
+// rad/s, deviceQuat as a unit quaternion. The Vita's MEMS accelerometer and
+// gyro report measurement noise on the order of a few milli-G / milli-rad/s
+// even perfectly still, and controller_state_equals_for_feedback_state()'s
+// 1e-7 comparison epsilon treats any of that noise as a real input change on
+// every single poll -- flooding the feedback sender. These thresholds sit an
+// order of magnitude above typical MEMS noise floor so genuine tilt/gyro
+// aiming input still registers well below perceptible input lag while
+// stationary-hold noise is suppressed.
+#define MOTION_ACCEL_DEADBAND 0.004f   // G
+#define MOTION_GYRO_DEADBAND 0.002f    // rad/s
+#define MOTION_ORIENT_DEADBAND 0.001f  // unit quaternion component
 
 // If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
 // touch-event path instead of being OR'd into button bits.
@@ -107,6 +122,53 @@ static uint16_t map_touchpad_x(int x, int max_x) {
   if (x > max_x)
     x = max_x;
   return (uint16_t)((x * (CHIAKI_TOUCHPAD_WIDTH - 1)) / max_x);
+}
+
+// Writes new_val into *dst only if it differs from the current value by at
+// least `deadband`; otherwise keeps the old value so MEMS sensor noise below
+// the deadband doesn't register as a controller_state change (see
+// MOTION_*_DEADBAND above). NaN inputs are naturally filtered out too:
+// fabsf(NaN - x) is never >= deadband (all comparisons involving NaN are
+// false per IEEE 754), so a single bad sample from sceMotionGetState() is
+// dropped and the next good sample is free to update normally -- no
+// permanent latch.
+static inline void write_motion_sample(float *dst, float new_val, float deadband) {
+  if (fabsf(new_val - *dst) >= deadband)
+    *dst = new_val;
+}
+
+// Same deadband contract as write_motion_sample(), but for all four
+// quaternion components together: gates on whichever component moved the
+// most instead of deadbanding each independently, so the four writes stay
+// atomic (all from this poll's sample, or none of them). Independent
+// per-component gating could otherwise mix components from different poll
+// instants into a non-unit quaternion sent to the PS5.
+//
+// NaN handling differs from write_motion_sample() and is NOT self-healing
+// here: per C11 7.12.12.2, fmaxf(a, NaN) returns the non-NaN argument `a`
+// rather than NaN, so a NaN in any single component would be silently
+// dropped from the max_delta chain below instead of poisoning it -- if the
+// other three axes exceed the deadband on their own, the check would still
+// pass and write a NaN into that component, persisting indefinitely if the
+// device then holds still. Reject the whole sample up front if any
+// component is non-finite; all four must be valid for the quaternion to be
+// meaningful anyway.
+static inline void write_motion_quat(float *dst_x, float *dst_y, float *dst_z, float *dst_w,
+                                     float new_x, float new_y, float new_z, float new_w,
+                                     float deadband) {
+  if (!isfinite(new_x) || !isfinite(new_y) || !isfinite(new_z) || !isfinite(new_w))
+    return;
+
+  float max_delta = fabsf(new_x - *dst_x);
+  max_delta = fmaxf(max_delta, fabsf(new_y - *dst_y));
+  max_delta = fmaxf(max_delta, fabsf(new_z - *dst_z));
+  max_delta = fmaxf(max_delta, fabsf(new_w - *dst_w));
+  if (max_delta >= deadband) {
+    *dst_x = new_x;
+    *dst_y = new_y;
+    *dst_z = new_z;
+    *dst_w = new_w;
+  }
 }
 
 static uint16_t map_touchpad_y(int y, int max_y) {
@@ -229,18 +291,24 @@ void *host_input_thread_func(void *user) {
       }
 
       sceMotionGetState(&motion);
-      stream->controller_state.accel_x = motion.acceleration.x;
-      stream->controller_state.accel_y = motion.acceleration.y;
-      stream->controller_state.accel_z = motion.acceleration.z;
+      write_motion_sample(&stream->controller_state.accel_x, motion.acceleration.x,
+                          MOTION_ACCEL_DEADBAND);
+      write_motion_sample(&stream->controller_state.accel_y, motion.acceleration.y,
+                          MOTION_ACCEL_DEADBAND);
+      write_motion_sample(&stream->controller_state.accel_z, motion.acceleration.z,
+                          MOTION_ACCEL_DEADBAND);
 
-      stream->controller_state.orient_x = motion.deviceQuat.x;
-      stream->controller_state.orient_y = motion.deviceQuat.y;
-      stream->controller_state.orient_z = motion.deviceQuat.z;
-      stream->controller_state.orient_w = motion.deviceQuat.w;
+      write_motion_quat(&stream->controller_state.orient_x, &stream->controller_state.orient_y,
+                        &stream->controller_state.orient_z, &stream->controller_state.orient_w,
+                        motion.deviceQuat.x, motion.deviceQuat.y, motion.deviceQuat.z,
+                        motion.deviceQuat.w, MOTION_ORIENT_DEADBAND);
 
-      stream->controller_state.gyro_x = motion.angularVelocity.x;
-      stream->controller_state.gyro_y = motion.angularVelocity.y;
-      stream->controller_state.gyro_z = motion.angularVelocity.z;
+      write_motion_sample(&stream->controller_state.gyro_x, motion.angularVelocity.x,
+                          MOTION_GYRO_DEADBAND);
+      write_motion_sample(&stream->controller_state.gyro_y, motion.angularVelocity.y,
+                          MOTION_GYRO_DEADBAND);
+      write_motion_sample(&stream->controller_state.gyro_z, motion.angularVelocity.z,
+                          MOTION_GYRO_DEADBAND);
 
       stream->controller_state.left_x = (ctrl.lx - 128) * 2 * 0x7F;
       stream->controller_state.left_y = (ctrl.ly - 128) * 2 * 0x7F;

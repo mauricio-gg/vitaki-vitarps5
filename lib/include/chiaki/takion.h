@@ -196,9 +196,17 @@ typedef struct chiaki_takion_t
 	} recv_drop_stats;
 
 	/**
-	 * Consecutive transient recv() error tracking (e.g. ENOBUFS) used by
-	 * takion_recv()'s retry/escalation logic. Touched only from the takion
-	 * thread, so no locking is needed.
+	 * Consecutive transient error tracking (e.g. ENOBUFS) used by
+	 * takion_recv()'s retry/escalation logic. Shared between the select()
+	 * and recv() transient-error paths -- both stages can fire within the
+	 * same takion_recv() call and both stem from the same underlying local
+	 * resource pressure, so a single counter gives one correct bound on
+	 * total consecutive hiccups (it persists across calls too, resetting
+	 * only on a successful recv -- hiccups spent by a timeout_ms==0 drain
+	 * call still count against the budget a later blocking call inherits);
+	 * splitting them would let a combined stall run for up to 2x
+	 * TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE before either cap alone would
+	 * trip. Touched only from the takion thread, so no locking is needed.
 	 */
 	struct
 	{

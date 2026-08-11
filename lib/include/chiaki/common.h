@@ -68,7 +68,11 @@ typedef enum
 	CHIAKI_ERR_UNINITIALIZED,
 	CHIAKI_ERR_FEC_FAILED,
 	CHIAKI_ERR_VERSION_MISMATCH,
-	CHIAKI_ERR_HTTP_NONOK
+	CHIAKI_ERR_HTTP_NONOK,
+	/** Transient, retryable socket condition (e.g. ENOBUFS/WSAENOBUFS) -- distinct
+	 * from CHIAKI_ERR_NETWORK so callers can apply retry/backoff instead of
+	 * treating it as a dead connection. See CHIAKI_SOCKET_RECV_ERR_TRANSIENT. */
+	CHIAKI_ERR_NETWORK_TRANSIENT
 } ChiakiErrorCode;
 
 CHIAKI_EXPORT const char *chiaki_error_string(ChiakiErrorCode code);

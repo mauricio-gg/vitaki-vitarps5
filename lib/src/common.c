@@ -61,6 +61,8 @@ CHIAKI_EXPORT const char *chiaki_error_string(ChiakiErrorCode code)
 			return "Version mismatch";
 		case CHIAKI_ERR_HTTP_NONOK:
 			return "HTTP request was rejected";
+		case CHIAKI_ERR_NETWORK_TRANSIENT:
+			return "Transient network error";
 		default:
 			return "Unknown";
 	}

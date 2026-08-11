@@ -524,10 +524,13 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 			else if(event->type == CHIAKI_TAKION_EVENT_TYPE_DISCONNECT
 					&& !stream_connection->should_stop && !stream_connection->remote_disconnected)
 			{
-				// Takion's recv thread died on its own mid-stream (e.g. persistent
-				// transient recv errors) rather than through a clean should_stop or
-				// remote-disconnect handshake. Without this, chiaki_stream_connection_run()'s
-				// main heartbeat wait never wakes up and the session freezes.
+				// Takion's recv thread died on its own mid-stream -- either persistent
+				// transient recv() errors, or persistent transient select() errors
+				// (e.g. ENOBUFS on both, see takion_recv() in takion.c) that outlasted
+				// TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE retries -- rather than through a
+				// clean should_stop or remote-disconnect handshake. Without this,
+				// chiaki_stream_connection_run()'s main heartbeat wait never wakes up
+				// and the session freezes.
 				CHIAKI_LOGE(stream_connection->log, "StreamConnection: Takion transport disconnected mid-stream");
 				stream_connection->transport_failed = true;
 				stream_connection->remote_disconnected = true;

@@ -24,7 +24,17 @@ typedef struct chiaki_feedback_sender_t
 	ChiakiFeedbackHistoryBuffer history_buf;
 
 	bool should_stop;
+	// Reference for the state-packet send decision: only updated when a
+	// state packet is actually sent, so the MIN_MS floor in
+	// feedback_sender_thread_func() coalesces rapid changes into one send
+	// instead of comparing against a prev that already caught up.
 	ChiakiControllerState controller_state_prev;
+	// Reference for edge-triggered history detection (feedback_sender_send_history()):
+	// updated on every real change regardless of the state-packet floor above,
+	// so short pulses (e.g. a touchpad click shorter than the floor) still
+	// produce exactly one press + one release history event instead of being
+	// silently coalesced away by the state floor.
+	ChiakiControllerState controller_state_history_prev;
 	ChiakiControllerState controller_state;
 	bool controller_state_changed;
 	uint32_t controller_seq_counter;
