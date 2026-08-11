@@ -115,6 +115,15 @@ add_library(chiaki-lib ${HEADER_FILES} ${SOURCE_FILES} ${CHIAKI_LIB_PROTO_SOURCE
 configure_file(config.h.in include/chiaki/config.h)
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/include")
 
+# VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED option() lives in the root
+# CMakeLists.txt alongside the other CHIAKI_ENABLE_* toggles. PRIVATE here
+# because it only affects frameprocessor.c/congestioncontrol.c's internal
+# accounting, not chiaki-lib's public ABI/headers -- consumers of the library
+# don't need to see this define.
+if(VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED)
+	target_compile_definitions(chiaki-lib PRIVATE VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1)
+endif()
+
 if(CMAKE_C_COMPILER_ID STREQUAL GNU OR CMAKE_C_COMPILER_ID STREQUAL Clang)
 	target_compile_options(chiaki-lib PRIVATE -Wall)
 endif()

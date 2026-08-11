@@ -134,8 +134,8 @@ static void parse_logging_settings(VitaChiakiConfig *cfg, toml_table_t *parsed) 
   if (datum.ok) {
     if (datum.u.i < 8)
       cfg->logging.queue_depth = 8;
-    else if (datum.u.i > 256)
-      cfg->logging.queue_depth = 256;
+    else if (datum.u.i > VITA_LOG_QUEUE_DEPTH_MAX)
+      cfg->logging.queue_depth = VITA_LOG_QUEUE_DEPTH_MAX;
     else
       cfg->logging.queue_depth = datum.u.i;
   }

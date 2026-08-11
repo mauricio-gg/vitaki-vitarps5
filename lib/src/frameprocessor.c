@@ -261,12 +261,39 @@ CHIAKI_EXPORT void chiaki_frame_processor_report_frame_stats(ChiakiFrameProcesso
 	uint64_t expected = frame_processor->units_source_expected;
 	uint64_t actual = frame_processor->units_source_received;
 
+	// GH #221 diagnostic A/B: PS5 may cross-check the `received` value we report
+	// against its own sent source+parity count; under-reporting (source-only)
+	// would then look like phantom loss and could be driving zero-loss bitrate
+	// step-downs. When enabled, fold units_fec_received (parity units that
+	// physically arrived, regardless of whether they were needed for recovery)
+	// into `received` only. `lost`/`expected` must NOT change here -- see the
+	// block comment above for why folding parity into those specifically would
+	// reintroduce the zero-loss-under-real-loss bug PR #213 fixed.
+	//
+	// CAP CONFOUND: this toggle is NOT loss-neutral once congestioncontrol.c's
+	// 10% cap engages. congestioncontrol.c's reported_lost cap computes
+	// reported_lost = received * CONGESTION_MAX_REPORTED_LOSS / (1 -
+	// CONGESTION_MAX_REPORTED_LOSS) (congestioncontrol.c:53-55) -- a larger
+	// `received` widens that absolute ceiling, so on cap-bound ticks the ON arm
+	// sends a strictly larger absolute lost count than the OFF arm at the exact
+	// same true loss. A/B analysis of hardware logs from this toggle must
+	// therefore compare the `CONGESTION/LOSS reported_precap=.../reported=...`
+	// aggregate fields (congestioncontrol.c's 1Hz summary) across both arms,
+	// not just downstream bitrate outcomes -- the cap-confound means outcome
+	// differences alone can't distinguish "parity-inclusive fixed the phantom
+	// loss" from "parity-inclusive just changed how hard the cap bites".
+#ifdef VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED
+	uint64_t received_bonus = frame_processor->units_fec_received;
+#else
+	uint64_t received_bonus = 0;
+#endif
+
 	if(outcome == CHIAKI_FRAME_OUTCOME_FEC_RECOVERED)
 	{
 		// FEC decode only ever runs when units_source_received < units_source_expected
 		// at flush time, and this outcome means it succeeded: the frame was fully
 		// delivered, so the source shortfall is genuine FEC recovery, not raw loss.
-		chiaki_packet_stats_push_generation(packet_stats, expected, 0, expected - actual);
+		chiaki_packet_stats_push_generation(packet_stats, expected + received_bonus, 0, expected - actual);
 	}
 	else
 	{
@@ -281,7 +308,7 @@ CHIAKI_EXPORT void chiaki_frame_processor_report_frame_stats(ChiakiFrameProcesso
 		// loss on this one. Any genuine shortfall here is still reported as raw
 		// loss, same as FEC_FAILED; nothing in this branch inflates it beyond
 		// what actually failed to arrive.
-		chiaki_packet_stats_push_generation(packet_stats, actual, expected - actual, 0);
+		chiaki_packet_stats_push_generation(packet_stats, actual + received_bonus, expected - actual, 0);
 	}
 }
 
