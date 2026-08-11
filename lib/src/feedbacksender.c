@@ -3,10 +3,33 @@
 #include <chiaki/feedbacksender.h>
 #include <chiaki/time.h>
 
-#define FEEDBACK_STATE_TIMEOUT_MIN_MS 8 // minimum time to wait between sending 2 packets
+#ifdef __PSVITA__
+#include <psp2/kernel/processmgr.h> // sceKernelGetProcessTimeWide()
+#include <psp2/kernel/threadmgr.h>  // sceKernelChangeThreadPriority()
+#endif
+
 #define FEEDBACK_STATE_TIMEOUT_MAX_MS 200 // maximum time to wait between sending 2 packets
+#define FEEDBACK_STATE_TIMEOUT_MIN_MS 8   // minimum time between 2 non-idle packets being sent
 
 #define FEEDBACK_HISTORY_BUFFER_SIZE 0x10
+
+#ifdef __PSVITA__
+/* Thread priority hierarchy on PS Vita (lower number = higher priority).
+ * Video decode (video.c), audio (audio.c), and Takion recv (takion.c) are
+ * each pinned to 64 on a DISTINCT dedicated USER core (USER_1/USER_2/USER_0
+ * respectively) specifically so they never contend with each other. A 4th
+ * thread also at 64 with no dedicated core of its own would timeslice
+ * against whichever of those three owns the core it happens to land on,
+ * waking 80-170x/s to do GKCrypt keystream generation plus a sendto() that
+ * can block in the Vita network stack -- a real regression vector for
+ * decode/audio scheduling on a project whose other open issues are exactly
+ * arrival jitter and decode scheduling. 65 still achieves the whole goal
+ * (far above input sampling's 96, vastly above the `0x10000100` default that
+ * was the actual original bug being fixed -- see
+ * chiaki_thread_create()'s default PSVita priority, lib/src/thread.c:71-72)
+ * while guaranteeing it never ties with the three AV threads. */
+#define FEEDBACK_SENDER_THREAD_PRIORITY 65
+#endif
 
 static void *feedback_sender_thread_func(void *user);
 
@@ -19,10 +42,27 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state_history_prev);
 	chiaki_controller_state_set_idle(&feedback_sender->controller_state);
 	feedback_sender->controller_seq_counter = 0;
+	feedback_sender->should_stop = false;
+	feedback_sender->controller_state_changed = false;
 
 	feedback_sender->state_seq_num = 0;
 
 	feedback_sender->history_seq_num = 0;
+
+#ifdef __PSVITA__
+	// PIPE/INPUT instrumentation fields (see struct definition in
+	// feedbacksender.h). Explicit reset is required here, not just relied on
+	// via the caller's memset: chiaki_stream_connection_run() re-enters fini()
+	// + init() on the SAME embedded ChiakiFeedbackSender instance during a
+	// soft-restart/reconnect (lib/src/streamconnection.c, lib/src/session.c),
+	// with no memset in between -- only the cold-start chiaki_session_init()
+	// zeroes the whole struct. Without this, a fast-restart would leak stale
+	// latency-window state across the reconnect.
+	feedback_sender->controller_state_origin_us = 0;
+	feedback_sender->input_latency_sample_count = 0;
+	feedback_sender->input_latency_dropped_count = 0;
+#endif
+
 	ChiakiErrorCode err = chiaki_feedback_history_buffer_init(&feedback_sender->history_buf, FEEDBACK_HISTORY_BUFFER_SIZE);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
@@ -63,6 +103,13 @@ CHIAKI_EXPORT void chiaki_feedback_sender_fini(ChiakiFeedbackSender *feedback_se
 	chiaki_feedback_history_buffer_fini(&feedback_sender->history_buf);
 }
 
+// Cross-platform controller-state setter. NOTE: kept byte-for-byte identical
+// to chiaki_feedback_sender_set_controller_state_ts() below (Vita-only) minus
+// the origin_us stamp -- if the equals-check or change-detection logic here
+// ever changes, mirror it there too. The one exception is the __PSVITA__-guarded
+// origin_us invalidation below: it compiles to nothing outside __PSVITA__, so
+// it is zero behavior change for every other platform and does not count as
+// "changing the cross-platform logic" for the mirroring rule above.
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state)
 {
 	ChiakiErrorCode err = chiaki_mutex_lock(&feedback_sender->state_mutex);
@@ -77,12 +124,70 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(Chiaki
 
 	feedback_sender->controller_state = *state;
 	feedback_sender->controller_state_changed = true;
+#ifdef __PSVITA__
+	// This is the non-_ts path (used for priming/restoring controller state,
+	// not a real host_input.c poll) -- explicitly invalidate any stale/prior
+	// origin so feedback_sender_record_input_latency()'s origin_us==0
+	// bail-out (above) correctly skips instrumentation for this pending
+	// change instead of misattributing a real timestamp to it.
+	feedback_sender->controller_state_origin_us = 0;
+#endif
 
 	chiaki_mutex_unlock(&feedback_sender->state_mutex);
 	chiaki_cond_signal(&feedback_sender->state_cond);
 
 	return CHIAKI_ERR_SUCCESS;
 }
+
+#ifdef __PSVITA__
+// Vita-only sibling of chiaki_feedback_sender_set_controller_state() above,
+// carrying the controller-poll origin timestamp out-of-band (see the
+// controller_state_origin_us field comment in feedbacksender.h for why this
+// isn't plumbed through the cross-platform ChiakiControllerState struct
+// instead). Body is intentionally a near-duplicate of the function above --
+// do NOT modify that cross-platform function to add this behavior; keep the
+// two in sync by hand if the equals-check/change-detection logic changes.
+CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state_ts(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state, uint64_t origin_us)
+{
+	ChiakiErrorCode err = chiaki_mutex_lock(&feedback_sender->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+
+	if(chiaki_controller_state_equals(&feedback_sender->controller_state, state))
+	{
+		chiaki_mutex_unlock(&feedback_sender->state_mutex);
+		return CHIAKI_ERR_SUCCESS;
+	}
+
+	// Stamp origin_us only on the not-pending -> pending transition, so it
+	// holds the OLDEST un-sent controller-poll origin rather than the newest.
+	// Several 2ms host_input.c polls can land before the sender thread wakes;
+	// if we always overwrote origin_us, only the last poll's timestamp would
+	// survive, understating the true latency of whatever earlier poll's data
+	// effectively got coalesced into this send.
+	//
+	// Gated on controller_state_origin_us itself, NOT controller_state_changed:
+	// controller_state_changed is read-and-cleared to false at the top of
+	// EVERY wake in feedback_sender_thread_func() (including a wake where the
+	// FEEDBACK_STATE_TIMEOUT_MIN_MS floor merely deferred a send without
+	// actually sending), so checking it here would re-latch a fresh (wrong)
+	// origin on the very next poll after a deferred wake, losing the true
+	// oldest-un-sent timestamp. controller_state_origin_us is guaranteed to be
+	// exactly 0 when (and only when) nothing is currently outstanding -- see
+	// the reset at the end of the thread-func loop, gated on !floor_pending --
+	// so "latch only if currently 0" is the correct condition here.
+	if(feedback_sender->controller_state_origin_us == 0)
+		feedback_sender->controller_state_origin_us = origin_us;
+
+	feedback_sender->controller_state = *state;
+	feedback_sender->controller_state_changed = true;
+
+	chiaki_mutex_unlock(&feedback_sender->state_mutex);
+	chiaki_cond_signal(&feedback_sender->state_cond);
+
+	return CHIAKI_ERR_SUCCESS;
+}
+#endif
 
 static bool controller_state_equals_for_feedback_state(ChiakiControllerState *a, ChiakiControllerState *b)
 {
@@ -166,8 +271,8 @@ static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_s
 static void feedback_sender_send_history(ChiakiFeedbackSender *feedback_sender)
 {
 	// Uses controller_state_history_prev, not controller_state_prev: history
-	// is edge-triggered and evaluated on every real change independent of
-	// the state-packet floor -- see the field comments in feedbacksender.h.
+	// is edge-triggered and evaluated on every real change, independent of
+	// the state-packet send -- see the field comments in feedbacksender.h.
 	ChiakiControllerState *state_prev = &feedback_sender->controller_state_history_prev;
 	ChiakiControllerState *state_now = &feedback_sender->controller_state;
 	uint64_t buttons_prev = state_prev->buttons;
@@ -241,6 +346,52 @@ static void feedback_sender_send_history(ChiakiFeedbackSender *feedback_sender)
 	}
 }
 
+#ifdef __PSVITA__
+// PIPE/INPUT instrumentation: records one origin_us -> wire_us sample into
+// the per-window ring. Overwrite-oldest on overflow (same semantics as the
+// PIPE/LATENCY ring at vita/src/video.c -- dropping the newest instead would
+// hide late-window spikes, which is exactly what this instrumentation exists
+// to catch).
+static void feedback_sender_record_input_latency(ChiakiFeedbackSender *feedback_sender, uint64_t wire_us)
+{
+	if(feedback_sender->controller_state_origin_us == 0)
+		return; // origin_us == 0 means this pending state was seeded via the non-_ts
+	            // setter (streamconnection.c:381/971) or never validly stamped, not
+	            // from a real host_input.c poll -- there is no meaningful origin to
+	            // measure against, so skip rather than record garbage.
+	if(wire_us < feedback_sender->controller_state_origin_us)
+		return; // defensive: clock read out of order, discard rather than underflow
+	uint64_t elapsed_us = wire_us - feedback_sender->controller_state_origin_us;
+	uint32_t clamped_us = (uint32_t)(elapsed_us > UINT32_MAX ? UINT32_MAX : elapsed_us);
+
+	uint32_t count = feedback_sender->input_latency_sample_count;
+	if(count < FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP)
+	{
+		feedback_sender->input_latency_samples_us[count] = clamped_us;
+		feedback_sender->input_latency_sample_count = count + 1;
+	}
+	else
+	{
+		// Ring full for this window: overwrite the oldest slot instead of
+		// dropping the newest sample (mirrors vita/src/video.c's PIPE/LATENCY
+		// ring -- see its comment for why "drop newest" would hide exactly the
+		// late-window spike this instrumentation is meant to detect).
+		// Why `dropped_count % CAP` is a valid ring write-pointer even though
+		// dropped_count isn't a dedicated write index: dropped_count is
+		// guaranteed to be 0 the first time sample_count reaches CAP (both
+		// start at 0, and dropped_count only ever increments in this branch,
+		// which is unreachable until sample_count has already saturated to
+		// CAP). host_metrics.c always resets both counters together at the
+		// same point each window (true both before and after the snapshot-
+		// under-lock restructure). So idx cycles 0,1,2,...,CAP-1,0,1,... in
+		// exactly the order a separately-tracked write_idx would.
+		uint32_t idx = feedback_sender->input_latency_dropped_count % FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP;
+		feedback_sender->input_latency_samples_us[idx] = clamped_us;
+		feedback_sender->input_latency_dropped_count++;
+	}
+}
+#endif
+
 static bool state_cond_check(void *user)
 {
 	ChiakiFeedbackSender *feedback_sender = user;
@@ -250,6 +401,17 @@ static bool state_cond_check(void *user)
 static void *feedback_sender_thread_func(void *user)
 {
 	ChiakiFeedbackSender *feedback_sender = user;
+
+#ifdef __PSVITA__
+	/* See the priority-hierarchy comment above FEEDBACK_SENDER_THREAD_PRIORITY's
+	 * definition near the top of this file for rationale. No CPU affinity mask
+	 * is set here -- there is no spare USER core to dedicate to this thread
+	 * (Vita has exactly 3 usable user cores, USER_0/1/2, already claimed one
+	 * each by recv/decode/audio -- see docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md),
+	 * so it stays unrestricted, same as host_input.c's
+	 * sceKernelChangeThreadCpuAffinityMask(..., 0) precedent. */
+	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, FEEDBACK_SENDER_THREAD_PRIORITY);
+#endif
 
 	ChiakiErrorCode err = chiaki_mutex_lock(&feedback_sender->state_mutex);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -280,12 +442,7 @@ static void *feedback_sender_thread_func(void *user)
 		{
 			// History is edge-triggered off its own controller_state_history_prev
 			// and is evaluated/sent on every real wake, independent of the
-			// state-packet floor below: a touchpad click pulses for
-			// TOUCHPAD_CLICK_PULSE_FRAMES * ms_per_loop (~4ms, see host_input.c),
-			// shorter than FEEDBACK_STATE_TIMEOUT_MIN_MS (8ms) -- deferring
-			// history detection along with the state packet would silently drop
-			// a press+release that round-trips entirely inside one deferred
-			// floor window.
+			// state-packet send below.
 			//
 			// NOTE: controller_state_history_prev is deliberately NOT updated
 			// here. feedback_sender_send_history() below still needs to read it
@@ -298,12 +455,35 @@ static void *feedback_sender_thread_func(void *user)
 					&feedback_sender->controller_state, &feedback_sender->controller_state_history_prev);
 		}
 
+		// Minimum-interval floor: caps the ACTIVE (non-idle) state-send rate
+		// at 125/s worst case (1000ms / FEEDBACK_STATE_TIMEOUT_MIN_MS). It
+		// engages ONLY when consecutive real changes arrive faster than
+		// 125/s (since_last_send < MIN_MS) -- an isolated input spaced
+		// >= 8ms from the previous send is never delayed by it at all.
+		//
+		// Why 8ms is safe: the PS5 renders at 60Hz (16.7ms/frame). 8ms is
+		// already finer than the console can act on, so the floor's
+		// worst-case added latency cannot be perceptible even when it does
+		// engage.
+		//
+		// Why the floor is load-bearing (do not remove it again): removing
+		// it uncaps the send rate entirely. STICK_DEADBAND
+		// (vita/src/host_input.c) suppresses ADC jitter on a held stick but
+		// not genuine sustained movement -- during active aiming, most of
+		// host_input.c's ~450Hz-effective poll loop would each trigger a
+		// send, i.e. up to ~450 packets/s. That's 2.6x PR #236's pre-fix
+		// 170/s and ~5x its post-fix ~80/s. PR #236's P1-P3 fixes
+		// (hardware-validated) fixed a real ENOBUFS session-kill chain fed
+		// by exactly this kind of send-rate flood; uncapping the rate here
+		// would partially undo that validated fix in exchange for removing
+		// 8ms that nothing downstream can perceive -- a bad trade.
+		//
+		// Net expected effect with the floor restored: it caps the active
+		// rate at 125/s; STICK_DEADBAND and the idle MAX_MS backoff below
+		// pull the average well below that, expected to land near or below
+		// PR #236's measured ~80/s.
 		if(real_change || floor_pending)
 		{
-			// Never send two feedback-state packets closer together than
-			// FEEDBACK_STATE_TIMEOUT_MIN_MS even if a real change lands sooner:
-			// defer the state send, remember it via floor_pending, and shorten
-			// next_timeout to just the remaining floor time.
 			uint64_t now = chiaki_time_now_monotonic_ms();
 			uint64_t since_last_send = now - last_send_ms;
 			if(since_last_send < FEEDBACK_STATE_TIMEOUT_MIN_MS)
@@ -315,36 +495,19 @@ static void *feedback_sender_thread_func(void *user)
 			else
 			{
 				floor_pending = false;
-
-				// don't need to send feedback state if nothing relevant changed
-				// since the last packet we actually sent
 				if(controller_state_equals_for_feedback_state(&feedback_sender->controller_state, &feedback_sender->controller_state_prev))
 					send_feedback_state = false;
-
-				// The floor is already enforced via since_last_send above;
-				// waiting MAX_MS here (instead of re-arming at MIN_MS) avoids a
-				// redundant duplicate resend of the same state ~MIN_MS after
-				// this send, before the idle backoff would otherwise kick in.
 				next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
 			}
 		}
 		else
 		{
-			// Idle (no pending change): keep the periodic ~1/MAX_MS heartbeat
-			// instead of flooring at MIN_MS, which was previously left
-			// permanently unset after initialization and cost an idle
-			// DualSense up to 125 state packets/s.
 			next_timeout = FEEDBACK_STATE_TIMEOUT_MAX_MS;
 		}
 
 		if(send_feedback_state) {
 			feedback_sender_send_state(feedback_sender);
 			last_send_ms = chiaki_time_now_monotonic_ms();
-			// Only advance the state-send reference when a packet was actually
-			// sent (see the field comment in feedbacksender.h) -- advancing it
-			// unconditionally would let a floor-deferred send compare against
-			// a prev that already caught up once the floor clears, and the
-			// send would be skipped entirely.
 			feedback_sender->controller_state_prev = feedback_sender->controller_state;
 			feedback_sender->controller_seq_counter++;
 			if((feedback_sender->controller_seq_counter % 500) == 0) {
@@ -354,7 +517,52 @@ static void *feedback_sender_thread_func(void *user)
 		}
 
 		if(send_feedback_history)
+		{
 			feedback_sender_send_history(feedback_sender);
+		}
+
+#ifdef __PSVITA__
+		// Record at most one PIPE/INPUT sample per wake, covering whichever of
+		// the state and/or history send(s) happened this wake -- a single wake
+		// can trigger both (e.g. a button press that also nudges accel/orient
+		// past its deadband), and recording each separately would double-weight
+		// one input event in the percentiles and turn n= into a packet count
+		// instead of an event count.
+		//
+		// Gated on controller_state_origin_us != 0, NOT real_change: this
+		// must also fire on a wake where the floor finally clears via a
+		// TIMEOUT (real_change == false this wake, floor_pending was true
+		// from an earlier wake) and the deferred state send actually goes
+		// out. That's precisely the send whose latency -- including the
+		// floor's own contribution -- this instrumentation exists to show;
+		// gating on real_change would silently miss it.
+		if(feedback_sender->controller_state_origin_us != 0 && (send_feedback_state || send_feedback_history))
+		{
+			uint64_t wire_us = sceKernelGetProcessTimeWide();
+			feedback_sender_record_input_latency(feedback_sender, wire_us);
+		}
+
+		// Clear the latch once nothing remains deferred, so the next real
+		// change re-latches a fresh origin instead of reusing a stale one
+		// from an already-resolved batch. Gated on !floor_pending, not on
+		// whether a record fired above and not on real_change: a wake can
+		// clear the floor via a TIMEOUT with nothing new polled, or resolve
+		// it to "no send needed" (state now equals controller_state_prev
+		// again) with nothing to record -- origin_us must still be reset in
+		// both cases, or it goes stale and gets misattributed to a future,
+		// unrelated change.
+		//
+		// Known, accepted imprecision (pre-existing, not new to this fix):
+		// if a history event (e.g. a button) fires on the same wake as an
+		// unrelated state change that's still floor-deferred, both share
+		// this one origin_us, so the history event's recorded latency is
+		// inflated by however long the unrelated state change had already
+		// been deferred. Self-corrects every window and doesn't corrupt
+		// anything -- just a consequence of one shared origin field serving
+		// both paths.
+		if(!floor_pending)
+			feedback_sender->controller_state_origin_us = 0;
+#endif
 
 		// Advance the history reference only after send_history() has read it
 		// (see the NOTE above); gated on real_change so an idle/timeout wake

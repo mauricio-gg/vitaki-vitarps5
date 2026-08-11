@@ -34,6 +34,10 @@
 // Lower values cause decoder freeze/corruption with PS5 streams
 #define REF_FRAMES 8
 
+// Decode thread priority: pinned to USER_1, tied with audio (USER_2) and
+// Takion recv (USER_0) at the highest user priority tier used in this codebase.
+#define VITA_DECODE_THREAD_PRIORITY 64
+
 void vita_h264_start();
 void vita_h264_stop();
 void vitavideo_show_poor_net_indicator();

@@ -483,6 +483,18 @@ int host_stream(VitaChiakiHost *host) {
   context.stream.video_first_frame_logged = false;
   LOGD("PIPE/STREAM_START path=%s bitrate_kbps=%u res=%ux%u fps=%u", psn_remote ? "psn" : "lan",
        profile.bitrate, profile.width, profile.height, profile.max_fps);
+  // Mirror the lib/-owned thread priority constants for this one log line: lib/
+  // must not be included by vita/-app code (see the layering comment on
+  // FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP in lib/include/chiaki/feedbacksender.h),
+  // so these two values are hand-kept in sync with TAKION_RECV_THREAD_PRIORITY
+  // (lib/src/takion.c) and FEEDBACK_SENDER_THREAD_PRIORITY (lib/src/feedbacksender.c,
+  // now 65 -- see that file's rationale comment for why it's deliberately NOT
+  // tied with decode/audio/recv's 64).
+#define HOST_LOG_TAKION_RECV_THREAD_PRIORITY 64
+#define HOST_LOG_FEEDBACK_SENDER_THREAD_PRIORITY 65
+  LOGD("PIPE/PRIORITY decode=%d audio=%d recv=%d feedback=%d input=%d", VITA_DECODE_THREAD_PRIORITY,
+       VITA_AUDIO_THREAD_PRIORITY, HOST_LOG_TAKION_RECV_THREAD_PRIORITY,
+       HOST_LOG_FEEDBACK_SENDER_THREAD_PRIORITY, VITA_INPUT_THREAD_PRIORITY);
 
   err = chiaki_session_start(&context.stream.session);
   if (err != CHIAKI_ERR_SUCCESS) {

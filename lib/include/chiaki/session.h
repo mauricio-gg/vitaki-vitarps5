@@ -276,6 +276,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_start(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_join(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state);
+#ifdef __PSVITA__
+// Vita-only sibling of chiaki_session_set_controller_state() carrying a
+// controller-poll origin timestamp through to the feedback sender for
+// PIPE/INPUT latency instrumentation -- see feedbacksender.h.
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state_ts(ChiakiSession *session, ChiakiControllerState *state, uint64_t origin_us);
+#endif
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_stream_connection_switch_received(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_request_stream_restart(ChiakiSession *session, const ChiakiConnectVideoProfile *profile);

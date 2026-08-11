@@ -987,7 +987,7 @@ static void *decode_thread_func(void *user) {
   (void)user;
 #ifdef __PSVITA__
   /* Pin to USER_1 — recv is USER_0, audio is USER_2. */
-  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, 64);
+  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_DECODE_THREAD_PRIORITY);
   sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_1);
 #endif
   LOGD("VIDEO: decode thread started (USER_1)");
