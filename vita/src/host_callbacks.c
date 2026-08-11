@@ -96,7 +96,23 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
    * Decode always runs unconditionally to keep the HW decoder DPB reference
    * chain in sync. */
   bool frame_corrupt = (frames_lost > 0) || frame_recovered;
-  int err = vita_h264_decode_frame(buf, buf_size, frame_corrupt);
+
+  /* Latency investigation (item 1): read the lib-side first-packet-arrival timestamp
+   * directly off the video receiver -- same access pattern host_metrics.c already uses
+   * for stream_connection->takion.jitter_stats. Safe to read here: this callback runs
+   * synchronously on the recv thread, invoked from inside
+   * chiaki_video_receiver_flush_frame() (lib/src/videoreceiver.c) BEFORE that function
+   * resets cur_frame_first_packet_ms to 0 for the next frame -- see the call site there.
+   * 0 if unavailable (e.g. the profile-header injection call, which runs before
+   * cur_frame_first_packet_ms is set for the first frame of a session). */
+  uint64_t frame_first_packet_ms = 0;
+  if (context.stream.session_init) {
+    ChiakiVideoReceiver *receiver = context.stream.session.stream_connection.video_receiver;
+    if (receiver)
+      frame_first_packet_ms = receiver->cur_frame_first_packet_ms;
+  }
+
+  int err = vita_h264_decode_frame(buf, buf_size, frame_corrupt, frame_first_packet_ms);
   if (err != 0) {
     LOGE("Error during video decode: %d", err);
     return false;

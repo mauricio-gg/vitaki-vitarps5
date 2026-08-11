@@ -17,6 +17,37 @@
 #define BITRATE_WINDOW_MIN_US 100000ULL  /* 100 ms */
 #define BITRATE_WINDOW_MAX_US 2000000ULL /* 2 s */
 
+/* Latency investigation: nearest-rank percentile selectors for the per-window e2e
+ * latency sample array (see host_metrics_update_latency() below). */
+#define LATENCY_PERCENTILE_P50 50
+#define LATENCY_PERCENTILE_P95 95
+
+/* Insertion sort for the bounded (<= LATENCY_WINDOW_SAMPLE_CAP) per-window latency sample
+ * array. O(n^2) worst case is trivial at this size (<=64 elements) and this runs once per
+ * ~1s window on the UI thread -- not a hot path -- so a tiny in-place sort is simpler than
+ * wiring qsort()'s comparator for what would otherwise be this file's only sort call. */
+static void sort_latency_samples(uint32_t *samples, uint32_t count) {
+  for (uint32_t i = 1; i < count; i++) {
+    uint32_t key = samples[i];
+    uint32_t j = i;
+    while (j > 0 && samples[j - 1] > key) {
+      samples[j] = samples[j - 1];
+      j--;
+    }
+    samples[j] = key;
+  }
+}
+
+/* Nearest-rank percentile index into a sorted array of `count` elements. */
+static uint32_t percentile_index(uint32_t count, uint32_t percentile) {
+  if (count == 0)
+    return 0;
+  uint32_t idx = (count * percentile) / 100;
+  if (idx >= count)
+    idx = count - 1;
+  return idx;
+}
+
 void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
   context.stream.measured_rtt_ms = 0;
@@ -127,6 +158,26 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   if (!preserve_recovery_state)
     context.stream.cascade_alarm_restart_used = false;
   context.stream.cascade_alarm_last_action_us = 0;
+
+  // Latency investigation instrumentation
+  memset(context.stream.latency_window_samples_ms, 0,
+         sizeof(context.stream.latency_window_samples_ms));
+  context.stream.latency_window_sample_count = 0;
+  context.stream.latency_window_write_idx = 0;
+  context.stream.latency_window_dropped_count = 0;  // per-window; see stream_state.h
+  context.stream.latency_dropped_total_count = 0;   // session-cumulative twin
+  context.stream.latency_p50_ms = 0;
+  context.stream.latency_p95_ms = 0;
+  context.stream.latency_max_ms = 0;
+  context.stream.latency_sample_n = 0;
+  context.stream.latency_dropped_n = 0;
+  context.stream.latency_log_last_us = 0;
+  context.stream.decode_q_occ_avg = 0;
+  context.stream.decode_q_occ_max = 0;
+  context.stream.audio_q_occ_avg = 0;
+  context.stream.audio_q_occ_max = 0;
+  context.stream.net_unstable_banner_streak = 0;
+  context.stream.net_unstable_last_loss_us = 0;
 
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
@@ -354,21 +405,89 @@ void host_metrics_update_latency(void) {
     host_recovery_handle_post_reconnect_degraded_mode(av_diag_progressed, incoming_fps,
                                                       effective_target_fps, low_fps_window, now_us);
     // Keep diagnostics passive here; stability path avoids restart escalation.
+
+    // Latency investigation (item 1): reduce this window's true end-to-end latency
+    // samples (written by vita_video_render_latest_frame() in video.c, see the
+    // clock-domain comment there) to p50/p95/max and reset the ring for the next window.
+    // Runs unconditionally here -- not gated by show_latency below -- so stale samples
+    // from a debug-overlay-off session never linger; only the LOGD print is gated.
+    //
+    // Code review fix: latency_window_dropped_count is now per-window (was
+    // session-cumulative), snapshotted into latency_dropped_n before reset so the printed
+    // line can show whether THIS window's ring actually wrapped -- the session-cumulative
+    // view is preserved separately in latency_dropped_total_count.
+    {
+      uint32_t n = context.stream.latency_window_sample_count;
+      if (n > 0) {
+        sort_latency_samples(context.stream.latency_window_samples_ms, n);
+        context.stream.latency_p50_ms =
+            context.stream.latency_window_samples_ms[percentile_index(n, LATENCY_PERCENTILE_P50)];
+        context.stream.latency_p95_ms =
+            context.stream.latency_window_samples_ms[percentile_index(n, LATENCY_PERCENTILE_P95)];
+        context.stream.latency_max_ms = context.stream.latency_window_samples_ms[n - 1];
+      } else {
+        context.stream.latency_p50_ms = 0;
+        context.stream.latency_p95_ms = 0;
+        context.stream.latency_max_ms = 0;
+      }
+      context.stream.latency_sample_n = n;
+      context.stream.latency_dropped_n = context.stream.latency_window_dropped_count;
+      context.stream.latency_dropped_total_count += context.stream.latency_window_dropped_count;
+      context.stream.latency_window_dropped_count = 0;
+      context.stream.latency_window_sample_count = 0;
+      context.stream.latency_window_write_idx = 0;
+    }
   }
 
   if (!context.config.show_latency)
     return;
 
   static const uint64_t LOG_INTERVAL_US = 1000000;
-  static uint64_t last_log_us = 0;
-  if (now_us - last_log_us >= LOG_INTERVAL_US) {
+  // Code review finding: this was previously a function-local `static`, which
+  // host_metrics_reset_stream() had no way to clear -- a session reset or a
+  // show_latency toggle mid-stream could print one stale-anchored line using a timestamp
+  // from a previous session. Living in context.stream lets the reset function clear it
+  // alongside every other window anchor in this file (see below).
+  if (now_us - context.stream.latency_log_last_us >= LOG_INTERVAL_US) {
     float target_mbps = context.stream.session.connect_info.video_profile.bitrate / 1000.0f;
+    // Item 4: this used to print (base RTT + control-channel jitter) labeled as "RTT",
+    // which is neither a real RTT (base is a one-shot Senkusha handshake value, never
+    // updated mid-stream -- lib/src/senkusha.c, lib/src/session.c:685) nor real jitter
+    // (the EWMA is control-channel packet cadence -- lib/src/takion.c:~2020-2050 -- which
+    // video/audio AV traffic never touches). Relabeled honestly below; the UI-facing
+    // "Latency" overlay value (context.stream.measured_rtt_ms, video_overlay.c) is left
+    // untouched -- out of scope for this pure-instrumentation change. See the new
+    // PIPE/LATENCY line for the genuine measured end-to-end latency and video-packet
+    // jitter this investigation added.
     LOGD(
-        "Latency metrics — target %.2f Mbps, measured %.2f Mbps, RTT %u ms (base %u ms, jitter "
-        "%llu us)",
-        target_mbps, context.stream.windowed_bitrate_mbps, context.stream.measured_rtt_ms,
+        "Latency metrics — target %.2f Mbps, measured %.2f Mbps, senkusha_rtt %u ms "
+        "(one-shot handshake, never updated mid-stream), ctrl_cadence_jitter %llu us "
+        "(control-channel EWMA, NOT real network jitter)",
+        target_mbps, context.stream.windowed_bitrate_mbps,
         (uint32_t)(context.stream.session.rtt_us / 1000),
         (unsigned long long)stream_connection->takion.jitter_stats.jitter_us);
+    // Code review fix: this line used to read latency_window_dropped_count directly, but
+    // that field is reset to 0 by the (unconditional) window-close reduce block above on
+    // every call, *before* this show_latency-gated print runs -- so it would always print
+    // 0. Print the published per-window snapshot (dropped_win) and the session-cumulative
+    // twin (dropped_total) instead.
+    // Code review fix: decode_q_occ_avg/audio_q_occ_avg are fixed-point, scaled by
+    // OCC_AVG_FIXED_POINT_SCALE (see stream_state.h) -- a 4-slot queue's whole interesting
+    // range is 0.00-4.00 frames and plain integer printing would floor away the sub-frame
+    // persistent depth shift this PR exists to detect. Formatted here as X.XX; *_max stays
+    // a plain integer (genuinely discrete depth counts).
+    LOGD(
+        "PIPE/LATENCY p50_ms=%u p95_ms=%u max_ms=%u n=%u dropped_win=%u dropped_total=%u "
+        "decode_q_avg=%u.%02u decode_q_max=%u audio_q_avg=%u.%02u audio_q_max=%u "
+        "video_jitter_us=%llu",
+        context.stream.latency_p50_ms, context.stream.latency_p95_ms, context.stream.latency_max_ms,
+        context.stream.latency_sample_n, context.stream.latency_dropped_n,
+        context.stream.latency_dropped_total_count,
+        context.stream.decode_q_occ_avg / OCC_AVG_FIXED_POINT_SCALE,
+        context.stream.decode_q_occ_avg % OCC_AVG_FIXED_POINT_SCALE,
+        context.stream.decode_q_occ_max, context.stream.audio_q_occ_avg / OCC_AVG_FIXED_POINT_SCALE,
+        context.stream.audio_q_occ_avg % OCC_AVG_FIXED_POINT_SCALE, context.stream.audio_q_occ_max,
+        (unsigned long long)stream_connection->takion.video_jitter_stats.jitter_us);
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
@@ -388,7 +507,7 @@ void host_metrics_update_latency(void) {
         context.stream.stuck_bitrate_low_fps_streak, (int)context.stream.stuck_bitrate_restart_used,
         context.stream.cascade_alarm_streak, (int)context.stream.cascade_alarm_restart_used,
         vita_video_decode_queue_drops());
-    last_log_us = now_us;
+    context.stream.latency_log_last_us = now_us;
   }
 
   if (context.stream.takion_drop_events != context.stream.logged_drop_events) {
