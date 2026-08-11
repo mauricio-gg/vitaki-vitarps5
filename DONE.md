@@ -4,7 +4,46 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 
 ---
 
-## 2026-08-11 (Root-Cause Investigation Complete; PRs #223, #227, #228 Merged + Follow-Up Issues Filed)
+## 2026-08-11 (Root-Cause Investigation + PRs #223/#227/#228 Merged; Hardware A/B Partial — #213/#215/#223 validated, #227 pending, #221 inconclusive)
+
+### Hardware A/B Validation Results (Logs 27052669255 & 27281373937, Commit 78fe4e86)
+- [x] **PR #213 Post-FEC Loss Reporting — VALIDATED**
+  - **A arm results:** reported=16 aggregate over 126 windows/49795 received (window dip precursor reported=7). Bitrate: one mild dip 5825k→5691k (loss-driven) then FULL recovery to 5825k via +25k crawl
+  - **B arm results:** 5825k flat, zero step-downs. 1Hz CONGESTION/LOSS diagnostics correct
+  - **Pre-fix baseline (log 24402261711):** staircase 5825k→3579k in 66s — eliminated
+  - **Verdict:** Post-FEC effective loss reporting working correctly; PS5 bitrate floor-throttling fixed
+
+- [x] **PR #215 Reliable Stop-to-Reconnect — VALIDATED**
+  - **A arm:** `DISCONNECT acked after 14 ms` + 2s guard; quick reconnect hit RP_IN_USE (0x80108b10), single auto-retry (6s) recovered without user awareness
+  - **B arm:** DISCONNECT not acked within 400ms → correct 8s-guard fallback, reconnect succeeded
+  - **Delivery-aware paths exercised:** 2s (acked, A arm) and 8s (unacked, B arm). The 0s never-streamed gate was not hit in either session
+  - **Verdict:** Bounded DISCONNECT ack-wait + delivery-aware post-stop guard working; RP_IN_USE rejection handled via single auto-retry
+
+- [x] **PR #223 Corrupt-Frame Report Coalescing — VALIDATED**
+  - **A arm:** 9 corrupt-report wire sends total across ~3 bursts, 3 `burst_retired` lines (vs 17-21 pre-fix per single burst)
+  - **B arm:** 4 sends, 1 retired
+  - **Bitrate through FEC-recovered bursts:** target_bitrate holds steady (no pathological step-downs)
+  - **Pre-fix baseline:** staircase pattern — eliminated
+  - **Verdict:** 500ms coalescing + 32-frame growth bypass working; per-session totals: 9 sends (A, ~3 bursts, 3 burst_retired) / 4 sends (B, 1 retired) vs 17-21 per single burst pre-fix
+
+- [ ] **PR #227 Should_Stop Sticky Latch Fix — PENDING**
+  - **Status:** `fast_restart=0` in every quit classification in both logs; in-session automatic soft-restart arc never exercised in these sessions
+  - **Evidence gap:** All reconnects were full UI restarts, not automatic soft restarts. Needs degraded-stream episode triggering host_recovery's automatic restart flow
+  - **Verdict:** Feature untested in this batch; no regression observed, but positive validation still pending
+
+- [ ] **GH #221 Parity A/B Toggle — INCONCLUSIVE/BENIGN**
+  - **A arm (parity_inclusive=0):** reported=16 aggregate over 126 windows/49795 received
+  - **B arm (parity_inclusive=1):** reported=0 over 74 windows/28890 received, raw_lost=24 (all FEC-recovered)
+  - **Zero-loss step-downs:** Neither arm reproduced the pathological zero-loss step-down (GH #221 mystery case)
+  - **ON-arm safety:** Zero adverse effects despite RTT 201.7ms; 10% cap never bound (reported==reported_precap throughout)
+  - **Decision:** Keep toggle default OFF (production); issue open but deprioritized; no code regression detected
+
+- [x] **Explained (Not a Bug):** Build B Slow Session Start
+  - **Root cause:** PS5 waking from rest mode: 78× `620 Server Standby` (Build A: 26× 620, milder)
+  - **Timeline:** Wake request t=12.7s, user cancelled t=63.5s, retry connected t≈78s
+  - **First-session RTT:** Build B 85ms avg vs Build A 69ms (jitter-dominated, hypothesized post-wake console load)
+  - **Second-session RTT:** Matched (76 vs 77ms)
+  - **Action:** New UX issue GH #230 filed for silent console-wake experience (not VitaRPS5 regression)
 
 ### Root-Cause Analysis Completion
 - [x] **Latency root-cause investigation complete (session log 24402261711, build 287c6287)**
@@ -22,7 +61,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - **Fix:** 500ms cooldown + 32-frame growth bypass on same-start expansion re-reports; pure classifier `chiaki_video_corrupt_report_classify` with exactly 15 unit-test assertions
   - **Burst-tail completeness via retirement hook:** Span-sanity guard (4096) hoisted to cover all four report sites
   - **Expected:** ~17 → ~3-4 sends per burst
-  - **Hardware Validation:** Pending
+  - **Hardware Validation:** 2026-08-11 VALIDATED — logs 27052669255 (A: 9 sends) & 27281373937 (B: 4 sends)
   - **Files:** `lib/src/videoreceiver_gap.{c,h}` (classifier), `lib/src/videoreceiver.c` (four report sites + constants), `lib/include/chiaki/videoreceiver.h`, `test/packet_path_tests.c` (unit tests)
   - **Code Review:** 3 rounds (code-guardian), all findings fixed; APPROVED
 
@@ -30,8 +69,7 @@ This document tracks completed work, organized by batch/date, preserving epic gr
 - [x] **Fix GH #214: streamconnection should_stop never resets, breaks soft restarts**
   - **Root Cause:** `should_stop` sticky latch was never reset per-run; soft restarts would bail at first CHECK_STOP on second+ restart attempts
   - **Fix:** `chiaki_stream_connection_prepare_restart()` inside the state_mutex critical section; restart refused (correctly reported as DISCONNECTED) when remote teardown raced in; request rollback prevents `host_recovery` retry deadlock
-  - **Impact:** Soft restart (the user-accessible ratchet reset) works again
-  - **Hardware Validation:** Pending
+  - **Impact:** Code path fixed; unverified on hardware (automatic soft-restart arc not exercised in 2026-08-11 hardware run)
   - **Code Review:** 6 total rounds (code-guardian scrutiny), all findings fixed; APPROVED
 
 ### PR #228 - Diagnostics A/B Toggle (MERGED, Part of GH #221)
@@ -40,13 +78,13 @@ This document tracks completed work, organized by batch/date, preserving epic gr
   - **Default:** OFF (production path unchanged); ON arm: `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1 ./tools/build.sh --env testing`
   - **Telemetry:** CONGESTION/RECEIVED_MODE log line; testing log queue 256→512 (ceiling 1024, both clamps unified)
   - **Wholly-missing-frame accounting:** Audited + documented on GH #221 (structural, no code)
-  - **Hardware Validation:** Pending (parity A/B run per GH #221)
+  - **Hardware Validation:** 2026-08-11 A/B run inconclusive/benign (GH #221 open; ON arm zero adverse effects, zero-loss step-downs not reproduced)
 
 ### Follow-Up Issues Filed (GH #218-#226)
 - [x] **GH #218** (closes with PR #223) — Corrupt-frame report coalescing
 - [x] **GH #219** — Persistent control-channel late reorder drops
 - [x] **GH #220** — RECV_MALLOC_BURST churn
-- [x] **GH #221** — Parity denominator A/B + missing-frame blindness (open, hardware run pending)
+- [x] **GH #221** — Parity denominator A/B + missing-frame blindness (open; 2026-08-11 A/B run inconclusive/benign)
 - [x] **GH #222** — Test suite never executes (cross-compile only)
 - [x] **GH #224** — Classifier PATHOLOGICAL disposition + fec_failed WARN latch follow-ups
 - [x] **GH #225** — Late stop during senkusha gap
