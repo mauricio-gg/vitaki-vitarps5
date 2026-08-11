@@ -22,6 +22,7 @@ option(CHIAKI_ENABLE_ANDROID "Enable Android (Use only as part of the Gradle Pro
 option(CHIAKI_ENABLE_BOREALIS "Enable Borealis GUI (For Nintendo Switch or PC)" OFF)
 option(CHIAKI_ENABLE_VITA "Enable PS Vita" OFF)
 option(CHIAKI_ENABLE_VITA_HOLEPUNCH "Enable PSN holepunch path on PS Vita" ON)
+option(VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED "GH #221 diagnostic A/B: count received FEC parity units toward the congestion 'received' value reported to the PS5 (default OFF = source-units-only baseline, unchanged since PR #213)" OFF)
 tri_option(CHIAKI_ENABLE_SETSU "Enable libsetsu for touchpad input from controller" AUTO)
 tri_option(CHIAKI_ENABLE_STEAMDECK_NATIVE "Enable sdeck for native gyro and haptic feedback from Steam Deck" OFF)
 option(CHIAKI_LIB_ENABLE_OPUS "Use Opus as part of Chiaki Lib" ON)

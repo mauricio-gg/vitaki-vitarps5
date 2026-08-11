@@ -324,8 +324,8 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
     memcpy(&active_cfg, cfg, sizeof(VitaLoggingConfig));
   if (active_cfg.queue_depth == 0)
     active_cfg.queue_depth = VITA_LOG_DEFAULT_QUEUE_DEPTH;
-  if (active_cfg.queue_depth > 256)
-    active_cfg.queue_depth = 256;
+  if (active_cfg.queue_depth > VITA_LOG_QUEUE_DEPTH_MAX)
+    active_cfg.queue_depth = VITA_LOG_QUEUE_DEPTH_MAX;
   if (!active_cfg.path[0])
     strncpy(active_cfg.path, VITA_LOG_DEFAULT_PATH, sizeof(active_cfg.path) - 1);
   log_queue_cap = active_cfg.queue_depth;

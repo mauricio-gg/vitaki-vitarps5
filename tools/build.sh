@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="865"
+VERSION_ITERATION="874"
 
 # Colors for output
 RED='\033[0;31m'
@@ -152,6 +152,7 @@ configure_logging_cmake_args() {
 
 configure_feature_cmake_args() {
     local holepunch_val
+    local parity_inclusive_val
     local cmake_args=()
 
     holepunch_val=$(normalize_bool "$VITARPS5_ENABLE_VITA_HOLEPUNCH")
@@ -159,6 +160,23 @@ configure_feature_cmake_args() {
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=$( [ "$holepunch_val" = "1" ] && echo ON || echo OFF )")
     else
         cmake_args+=("-DCHIAKI_ENABLE_VITA_HOLEPUNCH=ON")
+    fi
+
+    # GH #221 diagnostic A/B toggle: default OFF (source-units-only baseline).
+    # Opt in per-build via an exported env var, e.g.:
+    #   VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1 ./tools/build.sh --env testing
+    # Always emit an explicit -D, including the OFF/unset case: without an else
+    # branch here, a build directory's CMakeCache.txt from a prior ON build
+    # would never be re-stamped by a later "baseline" build that sets no env
+    # var at all, so the cached ON value would silently persist and the "OFF"
+    # arm would actually still ship parity-inclusive. Mirrors the
+    # CHIAKI_ENABLE_VITA_HOLEPUNCH else branch a few lines above for the same
+    # reason.
+    parity_inclusive_val=$(normalize_bool "$VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED")
+    if [ -n "$parity_inclusive_val" ]; then
+        cmake_args+=("-DVITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=$( [ "$parity_inclusive_val" = "1" ] && echo ON || echo OFF )")
+    else
+        cmake_args+=("-DVITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=OFF")
     fi
 
     # Security: plaintext token storage is OFF by default (production-safe).

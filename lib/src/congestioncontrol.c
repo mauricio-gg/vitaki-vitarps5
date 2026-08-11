@@ -108,6 +108,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_congestion_control_start(ChiakiCongestionCo
 	control->takion = takion;
 	control->stats = stats;
 	control->log = log;
+
+#ifdef VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED
+	CHIAKI_LOGI(log, "CONGESTION/RECEIVED_MODE parity_inclusive=1 (GH #221 A/B: FEC parity units counted toward reported congestion 'received')");
+#else
+	CHIAKI_LOGI(log, "CONGESTION/RECEIVED_MODE parity_inclusive=0 (GH #221 A/B: source units only, baseline since PR #213)");
+#endif
+
 	control->log_accum_received = 0;
 	control->log_accum_raw_lost = 0;
 	control->log_accum_recovered = 0;
