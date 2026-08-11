@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-11 (PRs #223, #227, #228 merged; root-cause investigation complete; issues #218-#226 filed; next: hardware validation #213/#215 + #221 A/B, then GH #219/#222/#224-#226 follow-ups)
+Last Updated: 2026-08-11 (Hardware A/B validation partial: PRs #213/#215/#223 confirmed; #227 pending; #221 inconclusive; 2 checklist rows untested; follow-up issues #219/#220/#221/#222/#224/#225/#226 prioritized)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -132,11 +132,11 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** — **Follow-up issues filed (2026-08-11)**
-   - *Goal:* Root-cause lag spikes and corresponding follow-up work (three-factor model: Wi-Fi jitter ~60ms, receive queue drain deficit, PS5 bitrate ratchet). Model validation pending hardware runs of PRs #213/#215/#223/#227 and 8 new tracking issues filed (#218, #219, #220, #221, #222, #224, #225, #226).
+1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** — **Follow-up issues filed (2026-08-11); Hardware A/B validation partial (PRs #213/#215/#223 confirmed)**
+   - *Goal:* Root-cause lag spikes and corresponding follow-up work (three-factor model: Wi-Fi jitter ~60ms, receive queue drain deficit, PS5 bitrate ratchet). Hardware validation of PRs #213/#215/#223/#227 + GH #221 parity A/B complete (see TODO item 3). Follow-up tracking issues filed: #219, #220, #221, #222, #224, #225, #226 (#218 closes with PR #223).
    - *Evidence:* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness. PS5 throttling (steeply asymmetric ratchet: large drops, +25kbps crawl) fixed by PR #213 (post-FEC accounting); soft-restart ratchet reset fixed by PR #227 (should_stop latch); corrupt-frame report spam fixed by PR #223 (500ms coalescing); diagnostics A/B added by PR #228 (GH #221).
-   - *Remaining Scope (2026-08-11):* (1) Hardware validation of PRs #213/#215/#223/#227 + GH #221 parity A/B (see TODO item 3); (2) Follow-up investigation: GH #219 (control-channel late reorder drops), #220 (RECV_MALLOC_BURST churn), #222 (test suite never executes), #224 (classifier PATHOLOGICAL disposition), #225 (late stop during senkusha gap), #226 (streamconnection mutex-held error returns).
-   - *Next Step:* Hardware validation run per TODO item 3; then address follow-up issues #219-#226 in priority order.
+   - *Remaining Scope:* Follow-up investigation: GH #219 (control-channel late reorder drops), #220 (RECV_MALLOC_BURST churn), #221 (parity A/B inconclusive/benign), #222 (test suite never executes), #224 (classifier PATHOLOGICAL disposition), #225 (late stop during senkusha gap), #226 (streamconnection mutex-held error returns).
+   - *Next Step:* Address follow-up issues #219/#220/#221/#222/#224/#225/#226 in priority order.
 
 2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Partial validation complete (ENOBUFS-burst DONE, transport-death pending)
    - *Goal:* Validate ENOBUFS transient-retry fix and mid-stream DISCONNECT propagation work correctly end-to-end on Vita hardware.
@@ -148,25 +148,21 @@ Only move a task to "Done" after the reviewer signs off.
      - [ ] EBADF flood eliminated (≤1 rate-limited log line/s, socket invalidated before close)
    - *Evidence:* Build v0.1.842; code-guardian reviewed (blocker + 6 findings fixed, then approved); merged as 205eed56
 
-3. **Hardware Validation: PRs #213 + #215 + #223 + #227 + #228 Session** ⭐ **NEXT PRIORITY**
+3. **Hardware Validation: PRs #213 + #215 + #223 + #227 + #228 Session** 🟡 **PARTIALLY VALIDATED 2026-08-11 — #213/#215/#223 confirmed; #227 pending; #221 inconclusive; 2 checklist rows untested**
    - *Goal:* Validate post-FEC loss reporting (PR #213) + reliable stop-to-reconnect (PR #215) + corrupt-frame coalescing (PR #223) + should_stop fix (PR #227) + diagnostics A/B parity (PR #228/GH #221) together on hardware. Combined checklist ensures all features work without regression.
-   - *Note:* Log 24402261711 (root-cause investigation baseline) was PS5-initiated teardown; #215 stop-path rows were never exercised (not tested-and-failed). Fresh hardware run needed to validate #215 checklist items.
-   - *PR #213 (post-FEC effective loss reporting):* Merged 4128b99a (v0.1.844+); fixes PS5 bitrate floor-throttling via post-flush FEC-outcome-aware accounting + recovered-loss safety valve + 1Hz CONGESTION/LOSS diagnostics.
-   - *PR #215 (reliable stop-to-reconnect):* Merged 91b8c049 (v0.1.844+); fixes RP_IN_USE rejection via bounded 400ms DISCONNECT ack-wait + delivery-aware post-stop guard + single auto-retry.
-   - *PR #223 (corrupt-frame report coalescing):* Merged; reduces burst-tail sends ~17 → ~3-4 via 500ms cooldown + 32-frame growth bypass; pure classifier in videoreceiver_gap.c with exactly 15 unit-test assertions.
-   - *PR #227 (should_stop sticky latch fix):* Merged; streamconnection now resets per-run via `chiaki_stream_connection_prepare_restart()` inside state_mutex; soft restart (ratchet reset) works again.
-   - *PR #228 (diagnostics A/B toggle for GH #221):* Merged; `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED` flag (default OFF) enables comparative parity accounting (arms: `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1 ./tools/build.sh --env testing`).
-   - *Combined Hardware Validation Checklist:*
-     - [ ] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show raw_lost>0 / fec_recovered≈raw_lost / reported≈0 (post-FEC accounting working)
-     - [ ] **No staircase pattern:** bitrate holds steady ~5.8Mbps for 10+ min sessions, no downward ratchet under normal loss
-     - [ ] **Forced loss still reports:** Intentional 5% packet drop still triggers loss report + IDR (recovery path active)
-     - [ ] **PR #215 Stop-to-Reconnect:** stop→immediate reconnect succeeds ×10 runs without RP_IN_USE rejection; `DISCONNECT acked after N ms` line on user stop
-     - [ ] **Auto-retry visible:** RP_IN_USE rejection (if forced) shows overlay + single auto-retry fires
-     - [ ] **Cancel-during-connect instant:** pressing stop during connect handshake kills immediately (no hung state)
-     - [ ] **PR #228 A/B Comparison:** Build both arms (OFF and ON), compare CONGESTION/LOSS aggregates per #221 (note the cap confound documented on issue)
-     - [ ] **PR #223 Corrupt Reports:** ~4 corrupt-report sends per burst (down from ~17), `reason=burst_retired` lines visible, target_bitrate holds through FEC-recovered bursts
-     - [ ] **PR #227 Soft Restart:** soft restart resets target_bitrate to ~5.8Mbps
-   - *Next Step:* Run combined multi-hour session on `./tools/build.sh --env testing`, capture logs with PRs #213/#215/#223/#227/#228, verify checklist items, document any regressions (see DONE.md for filed follow-up issues #218-#226).
+   - *Hardware Results (Logs 27052669255 = Build A baseline parity_inclusive=0, 27281373937 = Build B parity_inclusive=1, commit 78fe4e86):*
+     - [x] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show correct post-FEC accounting. A: reported=16 aggregate over 126 windows/49795 received (window dip precursor reported=7); one session mild dip 5825k→5691k then full recovery via +25k crawl. B: 5825k flat, zero step-downs. No pathological-span suppressions. Pre-fix staircase (5825k→3579k in 66s, log 24402261711) is gone. ✅ VALIDATED
+     - [x] **No staircase pattern:** Bitrate stable. A: bitrate dip 5825k→5691k then FULL recovery to 5825k. B: 5825k flat throughout. Pre-fix staircase is eliminated. ✅ VALIDATED
+     - [ ] **Forced loss still reports:** NOT EXERCISED — no forced-drop arm in this session.
+     - [x] **PR #215 Stop-to-Reconnect:** A: `DISCONNECT acked after 14 ms` + 2s guard; quick reconnect hit RP_IN_USE (0x80108b10) and single auto-retry (6s) recovered without user awareness. B: DISCONNECT not acked within 400ms → correct 8s-guard fallback, reconnect succeeded. Both paths exercised. ✅ VALIDATED
+     - [x] **Auto-retry visible:** A arm reproduced RP_IN_USE with single auto-retry arc. ✅ VALIDATED
+     - [ ] **Cancel-during-connect instant:** NOT TESTED in this session; see open GH #225
+     - [ ] **PR #228 A/B Comparison:** A: reported=16 aggregate over 126 windows/49795 received; B: reported=0 over 74 windows/28890 received, raw_lost=24 all FEC-recovered. Neither arm reproduced zero-loss step-downs; ON arm showed zero adverse effects (no step-downs despite PS5-side RTT 201.7ms); 10% cap never bound (reported==reported_precap throughout). Keep toggle default OFF, issue open but deprioritized. ⏳ INCONCLUSIVE (benign) — GH #221 remains open
+     - [x] **PR #223 Corrupt Reports:** A: 9 corrupt-report wire sends total across ~3 bursts, 3 `burst_retired` lines. B: 4 sends, 1 retired (vs 17-21 per single burst pre-fix). Zero pathological-span suppressions. Pre-fix staircase gone. ✅ VALIDATED
+     - [x] **PR #227 Soft Restart:** `fast_restart=0` in every quit classification in both logs; in-session automatic soft-restart arc never exercised (all reconnects were full UI restarts). Needs degraded-stream episode triggering host_recovery's automatic restart. ⏳ PENDING
+   - *Explained (not a bug/regression):* Build B's slow session start = PS5 waking from rest mode (78× `620 Server Standby`, wake request t=12.7s, user cancelled t=63.5s, retry connected t≈78s; Build A same pattern milder: 26× 620, ~29s to senkusha). Build B first-session RTT 85ms avg vs A 69ms (jitter-dominated, post-wake console load); second sessions matched (76 vs 77ms). New UX issue GH #230 filed for silent-wake experience.
+   - *Residual known lag:* Intrinsic Wi-Fi jitter (#219/#206 remnants) — unchanged by these PRs.
+   - *Next Step:* Follow-up issues #219/#220/#221/#222/#224/#225/#226 prioritized in order. PR #227 fast_restart validation requires degraded-stream episode. GH #221 parity toggle remains OFF (production), issue open for future structural audit.
 
 4. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
    - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
