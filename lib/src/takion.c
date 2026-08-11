@@ -116,9 +116,30 @@
  * after this many CONSECUTIVE transient errors on the blocking recv call
  * (intentionally count-only, not time-windowed: the takion thread can be
  * quiet for long stretches between packets, and a time window would trip on
- * two isolated errors minutes apart that never actually persisted). */
+ * two isolated errors minutes apart that never actually persisted).
+ *
+ * Count-alone proved insufficient in the field: on hardware, three live
+ * sessions were killed by this exact path while video was healthy at 30fps,
+ * with only 30-40ms between the last good frame and the disconnect --
+ * TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE attempts (an intended
+ * MAX_CONSECUTIVE * RETRY_DELAY_MS = 2s of tolerance) burned through in
+ * ~0.1ms each instead of RETRY_DELAY_MS apiece. Root cause: the retry
+ * delay was implemented as chiaki_stop_pipe_sleep(), which on platforms
+ * where the stop pipe is socket-backed (__PSVITA__, see stoppipe.c) is
+ * itself a select() on that socket -- during an ENOBUFS storm that select()
+ * also fails with ENOBUFS and returns immediately instead of waiting, so
+ * the "backoff" never actually elapsed and the whole budget was consumed in
+ * a tight spin. See takion_recv_transient_backoff() below, which falls back
+ * to a socket-independent sleep whenever the stop-pipe wait didn't actually
+ * consume time. TAKION_RECV_TRANSIENT_MIN_PERSIST_MS is an additional,
+ * additive floor on top of the count check so that even a future
+ * regression of this kind can't burn the budget in one tight spin again;
+ * it does not change the count-only rationale above -- consecutive still
+ * resets to 0 on every successful recv, so isolated errors minutes apart
+ * still can't accumulate toward either threshold. */
 #define TAKION_RECV_TRANSIENT_RETRY_DELAY_MS 5
 #define TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE 400
+#define TAKION_RECV_TRANSIENT_MIN_PERSIST_MS 1500
 #define TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS 1000
 
 // Rate limit for send-failure logging in chiaki_takion_send_raw(). Once the
@@ -249,6 +270,7 @@ static ChiakiErrorCode takion_parse_message(ChiakiTakion *takion, uint8_t *buf, 
 static void takion_write_message_header(uint8_t *buf, uint32_t tag, uint64_t key_pos, uint8_t chunk_type, uint8_t chunk_flags, size_t payload_data_size);
 static ChiakiErrorCode takion_send_message_init(ChiakiTakion *takion, TakionMessagePayloadInit *payload);
 static ChiakiErrorCode takion_send_message_cookie(ChiakiTakion *takion, uint8_t *cookie);
+static ChiakiErrorCode takion_recv_transient_backoff(ChiakiStopPipe *stop_pipe, uint64_t delay_ms);
 static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *buf_size, uint64_t timeout_ms);
 static ChiakiErrorCode takion_recv_message_init_ack(ChiakiTakion *takion, TakionMessagePayloadInitAck *payload);
 static ChiakiErrorCode takion_recv_message_cookie_ack(ChiakiTakion *takion);
@@ -1505,6 +1527,88 @@ beach:
 	return NULL;
 }
 
+/**
+ * Back off after a transient recv/select error, guaranteeing that delay_ms
+ * of real time elapses before returning (barring a stop request). Always
+ * tries chiaki_stop_pipe_sleep() first so a genuine stop request still
+ * cancels the wait promptly, and only falls back to a socket-independent
+ * sleep when the stop-pipe wait did NOT actually consume that time -- see
+ * the TAKION_RECV_TRANSIENT_* comment above for the hardware failure this
+ * fixes: chiaki_stop_pipe_sleep() is a select() on the stop pipe, which on
+ * __PSVITA__ is itself socket-backed (see stoppipe.c) and can fail with
+ * the very same transient condition being backed off from, returning
+ * immediately instead of waiting.
+ *
+ * Classification of chiaki_stop_pipe_sleep()'s return value:
+ *   - CHIAKI_ERR_CANCELED: a stop was requested during the wait. Must
+ *     propagate immediately -- never add a fallback sleep on top, or
+ *     shutdown latency regresses for every caller of takion_recv().
+ *   - CHIAKI_ERR_TIMEOUT: select() waited the full timeout with nothing to
+ *     report -- the normal, successful outcome of a backoff. The delay
+ *     already elapsed; sleeping again would double the backoff.
+ *   - CHIAKI_ERR_SUCCESS: would mean the invalid fd (CHIAKI_INVALID_SOCKET)
+ *     was reported ready, which should not happen -- but if it ever does,
+ *     no elapsed time is guaranteed, so treat it like a failure below.
+ *   - anything else (notably CHIAKI_ERR_NETWORK_TRANSIENT, e.g. the stop
+ *     pipe's own socket hitting ENOBUFS, or CHIAKI_ERR_UNKNOWN): the wait
+ *     failed and returned immediately -- no time elapsed.
+ * In the last two cases, fall back to chiaki_sleep_ms(), which cannot fail
+ * on a socket condition because it does not touch a socket at all. But
+ * chiaki_sleep_ms() cannot observe the stop pipe at all, so how long a
+ * concurrent stop request stays invisible depends heavily on *why* we ended
+ * up here:
+ *   - Isolated/occasional case (a one-off transient blip, not a sustained
+ *     storm): the stop request lags by at most one retry slot
+ *     (~TAKION_RECV_TRANSIENT_RETRY_DELAY_MS) in this fallback-sleep branch
+ *     -- the next outer-loop iteration's select() then sees it normally.
+ *   - Sustained-storm case -- the exact scenario this whole fix exists for:
+ *     the stop request can stay invisible for as long as the storm
+ *     persists, up to takion_recv()'s give-up escalation bound. That bound
+ *     is dominated by the consecutive-count gate, not the time floor:
+ *     giving up requires TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE + 1 (401)
+ *     consecutive transient hits, each preceded by a ~TAKION_RECV_TRANSIENT_RETRY_DELAY_MS
+ *     backoff, so ~400 backoffs elapse first -- 400 * 5ms = ~2000ms -- by
+ *     which point the TAKION_RECV_TRANSIENT_MIN_PERSIST_MS (1500ms) time
+ *     floor is already satisfied, so the count gate is what actually fires.
+ *     Worst case: a stop request can be invisible for up to ~2 seconds.
+ *     This is NOT a bug in this helper and is not fixable here: the OUTER
+ *     select() in takion_recv() (the only place CHIAKI_ERR_CANCELED is
+ *     ever actually observed and returned by this function) hits the exact
+ *     same kernel-side transient condition on every iteration during the
+ *     storm, so it cannot see a concurrent stop request either -- the same
+ *     broken condition that blocks the data path also blocks the
+ *     stop-pipe's own check. Riding out the storm (the whole point of this
+ *     fix -- not dying in ~40ms) and detecting a stop promptly during that
+ *     same storm are in direct tension; this function cannot deliver both
+ *     at once.
+ *   - Worth being upfront about: pre-fix, a stop request arriving mid-storm
+ *     happened to resolve fast (~30-40ms) -- but only by accident, because
+ *     the spin bug this fix removes burned the entire retry budget almost
+ *     instantly and killed the session, which incidentally unblocked
+ *     everything for the wrong reason. Post-fix this can deliberately take
+ *     much longer (up to the ~2s derived above) because takion_recv() is
+ *     now correctly honoring the retry budget instead of spinning it away.
+ *     That is an intentional, understood behavior change, not a
+ *     regression.
+ *
+ * @param stop_pipe Stop pipe to wait on; a real shutdown request arrives
+ *                  through this and must still be honored promptly.
+ * @param delay_ms  Backoff duration to guarantee elapses when no stop is
+ *                  requested.
+ * @return CHIAKI_ERR_CANCELED if a stop was requested during the wait,
+ *         CHIAKI_ERR_SUCCESS otherwise (caller should continue its retry
+ *         loop).
+ */
+static ChiakiErrorCode takion_recv_transient_backoff(ChiakiStopPipe *stop_pipe, uint64_t delay_ms)
+{
+	ChiakiErrorCode sleep_err = chiaki_stop_pipe_sleep(stop_pipe, delay_ms);
+	if(sleep_err == CHIAKI_ERR_CANCELED)
+		return CHIAKI_ERR_CANCELED;
+	if(sleep_err != CHIAKI_ERR_TIMEOUT)
+		chiaki_sleep_ms(delay_ms);
+	return CHIAKI_ERR_SUCCESS;
+}
+
 static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *buf_size, uint64_t timeout_ms)
 {
 	while(true)
@@ -1533,7 +1637,8 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 			if(timeout_ms == 0)
 				return CHIAKI_ERR_TIMEOUT;
 
-			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE)
+			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE
+					&& now - takion->transient_recv.first_ms >= TAKION_RECV_TRANSIENT_MIN_PERSIST_MS)
 			{
 				CHIAKI_LOGE(takion->log, "Takion select: transient error persisted for %u consecutive attempts over %llu ms, giving up",
 						takion->transient_recv.consecutive, (unsigned long long)(now - takion->transient_recv.first_ms));
@@ -1546,9 +1651,8 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 				takion->transient_recv.log_ms = now;
 			}
 
-			ChiakiErrorCode sleep_err = chiaki_stop_pipe_sleep(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS);
-			if(sleep_err == CHIAKI_ERR_CANCELED)
-				return sleep_err;
+			if(takion_recv_transient_backoff(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS) == CHIAKI_ERR_CANCELED)
+				return CHIAKI_ERR_CANCELED;
 			continue;
 		}
 		if(err != CHIAKI_ERR_SUCCESS)
@@ -1580,7 +1684,8 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 			if(timeout_ms == 0)
 				return CHIAKI_ERR_TIMEOUT;
 
-			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE)
+			if(takion->transient_recv.consecutive > TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE
+					&& now - takion->transient_recv.first_ms >= TAKION_RECV_TRANSIENT_MIN_PERSIST_MS)
 			{
 				CHIAKI_LOGE(takion->log, "Takion recv: transient error persisted for %u consecutive attempts over %llu ms, giving up",
 						takion->transient_recv.consecutive, (unsigned long long)(now - takion->transient_recv.first_ms));
@@ -1596,9 +1701,8 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 				takion->transient_recv.log_ms = now;
 			}
 
-			ChiakiErrorCode sleep_err = chiaki_stop_pipe_sleep(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS);
-			if(sleep_err == CHIAKI_ERR_CANCELED)
-				return sleep_err;
+			if(takion_recv_transient_backoff(&takion->stop_pipe, TAKION_RECV_TRANSIENT_RETRY_DELAY_MS) == CHIAKI_ERR_CANCELED)
+				return CHIAKI_ERR_CANCELED;
 			continue;
 		}
 
