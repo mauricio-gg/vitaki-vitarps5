@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-10 (PRs #213, #215, #216 merged; GH #206 narrowed by proximity A/B; GH #208 ENOBUFS-burst validation DONE; next: hardware validation #213/#215, then #214 investigation)
+Last Updated: 2026-08-11 (PRs #223, #227, #228 merged; root-cause investigation complete; issues #218-#226 filed; next: hardware validation #213/#215 + #221 A/B, then GH #219/#222/#224-#226 follow-ups)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -132,12 +132,11 @@ Only move a task to "Done" after the reviewer signs off.
 ---
 
 ### 📝 Latency & Performance
-1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** ⭐ **NEXT PRIORITY**
-   - *Goal:* Root-cause lag spikes: genuine Wi-Fi jitter ~60ms at RSSI ~50, receive/reorder queue pinned at 256 slots (1046 single-packet drops despite drain cap already being 256/wakeup), PS5 bitrate throttle 4977k → 1597k floor in response to reported loss.
-   - *Evidence:* GH #188 hardware A/B (log 11782861312) disproved jitter theory — decode is now 1.8ms avg/2.4ms max on dedicated thread, but jitter remained 45–87ms avg (207ms max). Congestion control feedback contradicts earlier "PS5 ignores congestion control" belief. **First reported phenomenon (2026-06-26, PR #197):** 20% sustained packet-loss → 1500 kbps PS5 bitrate floor observed in logs 20361349999 and 20639381559. **Proximity A/B result (2026-08-10, log 13382891119):** RSSI 84→100 next to router, jitter still 50–90ms — signal-strength hypothesis refuted; Vita Wi-Fi burstiness is intrinsic to stack. PS5 throttling milder this run (~5.4Mbps target vs prior 1.6Mbps floor). 249 overflow drops in ~30s. Rules out signal quality; remaining factors are intrinsic Wi-Fi burstiness (jitter) and the queue drain deficit (drops).
-   - *Narrowed Scope (2026-08-10):* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness (not client issue). Remaining work: (a) PR #213 hardware A/B to validate post-FEC loss reporting fixes PS5 throttling, (b) whole-frame-gap blindness (missing IDR recovery when reference chain broken), (c) jitter-buffer clamp adaptation (absorb bursts better).
-   - *Impact:* Post-FEC loss reporting fixes (PR #213 merged) should improve PS5 bitrate stability; validated via hardware A/B with ratchet-model telemetry.
-   - *Next Step:* Hardware validation of PR #213 + PR #215 (combined session); confirm CONGESTION/LOSS logs show post-FEC accounting, no staircase pattern, target holds ~5.8Mbps 10+ min.
+1. **Investigate Wi-Fi burst jitter + receive-queue overflow (GH #206)** — **Follow-up issues filed (2026-08-11)**
+   - *Goal:* Root-cause lag spikes and corresponding follow-up work (three-factor model: Wi-Fi jitter ~60ms, receive queue drain deficit, PS5 bitrate ratchet). Model validation pending hardware runs of PRs #213/#215/#223/#227 and 8 new tracking issues filed (#218, #219, #220, #221, #222, #224, #225, #226).
+   - *Evidence:* Proximity A/B (log 13382891119, RSSI 84→100) refuted signal-strength hypothesis — jitter 50–90ms at strong RSSI confirms intrinsic Vita Wi-Fi burstiness. PS5 throttling (steeply asymmetric ratchet: large drops, +25kbps crawl) fixed by PR #213 (post-FEC accounting); soft-restart ratchet reset fixed by PR #227 (should_stop latch); corrupt-frame report spam fixed by PR #223 (500ms coalescing); diagnostics A/B added by PR #228 (GH #221).
+   - *Remaining Scope (2026-08-11):* (1) Hardware validation of PRs #213/#215/#223/#227 + GH #221 parity A/B (see TODO item 3); (2) Follow-up investigation: GH #219 (control-channel late reorder drops), #220 (RECV_MALLOC_BURST churn), #222 (test suite never executes), #224 (classifier PATHOLOGICAL disposition), #225 (late stop during senkusha gap), #226 (streamconnection mutex-held error returns).
+   - *Next Step:* Hardware validation run per TODO item 3; then address follow-up issues #219-#226 in priority order.
 
 2. **GH #208 Hardware Validation (PR #209 merged 205eed56)** — Partial validation complete (ENOBUFS-burst DONE, transport-death pending)
    - *Goal:* Validate ENOBUFS transient-retry fix and mid-stream DISCONNECT propagation work correctly end-to-end on Vita hardware.
@@ -149,33 +148,27 @@ Only move a task to "Done" after the reviewer signs off.
      - [ ] EBADF flood eliminated (≤1 rate-limited log line/s, socket invalidated before close)
    - *Evidence:* Build v0.1.842; code-guardian reviewed (blocker + 6 findings fixed, then approved); merged as 205eed56
 
-3. **Hardware Validation: PRs #213 + #215 Combined Session** ⭐ **NEXT PRIORITY**
-   - *Goal:* Validate post-FEC loss reporting (PR #213) + reliable stop-to-reconnect (PR #215) together on hardware. Combined checklist ensures both features work without regression.
-   - *PR #213 (post-FEC effective loss reporting):**
-     - Root cause: loss reported to PS5 pre-FEC + PS5's downward-only bitrate ratchet (5825k→2591k over 75s from 0.8–5% loss reports, under inert 10% cap)
-     - Fix: post-flush FEC-outcome-aware accounting, recovered-loss safety valve (divisor 4), 1Hz CONGESTION/LOSS diagnostics
-     - Merged: 4128b99a (v0.1.844+)
-   - *PR #215 (reliable stop-to-reconnect):**
-     - Root cause: fire-and-forget DISCONNECT (19ms teardown) + user stop clearing its own cooldown, PS5 releasing sessions asynchronously 4–9s
-     - Fix: bounded 400ms DISCONNECT ack-wait, delivery-aware post-stop guard (0s never-streamed / 2s acked / 8s unacked) with countdown hint, "Streaming stopped" banner suppressed on deliberate stops, single RP_IN_USE auto-retry
-     - Merged: 91b8c049 (v0.1.844+)
+3. **Hardware Validation: PRs #213 + #215 + #223 + #227 + #228 Session** ⭐ **NEXT PRIORITY**
+   - *Goal:* Validate post-FEC loss reporting (PR #213) + reliable stop-to-reconnect (PR #215) + corrupt-frame coalescing (PR #223) + should_stop fix (PR #227) + diagnostics A/B parity (PR #228/GH #221) together on hardware. Combined checklist ensures all features work without regression.
+   - *Note:* Log 24402261711 (root-cause investigation baseline) was PS5-initiated teardown; #215 stop-path rows were never exercised (not tested-and-failed). Fresh hardware run needed to validate #215 checklist items.
+   - *PR #213 (post-FEC effective loss reporting):* Merged 4128b99a (v0.1.844+); fixes PS5 bitrate floor-throttling via post-flush FEC-outcome-aware accounting + recovered-loss safety valve + 1Hz CONGESTION/LOSS diagnostics.
+   - *PR #215 (reliable stop-to-reconnect):* Merged 91b8c049 (v0.1.844+); fixes RP_IN_USE rejection via bounded 400ms DISCONNECT ack-wait + delivery-aware post-stop guard + single auto-retry.
+   - *PR #223 (corrupt-frame report coalescing):* Merged; reduces burst-tail sends ~17 → ~3-4 via 500ms cooldown + 32-frame growth bypass; pure classifier in videoreceiver_gap.c with exactly 15 unit-test assertions.
+   - *PR #227 (should_stop sticky latch fix):* Merged; streamconnection now resets per-run via `chiaki_stream_connection_prepare_restart()` inside state_mutex; soft restart (ratchet reset) works again.
+   - *PR #228 (diagnostics A/B toggle for GH #221):* Merged; `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED` flag (default OFF) enables comparative parity accounting (arms: `VITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=1 ./tools/build.sh --env testing`).
    - *Combined Hardware Validation Checklist:*
      - [ ] **PR #213 Ratchet Model:** CONGESTION/LOSS logs show raw_lost>0 / fec_recovered≈raw_lost / reported≈0 (post-FEC accounting working)
      - [ ] **No staircase pattern:** bitrate holds steady ~5.8Mbps for 10+ min sessions, no downward ratchet under normal loss
      - [ ] **Forced loss still reports:** Intentional 5% packet drop still triggers loss report + IDR (recovery path active)
-     - [ ] **PR #215 Stop-to-Reconnect:** stop→immediate reconnect succeeds ×10 runs without RP_IN_USE rejection
+     - [ ] **PR #215 Stop-to-Reconnect:** stop→immediate reconnect succeeds ×10 runs without RP_IN_USE rejection; `DISCONNECT acked after N ms` line on user stop
      - [ ] **Auto-retry visible:** RP_IN_USE rejection (if forced) shows overlay + single auto-retry fires
      - [ ] **Cancel-during-connect instant:** pressing stop during connect handshake kills immediately (no hung state)
-   - *Next Step:* Run combined session on `./tools/build.sh --env testing`, capture logs with both PRs, verify checklist items, document any regressions.
+     - [ ] **PR #228 A/B Comparison:** Build both arms (OFF and ON), compare CONGESTION/LOSS aggregates per #221 (note the cap confound documented on issue)
+     - [ ] **PR #223 Corrupt Reports:** ~4 corrupt-report sends per burst (down from ~17), `reason=burst_retired` lines visible, target_bitrate holds through FEC-recovered bursts
+     - [ ] **PR #227 Soft Restart:** soft restart resets target_bitrate to ~5.8Mbps
+   - *Next Step:* Run combined multi-hour session on `./tools/build.sh --env testing`, capture logs with PRs #213/#215/#223/#227/#228, verify checklist items, document any regressions (see DONE.md for filed follow-up issues #218-#226).
 
-4. **GH #214 Investigation: should_stop Sticky Latch Bug** ⭐ **HIGH PRIORITY NEXT**
-   - *Goal:* Investigate and fix streamconnection `should_stop` sticky latch that never resets per-run, causing soft restarts to bail at first CHECK_STOP.
-   - *Evidence:* Likely explains `classified=handshake_init_ack` restart-failure telemetry from earlier testing.
-   - *Impact:* Soft restart reliability is critical for mid-session recovery; sticky latch causes restarts to fail silently on second and later attempts.
-   - *Scope:* Investigate `lib/src/streamconnection.c` for `should_stop` latch logic, determine reset logic per-run, propose fix with per-run state clearing.
-   - *Next Step:* Spike the `should_stop` field usage across lib/src/streamconnection.c and life-cycle handlers; identify why it doesn't reset on new sessions.
-
-5. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
+4. **Investigate lib-side suspend/resume detection for PS-button-suspend freeze recovery**
    - *Goal:* Detect socket death at transport layer instead of app-level frame stall detection (reverted PR #196)
    - *Lever 1:* ENOBUFS/EBADF escalation in `lib/src/takion.c` send path
    - *Lever 2:* DISCONNECT-during-streaming path in `lib/src/streamconnection.c` (currently gated to STATE_TAKION_CONNECT, line ~435)
@@ -184,7 +177,7 @@ Only move a task to "Done" after the reviewer signs off.
    - *Status:* Salvaged from PR #197 (closed without merge; documentation originally placed in wrong location)
    - *Next Step:* Investigate transport-layer socket monitoring pattern and plan lib-side instrumentation
 
-4. **Implement adaptive jitter buffer** 
+5. **Implement adaptive jitter buffer** 
    - *Goal:* Replace static reorder queue timeout with adaptive algorithm that adjusts playout delay based on measured network jitter
    - *Files:* `lib/src/reorderqueue.c`, `lib/include/chiaki/reorderqueue.h`, `lib/src/takion.c`
    - *Algorithm:* Measure inter-arrival jitter using EWMA (α=0.125), calculate dynamic threshold (2.5× jitter + safety margin), skip gaps after adaptive timeout instead of blocking indefinitely
@@ -192,32 +185,32 @@ Only move a task to "Done" after the reviewer signs off.
    - *References:* RFC 5764 (RTP jitter buffer), WebRTC NetEq, `docs/LATENCY_ANALYSIS.md`
    - *Next Step:* Add `JitterStats` struct, implement measurement in `push()`, modify `pull()` with adaptive timeout
 
-5. **Expose low-bandwidth profile in config/UI**
+6. **Expose low-bandwidth profile in config/UI**
    - Allow selecting 360p / <2 Mbps preset through the modern settings once backend supports it.
 
-6. **Graceful mid-stream packet-loss fallback**
+7. **Graceful mid-stream packet-loss fallback**
    - Automatically lower bitrate without tearing down the whole UI when Ultra Low still drops frames.
    - Keep discovery paused, show a "reconnecting" overlay, and restart video/audio while preserving ctrl state.
 
-7. **Preserve controller responsiveness through fallbacks**
+8. **Preserve controller responsiveness through fallbacks**
    - Instrument `input_thread_func()` to log when pad packets stall, then cache/synchronize pad state so restarts don't add extra lag.
    - Investigate keeping ctrl alive while video/audio reconnect to avoid input gaps.
    - Latest telemetry (`vitarps5.log:11302-11324`) shows the controller gate stays closed for ~6.3 s during packet-loss retries despite gameplay resuming, so we need to re-arm `inputs_ready` (or keep ctrl alive) much earlier in the reconnect flow.
 
-8. **Calibrate loss-detection thresholds**
+9. **Calibrate loss-detection thresholds**
    - Tune `LOSS_EVENT_MIN_FRAMES`, `LOSS_RETRY_DELAY_US`, and related constants in `vita/src/host.c:34-210` so the soft reconnect only fires after sustained loss bursts, preventing extra latency from single-frame hiccups.
 
-9. **Keep controller thread alive during soft restarts**
-   - Augment `request_stream_restart()`/Chiaki restart handling so controller packets continue flowing while the stream connection rebuilds, preventing the brief input pause currently logged around `context.stream.fast_restart_active` in `vita/src/host.c:129-234`.
+10. **Keep controller thread alive during soft restarts**
+    - Augment `request_stream_restart()`/Chiaki restart handling so controller packets continue flowing while the stream connection rebuilds, preventing the brief input pause currently logged around `context.stream.fast_restart_active` in `vita/src/host.c:129-234`.
 
-10. **Instrument soft-reconnect metrics**
+11. **Instrument soft-reconnect metrics**
     - Add log hooks or UI indicators around the new soft restart path and packet-loss counters (`vita/src/host.c:373-520`, `vita/src/video.c`) to correlate lag spikes with the fallback path, supporting the ongoing investigation in `docs/INCOMPLETE_FEATURES.md`.
 
-11. **Upstream protocol support for dynamic bitrate**
+12. **Upstream protocol support for dynamic bitrate**
     - Spike Chiaki/PS5 changes required to renegotiate bitrate mid-session (ctrl RPC or LaunchSpec update).
     - Document needed evidence so we can eventually reconfigure without a teardown.
 
-12. **Classify pixelation root cause from testing logs**
+13. **Classify pixelation root cause from testing logs**
     - Compare packet-loss indicators (missing references, corrupt frame bursts) against decode pressure indicators (queue depth/drops, decode anomalies) to avoid tuning the wrong subsystem.
     - Current evidence points to packet/reference loss dominance in `72630530292_vitarps5-testing.log`.
 
