@@ -211,7 +211,7 @@ typedef struct chiaki_takion_t
 	struct
 	{
 		uint32_t consecutive; // resets to 0 on every successful recv
-		uint64_t first_ms;    // set when consecutive goes 0 -> 1; for the escalation log's elapsed-time figure only
+		uint64_t first_ms;    // set when consecutive goes 0 -> 1; gates the min-persistence give-up check (now - first_ms >= TAKION_RECV_TRANSIENT_MIN_PERSIST_MS) AND feeds the escalation log's elapsed-time figure
 		uint64_t log_ms;      // rate-limits the retry WARN to once per TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS
 	} transient_recv;
 
