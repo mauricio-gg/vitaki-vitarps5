@@ -160,12 +160,13 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
   }
 
   bool discovered = (host->type & DISCOVERED) && host->discovery_state;
-  bool at_rest = discovered && host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+  bool at_rest =
+      discovered && host->discovery_state_snapshot == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
   bool registered = (host->type & REGISTERED) != 0;
   bool manual = (host->type & MANUALLY_ADDED) != 0;
   LOGD("Wake request (%s): host=%s flags(reg=%d disc=%d manual=%d rest=%d)",
-       reason ? reason : "unknown", host->hostname ? host->hostname : "<null>", registered ? 1 : 0,
-       discovered ? 1 : 0, manual ? 1 : 0, at_rest ? 1 : 0);
+       reason ? reason : "unknown", host->hostname[0] ? host->hostname : "<null>",
+       registered ? 1 : 0, discovered ? 1 : 0, manual ? 1 : 0, at_rest ? 1 : 0);
 
   if (host_wakeup(host) != 0) {
     if (continue_on_failure) {
@@ -176,7 +177,7 @@ static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *
                     WAKE_ERROR_HINT_DURATION_US);
     }
     LOGE("Wake request failed (%s): host=%s", reason ? reason : "unknown",
-         host->hostname ? host->hostname : "<null>");
+         host->hostname[0] ? host->hostname : "<null>");
     return false;
   }
 
@@ -644,9 +645,8 @@ static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
           bool discovered =
               (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
           bool registered = context.active_host->type & REGISTERED;
-          bool at_rest =
-              discovered && context.active_host->discovery_state &&
-              context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+          bool at_rest = discovered && context.active_host->discovery_state_snapshot ==
+                                           CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
           if (!registered) {
             return UI_SCREEN_TYPE_REGISTER_HOST;
@@ -706,7 +706,7 @@ static UIScreenType main_menu_activate_selected_card(void) {
 
   LOGD("main_menu_activate_selected_card: card_host_ptr=%p source=%d type=0x%x hostname=%s",
        (void *)card->host, card->host->source, card->host->type,
-       card->host->hostname ? card->host->hostname : "<null>");
+       card->host->hostname[0] ? card->host->hostname : "<null>");
   context.active_host = card->host;
   if (takion_cooldown_gate_active()) {
     LOGD("Ignoring connect request — network recovery cooldown active");
@@ -725,8 +725,8 @@ static UIScreenType main_menu_activate_selected_card(void) {
       (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
   bool registered = context.active_host->type & REGISTERED;
   bool added = context.active_host->type & MANUALLY_ADDED;
-  bool at_rest = discovered && context.active_host->discovery_state &&
-                 context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
+  bool at_rest = discovered && context.active_host->discovery_state_snapshot ==
+                                   CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
 
   if (!registered)
     return UI_SCREEN_TYPE_REGISTER_HOST;
@@ -1509,12 +1509,14 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
   cy += body_line_h; /* cy ≈ y+91 */
 
+  /* Render only host's inline snapshot fields (display_name/hostname) -- never
+   * discovery_state->host_name/host_addr or registered_state->server_nickname, which are
+   * upstream heap structs the discovery thread may free/re-strdup concurrently. display_name
+   * already encodes the discovery-name > registered-nickname > hostname precedence. */
   const char *console_name = "Not selected";
-  if (has_discovery && host->discovery_state->host_name) {
-    console_name = host->discovery_state->host_name;
-  } else if (has_registered && host->registered_state->server_nickname) {
-    console_name = host->registered_state->server_nickname;
-  } else if (has_host && host->hostname) {
+  if (has_host && host->display_name[0]) {
+    console_name = host->display_name;
+  } else if (has_host && host->hostname[0]) {
     console_name = host->hostname;
   }
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
@@ -1523,9 +1525,7 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
 
   /* Console IP — only when a meaningful address is available */
   const char *console_ip = NULL;
-  if (has_discovery && host->discovery_state->host_addr) {
-    console_ip = host->discovery_state->host_addr;
-  } else if (has_host && host->hostname) {
+  if (has_host && host->hostname[0]) {
     console_ip = host->hostname;
   }
   if (console_ip) {
@@ -3473,22 +3473,17 @@ bool ui_screen_draw_registration(void) {
     const char *console_name = "Unknown Console";
     const char *host_ip = NULL;
 
-    // Get console name from discovery or registered state
-    if (context.active_host->discovery_state && context.active_host->discovery_state->host_name) {
-      console_name = context.active_host->discovery_state->host_name;
-    } else if (context.active_host->registered_state &&
-               context.active_host->registered_state->server_nickname) {
-      console_name = context.active_host->registered_state->server_nickname;
-    } else if (context.active_host->hostname) {
+    /* Read only the inline snapshot fields -- never discovery_state/registered_state strings,
+     * which are upstream heap structs the discovery thread may free/re-strdup concurrently.
+     * display_name already encodes discovery-name > registered-nickname > hostname precedence. */
+    if (context.active_host->display_name[0]) {
+      console_name = context.active_host->display_name;
+    } else if (context.active_host->hostname[0]) {
       console_name = context.active_host->hostname;
     }
 
-    // Get IP from discovery or registered state
-    if (context.active_host->discovery_state && context.active_host->discovery_state->host_addr) {
-      host_ip = context.active_host->discovery_state->host_addr;
-    } else if (context.active_host->registered_state &&
-               context.active_host->registered_state->ap_ssid) {
-      host_ip = context.active_host->registered_state->ap_ssid;
+    if (context.active_host->hostname[0]) {
+      host_ip = context.active_host->hostname;
     }
 
     if (host_ip) {
@@ -3598,7 +3593,7 @@ UIScreenType ui_screen_draw_waking(void) {
     bool ready =
         (context.active_host->type & REGISTERED) &&
         !(context.active_host->discovery_state &&
-          context.active_host->discovery_state->state == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
+          context.active_host->discovery_state_snapshot == CHIAKI_DISCOVERY_HOST_STATE_STANDBY);
 
     if (ready && !context.stream.session_init) {
       if (takion_cooldown_gate_active()) {
@@ -3673,14 +3668,16 @@ UIScreenType ui_screen_draw_waking(void) {
   ui_text_draw(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
 
   // Console name/IP info
-  if (context.active_host && context.active_host->hostname) {
+  bool active_host_has_name = context.active_host && (context.active_host->display_name[0] ||
+                                                      context.active_host->hostname[0]);
+  if (active_host_has_name) {
     char console_info[128];
-    const char *console_name = context.active_host->hostname;
-
-    // Try to get more specific name if available
-    if (context.active_host->discovery_state && context.active_host->discovery_state->host_name) {
-      console_name = context.active_host->discovery_state->host_name;
-    }
+    /* display_name already encodes discovery-name > registered-nickname > hostname
+     * precedence -- never dereference discovery_state->host_name here (upstream heap
+     * struct the discovery thread may free/re-strdup concurrently). */
+    const char *console_name = context.active_host->display_name[0]
+                                   ? context.active_host->display_name
+                                   : context.active_host->hostname;
 
     snprintf(console_info, sizeof(console_info), "%s", console_name);
     int info_w = ui_text_width(font, FONT_SIZE_BODY, console_info);

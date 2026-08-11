@@ -12,7 +12,7 @@ typedef struct vita_chiaki_discovery_callback_state_t {
 } VitaChiakiDiscoveryCallbackState;
 
 ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void *cb_user);
-void stop_discovery(bool keep_hosts);
+void stop_discovery(void);
 
 /// Deep-copy a ChiakiDiscoveryHost so the string fields remain valid
 ChiakiDiscoveryHost *copy_discovery_host(const ChiakiDiscoveryHost *src);

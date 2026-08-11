@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <chiaki/discoveryservice.h>
@@ -10,12 +11,15 @@
 #include "discovery.h"
 #include "context.h"
 #include "host.h"
-#include "ui.h"
 #include "util.h"
 
 /// Allow some grace time before removing a flapping host
 #define DISCOVERY_LOST_GRACE_US (3 * 1000 * 1000ULL)
 
+/* Single writer for VitaChiakiHost's inline hostname/display_name/discovery_state_snapshot
+ * fields: this always runs on the Chiaki discovery-service thread. snprintf-in-place (no
+ * malloc/free) means any other thread reading these fields concurrently sees a torn-but-
+ * NUL-terminated string at worst, never a dangling heap pointer. */
 static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
                                         const ChiakiDiscoveryHost *discovery_host,
                                         uint64_t now_us) {
@@ -30,13 +34,26 @@ static bool set_host_discovery_snapshot(VitaChiakiHost *host_entry,
     host_entry->discovery_state = NULL;
   }
   host_entry->discovery_state = new_state;
+  host_entry->discovery_state_snapshot = new_state->state;
 
-  if (host_entry->hostname) {
-    free(host_entry->hostname);
-    host_entry->hostname = NULL;
-  }
   if (new_state->host_addr)
-    host_entry->hostname = strdup(new_state->host_addr);
+    snprintf(host_entry->hostname, sizeof(host_entry->hostname), "%s", new_state->host_addr);
+  else
+    host_entry->hostname[0] = '\0';
+
+  /* display_name precedence: discovery host_name > registered_state->server_nickname >
+   * hostname/IP. If none of those are available this cycle, keep whatever name was
+   * already known rather than blanking a good display_name for a transient gap. */
+  if (new_state->host_name && new_state->host_name[0]) {
+    snprintf(host_entry->display_name, sizeof(host_entry->display_name), "%s",
+             new_state->host_name);
+  } else if (host_entry->registered_state && host_entry->registered_state->server_nickname[0]) {
+    snprintf(host_entry->display_name, sizeof(host_entry->display_name), "%s",
+             host_entry->registered_state->server_nickname);
+  } else if (host_entry->hostname[0]) {
+    snprintf(host_entry->display_name, sizeof(host_entry->display_name), "%s",
+             host_entry->hostname);
+  }
 
   host_entry->last_discovery_seen_us = now_us;
   return true;
@@ -93,18 +110,6 @@ static void log_discovered_host_details(const ChiakiDiscoveryHost *host) {
                 (strcmp(host->running_app_name, "Persona 5") == 0 ? " (best game ever)" : ""));
 }
 
-static bool clear_discovery_host_for_stop(VitaChiakiHost *host_entry) {
-  if (!(host_entry->type & MANUALLY_ADDED)) {
-    host_free(host_entry);
-    return true;
-  }
-  if (host_entry->type & DISCOVERED) {
-    destroy_discovery_host(host_entry->discovery_state);
-    host_entry->discovery_state = NULL;
-  }
-  return false;
-}
-
 /// Save a newly discovered host into the context
 // Returns the index in context.hosts where it is saved (-1 if not saved)
 int save_discovered_host(ChiakiDiscoveryHost *host) {
@@ -120,7 +125,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
       LOGE(
           "Discovery integrity warning: existing registered host missing registered_state (idx=%d "
           "host=%s)",
-          existing_idx, existing->hostname ? existing->hostname : "<null>");
+          existing_idx, existing->hostname[0] ? existing->hostname : "<null>");
     }
     set_host_discovery_snapshot(context.hosts[existing_idx], host, now_us);
     return existing_idx;
@@ -174,10 +179,10 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
 
     if (mac_addrs_match(&(rhost->server_mac), &(h->server_mac))) {
       CHIAKI_LOGI(&(context.log), "Found registered host (%s) matching discovered host (%s).",
-                  (rhost->registered_state && rhost->registered_state->server_nickname)
+                  (rhost->registered_state && rhost->registered_state->server_nickname[0])
                       ? rhost->registered_state->server_nickname
                       : "<unknown>",
-                  h->discovery_state->host_name);
+                  h->display_name);
       if (rhost->registered_state) {
         ChiakiRegisteredHost *new_state = calloc(1, sizeof(ChiakiRegisteredHost));
         if (new_state) {
@@ -194,7 +199,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
       } else {
         h->type &= ~REGISTERED;
         CHIAKI_LOGW(&(context.log), "Registered host match missing credential state for %s",
-                    h->hostname ? h->hostname : "<null>");
+                    h->hostname[0] ? h->hostname : "<null>");
       }
 
       break;
@@ -205,7 +210,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
     LOGE(
         "Discovery integrity warning: discovered registered host missing credential state "
         "(host=%s)",
-        h->hostname ? h->hostname : "<null>");
+        h->hostname[0] ? h->hostname : "<null>");
   }
 
   // Add to context
@@ -224,12 +229,16 @@ static void remove_lost_discovered_hosts(void) {
   for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost *h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
-      bool active_streaming = (context.active_host == h) &&
-                              (context.stream.session_init || context.stream.is_streaming);
-      bool connection_overlay_guard = ui_connection_overlay_active() && context.active_host == h;
-      if (active_streaming)
-        continue;
-      if (connection_overlay_guard)
+      /* Never free the actively-selected host struct out from under a connect/stream in
+       * progress. host_in_active_use() (host.c) supersedes the old active_streaming/
+       * connection_overlay_guard split: it covers the connection worker thread's whole
+       * host_stream() span (superset of session_init/is_streaming), the connect overlay, and
+       * -- unlike the predicates that used to live here -- the host_quit.c packet-loss
+       * auto-retry window too, which runs on a different thread with neither of the other
+       * flags set. Unlike the old unconditional "context.active_host == h" skip this replaced,
+       * the guard is transient: it clears once the connect/stream/retry actually ends, so a
+       * once-selected host that later goes offline is still reaped. */
+      if (host_in_active_use(h))
         continue;
 
       uint64_t last_seen = h->last_discovery_seen_us;
@@ -239,6 +248,8 @@ static void remove_lost_discovered_hosts(void) {
       uint64_t stale_ms = (now_us - last_seen) / 1000;
       CHIAKI_LOGI(&(context.log), "Removing lost host from context (idx %d, stale %llums)",
                   host_idx, (unsigned long long)stale_ms);
+      if (context.active_host == h)
+        context.active_host = NULL;
       // free and remove from context
       host_free(h);
       context.hosts[host_idx] = NULL;
@@ -309,24 +320,12 @@ ChiakiErrorCode start_discovery(VitaChiakiDiscoveryCb cb, void *cb_user) {
 }
 
 /// Terminate the Chiaki discovery thread, clean up discovey state in context
-void stop_discovery(bool keep_hosts) {
+void stop_discovery(void) {
   if (!context.discovery_enabled) {
     return;
   }
   chiaki_discovery_service_fini(&(context.discovery));
   context.discovery_enabled = false;
-  if (!keep_hosts) {
-    for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-      VitaChiakiHost *h = context.hosts[i];
-      if (h == NULL) {
-        continue;
-      }
-      if (clear_discovery_host_for_stop(h)) {
-        context.hosts[i] = NULL;
-        context.num_hosts--;
-      }
-    }
-  }
   if (context.discovery_cb_state != NULL) {
     free(context.discovery_cb_state);
     context.discovery_cb_state = NULL;

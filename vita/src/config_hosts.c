@@ -88,6 +88,9 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
       rstate->server_nickname[sizeof(rstate->server_nickname) - 1] = '\0';
       free(datum.u.s);
     }
+    // Nickname is the only name available for a registered host loaded straight from config
+    // (no discovery/PSN refresh has run yet); honors the precedence documented in host.h:48-51.
+    snprintf(host->display_name, sizeof(host->display_name), "%s", rstate->server_nickname);
 
     datum = toml_string_in(host_cfg, "target");
     if (datum.ok) {
@@ -152,7 +155,7 @@ void config_parse_manual_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) {
       free(datum.u.s);
       for (size_t hidx = 0; hidx < cfg->num_registered_hosts; hidx++) {
         if (mac_addrs_match(&server_mac, &(cfg->registered_hosts[hidx]->server_mac))) {
-          host = malloc(sizeof(VitaChiakiHost));
+          host = calloc(1, sizeof(VitaChiakiHost));
           if (!host) {
             CHIAKI_LOGE(&(context.log), "Out of memory while cloning manual host entry %d", i);
             break;
@@ -175,8 +178,12 @@ void config_parse_manual_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) {
 
     datum = toml_string_in(host_cfg, "hostname");
     if (datum.ok) {
-      // Takes ownership of toml-allocated string; host_free() releases it.
-      host->hostname = datum.u.s;
+      // hostname is an inline array now, not a heap pointer -- copy in and release the
+      // toml-allocated string ourselves instead of transferring ownership to the host.
+      snprintf(host->hostname, sizeof(host->hostname), "%s", datum.u.s);
+      if (!host->display_name[0])
+        snprintf(host->display_name, sizeof(host->display_name), "%s", datum.u.s);
+      free(datum.u.s);
       has_hostname = true;
     }
 
@@ -254,7 +261,7 @@ void config_serialize_manual_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
         break;
       }
     }
-    if (!mac || !host->hostname) {
+    if (!mac || !host->hostname[0]) {
       LOGD("config_serialize: manual host slot %zu missing data, skipping", i);
       continue;
     }

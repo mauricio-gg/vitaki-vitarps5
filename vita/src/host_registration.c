@@ -81,7 +81,7 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
 }
 
 int host_register(VitaChiakiHost *host, int pin) {
-  if (!host->hostname || !host->discovery_state) {
+  if (!host->hostname[0] || !host->discovery_state) {
     return 1;
   }
   if (!context.config.psn_account_id[0]) {
@@ -111,7 +111,7 @@ int host_wakeup(VitaChiakiHost *host) {
     LOGE("Missing host. Cannot send wakeup signal.");
     return 1;
   }
-  if (!host->hostname) {
+  if (!host->hostname[0]) {
     LOGE("Missing hostname. Cannot send wakeup signal.");
     return 1;
   }
