@@ -5,6 +5,7 @@
 #include "context.h"
 #include "host.h"
 #include "config.h"
+#include "ui/ui_console_cards.h"
 
 static void persist_config_or_warn(void) {
   if (!config_serialize(&context.config)) {
@@ -146,6 +147,9 @@ void delete_manual_host(VitaChiakiHost *mhost) {
 
 void update_context_hosts() {
   bool hide_remote_if_discovered = true;
+  /* Tracks whether any context.hosts[] slot was removed/freed below, so the console-card cache
+   * gets invalidated once per call (not once per removal) -- see ui_cards_mark_dirty(). */
+  bool hosts_removed = false;
 
   for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost *h = context.hosts[host_idx];
@@ -159,6 +163,7 @@ void update_context_hosts() {
       }
       if (!host_exists) {
         context.hosts[host_idx] = NULL;
+        hosts_removed = true;
       }
     }
   }
@@ -177,6 +182,7 @@ void update_context_hosts() {
           continue;
         if (mac_addrs_match(&(h->server_mac), &(mhost->server_mac))) {
           context.hosts[i] = NULL;
+          hosts_removed = true;
         }
       }
     }
@@ -217,6 +223,7 @@ void update_context_hosts() {
             disc->hostname[0] ? disc->hostname : "<null>");
         host_free(psn);
         context.hosts[i] = NULL;
+        hosts_removed = true;
         break;
       }
     }
@@ -282,6 +289,9 @@ void update_context_hosts() {
   }
 
   context.num_hosts = count_nonnull_context_hosts();
+
+  if (hosts_removed)
+    ui_cards_mark_dirty();
 }
 
 int count_manual_hosts_of_console(VitaChiakiHost *host) {

@@ -97,6 +97,19 @@ int ui_cards_get_count(void);
 void ui_cards_update_cache(bool force_update);
 
 /**
+ * ui_cards_mark_dirty() - Flag the card cache as stale
+ *
+ * Called by host-removal code paths outside the UI module (host_storage.c's
+ * update_context_hosts(), discovery.c's remove_lost_discovered_hosts(),
+ * psn_remote.c's remove_existing_psn_hosts()) after a host is freed/removed from
+ * context.hosts[]. Makes the next ui_cards_update_cache() call rebuild immediately
+ * instead of waiting out the normal CARD_CACHE_UPDATE_INTERVAL_US throttle, so a
+ * removed host's card disappears within one frame rather than lingering up to 10s.
+ * Safe to call from any thread: sets a single volatile bool.
+ */
+void ui_cards_mark_dirty(void);
+
+/**
  * ui_cards_map_host() - Map a host to a console card
  * @host: Source host data
  * @card: Destination card info (output)

@@ -12,6 +12,7 @@
 #include "context.h"
 #include "host.h"
 #include "util.h"
+#include "ui/ui_console_cards.h"
 
 /// Allow some grace time before removing a flapping host
 #define DISCOVERY_LOST_GRACE_US (3 * 1000 * 1000ULL)
@@ -226,6 +227,9 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
 // remove discovered hosts if they haven't been seen for longer than the grace window
 static void remove_lost_discovered_hosts(void) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
+  /* Tracks whether any host was actually freed below, so the console-card cache gets
+   * invalidated once per call (not once per loop iteration) -- see ui_cards_mark_dirty(). */
+  bool hosts_removed = false;
   for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
     VitaChiakiHost *h = context.hosts[host_idx];
     if (h && (h->type & DISCOVERED)) {
@@ -253,8 +257,12 @@ static void remove_lost_discovered_hosts(void) {
       // free and remove from context
       host_free(h);
       context.hosts[host_idx] = NULL;
+      hosts_removed = true;
     }
   }
+
+  if (hosts_removed)
+    ui_cards_mark_dirty();
 
   update_context_hosts();
 }
