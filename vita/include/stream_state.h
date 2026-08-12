@@ -275,7 +275,12 @@ typedef struct vita_chiaki_stream_t {
   //   pickup_us   -- decode-done (decode thread) to render entry (UI thread picks the
   //                  frame up on its next pass; the ONLY cross-thread span here).
   //   snapshot_us -- render entry to just after the corrupt/clean/cap-release branch
-  //                  that may call snapshot_last_good_frame() (the ~2MB memcpy).
+  //                  that may call promote_decoded_frame_to_last_good() (GH #245: an
+  //                  O(1) frame_texture/last_good_texture pointer swap under `mtx`,
+  //                  not the ~2MB memcpy this stage was originally named for -- kept
+  //                  the same field/stage name so existing dashboards/consumers of
+  //                  this ring don't need to change; expect this to read near-zero
+  //                  post-fix, which is the proof the fix landed).
   //   draw_us     -- end of that branch to vita2d_end_drawing() (vita2d command
   //                  submission for this frame).
   //   swap_us     -- vita2d_end_drawing() to vita2d_swap_buffers() (GPU wait + swap).

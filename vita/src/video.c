@@ -60,7 +60,19 @@ enum VideoStatus {
   INIT_AVC_DEC,
 };
 
-vita2d_texture *frame_texture = NULL;
+/* GH #245: the texture the decoder currently targets ("decode target") AND,
+ * whenever it holds the freshest clean frame, the texture presented as the
+ * live picture. This pointer VALUE is reassigned only by the UI thread (the
+ * ping-pong swap in promote_decoded_frame_to_last_good(), called from
+ * vita_video_render_latest_frame()) -- the decode thread never repoints it,
+ * it only writes pixels at whatever this currently points to. `volatile` on
+ * the pointer itself (not the pointee) publishes those UI-thread writes to
+ * the decode thread, which re-reads this under `mtx` before every decode
+ * (decode_frame_now()) -- same single-writer/single-reader volatile
+ * discipline already used by incoming_frame_corrupt et al. below. No longer
+ * `extern`-visible outside this file (grepped: nothing else references it),
+ * so this is now file-local. */
+static vita2d_texture *volatile frame_texture = NULL;
 enum VideoStatus video_status = NOT_INIT;
 
 SceAvcdecCtrl *decoder = NULL;
@@ -70,14 +82,63 @@ SceUID videodecUnmap = -1;
 SceUIntVAddr videodecContext = 0;
 SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 
-static bool active_video_thread = true;
+/* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
+ * own convention requires for a cross-thread flag -- a pre-existing gap (written on
+ * the session/stop thread in vita_h264_stop(), read on the decode thread in
+ * decode_frame_now()), not introduced by GH #245, but now load-bearing: it is also
+ * read on the UI thread at the top of vita_video_render_latest_frame() as the
+ * authoritative "has teardown started" gate that keeps that function out of `mtx`
+ * once vita_h264_stop() has begun (see that gate's comment, and the comment above
+ * chiaki_mutex_fini(&mtx) in vita_h264_stop() for the full ordering invariant). */
+static volatile bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
-/* --- Freeze-on-corrupt: last-good frame texture and presentation state --- */
+/* GH #245 code review round 2 (BLOCKING finding, now fixed): UI-thread render
+ * quiescence signal for vita_h264_stop(). True for the entire duration of any
+ * vita_video_render_latest_frame() call, set/cleared ONLY by the UI thread --
+ * same single-writer/single-reader volatile discipline as frame_ready_for_display
+ * above, just with the roles reversed (UI writes, vita_h264_stop() -- called on
+ * the Chiaki session thread when it handles CHIAKI_EVENT_QUIT synchronously, see
+ * host_lifecycle.c host_shutdown_media_pipeline() -- reads/polls).
+ *
+ * Why this exists: vita_video_render_latest_frame() can call
+ * promote_decoded_frame_to_last_good(), which takes `mtx`. vita_h264_stop() calls
+ * chiaki_mutex_fini(&mtx) (== sceKernelDeleteMutex on Vita). Deleting a mutex a
+ * live thread currently owns (or is about to lock) is kernel UB, not a benign
+ * race -- and unlike the pre-fix single-texture race this file already documents
+ * a use-after-free history for, this one is NOT bounded by "no decode thread
+ * holds mtx" (see the comment on the decode-thread join in vita_h264_stop()):
+ * the UI thread is a SEPARATE, third thread that was never accounted for there.
+ * `context.stream.is_streaming = false` (set by host_shutdown_media_pipeline()
+ * right before calling vita_h264_stop()) is NOT a barrier against this -- it only
+ * gates the UI thread's *next* main-loop iteration (ui.c), so the UI thread can
+ * already be inside a render call, holding or about to take `mtx`, at the exact
+ * moment vita_h264_stop() runs on the session thread. vita_h264_stop() polls this
+ * flag (bounded, see UI_RENDER_QUIESCENCE_TIMEOUT_US below) before calling
+ * chiaki_mutex_fini(&mtx), so that call only ever runs once the UI thread has
+ * provably left this function and cannot be holding or acquiring `mtx`. */
+static volatile bool ui_render_in_progress = false;
+
+/* --- Freeze-on-corrupt: last-good frame texture and presentation state ---
+ *
+ * GH #245: frame_texture and last_good_texture are TWO FIXED ALLOCATIONS whose
+ * ROLES ping-pong at runtime -- there is no per-frame copy between them. Both are
+ * allocated in video_setup_framebuffer() and freed in video_cleanup_framebuffer().
+ * At any moment exactly one of the two pointer variables holds each allocation;
+ * a clean frame's presentation (vita_video_render_latest_frame(), via
+ * promote_decoded_frame_to_last_good()) SWAPS which variable holds which
+ * allocation -- an O(1) pointer exchange, not a ~2 MB sceClibMemcpy. See that
+ * function's comment for the full state machine and the concurrency reasoning
+ * for why two textures (not three) are sufficient here. */
 
 /* Twin texture holding the last clean decoded frame. Allocated in video_setup_framebuffer(),
- * freed in video_cleanup_framebuffer(), NULL until first clean frame arrives. */
-static vita2d_texture *last_good_texture = NULL;
+ * freed in video_cleanup_framebuffer(), NULL until first clean frame arrives (or permanently
+ * NULL if the second allocation failed -- see video_setup_framebuffer()'s degradation path).
+ * Same volatile-pointer cross-thread discipline as frame_texture above: only the UI thread
+ * (in promote_decoded_frame_to_last_good()) ever reassigns this pointer; the decode thread
+ * only ever reads it (under `mtx`, to compute frame_texture's next value indirectly via the
+ * swap -- see decode_frame_now()). */
+static vita2d_texture *volatile last_good_texture = NULL;
 
 /* Set inside decode_frame_now() on the dedicated decode thread, under `mtx`,
  * after a successful sceAvcdecDecode. Read by vita_video_render_latest_frame() on
@@ -132,14 +193,119 @@ typedef struct {
 
 static image_scaling_settings image_scaling = {0};
 
-/* Snapshot the current decoded frame as the last-good frame. Runs on the UI
- * thread only — keeps the ~2 MB copy off the Takion receive/decode hot path. */
-static void snapshot_last_good_frame(void) {
-  if (last_good_texture == NULL)
-    return;
-  uint32_t copy_size = image_scaling.texture_height * vita2d_texture_get_stride(frame_texture);
-  sceClibMemcpy(vita2d_texture_get_datap(last_good_texture),
-                vita2d_texture_get_datap(frame_texture), copy_size);
+/* Decode/display mutex. Was originally declared much further down this file (right
+ * before the SPSC decode queue section); moved up here (GH #245 code review fix) so
+ * promote_decoded_frame_to_last_good() below -- which now also takes this lock, see
+ * its comment -- doesn't reference it before its declaration. Still the same single
+ * mutex used throughout decode_frame_now() further down. */
+ChiakiMutex mtx;
+
+/* Promote the just-decoded frame (currently sitting in `frame_texture`) to be the
+ * new last-good frame. Runs on the UI thread only, called from
+ * vita_video_render_latest_frame() whenever the frame it just picked up is clean.
+ *
+ * GH #245 ping-pong state machine (replaces the old ~2 MB sceClibMemcpy):
+ *   frame_texture and last_good_texture are the two fixed texture allocations from
+ *   video_setup_framebuffer(). "Promoting" a clean frame means the texture that was
+ *   just decoded (frame_texture) becomes the new last_good_texture, and the OLD
+ *   last_good_texture -- a texture nobody is displaying right now -- becomes the new
+ *   frame_texture, i.e. the decoder's next write target. That's a 2-pointer exchange,
+ *   O(1), zero bytes copied.
+ *
+ *   Three presentation branches, one decode target each (see
+ *   vita_video_render_latest_frame() below for the branch bodies):
+ *     - corrupt, streak < cap:  present last_good_texture (held). NOT swapped here --
+ *       frame_texture (the corrupt buffer) is left as the decode target, so the
+ *       decode thread keeps overwriting the SAME non-last-good texture on every
+ *       subsequent corrupt frame in the streak. last_good_texture is never touched,
+ *       so the held picture never changes underneath the freeze.
+ *     - clean:                 this function runs. frame_texture <-> last_good_texture
+ *       swap. The decode thread's next call re-reads frame_texture (now the OLD
+ *       last-good) as its target.
+ *     - corrupt, cap-release:  present frame_texture directly (whatever decoded, even
+ *       though corrupt). NOT swapped -- last_good_texture must only ever hold a
+ *       CONFIRMED-clean frame, so a corrupt cap-release frame must never be promoted
+ *       into it.
+ *   Two textures are sufficient for all three branches because the decode thread
+ *   NEVER repoints frame_texture itself (see its declaration comment) -- it only
+ *   changes when THIS function swaps it. A third buffer would only add slack for
+ *   the cap-release GPU-read race noted below; it is not required for the state
+ *   machine itself.
+ *
+ * Concurrency -- CORRECTED after code review (the first version of this function
+ * did not take `mtx` and was BLOCKING-REJECTED: `mtx` held by decode_frame_now()
+ * only serializes the single decode thread against itself, which buys nothing
+ * against the UI thread; without a lock here, decode_thread_func()'s next iteration
+ * -- which has no backpressure on UI consumption, see frame_overwrite_count -- could
+ * re-enter decode_frame_now(), re-read the still-unswapped frame_texture, and start
+ * sceAvcdecDecode DMA-writing it while draw_streaming() below is having the GPU read
+ * the very same buffer. Worse than the pre-fix design too: the corruption would be
+ * baked into last_good_texture and redrawn on every subsequent freeze-hold frame
+ * until the next clean promote, not just glitch one draw):
+ *
+ *   This function now takes `mtx` around the swap -- the SAME lock
+ *   decode_frame_now() holds for its entire body, from reading frame_texture to set
+ *   picture.frame.pPicture[0] through the sceAvcdecDecode call and the metadata
+ *   publish. That makes this swap and one full decode_frame_now() call mutually
+ *   exclusive; the two possible lock-acquisition orderings are both safe:
+ *     - UI wins the race: the swap completes first, so frame_texture already holds
+ *       the OTHER (old last-good) buffer by the time decode_frame_now() next
+ *       acquires `mtx` and reads it -- decode never touches the buffer UI is about
+ *       to draw.
+ *     - decode wins the race: decode_frame_now()'s entire critical section (read,
+ *       decode, publish) completes and releases `mtx` before this function's lock
+ *       attempt can proceed -- so by the time the swap runs and draw_streaming()
+ *       is later called, decode's write to that buffer already finished. No
+ *       concurrent GPU read vs. decode-thread write is reachable in either
+ *       ordering.
+ *   The critical section is scoped to the swap alone -- it does NOT extend across
+ *   draw_streaming()/vita2d_wait_rendering_done() a few lines below in the caller,
+ *   so the GPU wait is never done while holding `mtx`.
+ *   This makes the "genuine improvement over pre-fix" claim actually true: pre-fix,
+ *   frame_ready_for_display was cleared before drawing and the decode thread could
+ *   freely start overwriting the very texture still being drawn on every frame (see
+ *   the field comment on frame_ready_for_display); post-fix, that specific hazard is
+ *   closed by this lock for the clean-frame path, which is the common case.
+ *   Cost / lock-order: this is a deliberate, narrow exception to "the UI thread
+ *   reads the texture pointers without mtx" -- every OTHER UI-thread read in this
+ *   file (frame_ready_for_display, incoming_frame_corrupt, incoming_frame_*)
+ *   remains lock-free, unaffected. The UI thread can now block here for up to one
+ *   sceAvcdecDecode call (tracked at runtime via context.stream.decode_avg_us /
+ *   decode_max_us) if it loses the race -- negligible against the 30.5ms memcpy
+ *   this change removes. No other lock is held by the UI thread at this call site
+ *   (it does not touch decode_q_mtx, which is decode-thread-internal and always
+ *   released before decode_frame_now() is entered -- see decode_thread_func()), so
+ *   there is no lock-order cycle to introduce.
+ *
+ * The one case this lock does NOT cover: the corrupt/cap-release branch presents
+ * frame_texture directly without calling this function at all (by design -- see
+ * above), so frame_texture remains the decode thread's target through that draw,
+ * completely outside this mutex. If the decode thread starts a new decode while
+ * that particular draw's vita2d_wait_rendering_done() has not yet returned, it can
+ * still race the GPU read -- identical in kind to the pre-fix race, genuinely
+ * narrowed (not eliminated) to the rare cap-release path (FREEZE_MAX_STREAK
+ * consecutive corrupt frames) and the startup edge case before the first clean
+ * frame, instead of firing on every single frame as it did before this change.
+ * Closing it completely would need either extending the lock to that branch too
+ * (which, since that branch's draw is fast, would only add a comparably small
+ * stall) or a third buffer -- deliberately not implemented here; flagging it
+ * rather than papering over it. */
+static vita2d_texture *promote_decoded_frame_to_last_good(void) {
+  chiaki_mutex_lock(&mtx);
+  if (last_good_texture == NULL) {
+    /* Degraded mode: the second allocation failed in video_setup_framebuffer().
+     * There is nothing to swap into -- keep presenting the sole texture, matching
+     * the pre-fix single-texture behavior exactly (freeze suppression stays
+     * disabled via the last_good_texture == NULL checks elsewhere in this file). */
+    chiaki_mutex_unlock(&mtx);
+    return frame_texture;
+  }
+  vita2d_texture *newly_decoded = frame_texture;
+  frame_texture = last_good_texture;
+  last_good_texture = newly_decoded;
+  vita2d_texture *promoted = last_good_texture;
+  chiaki_mutex_unlock(&mtx);
+  return promoted;
 }
 
 static bool should_drop_frame_for_pacing(void) {
@@ -211,8 +377,6 @@ void update_scaling_settings(int width, int height) {
        image_scaling.texture_height, image_scaling.region_x2, image_scaling.region_y2,
        context.config.stretch_video ? "true" : "false");
 }
-
-ChiakiMutex mtx;
 
 /* -----------------------------------------------------------------------
  * SPSC decode queue: producer = Takion recv thread, consumer = decode thread
@@ -486,11 +650,21 @@ static int video_setup_framebuffer(int width, int height) {
     LOGD("not enough memory4\n");
     return VITA_VIDEO_ERROR_NO_MEM;
   }
+  /* Initial decode target, matching frame_texture's freshly-allocated value above.
+   * decode_frame_now() re-reads frame_texture and re-sets this on every subsequent
+   * decode (GH #245 ping-pong — frame_texture is repointed at runtime by
+   * promote_decoded_frame_to_last_good()), so this assignment only matters for a
+   * hypothetical decode that ran before the first ping-pong swap; kept for
+   * defensive clarity rather than relying on that per-decode re-set alone. */
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
 
   /* Allocate the twin "last good frame" texture. Same format and dimensions as
-   * frame_texture so we can memcpy between them. Failure is non-fatal: freeze
-   * suppression simply won't engage (last_good_texture stays NULL). */
+   * frame_texture. No copying happens between them (GH #245) -- clean frames are
+   * promoted by swapping which of these two allocations frame_texture/
+   * last_good_texture point to (see promote_decoded_frame_to_last_good()).
+   * Failure is non-fatal: freeze suppression simply won't engage AND the
+   * ping-pong never activates -- decode_frame_now() keeps targeting the sole
+   * frame_texture allocation forever (last_good_texture stays NULL). */
   last_good_texture =
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
@@ -710,6 +884,17 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   int ret = 0;
   au.es.pBuf = buf;
   au.es.size = buf_size;
+  /* GH #245 ping-pong: re-read frame_texture and repoint the decoder's output
+   * buffer at it on every decode, under `mtx`, immediately before the call that
+   * writes into it. frame_texture may have been swapped by the UI thread
+   * (promote_decoded_frame_to_last_good(), called from
+   * vita_video_render_latest_frame()) since the previous decode -- see that
+   * function's comment for the full state machine and why re-reading here
+   * (rather than trusting a value cached from a previous call) is required for
+   * correctness, and frame_texture's own declaration comment for why this
+   * cross-thread read needs no additional synchronization beyond the volatile
+   * qualifier already on that pointer. */
+  picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
   uint64_t decode_start_us = sceKernelGetProcessTimeWide();
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
@@ -738,9 +923,10 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     record_incoming_frame_sample();
     /* Atomically tie the corruption flag to this decoded frame while we still
      * hold the mutex. This prevents the flag from mismatching the pixels under
-     * frame-overwrite scenarios. The last-good snapshot (the expensive ~2 MB
-     * memcpy) is now taken on the UI thread in vita_video_render_latest_frame()
-     * so the decode thread is never stalled by it. */
+     * frame-overwrite scenarios. The last-good promotion (GH #245: an O(1)
+     * frame_texture/last_good_texture pointer swap, no copy) happens on the UI
+     * thread in vita_video_render_latest_frame() so the decode thread is never
+     * stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
     incoming_frame_first_packet_ms = frame_first_packet_ms;
     // PIPE/DISPLAY: stamp decode-done for the pickup_us span (see field comment above).
@@ -878,8 +1064,28 @@ static void record_display_stage_sample(uint32_t *samples, uint32_t *sample_coun
 }
 
 bool vita_video_render_latest_frame(void) {
-  if (!frame_ready_for_display)
+  /* GH #245 code review round 2: mark entry before any early return, cleared before
+   * every return below (mirrors the file's existing lock-then-unlock-before-each-return
+   * style in decode_frame_now()). See ui_render_in_progress's declaration comment --
+   * this is the flag vita_h264_stop() polls before destroying `mtx`. */
+  ui_render_in_progress = true;
+  /* GH #245 code review round 3: explicit, load-bearing teardown gate. This is the
+   * ACTUAL thing that keeps this function from ever reaching `mtx` (via
+   * promote_decoded_frame_to_last_good() below) once vita_h264_stop() has begun --
+   * not an incidental side effect of the frame_ready_for_display check right below
+   * it. vita_h264_stop() clears active_video_thread FIRST, before joining the decode
+   * thread and before polling ui_render_in_progress, so this check is guaranteed to
+   * see teardown-has-started by the time this function can next be entered after
+   * that clear is visible. See active_video_thread's declaration comment and the
+   * ordering invariant documented above chiaki_mutex_fini(&mtx) in vita_h264_stop(). */
+  if (!active_video_thread) {
+    ui_render_in_progress = false;
     return false;
+  }
+  if (!frame_ready_for_display) {
+    ui_render_in_progress = false;
+    return false;
+  }
 
   frame_ready_for_display = false;
   /* Latency investigation (item 1): snapshot once, before either branch below, so the
@@ -915,12 +1121,14 @@ bool vita_video_render_latest_frame(void) {
       frozen_frame_streak++;
       context.stream.freeze_engaged_count++;
     } else if (!corrupt) {
-      // Clean paced-drop: still update the last-good snapshot.
+      // Clean paced-drop: still promote this frame to last-good (no draw happens on
+      // this path, so the swap is unconditionally safe -- there is no concurrent GPU
+      // read of either texture to race against here).
       if (frozen_frame_streak > 0) {
         LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
       }
       frozen_frame_streak = 0;
-      snapshot_last_good_frame();
+      (void)promote_decoded_frame_to_last_good();
     } else {
       /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
       if (frozen_frame_streak > 0)
@@ -932,6 +1140,7 @@ bool vita_video_render_latest_frame(void) {
     // zeros for them would corrupt those rings' percentiles with fake zero-latency
     // samples. Track this as a distinct counter instead.
     context.stream.display_paced_count++;
+    ui_render_in_progress = false;
     return true;  // consumed the frame but skipped display
   }
 
@@ -944,7 +1153,8 @@ bool vita_video_render_latest_frame(void) {
    *
    * The corruption flag is updated under mtx inside decode_frame_now() on the
    * decode thread, so it is always consistent with the pixels in frame_texture
-   * when we read it here. The last-good snapshot is taken below on this thread. */
+   * when we read it here. The clean branch below promotes it to last-good via an
+   * O(1) pointer swap (GH #245) -- see promote_decoded_frame_to_last_good(). */
   bool corrupt = incoming_frame_corrupt;
   vita2d_texture *present_texture = frame_texture;
 
@@ -955,14 +1165,17 @@ bool vita_video_render_latest_frame(void) {
       LOGD("PIPE/FREEZE engaged streak=%d", frozen_frame_streak);
     present_texture = last_good_texture;
   } else if (!corrupt) {
-    /* Clean frame — take the last-good snapshot here on the UI thread so the
-     * Takion receive/decode thread is never stalled by the ~2 MB copy. */
+    /* Clean frame — promote it to last-good here on the UI thread, BEFORE drawing
+     * (not after): the swap must land before draw_streaming() below submits the GPU
+     * draw call, so that by the time the decode thread re-reads frame_texture (its
+     * next write target) it already sees the OTHER, unrelated texture rather than
+     * the one currently being drawn. See promote_decoded_frame_to_last_good() for
+     * the full ordering argument. */
     if (frozen_frame_streak > 0) {
       LOGD("PIPE/FREEZE cleared streak=%d", frozen_frame_streak);
       frozen_frame_streak = 0;
     }
-    present_texture = frame_texture;
-    snapshot_last_good_frame();
+    present_texture = promote_decoded_frame_to_last_good();
   } else {
     /* corrupt && (last_good_texture == NULL || streak >= FREEZE_MAX_STREAK) */
     if (frozen_frame_streak >= FREEZE_MAX_STREAK)
@@ -972,8 +1185,10 @@ bool vita_video_render_latest_frame(void) {
   }
 
   /* PIPE/DISPLAY: read here, right after the if/else chain above, NOT inside any one
-   * branch -- the corrupt/freeze and cap-release branches skip snapshot_last_good_frame()
-   * (so their snapshot_us is genuinely ~0, a real measurement worth keeping), but the
+   * branch -- the corrupt/freeze and cap-release branches skip the promotion swap
+   * (so their snapshot_us is genuinely ~0, a real measurement worth keeping; the clean
+   * branch's swap is also ~0 now that it's a pointer exchange rather than a ~2 MB copy
+   * -- this stage should read near-zero across all three branches post-fix), but the
    * boundary itself must land at the same point in all three branches for draw_us below to
    * mean the same thing regardless of which branch was taken. */
   uint64_t after_snapshot_us = sceKernelGetProcessTimeWide();
@@ -1062,6 +1277,7 @@ bool vita_video_render_latest_frame(void) {
     }
   }
 
+  ui_render_in_progress = false;
   return true;
 }
 
@@ -1137,6 +1353,19 @@ void vita_h264_start() {
   incoming_frame_first_packet_ms = 0;
   incoming_frame_decode_done_us = 0;
   frozen_frame_streak = 0;
+  /* GH #245 code review round 2: no render call is in flight at session start --
+   * matches the same "reset to the idle value" treatment as frame_ready_for_display
+   * above. See the declaration comment for the cross-thread invariant this flag
+   * establishes with vita_h264_stop(). */
+  ui_render_in_progress = false;
+  /* frame_texture/last_good_texture (GH #245 ping-pong roles) are deliberately NOT
+   * reset here. vita_h264_setup() -> video_setup_framebuffer() always runs
+   * immediately before this function (see host.c) and unconditionally reassigns
+   * both to freshly-allocated textures, which already establishes the canonical
+   * starting roles for a new session. There is no code path today where
+   * vita_h264_start() runs without a preceding vita_h264_setup() call, so no
+   * separate reset is needed here -- but if that pairing ever changes, this
+   * comment is the tripwire to come back and add one. */
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
   context.stream.display_fps_window_start_us = 0;
@@ -1192,6 +1421,19 @@ void vita_h264_start() {
   vitavideo_overlay_on_stream_start();
 }
 
+/* Bound on how long vita_h264_stop() will poll ui_render_in_progress before giving up
+ * and destroying `mtx` anyway. See the poll loop's comment in vita_h264_stop() for the
+ * reasoning behind this specific value. NOT an order of magnitude of margin in the
+ * worst case: vita_h264_stop() calls vita2d_set_vblank_wait(true) before clearing
+ * active_video_thread, so a UI thread already past the active_video_thread gate when
+ * teardown begins can have its vita2d_swap_buffers() block for a full vsync
+ * (~16.6ms) instead of the low-single-digit-ms common case -- call it ~3x margin
+ * under this bound, not ~10x. Still comfortably under 50ms either way. */
+#define UI_RENDER_QUIESCENCE_TIMEOUT_US (50 * 1000)
+/* Poll granularity for the wait above -- matches the existing 1ms busy-spin-avoidance
+ * sleep already used for this same "nothing to do yet" situation in ui.c's main loop. */
+#define UI_RENDER_QUIESCENCE_POLL_US 1000
+
 void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
@@ -1204,8 +1446,7 @@ void vita_h264_stop() {
   /* --- Decode thread shutdown (GH #188) ---
    * Signal and JOIN the decode thread BEFORE destroying the decode mutex
    * and BEFORE vita_h264_cleanup() frees decoder/frame_texture. The join
-   * guarantees no sceAvcdecDecode is running on a freed decoder and that
-   * no decode thread holds mtx when chiaki_mutex_fini(&mtx) runs below.
+   * guarantees no sceAvcdecDecode is running on a freed decoder.
    * Guard on decode_thread_started so we never join a thread that was never
    * created (e.g. slot alloc failure or chiaki_thread_create failure). */
   if (decode_thread_started) {
@@ -1225,6 +1466,74 @@ void vita_h264_stop() {
   }
   chiaki_cond_fini(&decode_q_cond);
   chiaki_mutex_fini(&decode_q_mtx);
+
+  /* GH #245 code review round 2 (BLOCKING finding, now fixed) + round 3 (comment
+   * corrected to state the ACTUAL invariant, not an emergent one):
+   *
+   * The join above only proves the DECODE thread no longer holds `mtx` -- it says
+   * nothing about the UI thread, which is a separate, third thread that also takes
+   * `mtx` (inside vita_video_render_latest_frame() ->
+   * promote_decoded_frame_to_last_good(), see that function's concurrency comment).
+   * This function itself runs synchronously on the Chiaki SESSION thread (via
+   * host_shutdown_media_pipeline(), invoked from the CHIAKI_EVENT_QUIT handler) --
+   * a third thread again, distinct from both decode and UI. Destroying a mutex a
+   * live thread currently owns is kernel UB (sceKernelDeleteMutex), not a benign
+   * stale-pixel race, so getting this right matters.
+   *
+   * What actually keeps the UI thread out of `mtx` once we get here: the
+   * active_video_thread == false check at the top of
+   * vita_video_render_latest_frame() (see that check's comment). active_video_thread
+   * is cleared a few lines above, in THIS function, BEFORE the decode-thread join
+   * and BEFORE the poll below -- so by the time we reach chiaki_mutex_fini(&mtx),
+   * every subsequent entry to vita_video_render_latest_frame() bails before it can
+   * reach promote_decoded_frame_to_last_good(). This ordering --
+   * active_video_thread = false, THEN join, THEN this poll, THEN
+   * chiaki_mutex_fini(&mtx) -- is load-bearing and must be preserved; do not reorder
+   * the active_video_thread clear to later in this function without re-auditing this
+   * comment. (`context.stream.is_streaming = false`, set by the caller just before
+   * this function runs, is NOT what provides this guarantee -- it only takes effect
+   * on the UI thread's *next* main-loop check in ui.c and was the round-2 reviewer's
+   * original, mistaken theory for why this was safe.)
+   *
+   * The poll on ui_render_in_progress below is a SEPARATE, defense-in-depth
+   * safety net, not the primary mechanism: even with the ordering above,
+   * plain `volatile` alone only guarantees eventual cross-thread visibility on this
+   * hardware, not a bounded one, and vita_video_render_latest_frame() is already
+   * mid-call by the time active_video_thread's clear becomes visible to it in the
+   * worst case (see the timeout constant's comment for how long that call's tail --
+   * draw + GPU wait + swap -- can run). Polling ui_render_in_progress (set/cleared
+   * only by the UI thread, see its declaration comment) with a bounded timeout
+   * lets us wait out that in-flight call instead of racing it, while still making
+   * forward progress if the flag is somehow never cleared (e.g. a future bug that
+   * adds a return path in vita_video_render_latest_frame() without clearing it).
+   * If the timeout DOES fire, that is logged loudly (not swallowed) and we still
+   * proceed with the teardown below, since refusing to ever finalize shutdown would
+   * just trade a rare kernel-UB risk for a guaranteed hang.
+   *
+   * Why plain `volatile` is enough here, and why that would NOT generalize: the
+   * margin this correctness argument relies on is "an entire chiaki_thread_join()
+   * call's worth of time" (the decode-thread join above, which the poll below adds
+   * further margin on top of) -- not a nanosecond-scale propagation window. That is
+   * an enormous margin on any real hardware, which is why a plain volatile bool
+   * (no memory barrier, no atomic, no mutex around the flag itself) suffices for
+   * THIS specific handshake. It would NOT be sufficient for a general Dekker-style
+   * mutual-exclusion handshake between two threads racing at full speed with no
+   * such margin -- a future maintainer must not point to this code as precedent for
+   * that. */
+  if (ui_render_in_progress) {
+    uint64_t quiescence_wait_start_us = sceKernelGetProcessTimeWide();
+    while (ui_render_in_progress) {
+      if (sceKernelGetProcessTimeWide() - quiescence_wait_start_us >=
+          UI_RENDER_QUIESCENCE_TIMEOUT_US) {
+        LOGE(
+            "VIDEO: UI thread still in render critical region after %dus -- proceeding "
+            "with mtx teardown anyway (possible kernel UB if it is still mid-swap)",
+            UI_RENDER_QUIESCENCE_TIMEOUT_US);
+        break;
+      }
+      sceKernelDelayThread(UI_RENDER_QUIESCENCE_POLL_US);
+    }
+  }
 
   chiaki_mutex_fini(&mtx);
   vitavideo_overlay_on_stream_stop();
