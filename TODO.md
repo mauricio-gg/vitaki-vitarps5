@@ -2,7 +2,7 @@
 
 This document tracks the short, actionable tasks currently in flight. Update it whenever the plan shifts so every agent knows what to do next.
 
-Last Updated: 2026-08-11 (PR #236 opened — Takion ENOBUFS `select()` retry-chain hardening, v0.1.898, hardware validation pending; latency-metric truthfulness + PR #213 loss-accounting mislabel flagged as disputed findings; hardware A/B validation of PRs #213/#215/#223 still confirmed, #227 pending, #221 inconclusive)
+Last Updated: 2026-08-12 (PR #256 opened — frame-delivery-pattern probe for GH #251, v0.1.940, diagnostics only, hardware validation pending; three recv-path follow-up issues filed (#253/#254/#255); PR #236 still hardware-validation pending from 2026-08-11)
 
 ### 🔄 Workflow Snapshot
 1. **Investigation Agent** – research, spike, or scoping work; records findings below.
@@ -271,6 +271,19 @@ Only move a task to "Done" after the reviewer signs off.
    - *Accepted tuning gap:* `FEEDBACK_STATE_TIMEOUT_MIN_MS` stays at 8, capping active sends at 125/s rather than the ~60/s originally targeted — closing it would cost up to 8ms input latency. This is a deliberate, recorded decision, not an oversight.
    - *Pass condition:* Zero `EventCB … code=11` quits over a ≥5 min LAN session. Residual `Takion failed to send raw: No buffer space available` lines *without* a quit still count as a pass.
    - *Next Step:* Hardware validation on `./tools/build.sh --env testing`, then move to Done.
+
+7. **PR #256: Frame-delivery-pattern probe for GH #251 (v0.1.940)** — code committed (c8e2c553) and pushed, diagnostics only / no behaviour change, hardware validation PENDING
+   - *Owner:* Implementation agent
+   - *Goal:* GH #251 established the felt "input lag" is video lag — input, decode, display, and arrival-to-display all measure clean, so the delay is console→Vita delivery. Open question: does the console pace its byte sends unevenly (H1), or does the Wi-Fi link smear them (H2)? Hardware log `86770605157` (healthy session, RSSI median 74) shows `cadence_max` clustered 53-61ms in 88 of 92 windows and `cadence_min` clustered 19-23ms in 83 of 92, while `cadence_avg` is a correct 33ms — that quantisation is not what random link smear looks like, but min/max/avg over ~31 samples/s can't distinguish one outlier per second from a repeating bimodal pattern. That blind spot is what this PR closes.
+   - *What shipped:* Three measurements added at the existing frame-boundary sample in `lib/src/videoreceiver.c`, emitting a new `PIPE/DELIVERY` line once/sec alongside the byte-identical, untouched `PIPE/STAGE` line: `gaph=` (9-bucket inter-frame gap histogram — bucket 4 `[40,52)ms` is the deliberate discriminator: a frame-clock-quantised pacer leaves it empty, a congested link smears through it), `drift=`/`abs=`/`skip=`/`rsy=` (cumulative frame-index drift, fps-scaled to avoid per-frame truncation; skipped indices counted separately so lost frames are never misread as drift), `sm=`/`lg=`/`fsz=` (each gap attributed to the previous frame's encoded byte size, with an adaptive large-frame threshold that tracks the console's bitrate ratchet — the direct test for console-side byte pacing). Zero new `chiaki_time_now_monotonic_*()` calls (respects the constraint documented on `ChiakiTakion::video_jitter_stats`, `lib/include/chiaki/takion.h:263-281`); cost < 2µs per frame boundary. New pure helpers `chiaki_seq16_forward_delta()` and `chiaki_video_gap_hist_bucket()` in `lib/src/videoreceiver_gap.h/.c`, 7 unit tests in `test/packet_path_tests.c`.
+   - *Validation so far:* `./tools/build.sh format`, `./tools/build.sh test`, and `./tools/build.sh --env testing` all pass (VPK `VitakiForkv0.1.940.vpk`). Caveat: `./tools/build.sh test` only *compiles* the arm-vita-eabi test binary, it does not execute on the host — the 7 new assertions were additionally re-implemented and run natively on the host for real coverage, all pass. `senior-code-guardian` review: approved, with two non-blocking cosmetic findings (struct-field packing comment overclaims; a bitrate-derived divide-then-clamp ordering that's unreachable in practice).
+   - *Next Step:* Hardware capture — stream ≥3 min including a felt-lag episode; verify the #250 log-eviction counter is zero, `sum(gaph) == cadence_count` on every window, `PIPE/STAGE` unchanged, `PIPE/LATENCY` p50 still ~35ms; then read the result against the decision table in the PR body and post the verdict on #251.
+
+8. **Recv-path follow-ups filed while mapping for PR #256 (new, 2026-08-12)** — GH issues filed, out of scope for #256/#251, none plausibly explain the 300-1000ms gaps under investigation
+   - #253 — `chiaki_gkcrypt_decrypt()` does a `malloc`+`free` of the key stream per video packet on the Takion recv thread (`lib/src/gkcrypt.c:338`/`:350`), ~260-1000/s.
+   - #254 — `PIPE/RECV_MALLOC_BURST` measures only the control channel despite its name, and under-counts its own sites. Same class of false-negative instrumentation hazard as the silent log eviction fixed in #250.
+   - #255 — the Takion drain loop spends a second syscall per packet on a zero-timeout `select()` (`lib/src/takion.c:1428-1436`).
+   - *Next Step:* Unprioritized; revisit after the #251 delivery-probe hardware verdict lands.
 
 ---
 
