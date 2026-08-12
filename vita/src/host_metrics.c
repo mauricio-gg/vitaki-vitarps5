@@ -186,6 +186,18 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
     context.stream.cascade_alarm_restart_used = false;
   context.stream.cascade_alarm_last_action_us = 0;
 
+  // Loss-recovery-gate tier 3 (host_feedback.c): a *successful* soft restart never reaches
+  // this function -- it never emits CHIAKI_EVENT_QUIT (lib/src/session.c:819-844,
+  // lib/src/streamconnection.c:388-391), so it can't be "wiped" here. What this guard is for
+  // is an *accepted* restart that fails afterward (teardown race at session.c:790-817, a
+  // prepare_restart failure, or an unrelated disconnect in the same window) and lands in
+  // host_quit.c:248's host_metrics_reset_stream(true) call. Without this gate, that failure
+  // would erase the dedicated minimum-interval timestamp and let a still-degraded console be
+  // restarted again immediately with no cooldown at all -- same precedent as
+  // stuck_bitrate_restart_used/cascade_alarm_restart_used above.
+  if (!preserve_recovery_state)
+    context.stream.last_loss_gate_restart_us = 0;
+
   // Latency investigation instrumentation
   memset(context.stream.latency_window_samples_ms, 0,
          sizeof(context.stream.latency_window_samples_ms));

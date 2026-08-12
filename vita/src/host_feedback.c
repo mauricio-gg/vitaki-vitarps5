@@ -2,6 +2,7 @@
 #include "host_constants.h"
 #include "host_feedback.h"
 #include "host_loss_profile.h"
+#include "host_recovery.h"
 #include "video.h"
 
 #include <psp2/kernel/processmgr.h>
@@ -9,6 +10,31 @@
 
 #define LOSS_ALERT_DURATION_US (5 * 1000 * 1000ULL)
 #define LOSS_RECOVERY_WINDOW_US (8 * 1000 * 1000ULL)
+// Loss-recovery gate tiers within LOSS_RECOVERY_WINDOW_US: 1 = IDR-only, 2 = resync
+// follow-up, 3 = soft stream restart. loss_recovery_gate_hits is capped at this value (see
+// host_handle_loss_event() below) instead of growing unbounded, so once a burst has escalated
+// all the way, further hits in the same window keep re-attempting tier 3 rather than pinning
+// back to tier 1 -- the old behavior, which made tier 3 unreachable.
+#define LOSS_RECOVERY_GATE_TIER3_HITS 3
+// Dedicated minimum interval between soft restarts triggered by the loss-recovery gate,
+// independent of request_stream_restart_coordinated()'s own guards. Those guards throttle
+// *failed* attempts (RESTART_FAILURE_COOLDOWN_US) or share a short 10s action cooldown with
+// every other restart source (LOSS_RECOVERY_ACTION_COOLDOWN_US, host_recovery.c) that a
+// successful restart does not extend on its own. A *successful* soft restart never routes
+// through host_metrics_reset_stream() at all -- it never emits CHIAKI_EVENT_QUIT
+// (lib/src/session.c:819-844, lib/src/streamconnection.c:388-391); the session run-loop
+// `continue`s and re-emits CHIAKI_EVENT_CONNECTED, which clears fast_restart_active directly
+// in host_callbacks.c:50-51. What *does* reach host_metrics_reset_stream(true)
+// (host_quit.c:248) is an *accepted* restart that fails afterward -- a teardown race
+// (session.c:790-817), a prepare_restart failure, or an unrelated disconnect landing in the
+// same window -- so context.stream.last_loss_gate_restart_us is deliberately preserved across
+// that reset (!preserve_recovery_state gating in host_metrics.c) for that
+// failure-after-acceptance case. Do not simplify that gating on the assumption a successful
+// restart passes through here -- it doesn't.
+// A soft restart interrupts gameplay for a second or two, so a sustained bad Wi-Fi patch
+// must not be able to retrigger it every time the gate window reopens; a full minute is a
+// deliberately conservative floor between two loss-triggered restarts.
+#define LOSS_TRIGGERED_RESTART_MIN_INTERVAL_US (60 * 1000 * 1000ULL)
 #define UNRECOVERED_FRAME_THRESHOLD 3
 /* Latency investigation (item 5): NET_UNSTABLE banner used to fire on literally any
  * frames_lost > 0 (with only a 500ms debounce in video_overlay.c), far too sensitive for
@@ -217,7 +243,13 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     context.stream.loss_recovery_gate_hits = 0;
   }
 
-  context.stream.loss_recovery_gate_hits++;
+  // Cap instead of pin-to-1: the old code reset the counter to 1 after every tier-2 hit,
+  // which meant tier 3 could never be reached. Capping at the top tier instead lets
+  // repeated bursts within the window keep landing on tier 3 (each attempt guarded below by
+  // its own cooldown) rather than growing without bound.
+  if (context.stream.loss_recovery_gate_hits < LOSS_RECOVERY_GATE_TIER3_HITS)
+    context.stream.loss_recovery_gate_hits++;
+
   if (context.config.show_latency) {
     LOGD("Loss recovery gate stage=%u trigger=%s action=inspect",
          context.stream.loss_recovery_gate_hits, trigger);
@@ -234,6 +266,58 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
     return;
   }
 
+  if (context.stream.loss_recovery_gate_hits < LOSS_RECOVERY_GATE_TIER3_HITS) {
+    // Tier 2: unchanged resync follow-up.
+    host_request_decoder_resync("packet-loss follow-up");
+    return;
+  }
+
+  // Tier 3: the loss burst survived two IDR requests (tiers 1-2). That points at a
+  // console-side encoder/stream-session stall rather than anything a keyframe request can
+  // fix on its own -- hardware logs show input lag that persists indefinitely after IDR
+  // requests keep firing, but clears immediately on a full session restart. A soft stream
+  // restart renegotiates the video stream (the same mechanism a full restart uses to
+  // recover) without tearing down the whole session, so try that before giving up on this
+  // window.
+  bool min_interval_elapsed =
+      context.stream.last_loss_gate_restart_us == 0 ||
+      now_us - context.stream.last_loss_gate_restart_us >= LOSS_TRIGGERED_RESTART_MIN_INTERVAL_US;
+
+  bool restart_ok = false;
+  if (min_interval_elapsed) {
+    restart_ok = host_recovery_request_loss_gate_restart(LOSS_RETRY_BITRATE_KBPS, now_us);
+  } else {
+    uint64_t remaining_ms = (LOSS_TRIGGERED_RESTART_MIN_INTERVAL_US -
+                             (now_us - context.stream.last_loss_gate_restart_us)) /
+                            1000ULL;
+    LOGD(
+        "Loss recovery action=soft_restart_skipped trigger=%s reason=min_interval "
+        "remaining=%llums",
+        trigger, (unsigned long long)remaining_ms);
+  }
+
+  if (restart_ok) {
+    context.stream.last_loss_gate_restart_us = now_us;
+    // Unconditional (not gated by show_latency): this is tier 3's whole reason for
+    // existing -- it must be visible on every hardware run so we can confirm the path
+    // actually fires, the way the equivalent "fast_restart is 0 in all four hardware logs"
+    // absence was invisible before.
+    LOGD(
+        "Loss recovery action=SOFT_RESTART trigger=%s bitrate=%u stage=%u — console-side "
+        "stall suspected, renegotiating stream",
+        trigger, LOSS_RETRY_BITRATE_KBPS, context.stream.loss_recovery_gate_hits);
+    if (context.active_host) {
+      host_set_hint(context.active_host, "Persistent network issue — rebuilding stream", true,
+                    HINT_DURATION_RECOVERY_US);
+    }
+    return;
+  }
+
+  // Refused (guards in request_stream_restart_coordinated()) or failed outright: the user
+  // must not end up worse off than the pre-tier-3 behavior, so fall back to the tier-2
+  // action instead of doing nothing.
+  if (min_interval_elapsed) {
+    LOGE("Loss recovery action=soft_restart_refused trigger=%s — falling back to resync", trigger);
+  }
   host_request_decoder_resync("packet-loss follow-up");
-  context.stream.loss_recovery_gate_hits = 1;
 }

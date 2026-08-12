@@ -143,6 +143,10 @@ static bool request_stream_restart_coordinated(const char *source, uint32_t bitr
   return ok;
 }
 
+bool host_recovery_request_loss_gate_restart(uint32_t bitrate_kbps, uint64_t now_us) {
+  return request_stream_restart_coordinated("loss_recovery_gate", bitrate_kbps, now_us);
+}
+
 static void reset_reconnect_recovery_state(void) {
   context.stream.reconnect.recover_active = false;
   context.stream.reconnect.recover_stage = RECONNECT_RECOVER_STAGE_IDLE;

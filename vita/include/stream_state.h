@@ -99,9 +99,31 @@ typedef struct vita_chiaki_stream_t {
   uint64_t loss_recovery_window_start_us;  // Window start for staged loss recovery
   uint64_t
       last_loss_recovery_action_us;  // Timestamp of last restart/downgrade action from packet loss
-  uint64_t stream_start_us;          // Timestamp when streaming connection became active
-  uint64_t session_start_us;         // timestamp from chiaki_session_start() success; used for
-                                     // TIME_TO_FIRST_FRAME
+  uint64_t last_loss_gate_restart_us;  // Timestamp of the last soft restart triggered by the
+                                       // loss-recovery gate's tier 3 (see host_feedback.c). A
+                                       // successful soft restart has no cooldown of its own, so
+                                       // this backs a dedicated minimum interval between
+                                       // loss-triggered restarts independent of the generic
+                                       // action cooldown used by other restart sources. A
+                                       // *successful* restart never reaches
+                                       // host_metrics_reset_stream() at all -- it never emits
+                                       // CHIAKI_EVENT_QUIT (lib/src/session.c:819-844,
+                                       // lib/src/streamconnection.c:388-391); the run-loop
+                                       // `continue`s and re-emits CHIAKI_EVENT_CONNECTED, which
+                                       // clears fast_restart_active directly in
+                                       // host_callbacks.c:50-51. What this field survives is an
+                                       // *accepted* restart that fails afterward (a teardown
+                                       // race at session.c:790-817, a prepare_restart failure,
+                                       // or an unrelated disconnect landing in the same window)
+                                       // -- those DO route through host_quit.c:248's
+                                       // host_metrics_reset_stream(true), so the field is
+                                       // gated on !preserve_recovery_state the same as
+                                       // stuck_bitrate_restart_used/cascade_alarm_restart_used,
+                                       // for that failure-after-acceptance case, not the
+                                       // success path.
+  uint64_t stream_start_us;            // Timestamp when streaming connection became active
+  uint64_t session_start_us;           // timestamp from chiaki_session_start() success; used for
+                                       // TIME_TO_FIRST_FRAME
   uint32_t
       first_decode_frame_count;  // counts frames 1..30 for PIPE/DECODE logging; reset each session
   uint64_t loss_restart_soft_grace_until_us;  // Short startup grace used for early burst
