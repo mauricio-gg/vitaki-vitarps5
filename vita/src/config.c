@@ -130,6 +130,15 @@ static void parse_logging_settings(VitaChiakiConfig *cfg, toml_table_t *parsed) 
     free(datum.u.s);
   }
 
+  // NOTE: this only bounds the TOML value to the absolute range [8,
+  // VITA_LOG_QUEUE_DEPTH_MAX] -- it does NOT floor it against the build's
+  // compiled default (VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH), so a TOML value
+  // below that default is accepted here and silently lowers the effective
+  // queue depth. That floor is enforced downstream, intentionally, in
+  // vita_log_module_init() (logging.c) -- the last chokepoint before the
+  // merged config fixes the actual ring size, and the only place that knows
+  // both the compiled default and the final effective value. Keep the
+  // floor policy there; don't duplicate or fragment it by adding one here.
   datum = toml_int_in(logging, "queue_depth");
   if (datum.ok) {
     if (datum.u.i < 8)

@@ -6,7 +6,46 @@
 #include <stdint.h>
 
 #define VITA_LOG_DEFAULT_PATH "ux0:data/vita-chiaki/vitarps5.log"
-#define VITA_LOG_DEFAULT_QUEUE_DEPTH 64
+// Last-resort fallback, NOT the depth either real build profile actually
+// runs at. This only matters for a degenerate/ad-hoc build that skips the
+// .env-based compile flag entirely (see the
+// VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH #warning block in logging.c) --
+// .env.prod pins 64 and .env.testing pins 512 via
+// -DVITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH in tools/build.sh/CMakeLists.txt,
+// so both real profiles bypass this constant entirely.
+//
+// Chosen as 512 to match testing's real-world queue-depth value rather than
+// inventing a third number. This is NOT a claim that 512 is validated or
+// sufficient -- it has never actually been exercised by the incident that
+// motivated this eviction-tracking feature. That incident ran testing
+// (compiled default 512) but a stale on-device TOML config silently
+// overrode it down to 128 at runtime (VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG
+// permits TOML to override the compiled default with no floor -- see
+// parse_logging_settings() in config.c); the compiled 512 was never in effect, and it was that
+// undersized 128-deep queue that lost the diagnostic data. So 512 is simply
+// the best available real-world reference point for this fallback, not a
+// proven-sufficient number either way. The actual fix for that failure mode
+// is not this constant -- it's closing the silent-downgrade path itself,
+// which vita_log_module_init() (logging.c) now does by flooring the merged
+// config against the build's compiled default before it can take effect.
+// Raising this misconfigured-build fallback to 512 is still a strict
+// improvement over the old 64 on its own terms. Its documented memory cost
+// (see the VITA_LOG_QUEUE_DEPTH_MAX comment below for the full per-entry
+// accounting) is a cost this file already accepts for testing builds.
+//
+// This macro is referenced in several other spots too -- e.g.
+// config_parse_file_with_queue_fix() in config.c (a log message),
+// vita_log_worker_init()'s own defensive fallback in this file, and the
+// TOML-corruption repair value in config_migration.c -- this comment does
+// not claim to enumerate them exhaustively; grep the symbol for the current
+// full list rather than trusting a hand-maintained one here. The one call
+// site worth flagging specifically: config_migration.c's repair path is NOT
+// gated behind VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG, so it runs in prod
+// too -- a prod build repairing a corrupt config will write
+// queue_depth = 512 to disk, not 64. There is still no LIVE prod memory
+// cost from that, because prod's parse_logging_settings() path that would
+// read the value back is #if'd out entirely.
+#define VITA_LOG_DEFAULT_QUEUE_DEPTH 512
 // Hard ceiling on log_queue_cap regardless of source (compile-time default or
 // runtime TOML override). Testing builds run at 512 (see .env.testing); this
 // leaves headroom above that for further investigative bumps without a code
