@@ -110,6 +110,13 @@ typedef enum {
 	CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED,
 	CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN, // like REMOTE_DISCONNECTED, but because the server shut down
 	CHIAKI_QUIT_REASON_PSN_REGIST_FAILED,
+	// OUR transport gave up mid-stream (e.g. Takion's ENOBUFS retry budget exhausted)
+	// with no console-initiated disconnect -- distinct from REMOTE_DISCONNECTED so
+	// logs/UI don't blame the console for our own socket-buffer exhaustion. Only
+	// reached after session.c's self-triggered soft-restart budget
+	// (CHIAKI_TRANSPORT_FAILURE_RESTART_MAX) is exhausted; appended at the end of
+	// the enum to keep existing numeric quit-reason codes stable.
+	CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED,
 } ChiakiQuitReason;
 
 CHIAKI_EXPORT const char *chiaki_quit_reason_string(ChiakiQuitReason reason);
@@ -268,6 +275,16 @@ typedef struct chiaki_session_t
 	bool stream_restart_requested;
 	bool stream_restart_profile_valid;
 	ChiakiConnectVideoProfile stream_restart_profile;
+	/**
+	 * Consecutive stream restarts self-triggered by session_thread_func() because
+	 * OUR transport gave up (chiaki_stream_connection.transport_failed) with no
+	 * console-initiated disconnect -- see CHIAKI_TRANSPORT_FAILURE_RESTART_MAX in
+	 * session.c. Reset to 0 whenever a restart attempt's outcome is anything other
+	 * than another unresolved transport failure (clean stop, genuine remote
+	 * disconnect, or an externally-requested restart succeeding), so only a
+	 * genuinely stuck link exhausts the bound.
+	 */
+	uint32_t transport_failure_restart_count;
 } ChiakiSession;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, ChiakiConnectInfo *connect_info, ChiakiLog *log);

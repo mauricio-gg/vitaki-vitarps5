@@ -55,7 +55,8 @@ typedef struct chiaki_stream_connection_t
 	ChiakiMutex feedback_sender_mutex;
 
 	/**
-	 * signaled on change of state_finished or should_stop
+	 * signaled on change of state_finished, should_stop, remote_disconnected
+	 * or transport_failed
 	 */
 	ChiakiCond state_cond;
 
@@ -73,14 +74,31 @@ typedef struct chiaki_stream_connection_t
 	bool state_finished;
 	bool state_failed;
 	bool should_stop;
+	/**
+	 * Ground truth: the CONSOLE told us it disconnected us (a DISCONNECT
+	 * protobuf message, e.g. "Server shutting down") or acked our own
+	 * DISCONNECT. session.c and the quit-reason mapping in session.c both
+	 * treat this as authoritative -- it must never be set for a failure on
+	 * OUR side of the transport. See transport_failed below for that case.
+	 */
 	bool remote_disconnected;
 	/**
 	 * Set when the Takion transport died on its own (e.g. a persistent recv()
-	 * failure) rather than through the normal should_stop / remote-disconnect
-	 * handshake. By the time the DISCONNECT event that sets this arrives, the
-	 * takion thread has already torn down its send buffer, so this flag tells
-	 * chiaki_stream_connection_run() to skip sending a graceful disconnect
-	 * message that would otherwise touch a finalized send buffer.
+	 * failure/ENOBUFS retry budget exhausted) rather than through the normal
+	 * should_stop / remote-disconnect handshake -- i.e. OUR side gave up, the
+	 * console never said anything. By the time the DISCONNECT event that sets
+	 * this arrives, the takion thread has already torn down its send buffer,
+	 * so this flag tells chiaki_stream_connection_run() to skip sending a
+	 * graceful disconnect message that would otherwise touch a finalized send
+	 * buffer.
+	 *
+	 * Deliberately kept independent of remote_disconnected (GH transport-vs-
+	 * remote-disconnect fix): session.c reads both as ground truth to decide
+	 * whether a soft restart is permitted (permitted here, refused when the
+	 * console genuinely disconnected us) and to pick the right quit reason.
+	 * Included in state_finished_cond_check()'s wait predicate so the main
+	 * heartbeat wait still wakes promptly on a transport failure even though
+	 * it no longer piggybacks on remote_disconnected to do so.
 	 */
 	bool transport_failed;
 	/**
@@ -94,6 +112,15 @@ typedef struct chiaki_stream_connection_t
 	ChiakiSeqNum32 disconnect_seq_num;
 	bool disconnect_ack_pending;
 	ChiakiStreamConnectionDisconnectDelivery disconnect_delivery;
+	/**
+	 * Human-readable reason string, strdup()'d by whichever path set
+	 * remote_disconnected or transport_failed (may be NULL under OOM -- see
+	 * callers). Despite the name, this now also carries the diagnostic string
+	 * for a transport-only failure (e.g. "Transport disconnected"); session.c
+	 * disambiguates which case it is via remote_disconnected /
+	 * transport_failed before choosing CHIAKI_QUIT_REASON_STREAM_CONNECTION_*,
+	 * so the string itself does not need a matching rename.
+	 */
 	char *remote_disconnect_reason;
 	// FIXME ywnico a workaround to deal with bang being called twice
 	// I'm not sure what the real problem is...something with the threading implementation on vita...?
