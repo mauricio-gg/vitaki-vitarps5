@@ -107,6 +107,43 @@ static size_t log_queue_cap = 0;
 // 32-bit ARM (Cortex-A9 guarantees naturally-aligned 32-bit accesses are
 // atomic at the bus level).
 static volatile uint32_t log_lines_dropped = 0;
+
+// Ring-buffer overflow tracking -- deliberately a SEPARATE counter from
+// log_lines_dropped above. log_lines_dropped only counts lines that never
+// made it into the queue at all (mutex-contention fast-path bailout);
+// log_lines_evicted counts lines that DID get queued but were then silently
+// discarded from the head of a full ring in vita_log_queue_push_locked() to
+// make room for a newer line. These are different failure modes with
+// different causes (lock contention vs. sustained overflow), and
+// conflating them into one counter is exactly what let this eviction path
+// go unnoticed -- so they stay separately countable even though both are
+// folded into a single leading `LOG_LINES_DROPPED` token in the injected
+// summary line (existing greps for that token must keep matching -- but
+// note the old literal `count=` field is gone from the format string below;
+// anything grepping for `count=` specifically, rather than the
+// `LOG_LINES_DROPPED` token, will no longer match).
+//
+// Unlike log_lines_dropped, this does NOT need `volatile`/torn-read
+// tolerance. vita_log_queue_push_locked() is `static` with exactly two call
+// sites in the whole codebase (verified by grep), both inside
+// vita_log_submit_line(), and both occur after that function has taken
+// log_mutex (either via the blocking lock for non-debug lines or a
+// successful non-blocking trylock for debug lines -- see the lock block
+// below). The only other place this counter is touched is the
+// drop-summary reset below, which runs in that same locked region. So every
+// read and write of log_lines_evicted happens under log_mutex by
+// construction: there is no concurrent-access hazard for `volatile` to
+// paper over, and adding it here would misstate the actual (single-writer,
+// mutex-serialized) access pattern.
+static uint32_t log_lines_evicted = 0;
+// First/last sceKernelGetProcessTimeWide() timestamp of an eviction since
+// the last summary report, so the summary can show how wide a time window
+// the lost lines spanned, not just how many were lost. Same locking
+// discipline as log_lines_evicted (stamped only inside
+// vita_log_queue_push_locked()'s eviction branch, reset alongside the
+// counter under log_mutex in the summary-injection block below).
+static uint64_t log_first_eviction_us = 0;
+static uint64_t log_last_eviction_us = 0;
 // Timestamp of the last drop-summary injection; updated only while holding
 // log_mutex so there is no reset race between threads.
 static uint64_t log_last_drop_report_us = 0;
@@ -115,6 +152,31 @@ static bool vita_log_queue_is_empty(void) {
   return log_queue_head == log_queue_tail;
 }
 
+// REENTRANCY: this function is also how vita_log_submit_line() enqueues its
+// own synthetic drop-summary line (pushed later in this file, inside
+// vita_log_submit_line()'s once-per-second drop-report block), so it can be
+// on its own call stack indirectly. Three things to establish about that:
+//
+// 1. No unbounded recursion. This function only touches the ring array
+//    (log_queue/_head/_tail/_cap) and calls free(); it never calls
+//    vita_log_submit_line() or itself. The summary line is built and passed
+//    in by the CALLER (vita_log_submit_line) before this function is
+//    invoked, so there is no call-graph cycle here at all, bounded or not.
+// 2. The summary line cannot evict itself, for any queue depth this
+//    codebase actually configures (cap > 1, enforced by the depth floor in
+//    config.c). The invariant: an eviction only happens when next_tail ==
+//    log_queue_head BEFORE the write, i.e. log_queue_tail and
+//    log_queue_head are necessarily different slots at that moment. The
+//    write always targets log_queue_tail; the eviction always targets
+//    log_queue_head. So a single push only ever evicts the CURRENT head,
+//    never the slot it is itself about to fill.
+// 3. If pushing the summary line itself triggers an eviction (ring still
+//    full from unrelated pressure), that eviction is NOT silently lost: it
+//    runs through this exact branch, increments log_lines_evicted, and
+//    stamps log_first/last_eviction_us like any other eviction. It just
+//    means the summary line pushed this cycle displaces one more real log
+//    line, and that displacement gets folded into and surfaced by the NEXT
+//    once-per-second summary tick -- self-describing, not silent.
 static void vita_log_queue_push_locked(char *data, size_t len) {
   size_t next_tail = (log_queue_tail + 1) % log_queue_cap;
   if (next_tail == log_queue_head) {
@@ -122,6 +184,21 @@ static void vita_log_queue_push_locked(char *data, size_t len) {
     if (drop.data)
       free(drop.data);
     log_queue_head = (log_queue_head + 1) % log_queue_cap;
+
+    // Overflow eviction bookkeeping. This branch only executes when the
+    // ring is already full, so the syscall timestamp below costs nothing
+    // during normal, non-overflowing operation (the unconditional write at
+    // the bottom of this function is unchanged and stays cheap). But under
+    // SUSTAINED overflow -- the exact failure mode this feature exists to
+    // measure -- the ring stays full and this branch runs on every push
+    // while log_mutex is held. That per-push syscall cost under sustained
+    // overflow is an accepted tradeoff: it buys accurate eviction-window
+    // instrumentation for precisely the scenario that motivated this fix.
+    uint64_t evict_now_us = sceKernelGetProcessTimeWide();
+    if (log_lines_evicted == 0)
+      log_first_eviction_us = evict_now_us;
+    log_last_eviction_us = evict_now_us;
+    log_lines_evicted++;
   }
   log_queue[log_queue_tail].data = data;
   log_queue[log_queue_tail].len = len;
@@ -259,6 +336,9 @@ static void vita_log_worker_init(void) {
   if (res < 0)
     return;
 
+  // NOTE: VitaLogThread's priority (0x40) is a known concern raised
+  // alongside other Vita thread-priority work -- out of scope for this
+  // change, left untouched intentionally.
   log_thread_should_exit = false;
   log_thread_id =
       sceKernelCreateThread("VitaLogThread", vita_log_thread_func, 0x40, 0x1000, 0, 0, NULL);
@@ -324,6 +404,31 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
     memcpy(&active_cfg, cfg, sizeof(VitaLoggingConfig));
   if (active_cfg.queue_depth == 0)
     active_cfg.queue_depth = VITA_LOG_DEFAULT_QUEUE_DEPTH;
+  // Floor: runtime TOML (parse_logging_settings() in config.c, gated by
+  // VITARPS5_ALLOW_RUNTIME_LOGGING_CONFIG) is allowed to RAISE queue_depth
+  // above the build's compiled default, but must never be allowed to
+  // silently lower it below build intent. The three-stage flow that lands
+  // here: (1) vita_logging_config_set_defaults() seeds
+  // cfg->logging.queue_depth = VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH (the
+  // build-configured value -- 64 for prod, 512 for testing, or this file's
+  // VITA_LOG_DEFAULT_QUEUE_DEPTH fallback if the build didn't pass the
+  // compile flag at all); (2) config.c's parse_logging_settings() may then
+  // overwrite it from the on-device TOML, unconditionally, with no
+  // awareness of what stage 1 set; (3) this function is the last chokepoint
+  // before the merged value fixes log_queue_cap for the session, so it is
+  // the only place that can still catch a TOML value that came in below
+  // build intent and correct it.
+  //
+  // This is not a hypothetical: a hardware incident ran testing (compiled
+  // default 512) against a stale on-device TOML that had queue_depth = 128
+  // left over from an earlier experiment. TOML silently overrode the
+  // compiled 512 down to 128, and it was that undersized 128-deep queue --
+  // not a queue running at its intended depth -- that lost 2.5 seconds of
+  // diagnostic data during the incident that motivated this whole
+  // eviction-tracking feature. The compiled default was never actually in
+  // effect; nothing before this fix ever noticed.
+  if (active_cfg.queue_depth < VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH)
+    active_cfg.queue_depth = VITARPS5_LOGGING_DEFAULT_QUEUE_DEPTH;
   if (active_cfg.queue_depth > VITA_LOG_QUEUE_DEPTH_MAX)
     active_cfg.queue_depth = VITA_LOG_QUEUE_DEPTH_MAX;
   if (!active_cfg.path[0])
@@ -425,13 +530,54 @@ void vita_log_submit_line(ChiakiLogLevel level, const char *line) {
     sceKernelLockLwMutex(&log_mutex, 1, NULL);
   }
 
-  // Inject a drop-summary line at most once per second when drops have occurred.
-  if (log_lines_dropped > 0) {
+  // Inject a drop-summary line at most once per second when either
+  // contention-drops or ring-overflow evictions have occurred. Both
+  // counters share this one gate/injection mechanism (rather than a second
+  // parallel reporting path) and both reset together below; they are kept
+  // as separate fields in the formatted line -- see the log_lines_evicted
+  // comment above for why merging them into a single count would hide the
+  // distinction that motivated tracking overflow evictions in the first
+  // place.
+  if (log_lines_dropped > 0 || log_lines_evicted > 0) {
     uint64_t now_us = sceKernelGetProcessTimeWide();
     if (now_us - log_last_drop_report_us >= 1000000ULL) {
-      char summary[64];
-      int slen = sceClibSnprintf(summary, sizeof(summary), "LOG_LINES_DROPPED count=%u\n",
-                                 log_lines_dropped);
+      // Snapshot the counters into locals and reset the shared state BEFORE
+      // formatting/pushing the summary line below. If that push itself
+      // triggers a ring eviction (ring still full from sustained overflow --
+      // exactly the case this feature exists to catch), the eviction must
+      // land on an already-zeroed log_lines_evicted so it gets picked up by
+      // the *next* tick instead of being clobbered by a reset that used to
+      // run after the push. See the reentrancy comment on
+      // vita_log_queue_push_locked() above for the full argument.
+      uint32_t evicted_snapshot = log_lines_evicted;
+      uint32_t dropped_snapshot = log_lines_dropped;
+      // span_ms covers only the eviction window (0 when no eviction
+      // happened this cycle, e.g. a contention-only cycle). Contention
+      // drops have no comparable window -- each is a single instantaneous
+      // fast-path bailout, not a range of displaced queue entries.
+      uint64_t span_ms =
+          evicted_snapshot > 0 ? (log_last_eviction_us - log_first_eviction_us) / 1000ULL : 0ULL;
+
+      log_lines_dropped = 0;
+      log_lines_evicted = 0;
+      log_first_eviction_us = 0;
+      log_last_eviction_us = 0;
+      log_last_drop_report_us = now_us;
+
+      // Buffer sizing (worst case, all three fields at max width):
+      //   "LOG_LINES_DROPPED overflow="   27 chars
+      //   + up to 10 digits (uint32_t max 4294967295)
+      //   " contention="                  12 chars
+      //   + up to 10 digits (uint32_t max)
+      //   " span_ms="                      9 chars
+      //   + up to 20 digits (uint64_t max 18446744073709551615)
+      //   "\n"                             1 char
+      //   NUL                              1 char
+      //   = 27+10+12+10+9+20+1+1 = 90 bytes worst case; sized generously above that.
+      char summary[128];
+      int slen = sceClibSnprintf(summary, sizeof(summary),
+                                 "LOG_LINES_DROPPED overflow=%u contention=%u span_ms=%llu\n",
+                                 evicted_snapshot, dropped_snapshot, (unsigned long long)span_ms);
       if (slen > 0 && (size_t)slen < sizeof(summary)) {
         char *scopy = malloc((size_t)slen);
         if (scopy) {
@@ -439,8 +585,6 @@ void vita_log_submit_line(ChiakiLogLevel level, const char *line) {
           vita_log_queue_push_locked(scopy, (size_t)slen);
         }
       }
-      log_lines_dropped = 0;
-      log_last_drop_report_us = now_us;
     }
   }
 
