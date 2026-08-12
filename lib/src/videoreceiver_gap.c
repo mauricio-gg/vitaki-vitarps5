@@ -91,3 +91,22 @@ CHIAKI_EXPORT ChiakiVideoCorruptReportDisposition chiaki_video_corrupt_report_cl
 
 	return CHIAKI_VIDEO_CORRUPT_REPORT_DEFER;
 }
+
+CHIAKI_EXPORT uint32_t chiaki_video_gap_hist_bucket(uint64_t gap_ms)
+{
+	// File-static edge table so the comparison loop below stays a simple,
+	// unit-testable linear scan over the named constants in
+	// videoreceiver_gap.h -- see the rationale comment there for why the
+	// buckets are shaped the way they are.
+	static const uint64_t edges[VIDEO_GAP_HIST_EDGE_COUNT] = {
+		VIDEO_GAP_HIST_EDGE_0_MS, VIDEO_GAP_HIST_EDGE_1_MS, VIDEO_GAP_HIST_EDGE_2_MS,
+		VIDEO_GAP_HIST_EDGE_3_MS, VIDEO_GAP_HIST_EDGE_4_MS, VIDEO_GAP_HIST_EDGE_5_MS,
+		VIDEO_GAP_HIST_EDGE_6_MS, VIDEO_GAP_HIST_EDGE_7_MS,
+	};
+	for(uint32_t i = 0; i < VIDEO_GAP_HIST_EDGE_COUNT; i++)
+	{
+		if(gap_ms < edges[i])
+			return i;
+	}
+	return VIDEO_GAP_HIST_EDGE_COUNT; // top bucket: gap_ms >= last edge (hard stall)
+}

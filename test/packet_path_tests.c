@@ -326,6 +326,70 @@ static void test_corrupt_report_classify_pathological_span_is_obsolete_even_with
   assert(d == CHIAKI_VIDEO_CORRUPT_REPORT_EMIT);
 }
 
+// chiaki_seq16_forward_delta() backs the D5-B drift sampling in
+// lib/src/videoreceiver.c (GH #251) -- it turns a frame-index jump into a
+// wrap-safe frame count without a distance helper existing in chiaki/seqnum.h.
+
+static void test_seq16_forward_delta_equal_is_zero(void) {
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)100, (ChiakiSeqNum16)100) == 0U);
+}
+
+static void test_seq16_forward_delta_small_steps(void) {
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)100, (ChiakiSeqNum16)101) == 1U);
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)100, (ChiakiSeqNum16)105) == 5U);
+}
+
+static void test_seq16_forward_delta_wraparound(void) {
+  // 65534 -> 2 crosses the 16-bit boundary: the true forward distance is
+  // (65535, 0, 1, 2) = 4 steps, not a huge or negative value.
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)65534, (ChiakiSeqNum16)2) == 4U);
+  // 65535 -> 0 is the smallest possible wrap: one step.
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)65535, (ChiakiSeqNum16)0) == 1U);
+}
+
+static void test_seq16_forward_delta_backwards_wraps_the_long_way(void) {
+  // There is no distinct "backwards" case in unsigned wraparound arithmetic --
+  // a `cur` that is RFC-1982-behind `prev` yields the long way around rather
+  // than a negative delta. This codebase's only caller already gates on
+  // chiaki_seq_num_16_gt() before reaching here, so this documents actual
+  // behaviour rather than asserting it is desirable input.
+  assert(chiaki_seq16_forward_delta((ChiakiSeqNum16)100, (ChiakiSeqNum16)90) == 65526U);
+}
+
+// chiaki_video_gap_hist_bucket() backs the D5-A gap histogram in
+// lib/src/videoreceiver.c (GH #251). Buckets are upper-exclusive: gap_ms ==
+// an edge value falls into the NEXT bucket, not the one the edge terminates.
+
+static void test_gap_hist_bucket_zero_is_bucket_zero(void) {
+  assert(chiaki_video_gap_hist_bucket(0) == 0U);
+}
+
+static void test_gap_hist_bucket_edges_are_upper_exclusive(void) {
+  // edge-1 stays in the lower bucket; the edge value itself moves to the next.
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_0_MS - 1) == 0U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_0_MS) == 1U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_1_MS - 1) == 1U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_1_MS) == 2U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_2_MS - 1) == 2U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_2_MS) == 3U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_3_MS - 1) == 3U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_3_MS) == 4U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_4_MS - 1) == 4U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_4_MS) == 5U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_5_MS - 1) == 5U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_5_MS) == 6U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_6_MS - 1) == 6U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_6_MS) == 7U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_7_MS - 1) == 7U);
+  assert(chiaki_video_gap_hist_bucket(VIDEO_GAP_HIST_EDGE_7_MS) == 8U);
+}
+
+static void test_gap_hist_bucket_hard_stall_is_top_bucket(void) {
+  assert(chiaki_video_gap_hist_bucket(300) == 8U);
+  assert(chiaki_video_gap_hist_bucket(10000) == 8U);
+  assert(chiaki_video_gap_hist_bucket(UINT64_MAX) == 8U);
+}
+
 // chiaki_packet_stats_get's seq contribution used to report seq_diff (i.e.
 // MAXIMUM loss) whenever seq_received exceeded the expected span, instead of
 // 0. Isolate the seq-only contribution by resetting on read (gen_ fields
@@ -417,6 +481,13 @@ void run_packet_path_tests(void) {
   test_corrupt_report_classify_wraparound_growth();
   test_corrupt_report_classify_bypass_cooldown_for_retirement();
   test_corrupt_report_classify_pathological_span_is_obsolete_even_with_bypass();
+  test_seq16_forward_delta_equal_is_zero();
+  test_seq16_forward_delta_small_steps();
+  test_seq16_forward_delta_wraparound();
+  test_seq16_forward_delta_backwards_wraps_the_long_way();
+  test_gap_hist_bucket_zero_is_bucket_zero();
+  test_gap_hist_bucket_edges_are_upper_exclusive();
+  test_gap_hist_bucket_hard_stall_is_top_bucket();
   test_packet_stats_seq_received_exceeds_span_reports_zero_lost();
   test_packet_stats_seq_16bit_wrap();
   test_packet_stats_push_generation_aggregation();
