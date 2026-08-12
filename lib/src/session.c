@@ -33,6 +33,22 @@
 #define SESSION_EXPECT_TIMEOUT_MS		5000
 #define STREAM_CONNECTION_SWITCH_EXPECT_TIMEOUT_MS 2000
 
+// Consecutive soft restarts session_thread_func() is allowed to self-trigger when
+// OUR transport gives up (Takion's ENOBUFS retry budget exhausted, see
+// streamconnection.c's mid-stream transport-failure path) without the console ever
+// indicating a disconnect. Bounds the restart loop so a genuinely dead link still
+// falls through to a full teardown (CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED)
+// instead of retrying forever. 3 matches this codebase's existing "three strikes"
+// convention for consecutive-failure thresholds (see CASCADE_SKIP_THRESHOLD in
+// lib/src/videoreceiver.c) and keeps the worst case bounded: each failed attempt
+// burns ~2s exhausting Takion's own ENOBUFS retry budget (hardware-observed: 401
+// attempts / 2098ms) plus up to EXPECT_TIMEOUT_MS if the reconnect handshake itself
+// times out, so 3 attempts cap the flap-recovery window at roughly 20s -- enough to
+// ride out a brief Wi-Fi hiccup without leaving the user staring at a frozen stream
+// indefinitely. Reset policy: see transport_failure_restart_count's doc comment in
+// session.h.
+#define CHIAKI_TRANSPORT_FAILURE_RESTART_MAX 3
+
 static void *session_thread_func(void *arg);
 static void regist_cb(ChiakiRegistEvent *event, void *user);
 static ChiakiErrorCode session_thread_request_session(ChiakiSession *session, ChiakiTarget *target_out);
@@ -166,6 +182,8 @@ CHIAKI_EXPORT const char *chiaki_quit_reason_string(ChiakiQuitReason reason)
 			return "Remote has disconnected from Stream Connection the because Server shut down";
 		case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED:
 			return "The Console Registration using PSN has failed";
+		case CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED:
+			return "Our transport gave up on the Stream Connection; the console did not disconnect us";
 		case CHIAKI_QUIT_REASON_NONE:
 		default:
 			return "Unknown";
@@ -787,8 +805,87 @@ ctrl_failed:
 		 * path that returns from chiaki_stream_connection_run() without having called
 		 * chiaki_takion_close() ever got far enough to start the takion thread in the first
 		 * place. Either way there is no concurrent writer left to race this read. */
-		bool teardown_pending = session->stream_connection.remote_disconnected
-				|| session->stream_connection.transport_failed;
+		bool remote_disconnected = session->stream_connection.remote_disconnected;
+		/* transport_only_failure means OUR side gave up (Takion's ENOBUFS retry budget
+		 * exhausted, etc. -- see transport_failed's doc comment in streamconnection.h) and
+		 * the console never indicated a disconnect. This is exactly the case a soft restart
+		 * fits: the console is presumably still holding the session open. */
+		bool transport_only_failure = session->stream_connection.transport_failed && !remote_disconnected;
+
+		/* Self-trigger a soft restart for a transport-only failure, mirroring what an
+		 * external caller does via chiaki_session_request_stream_restart() minus the
+		 * locking: this thread already holds session->state_mutex (locked just above) and
+		 * the takion thread that could still be writing transport_failed/remote_disconnected
+		 * is provably joined by now (see the unlocked-read comment above) -- so writing
+		 * stream_restart_requested directly here is safe. Calling
+		 * chiaki_session_request_stream_restart() itself is NOT an option: it re-locks
+		 * session->state_mutex, which we already hold, and would self-deadlock (the mutex
+		 * is non-recursive).
+		 *
+		 * Skipped when stream_restart_requested is already true: an external restart request
+		 * (e.g. host_recovery.c's loss-driven restart) that happened to land in the same
+		 * window is handled entirely by the pre-existing restart_requested path below, and
+		 * must not be double-consumed here.
+		 *
+		 * Bounded by CHIAKI_TRANSPORT_FAILURE_RESTART_MAX consecutive attempts (see its
+		 * definition above for the value and its justification) so a genuinely dead link
+		 * still falls through to a full teardown instead of spinning forever.
+		 * transport_failure_restart_count is reset to 0 in the else branch below whenever
+		 * this iteration's outcome is NOT an unresolved transport failure -- so only
+		 * *consecutive* transport-failure restarts count against the bound; any other
+		 * outcome (clean stop, genuine remote disconnect, or an externally-requested
+		 * restart) clears the slate.
+		 *
+		 * !session->should_stop && !session->ctrl_failed deliberately mirrors the guard
+		 * at the top of chiaki_session_request_stream_restart() (session.c:430) -- this is
+		 * the same "may a restart be armed right now" question, just asked from inside the
+		 * session thread instead of by an external caller, so the two must not drift.
+		 * Both fields can flip out from under this block: ctrl_failed() runs on the
+		 * independent ctrl thread and can fire at any time, including the window while
+		 * this thread had session->state_mutex unlocked around chiaki_stream_connection_run()
+		 * just above -- arming a restart into a control channel that has already failed
+		 * (and whose thread is exiting) would otherwise limp the session or hang it, and
+		 * would stomp the CTRL_* quit_reason ctrl_failed() already recorded. should_stop can
+		 * similarly have been set by a racing chiaki_session_stop() in that same window; not
+		 * self-triggering here at least avoids the wasted reconnect attempt (the
+		 * pre-existing restart_requested path below already treats should_stop as
+		 * disqualifying for the same reason). */
+		if(transport_only_failure && !session->stream_restart_requested
+				&& !session->should_stop && !session->ctrl_failed)
+		{
+			if(session->transport_failure_restart_count < CHIAKI_TRANSPORT_FAILURE_RESTART_MAX)
+			{
+				session->transport_failure_restart_count++;
+				session->stream_restart_requested = true;
+				// Leave stream_restart_profile_valid false: a transport failure says nothing
+				// about the console's ability to sustain the current bitrate (unlike a
+				// loss-driven restart), so the existing video profile carries over
+				// unchanged -- restart_profile_valid below will be false and the
+				// restart_requested block will skip overwriting connect_info.video_profile.
+				// Do NOT drop to LOSS_RETRY_BITRATE_KBPS/0 here: a 6000->800kbps
+				// renegotiation immediately preceded a console wedging into repeated
+				// "Remote Play crashed" refusals on hardware.
+				CHIAKI_LOGI(session->log,
+						"StreamConnection transport failure %u/%u: self-requesting soft restart (console did not disconnect us)",
+						(unsigned int)session->transport_failure_restart_count, (unsigned int)CHIAKI_TRANSPORT_FAILURE_RESTART_MAX);
+			}
+			else
+			{
+				CHIAKI_LOGE(session->log,
+						"StreamConnection transport-failure restart budget exhausted (%u consecutive attempts); giving up",
+						(unsigned int)CHIAKI_TRANSPORT_FAILURE_RESTART_MAX);
+			}
+		}
+		else if(!transport_only_failure)
+		{
+			session->transport_failure_restart_count = 0;
+		}
+
+		/* Only a genuine console-initiated disconnect refuses a restart -- a transport-only
+		 * failure is exactly the case the self-triggered restart above (or an external
+		 * restart request racing it) is meant to recover from, so it must NOT be folded into
+		 * teardown_pending here. */
+		bool teardown_pending = remote_disconnected;
 		bool restart_refused_by_teardown = session->stream_restart_requested
 				&& !session->should_stop && teardown_pending;
 		bool restart_requested = session->stream_restart_requested
@@ -845,17 +942,42 @@ ctrl_failed:
 
 		if(err == CHIAKI_ERR_DISCONNECTED)
 		{
+			// Reaching here means remote_disconnected was true (the only way
+			// streamconnection.c's disconnect: classification -- or the
+			// restart_refused_by_teardown override above, which is itself gated on
+			// teardown_pending == remote_disconnected -- produces CHIAKI_ERR_DISCONNECTED).
+			// A transport-only failure never lands here; see the transport_only_failure
+			// branch below for that case. The session ends: a genuine console-initiated
+			// disconnect never triggers a restart.
 			CHIAKI_LOGE(session->log, "Remote disconnected from StreamConnection");
 			// remote_disconnect_reason is normally always set alongside
-			// remote_disconnected, but both its writers (streamconnection.c's
-			// disconnect-message handler and the mid-stream transport-failure
-			// path) reach it via strdup(), which can return NULL under OOM --
-			// guard rather than assume non-NULL.
+			// remote_disconnected, but its writer (streamconnection.c's
+			// disconnect-message handler) reaches it via strdup(), which can return
+			// NULL under OOM -- guard rather than assume non-NULL.
 			const char *reason = session->stream_connection.remote_disconnect_reason;
 			if(reason && !strcmp(reason, "Server shutting down"))
 				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
 			else
 				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
+			session->quit_reason_str = reason ? strdup(reason) : NULL;
+		}
+		else if(transport_only_failure)
+		{
+			/* Reached only when the self-triggered restart above just exhausted its budget:
+			 * the link is presumably genuinely gone, so fall through to a full teardown like
+			 * any other unrecoverable StreamConnection failure -- but with a quit reason that
+			 * doesn't blame the console (see CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED's
+			 * comment in session.h). err is deliberately not consulted here: for this path
+			 * chiaki_stream_connection_run() returns CHIAKI_ERR_SUCCESS (neither should_stop
+			 * nor remote_disconnected are true at streamconnection.c's disconnect:
+			 * classification), so -- like restart_refused_by_teardown above -- ground truth
+			 * from stream_connection.transport_failed drives this branch instead. */
+			CHIAKI_LOGE(session->log, "StreamConnection: giving up after exhausting the transport-failure restart budget");
+			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED;
+			// remote_disconnect_reason doubles as the transport-failure diagnostic string
+			// here (see its doc comment in streamconnection.h); strdup() can return NULL
+			// under OOM, guard rather than assume non-NULL.
+			const char *reason = session->stream_connection.remote_disconnect_reason;
 			session->quit_reason_str = reason ? strdup(reason) : NULL;
 		}
 		else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)

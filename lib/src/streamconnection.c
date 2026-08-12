@@ -165,7 +165,13 @@ CHIAKI_EXPORT void chiaki_stream_connection_fini(ChiakiStreamConnection *stream_
 static bool state_finished_cond_check(void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;
-	return stream_connection->state_finished || stream_connection->should_stop || stream_connection->remote_disconnected;
+	// transport_failed is included alongside remote_disconnected so a mid-stream
+	// transport failure still wakes chiaki_stream_connection_run()'s waits (most
+	// importantly the main heartbeat wait) now that it no longer sets
+	// remote_disconnected to do so -- see transport_failed's doc comment in
+	// streamconnection.h for why the two must stay independent.
+	return stream_connection->state_finished || stream_connection->should_stop
+			|| stream_connection->remote_disconnected || stream_connection->transport_failed;
 }
 
 static bool stream_connection_disconnect_acked_or_failed(void *user)
@@ -522,18 +528,23 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 				chiaki_cond_signal(&stream_connection->state_cond);
 			}
 			else if(event->type == CHIAKI_TAKION_EVENT_TYPE_DISCONNECT
-					&& !stream_connection->should_stop && !stream_connection->remote_disconnected)
+					&& !stream_connection->should_stop && !stream_connection->remote_disconnected
+					&& !stream_connection->transport_failed)
 			{
 				// Takion's recv thread died on its own mid-stream -- either persistent
 				// transient recv() errors, or persistent transient select() errors
 				// (e.g. ENOBUFS on both, see takion_recv() in takion.c) that outlasted
 				// TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE retries -- rather than through a
-				// clean should_stop or remote-disconnect handshake. Without this,
-				// chiaki_stream_connection_run()'s main heartbeat wait never wakes up
-				// and the session freezes.
+				// clean should_stop or remote-disconnect handshake. This is OUR transport
+				// giving up, not the console disconnecting us, so only transport_failed
+				// is set here (remote_disconnected must stay ground truth for an actual
+				// console-initiated disconnect -- session.c relies on that distinction to
+				// decide whether a soft restart is permitted). transport_failed is part of
+				// state_finished_cond_check()'s wait predicate, so without it being set,
+				// chiaki_stream_connection_run()'s main heartbeat wait never wakes up and
+				// the session freezes.
 				CHIAKI_LOGE(stream_connection->log, "StreamConnection: Takion transport disconnected mid-stream");
 				stream_connection->transport_failed = true;
-				stream_connection->remote_disconnected = true;
 				if(!stream_connection->remote_disconnect_reason)
 					stream_connection->remote_disconnect_reason = strdup("Transport disconnected");
 				chiaki_cond_signal(&stream_connection->state_cond);

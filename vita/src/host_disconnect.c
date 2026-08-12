@@ -36,6 +36,8 @@ const char *host_quit_reason_label(ChiakiQuitReason reason) {
       return "Console shutdown";
     case CHIAKI_QUIT_REASON_PSN_REGIST_FAILED:
       return "PSN registration failed";
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED:
+      return "Transport failure";
     default:
       return "Unspecified";
   }
