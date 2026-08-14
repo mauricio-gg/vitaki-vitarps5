@@ -93,6 +93,10 @@ void host_handle_unrecovered_frame_loss(int32_t frames_lost, bool frame_recovere
 }
 
 void host_handle_takion_overflow(void) {
+  // NOTE (this is a live no-op, NOT dead code -- it IS called, from
+  // host_metrics_update_latency() in vita/src/host_metrics.c): the overflow
+  // condition is observed and logged but no corrective action is taken here
+  // today.
   LOGD("Takion overflow reported (drop_events=%u, total_packets=%u) — no action taken",
        context.stream.takion_drop_events, context.stream.takion_drop_packets);
 }
@@ -235,5 +239,11 @@ void host_handle_loss_event(int32_t frames_lost, bool frame_recovered) {
   }
 
   host_request_decoder_resync("packet-loss follow-up");
+  // NOTE (not DEAD-CODE -- no unreachable branch exists here today):
+  // resetting to 1 rather than incrementing means loss_recovery_gate_hits can
+  // only ever be 1 or 2 on any given call -- a hypothetical "tier 3" branch
+  // keyed on gate_hits >= 3 would be unreachable by construction if one were
+  // added. PR #249 attempted to add such a tier and was closed. Flagging here
+  // so a future attempt doesn't repeat that mistake.
   context.stream.loss_recovery_gate_hits = 1;
 }

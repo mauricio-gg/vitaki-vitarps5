@@ -294,6 +294,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	}
 
 #ifdef VITARPS5_ENHANCED_RECOVERY
+	// DEAD-CODE: VITARPS5_ENHANCED_RECOVERY is never defined. See
+	// chiaki/takion.h:229 for the full explanation.
 	/* Wire the typed back-pointer so takion_data_drop() can safely call
 	 * chiaki_stream_connection_report_drop() without casting the generic
 	 * cb_user slot. Only StreamConnection sets this; Senkusha's Takion

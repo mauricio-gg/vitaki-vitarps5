@@ -401,6 +401,14 @@ bool chiaki_bitstream_slice(ChiakiBitstream *bitstream, uint8_t *data, unsigned 
 
 bool chiaki_bitstream_slice_set_reference_frame(ChiakiBitstream *bitstream, uint8_t *data, unsigned size, unsigned reference_frame)
 {
+	// DEAD-CODE (H.264 path): the alternate-reference rewrite is unimplemented
+	// for H.264 and always returns false here. The Vita is H.264-only --
+	// lib/src/session.c:111 pins profile->codec = CHIAKI_CODEC_H264, nothing in
+	// vita/src/ overrides it, and the HW decoder is SCE_VIDEODEC_TYPE_HW_AVCDEC
+	// (vita/src/video.c:689) -- so the caller in
+	// chiaki_video_receiver_flush_frame() (lib/src/videoreceiver.c, missing-ref
+	// recovery loop) never observes recovered=true from this branch on this
+	// build. Hardware evidence: 0 successes in 112 attempts.
 	if(bitstream->codec == CHIAKI_CODEC_H264)
 		return false;
 	else

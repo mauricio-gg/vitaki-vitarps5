@@ -467,6 +467,11 @@ void host_metrics_update_latency(void) {
       }
     }
 
+    // DEAD-CODE: this call always returns immediately at the callee's entry
+    // guard clause -- post_reconnect_window_until_us is never set to a
+    // nonzero deadline anywhere in this codebase. See the DEAD-CODE comment
+    // on host_recovery_handle_post_reconnect_degraded_mode() (host_recovery.c)
+    // for the full citation chain.
     host_recovery_handle_post_reconnect_degraded_mode(av_diag_progressed, incoming_fps,
                                                       effective_target_fps, low_fps_window, now_us);
     // Keep diagnostics passive here; stability path avoids restart escalation.

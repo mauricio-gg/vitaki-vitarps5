@@ -227,6 +227,11 @@ typedef struct chiaki_takion_t
 	uint64_t send_error_log_ms;
 
 #ifdef VITARPS5_ENHANCED_RECOVERY
+	// DEAD-CODE (compiled out in every build): VITARPS5_ENHANCED_RECOVERY is
+	// never #defined anywhere -- not in CMakeLists.txt, not in
+	// tools/build.sh. This #ifdef block, and its 3 sibling blocks in
+	// lib/src/takion.c (x2) and lib/src/streamconnection.c, are all
+	// preprocessed away in every build configuration.
 	/**
 	 * Typed back-pointer to the owning StreamConnection.
 	 * Set by chiaki_stream_connection_run() after a successful takion connect.
@@ -287,6 +292,10 @@ CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion);
 /**
  * Thread-safe while Takion is running.
  * Queues a request for the Takion thread to drain its data reorder queue.
+ *
+ * DEAD-CODE: zero call sites in this codebase (verified: only this
+ * declaration and its definition in lib/src/takion.c reference this symbol
+ * anywhere in the repo). Declared and defined but never invoked.
  */
 CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion);
 /**
