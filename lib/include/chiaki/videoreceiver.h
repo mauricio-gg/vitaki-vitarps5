@@ -57,6 +57,8 @@ typedef struct chiaki_video_receiver_t
 	uint64_t stage_submit_total_ms;
 	uint32_t stage_window_frames;
 	uint32_t stage_window_drops;
+	uint32_t fec_fail_kf_count;      // FEC-failed frames whose expected unit count looked keyframe-sized (GH #251 discriminator, reset each stage window)
+	uint32_t units_expected_ewma_x8; // EWMA of frame_processor.units_source_expected, fixed-point x8 (alpha=1/8, see VIDEO_IDR_UNITS_EWMA_SHIFT)
 	bool idr_request_pending;            // IDR requested, tracks state (never blocks decode)
 	uint64_t idr_request_start_ms;       // Timestamp for timeout detection
 	uint32_t old_frame_rejects_window;   // Phase 1: count late-packet rejections per 1s window

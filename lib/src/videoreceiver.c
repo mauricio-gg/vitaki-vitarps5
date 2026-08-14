@@ -84,6 +84,14 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES   2048U
 #define VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES 262144U
 
+// Keyframe-size classifier for FEC-failed frames (GH #251 discriminator).
+// A frame whose expected source-unit count exceeds KF_UNITS_MULT x the running
+// mean is presumed to be an IDR that died in the loss burst. Heuristic,
+// diagnostic-only; thresholds bound the EWMA so startup noise can't classify.
+#define VIDEO_IDR_KEYFRAME_UNITS_MULT 3
+#define VIDEO_IDR_UNITS_EWMA_MIN 2
+#define VIDEO_IDR_UNITS_EWMA_SHIFT 3 // EWMA alpha = 1/8
+
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
 	if(video_receiver->reference_frames[0] != -1)
@@ -306,6 +314,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->stage_submit_total_ms = 0;
 	video_receiver->stage_window_frames = 0;
 	video_receiver->stage_window_drops = 0;
+	video_receiver->fec_fail_kf_count = 0;
+	video_receiver->units_expected_ewma_x8 = 0;
 	video_receiver->idr_request_pending = false;
 	video_receiver->idr_request_start_ms = 0;
 	video_receiver->old_frame_rejects_window = 0;
@@ -701,6 +711,18 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
+			uint32_t ewma_units = video_receiver->units_expected_ewma_x8 / 8;
+			uint32_t fail_units = video_receiver->frame_processor.units_source_expected;
+			if(ewma_units >= VIDEO_IDR_UNITS_EWMA_MIN && fail_units >= ewma_units * VIDEO_IDR_KEYFRAME_UNITS_MULT)
+			{
+				video_receiver->fec_fail_kf_count++;
+				CHIAKI_LOGW(video_receiver->log, "PIPE/FEC_FAIL_KF frame=%d units=%u ewma=%u",
+					(int)video_receiver->frame_index_cur, fail_units, ewma_units);
+			}
+		}
+
+		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
+		{
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			// Reuse flush_start_ms (captured at function entry) instead of a fresh
@@ -739,6 +761,14 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		{
 			video_receiver->consecutive_missing_ref = 0;
 			video_receiver->cascade_reset_attempts = 0;
+
+			uint64_t islice_now_ms = chiaki_time_now_monotonic_ms();
+			uint64_t idr_age_ms = (video_receiver->idr_request_pending && islice_now_ms >= video_receiver->idr_request_start_ms)
+				? islice_now_ms - video_receiver->idr_request_start_ms : 0;
+			CHIAKI_LOGI(video_receiver->log, "PIPE/ISLICE frame=%d pending=%d age_ms=%llu",
+				(int)video_receiver->frame_index_cur,
+				video_receiver->idr_request_pending ? 1 : 0,
+				(unsigned long long)idr_age_ms);
 		}
 
 		if(video_receiver->idr_request_pending)
@@ -823,6 +853,16 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	video_receiver->cur_frame_seen_last_unit = false;
 
 	if(succ) {
+		uint32_t units = video_receiver->frame_processor.units_source_expected;
+		if(units > 0)
+		{
+			if(video_receiver->units_expected_ewma_x8 == 0)
+				video_receiver->units_expected_ewma_x8 = units * 8;
+			else
+				video_receiver->units_expected_ewma_x8 +=
+					((int32_t)(units * 8) - (int32_t)video_receiver->units_expected_ewma_x8) >> VIDEO_IDR_UNITS_EWMA_SHIFT;
+		}
+
 		// The fec_failed report above (search "fec_failed") is keyed on a start
 		// value of frame_index_prev_complete+1, which stays pinned for as long
 		// as no frame completes -- so a cooldown-deferred tail from repeated
@@ -875,7 +915,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint64_t cadence_avg_ms = video_receiver->cadence_count > 0 ?
 			video_receiver->cadence_total_ms / video_receiver->cadence_count : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu",
+			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu fec_fail_kf=%u",
 			frames,
 			video_receiver->stage_window_drops,
 			video_receiver->cascade_skip_count,
@@ -884,7 +924,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			(unsigned long long)avg_submit_ms,
 			(unsigned long long)video_receiver->cadence_min_ms,
 			(unsigned long long)video_receiver->cadence_max_ms,
-			(unsigned long long)cadence_avg_ms);
+			(unsigned long long)cadence_avg_ms,
+			video_receiver->fec_fail_kf_count);
 
 		{
 			// D5: emit the delivery-pattern probe. drift_div converts a
@@ -946,6 +987,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->stage_window_drops = 0;
 		video_receiver->old_frame_rejects_window = 0;
 		video_receiver->cascade_skip_count = 0;
+		video_receiver->fec_fail_kf_count = 0;
 		video_receiver->cadence_min_ms = 0;
 		video_receiver->cadence_max_ms = 0;
 		video_receiver->cadence_total_ms = 0;
