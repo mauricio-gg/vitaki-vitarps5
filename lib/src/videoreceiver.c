@@ -315,6 +315,8 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->stage_window_frames = 0;
 	video_receiver->stage_window_drops = 0;
 	video_receiver->fec_fail_kf_count = 0;
+	video_receiver->drift_submit_streak = 0;
+	video_receiver->drift_submit_window_count = 0;
 	video_receiver->units_expected_ewma_x8 = 0;
 	video_receiver->idr_request_pending = false;
 	video_receiver->idr_request_start_ms = 0;
@@ -760,6 +762,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
 		{
 			video_receiver->consecutive_missing_ref = 0;
+			video_receiver->drift_submit_streak = 0;
 			video_receiver->cascade_reset_attempts = 0;
 
 			uint64_t islice_now_ms = chiaki_time_now_monotonic_ms();
@@ -826,8 +829,18 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 						 * bounded drift, refreshed by the pending IDR. Do NOT count this frame
 						 * lost and do NOT bump the cascade counter: on callback success the
 						 * frame becomes a legitimate reference (add_ref_frame below). */
-						CHIAKI_LOGW(video_receiver->log, "PIPE/DRIFT_SUBMIT frame=%d missing_ref=%d",
-							(int)video_receiver->frame_index_cur, (int)ref_frame_index);
+						video_receiver->drift_submit_streak++;
+						video_receiver->drift_submit_window_count++;
+						/* Log only the first frame of a drift-submit episode: an IDR round
+						 * trip can hold this branch for 0.8-1.5s, and logging every frame
+						 * (~24-45 lines/episode) risks evicting the pre-burst context the
+						 * log ring needs for the hardware A/B (the ring silently drops the
+						 * OLDEST lines under load). The streak resets on the next I-slice. */
+						if(video_receiver->drift_submit_streak == 1)
+						{
+							CHIAKI_LOGW(video_receiver->log, "PIPE/DRIFT_SUBMIT frame=%d missing_ref=%d (suppressing repeats until I-slice)",
+								(int)video_receiver->frame_index_cur, (int)ref_frame_index);
+						}
 					}
 					else
 					{
@@ -931,7 +944,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint64_t cadence_avg_ms = video_receiver->cadence_count > 0 ?
 			video_receiver->cadence_total_ms / video_receiver->cadence_count : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu fec_fail_kf=%u",
+			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu fec_fail_kf=%u drift=%u",
 			frames,
 			video_receiver->stage_window_drops,
 			video_receiver->cascade_skip_count,
@@ -941,7 +954,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			(unsigned long long)video_receiver->cadence_min_ms,
 			(unsigned long long)video_receiver->cadence_max_ms,
 			(unsigned long long)cadence_avg_ms,
-			video_receiver->fec_fail_kf_count);
+			video_receiver->fec_fail_kf_count,
+			video_receiver->drift_submit_window_count);
 
 		{
 			// D5: emit the delivery-pattern probe. drift_div converts a
@@ -1004,6 +1018,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->old_frame_rejects_window = 0;
 		video_receiver->cascade_skip_count = 0;
 		video_receiver->fec_fail_kf_count = 0;
+		video_receiver->drift_submit_window_count = 0;
 		video_receiver->cadence_min_ms = 0;
 		video_receiver->cadence_max_ms = 0;
 		video_receiver->cadence_total_ms = 0;

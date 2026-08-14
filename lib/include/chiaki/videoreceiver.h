@@ -58,6 +58,8 @@ typedef struct chiaki_video_receiver_t
 	uint32_t stage_window_frames;
 	uint32_t stage_window_drops;
 	uint32_t fec_fail_kf_count;      // FEC-failed frames whose expected unit count looked keyframe-sized (GH #251 discriminator, reset each stage window)
+	uint32_t drift_submit_streak;       // Consecutive drift-submitted frames since the last I-slice (GH #251 log-suppression gate: only the first of a streak logs PIPE/DRIFT_SUBMIT)
+	uint32_t drift_submit_window_count; // Drift-submitted frames this stage window (GH #251 diagnostic, reset each stage window)
 	uint32_t units_expected_ewma_x8; // EWMA of frame_processor.units_source_expected, fixed-point x8 (alpha=1/8, see VIDEO_IDR_UNITS_EWMA_SHIFT)
 	bool idr_request_pending;            // IDR requested, tracks state (never blocks decode)
 	uint64_t idr_request_start_ms;       // Timestamp for timeout detection
