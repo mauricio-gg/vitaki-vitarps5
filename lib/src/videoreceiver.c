@@ -91,6 +91,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define VIDEO_IDR_KEYFRAME_UNITS_MULT 3
 #define VIDEO_IDR_UNITS_EWMA_MIN 2
 #define VIDEO_IDR_UNITS_EWMA_SHIFT 3 // EWMA alpha = 1/8
+#define VIDEO_IDR_UNITS_EWMA_SCALE (1U << VIDEO_IDR_UNITS_EWMA_SHIFT)
 
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
@@ -440,6 +441,9 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			return;
 		}
 		video_receiver->profile_cur = packet->adaptive_stream_index;
+		// A resolution change invalidates the old frame-size mean -- start the
+		// keyframe-size classifier's EWMA over from the new profile's frames.
+		video_receiver->units_expected_ewma_x8 = 0;
 
 		ChiakiVideoProfile *profile = video_receiver->profiles + video_receiver->profile_cur;
 		CHIAKI_LOGI(video_receiver->log, "Switched to profile %d, resolution: %ux%u", video_receiver->profile_cur, profile->width, profile->height);
@@ -704,16 +708,13 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		video_receiver->stage_window_drops++;
 
-		// Request IDR only for hard FEC failures to avoid over-driving keyframe requests.
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
+			// Request IDR only for hard FEC failures to avoid over-driving keyframe requests.
 			uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 			video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "fec_failed");
-		}
 
-		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
-		{
-			uint32_t ewma_units = video_receiver->units_expected_ewma_x8 / 8;
+			uint32_t ewma_units = video_receiver->units_expected_ewma_x8 / VIDEO_IDR_UNITS_EWMA_SCALE;
 			uint32_t fail_units = video_receiver->frame_processor.units_source_expected;
 			if(ewma_units >= VIDEO_IDR_UNITS_EWMA_MIN && fail_units >= ewma_units * VIDEO_IDR_KEYFRAME_UNITS_MULT)
 			{
@@ -721,10 +722,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				CHIAKI_LOGW(video_receiver->log, "PIPE/FEC_FAIL_KF frame=%d units=%u ewma=%u",
 					(int)video_receiver->frame_index_cur, fail_units, ewma_units);
 			}
-		}
 
-		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
-		{
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			// Reuse flush_start_ms (captured at function entry) instead of a fresh
@@ -755,9 +753,16 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 
 	bool succ = flush_result != CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED;
 	bool recovered = false;
+	// Set within the drift-submit arm below; read in the callback-success block
+	// (search "drift_submit_streak = 0") to decide whether this frame continues
+	// or ends the current drift-submit episode (M1: the episode-end reset must
+	// not depend on an I-slice arriving -- add_ref_frame() below is the common,
+	// no-I-slice way an episode actually heals).
+	bool drift_submitted_this_frame = false;
 
 	ChiakiBitstreamSlice slice;
-	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
+	bool slice_parsed = chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice);
+	if(slice_parsed)
 	{
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
 		{
@@ -829,6 +834,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 						 * bounded drift, refreshed by the pending IDR. Do NOT count this frame
 						 * lost and do NOT bump the cascade counter: on callback success the
 						 * frame becomes a legitimate reference (add_ref_frame below). */
+						drift_submitted_this_frame = true;
 						video_receiver->drift_submit_streak++;
 						video_receiver->drift_submit_window_count++;
 						/* Log only the first frame of a drift-submit episode: an IDR round
@@ -871,6 +877,13 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		{
 			add_ref_frame(video_receiver, video_receiver->frame_index_cur);
 			video_receiver->consecutive_missing_ref = 0;
+			// M1: a drift-submit episode usually ends here -- the chain heals via
+			// this add_ref_frame() call, with no I-slice in sight. The I-slice
+			// branch above (search "drift_submit_streak = 0") is the other, rarer
+			// reset path. Without this one, streak stays >=1 forever after the
+			// first episode and PIPE/DRIFT_SUBMIT never logs again.
+			if(!drift_submitted_this_frame)
+				video_receiver->drift_submit_streak = 0;
 			CHIAKI_LOGV(video_receiver->log, "Added reference %c frame %d", slice.slice_type == CHIAKI_BITSTREAM_SLICE_I ? 'I' : 'P', (int)video_receiver->frame_index_cur);
 		}
 		if(submit_end_ms >= submit_start_ms)
@@ -882,14 +895,22 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	video_receiver->cur_frame_seen_last_unit = false;
 
 	if(succ) {
-		uint32_t units = video_receiver->frame_processor.units_source_expected;
-		if(units > 0)
+		// M3: only P-frames feed the keyframe-size classifier's EWMA. I-frames are
+		// 3-10x larger and would inflate the running mean right after every IDR,
+		// which is exactly when the classifier (PIPE/FEC_FAIL_KF, above) needs an
+		// accurate baseline the most. slice_parsed guards against reading `slice`
+		// when chiaki_bitstream_slice() above failed to parse it.
+		if(slice_parsed && slice.slice_type == CHIAKI_BITSTREAM_SLICE_P)
 		{
-			if(video_receiver->units_expected_ewma_x8 == 0)
-				video_receiver->units_expected_ewma_x8 = units * 8;
-			else
-				video_receiver->units_expected_ewma_x8 +=
-					((int32_t)(units * 8) - (int32_t)video_receiver->units_expected_ewma_x8) >> VIDEO_IDR_UNITS_EWMA_SHIFT;
+			uint32_t units = video_receiver->frame_processor.units_source_expected;
+			if(units > 0)
+			{
+				if(video_receiver->units_expected_ewma_x8 == 0)
+					video_receiver->units_expected_ewma_x8 = units * VIDEO_IDR_UNITS_EWMA_SCALE;
+				else
+					video_receiver->units_expected_ewma_x8 +=
+						((int32_t)(units * VIDEO_IDR_UNITS_EWMA_SCALE) - (int32_t)video_receiver->units_expected_ewma_x8) >> VIDEO_IDR_UNITS_EWMA_SHIFT;
+			}
 		}
 
 		// The fec_failed report above (search "fec_failed") is keyed on a start

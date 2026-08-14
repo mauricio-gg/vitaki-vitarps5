@@ -436,6 +436,18 @@ static uint32_t decode_queue_drops = 0;
 static uint32_t decode_neg_ret_count = 0;
 static uint32_t decode_no_output_count = 0;
 
+/* First-N-then-suppress guard for the per-occurrence DECODE/ANOM log lines
+ * below. If the decoder starts erroring, those lines fire 30-60/s and would
+ * flood the log ring -- which silently evicts its OLDEST entries under load
+ * -- destroying the pre-burst context this A/B instrumentation exists to
+ * preserve. The counters above still increment on every occurrence (the
+ * totals line in vita_h264_stop() covers magnitude); only the per-occurrence
+ * log line is suppressed past the Nth. Reset alongside the counters in
+ * vita_h264_stop(). */
+#define DECODE_ANOM_LOG_MAX 5
+static uint32_t decode_neg_ret_logged = 0;
+static uint32_t decode_no_output_logged = 0;
+
 /* Decode queue occupancy (latency investigation, item 2) — TIME-WEIGHTED, not a naive
  * average of samples taken only at push/pop. Code review (2026-08) caught the original
  * push/pop-sample design as structurally biased: a sample taken right after a push, or
@@ -922,7 +934,11 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     LOGD("sceAvcdecDecode (len=0x%x): 0x%x numOfOutput %d\n", (unsigned int)buf_size, ret,
          array_picture.numOfOutput);
     decode_neg_ret_count++;
-    LOGE("DECODE/ANOM neg_ret=0x%08X count=%u", (unsigned int)ret, decode_neg_ret_count);
+    if (decode_neg_ret_logged < DECODE_ANOM_LOG_MAX) {
+      decode_neg_ret_logged++;
+      LOGE("DECODE/ANOM neg_ret=0x%08X count=%u%s", (unsigned int)ret, decode_neg_ret_count,
+           decode_neg_ret_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
+    }
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -930,8 +946,12 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   if (array_picture.numOfOutput != 1) {
     LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
     decode_no_output_count++;
-    LOGD("DECODE/ANOM no_output count=%u bufSize=0x%X", decode_no_output_count,
-         (unsigned int)buf_size);
+    if (decode_no_output_logged < DECODE_ANOM_LOG_MAX) {
+      decode_no_output_logged++;
+      LOGD("DECODE/ANOM no_output count=%u bufSize=0x%X%s", decode_no_output_count,
+           (unsigned int)buf_size,
+           decode_no_output_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
+    }
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -1482,10 +1502,13 @@ void vita_h264_stop() {
    * session/stop thread even though they are written without locking on the
    * decode thread (see their declaration comment). This runs exactly once per
    * stream end regardless of whether the decode thread ever started, so the
-   * reset below always leaves both counters at 0 for the next stream. */
+   * reset below always leaves all four counters -- magnitude and log-suppression
+   * alike -- at 0 for the next stream. */
   LOGD("DECODE/ANOM totals neg_ret=%u no_output=%u", decode_neg_ret_count, decode_no_output_count);
   decode_neg_ret_count = 0;
   decode_no_output_count = 0;
+  decode_neg_ret_logged = 0;
+  decode_no_output_logged = 0;
 
   /* Free slot buffers. Non-NULL slots were allocated in vita_h264_start();
    * failed/skipped slots are already NULL so free() is a safe no-op. */

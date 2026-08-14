@@ -12,6 +12,13 @@
 // on garbage.
 #define SPS_MAX_PLAUSIBLE_POC_CYCLE 255
 
+// H.264 caps max_num_ref_frames at 16 (spec clause A.3.1/A.3.2, level-dependent
+// but never above this absolute bound); a parsed value above it means the
+// extended-field parse walked off the real field boundaries (desync from an
+// earlier misparse), not a real stream -- the safety gate that reads this
+// field (chiaki_bitstream_h264_drift_safe()) must not go green on that.
+#define SPS_MAX_NUM_REF_FRAMES_LIMIT 16
+
 static bool skip_startcode(struct vl_vlc *vlc)
 {
 	vl_vlc_fillbits(vlc);
@@ -91,6 +98,8 @@ static bool header_h264(ChiakiBitstream *bitstream, uint8_t *data, unsigned size
 	// valid_ext = false, never to `return false` (that would retroactively
 	// fail a base parse that already succeeded).
 	unsigned pic_order_cnt_type = vl_rbsp_ue(&rbsp);
+	if(pic_order_cnt_type > 2)
+		return true; // spec-impossible (0-2 only); keep base fields, skip ext
 	if(pic_order_cnt_type == 0)
 	{
 		vl_rbsp_ue(&rbsp); // log2_max_pic_order_cnt_lsb_minus4
@@ -109,6 +118,8 @@ static bool header_h264(ChiakiBitstream *bitstream, uint8_t *data, unsigned size
 	// pic_order_cnt_type == 2: no additional fields
 
 	bitstream->h264.sps.max_num_ref_frames = vl_rbsp_ue(&rbsp);
+	if(bitstream->h264.sps.max_num_ref_frames > SPS_MAX_NUM_REF_FRAMES_LIMIT)
+		return true; // spec-impossible; keep base fields, skip ext
 	bitstream->h264.sps.gaps_in_frame_num_value_allowed_flag = vl_rbsp_u(&rbsp, 1);
 	bitstream->h264.sps.valid_ext = true;
 

@@ -139,6 +139,36 @@ static unsigned make_sps_poc_type1_implausible_cycle(uint8_t *out)
 	return 4 + bw.bitpos / 8;
 }
 
+// pic_order_cnt_type == 5: spec-impossible (only 0-2 are defined). The parser
+// must bail out of the extended fields (M3, lib/src/bitstream.c) WITHOUT
+// failing the base parse, same asymmetry as the implausible-cycle vector
+// above.
+static unsigned make_sps_poc_type_invalid(uint8_t *out)
+{
+	BitWriter bw; memset(&bw, 0, sizeof(bw));
+	bw_u(&bw, 0x67, 8);
+	bw_u(&bw, 66, 8);
+	bw_u(&bw, 0, 8);
+	bw_u(&bw, 31, 8);
+	bw_ue(&bw, 0);       // seq_parameter_set_id
+	bw_ue(&bw, 4);       // log2_max_frame_num_minus4
+	bw_ue(&bw, 5);       // pic_order_cnt_type = 5 (invalid; only 0-2 defined)
+	bw_u(&bw, 1, 1);     // rbsp_stop_one_bit (padding)
+	while(bw.bitpos % 8) bw_u(&bw, 0, 1);
+	out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 1;
+	memcpy(out + 4, bw.buf, bw.bitpos / 8);
+	return 4 + bw.bitpos / 8;
+}
+
+// max_num_ref_frames == 20: exceeds the spec's absolute bound of 16 (M3,
+// lib/src/bitstream.c). Same never-retroactively-fail asymmetry: base parse
+// must still succeed, but valid_ext must stay false so the drift-safe gate
+// cannot go green on a mis-parsed field.
+static unsigned make_sps_ref_frames_invalid(uint8_t *out)
+{
+	return make_sps(out, 20, 0);
+}
+
 int main(void)
 {
 	uint8_t sps[80];
@@ -171,6 +201,20 @@ int main(void)
 	// parse (already succeeded) must not be retroactively failed, but the
 	// extended fields must be marked unparsed.
 	n = make_sps_poc_type1_implausible_cycle(sps);
+	assert(chiaki_bitstream_header(&bs, sps, n));
+	assert(!bs.h264.sps.valid_ext);
+	assert(!chiaki_bitstream_h264_drift_safe(&bs));
+
+	// pic_order_cnt_type == 5 is spec-impossible (only 0-2 are defined). Same
+	// never-retroactively-fail asymmetry as above (M3 fix).
+	n = make_sps_poc_type_invalid(sps);
+	assert(chiaki_bitstream_header(&bs, sps, n));
+	assert(!bs.h264.sps.valid_ext);
+	assert(!chiaki_bitstream_h264_drift_safe(&bs));
+
+	// max_num_ref_frames == 20 exceeds the spec's absolute bound of 16. Same
+	// never-retroactively-fail asymmetry as above (M3 fix).
+	n = make_sps_ref_frames_invalid(sps);
 	assert(chiaki_bitstream_header(&bs, sps, n));
 	assert(!bs.h264.sps.valid_ext);
 	assert(!chiaki_bitstream_h264_drift_safe(&bs));
