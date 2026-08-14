@@ -810,18 +810,34 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					succ = false;
-					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+					bool drift_submit = video_receiver->session->connect_info.submit_on_missing_ref
+						&& chiaki_bitstream_h264_drift_safe(&video_receiver->bitstream);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
-					video_receiver->consecutive_missing_ref++;
-					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
-						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
-						video_receiver->consecutive_missing_ref);
-					/* Request IDR immediately; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms) prevents
-					 * flooding. Cascade skip fires at consecutive_missing_ref >= CASCADE_SKIP_THRESHOLD
-					 * as a backstop if the PS5 is slow to respond. */
+					/* Request IDR immediately in both modes; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms)
+					 * prevents flooding. Under drift-submit the IDR is the cleanup pass that
+					 * erases accumulated drift; without it, it is the only way motion resumes. */
 					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 					video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "missing_ref");
+					if(drift_submit)
+					{
+						/* Submit the intact frame. The lost reference was never submitted, so
+						 * the decoder DPB's newest entry is the last good frame; the default
+						 * (unmodified) reference list resolves to it. Wrong reference ->
+						 * bounded drift, refreshed by the pending IDR. Do NOT count this frame
+						 * lost and do NOT bump the cascade counter: on callback success the
+						 * frame becomes a legitimate reference (add_ref_frame below). */
+						CHIAKI_LOGW(video_receiver->log, "PIPE/DRIFT_SUBMIT frame=%d missing_ref=%d",
+							(int)video_receiver->frame_index_cur, (int)ref_frame_index);
+					}
+					else
+					{
+						succ = false;
+						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+						video_receiver->consecutive_missing_ref++;
+						CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
+							(int)ref_frame_index, (int)video_receiver->frame_index_cur,
+							video_receiver->consecutive_missing_ref);
+					}
 				}
 			}
 		}

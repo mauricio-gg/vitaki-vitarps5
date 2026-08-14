@@ -54,6 +54,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
+  cfg->submit_on_missing_ref = false;
   cfg->show_nav_labels = false;
   cfg->show_only_paired = false;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -397,6 +398,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
       {"force_30fps", false, &cfg->force_30fps},
       {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
+      {"submit_on_missing_ref", false, &cfg->submit_on_missing_ref},
       {"show_nav_labels", false, &cfg->show_nav_labels},
       {"show_only_paired", false, &cfg->show_only_paired},
       {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
@@ -547,10 +549,11 @@ void config_parse(VitaChiakiConfig *cfg) {
 config_done:
   LOGD(
       "Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s "
-      "clamp_soft_restart_bitrate=%s",
+      "clamp_soft_restart_bitrate=%s submit_on_missing_ref=%s",
       serialize_latency_mode(cfg->latency_mode), cfg->force_30fps ? "true" : "false",
       cfg->send_actual_start_bitrate ? "true" : "false",
-      cfg->clamp_soft_restart_bitrate ? "true" : "false");
+      cfg->clamp_soft_restart_bitrate ? "true" : "false",
+      cfg->submit_on_missing_ref ? "true" : "false");
 }
 
 void config_free(VitaChiakiConfig *cfg) {
@@ -708,6 +711,7 @@ bool config_serialize(VitaChiakiConfig *cfg) {
       {"force_30fps", cfg->force_30fps},
       {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
+      {"submit_on_missing_ref", cfg->submit_on_missing_ref},
       {"show_nav_labels", cfg->show_nav_labels},
       {"show_only_paired", cfg->show_only_paired},
       {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
