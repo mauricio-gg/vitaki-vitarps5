@@ -6,6 +6,12 @@
 
 #include "vl_rbsp.h"
 
+// H.264 caps num_ref_frames_in_pic_order_cnt_cycle at 255 (spec table
+// A-1 / clause 7.4.2.1.1); anything above that is a malformed SPS, not a
+// real stream, so the extended-field parse bails out rather than looping
+// on garbage.
+#define SPS_MAX_PLAUSIBLE_POC_CYCLE 255
+
 static bool skip_startcode(struct vl_vlc *vlc)
 {
 	vl_vlc_fillbits(vlc);
@@ -77,6 +83,34 @@ static bool header_h264(ChiakiBitstream *bitstream, uint8_t *data, unsigned size
 		CHIAKI_LOGW(bitstream->log, "parse_sps_h264: Unexpected log2_max_frame_num_minus4 value %u", bitstream->h264.sps.log2_max_frame_num_minus4);
 		return false;
 	}
+
+	bitstream->h264.sps.valid_ext = false;
+
+	// Everything from here on is best-effort: the base fields above are all
+	// the slice parser needs, so a parse hiccup in this tail must degrade to
+	// valid_ext = false, never to `return false` (that would retroactively
+	// fail a base parse that already succeeded).
+	unsigned pic_order_cnt_type = vl_rbsp_ue(&rbsp);
+	if(pic_order_cnt_type == 0)
+	{
+		vl_rbsp_ue(&rbsp); // log2_max_pic_order_cnt_lsb_minus4
+	}
+	else if(pic_order_cnt_type == 1)
+	{
+		vl_rbsp_u(&rbsp, 1); // delta_pic_order_always_zero_flag
+		vl_rbsp_se(&rbsp);   // offset_for_non_ref_pic
+		vl_rbsp_se(&rbsp);   // offset_for_top_to_bottom_field
+		unsigned cycle = vl_rbsp_ue(&rbsp); // num_ref_frames_in_pic_order_cnt_cycle
+		if(cycle > SPS_MAX_PLAUSIBLE_POC_CYCLE)
+			return true; // implausible; keep base fields, skip ext
+		for(unsigned i = 0; i < cycle; i++)
+			vl_rbsp_se(&rbsp); // offset_for_ref_frame[i]
+	}
+	// pic_order_cnt_type == 2: no additional fields
+
+	bitstream->h264.sps.max_num_ref_frames = vl_rbsp_ue(&rbsp);
+	bitstream->h264.sps.gaps_in_frame_num_value_allowed_flag = vl_rbsp_u(&rbsp, 1);
+	bitstream->h264.sps.valid_ext = true;
 
 	return true;
 }
@@ -413,4 +447,13 @@ bool chiaki_bitstream_slice_set_reference_frame(ChiakiBitstream *bitstream, uint
 		return false;
 	else
 		return slice_set_reference_frame_h265(bitstream, data, size, reference_frame);
+}
+
+CHIAKI_EXPORT bool chiaki_bitstream_h264_drift_safe(ChiakiBitstream *bitstream)
+{
+	if(bitstream->codec != CHIAKI_CODEC_H264)
+		return false;
+	if(!bitstream->h264.sps.valid_ext)
+		return false;
+	return bitstream->h264.sps.gaps_in_frame_num_value_allowed_flag == 0;
 }

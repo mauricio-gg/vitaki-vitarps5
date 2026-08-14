@@ -435,6 +435,12 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			video_receiver->session->video_sample_cb(profile->header, profile->header_sz, 0, false, video_receiver->session->video_sample_cb_user);
 		if(!chiaki_bitstream_header(&video_receiver->bitstream, profile->header, profile->header_sz))
 			CHIAKI_LOGE(video_receiver->log, "Failed to parse video header");
+		else if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264 && video_receiver->bitstream.h264.sps.valid_ext)
+			CHIAKI_LOGI(video_receiver->log, "SPS: max_num_ref_frames=%u gaps_in_frame_num_allowed=%u",
+				video_receiver->bitstream.h264.sps.max_num_ref_frames,
+				video_receiver->bitstream.h264.sps.gaps_in_frame_num_value_allowed_flag);
+		else if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264)
+			CHIAKI_LOGW(video_receiver->log, "SPS: extended fields not parsed (drift-submit will stay disabled)");
 	}
 
 	// next frame?

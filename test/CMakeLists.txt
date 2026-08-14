@@ -42,3 +42,24 @@ find_package(Threads REQUIRED)
 target_link_libraries(vitarps5_tests OpenSSL::Crypto Threads::Threads)
 
 add_test(NAME vitarps5_config_tests COMMAND vitarps5_tests)
+
+# bitstream_sps_tests.c has its own main() and #includes lib/src/bitstream.c
+# directly (with a local chiaki_log() stub), so it is a standalone binary
+# rather than another source file folded into vitarps5_tests above.
+#
+# NOTE: this project's Vita test harness (./tools/build.sh test) configures
+# with the arm-vita-eabi toolchain but only ever runs `make vitarps5_tests`,
+# so it cross-compiles this target (verifying it stays buildable) without
+# executing it -- arm-vita-eabi ELFs can't run on the host. The authoritative
+# run of these assertions is the native rerun documented at the top of
+# bitstream_sps_tests.c: `cc -std=c99 -I lib/include -I lib/src -I
+# test/stubs test/bitstream_sps_tests.c -o /tmp/bitstream_sps_tests`.
+add_executable(bitstream_sps_tests bitstream_sps_tests.c)
+
+target_include_directories(bitstream_sps_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${CMAKE_SOURCE_DIR}/lib/include
+    ${CMAKE_SOURCE_DIR}/lib/src
+)
+
+add_test(NAME vitarps5_bitstream_sps_tests COMMAND bitstream_sps_tests)
