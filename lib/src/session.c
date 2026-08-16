@@ -38,16 +38,18 @@
 // streamconnection.c's mid-stream transport-failure path) without the console ever
 // indicating a disconnect. Bounds the restart loop so a genuinely dead link still
 // falls through to a full teardown (CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED)
-// instead of retrying forever. 3 matches this codebase's existing "three strikes"
-// convention for consecutive-failure thresholds (see CASCADE_SKIP_THRESHOLD in
-// lib/src/videoreceiver.c) and keeps the worst case bounded: each failed attempt
-// burns ~2s exhausting Takion's own ENOBUFS retry budget (hardware-observed: 401
-// attempts / 2098ms) plus up to EXPECT_TIMEOUT_MS if the reconnect handshake itself
-// times out, so 3 attempts cap the flap-recovery window at roughly 20s -- enough to
-// ride out a brief Wi-Fi hiccup without leaving the user staring at a frozen stream
-// indefinitely. Reset policy: see transport_failure_restart_count's doc comment in
-// session.h.
-#define CHIAKI_TRANSPORT_FAILURE_RESTART_MAX 3
+// instead of retrying forever. Lowered from 3 to 2 (GH #261): the #261 bang-wait
+// forensics found the console never sending bang back is a HELD-SESSION failure mode,
+// not a transient one -- rung 2 repeats rung 1 byte-for-byte against the same still-held
+// console session, so it buys negligible extra recovery odds for a real ~2s ENOBUFS
+// budget plus up to EXPECT_TIMEOUT_MS handshake wait per attempt. 2 attempts cap the
+// flap-recovery window at roughly 14s (was ~20s at 3) while item 1's hard-fallback
+// escalation (host_quit.c, now reachable) picks up exactly where this ladder gives up,
+// so a genuinely dead link still gets a full teardown + fresh reconnect rather than
+// silence -- see this function's transport_only_failure branch. Still enough to ride out
+// a brief Wi-Fi hiccup without leaving the user staring at a frozen stream indefinitely.
+// Reset policy: see transport_failure_restart_count's doc comment in session.h.
+#define CHIAKI_TRANSPORT_FAILURE_RESTART_MAX 2
 
 static void *session_thread_func(void *arg);
 static void regist_cb(ChiakiRegistEvent *event, void *user);
