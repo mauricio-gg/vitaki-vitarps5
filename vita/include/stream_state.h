@@ -77,7 +77,12 @@ typedef struct vita_chiaki_stream_t {
   uint32_t measured_rtt_ms;                // Last measured round-trip time (ms)
   uint64_t last_rtt_refresh_us;            // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;         // Timestamp for latest metrics sample
-  uint64_t next_stream_allowed_us;         // Cooldown gate after quit
+  uint64_t suspend_tick_last_us;           // GH #258: previous UI-loop tick timestamp; a gap beyond
+                                           // SUSPEND_GAP_THRESHOLD_US means the app was suspended
+  uint64_t suspend_resync_next_us;  // GH #258: deadline for the next scheduled post-resume resync
+  uint32_t suspend_resync_shots_left;    // GH #258: remaining scheduled post-resume resync attempts
+  bool suspend_fps_guard;                // GH #258: suppresses the first post-resume low-fps window
+  uint64_t next_stream_allowed_us;       // Cooldown gate after quit
   bool post_stop_guard;                  // True only for the cooldown window following a deliberate
                                          // user stop; suppresses the "Streaming stopped" banner
                                          // since the console card already shows its own

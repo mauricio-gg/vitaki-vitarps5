@@ -22,6 +22,22 @@
 #define LATENCY_PERCENTILE_P50 50
 #define LATENCY_PERCENTILE_P95 95
 
+/* GH #258: PS-button suspend/resume detection and recovery scheduling. A gap this large
+ * between consecutive UI-loop ticks cannot happen while actually streaming (normal cadence
+ * is 1-33ms); the shortest observed real suspend was ~2s, so 1s leaves headroom against
+ * false positives from an ordinary frame stall while still catching every real suspend. */
+#define SUSPEND_GAP_THRESHOLD_US 1000000ULL
+/* First scheduled resync fires quickly in case the console's resume burst hasn't yet
+ * stepped on the decoder's reference chain. */
+#define SUSPEND_RESYNC_FIRST_DELAY_US 250000ULL
+/* Second shot lands after the observed ~0.9s drain of the resume burst, bracketing the
+ * window where the first shot's IDR reply is likely to die in the keystream-desync burst
+ * (see GH #258 hardware evidence: both IDR replies #1 and #2 died there). */
+#define SUSPEND_RESYNC_FOLLOWUP_DELAY_US 1250000ULL
+/* Two shots bracket the drain window observed on hardware; a single shot risks landing
+ * inside the same failure window as the resume burst. */
+#define SUSPEND_RESYNC_SHOTS 2
+
 /* Insertion sort for the bounded (<= LATENCY_WINDOW_SAMPLE_CAP) per-window latency sample
  * array. O(n^2) worst case is trivial at this size (<=64 elements) and this runs once per
  * ~1s window on the UI thread -- not a hot path -- so a tiny in-place sort is simpler than
@@ -80,6 +96,13 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_rtt_ms = 0;
   context.stream.last_rtt_refresh_us = 0;
   context.stream.metrics_last_update_us = 0;
+  // GH #258: always clear the suspend-detection anchor, even when preserve_recovery_state
+  // is set (fast restart) -- a stale anchor surviving a fast restart would read as a bogus
+  // multi-second gap on the next tick and fire a spurious resync.
+  context.stream.suspend_tick_last_us = 0;
+  context.stream.suspend_resync_next_us = 0;
+  context.stream.suspend_resync_shots_left = 0;
+  context.stream.suspend_fps_guard = false;
   context.stream.retry_holdoff_ms = 0;
   context.stream.retry_holdoff_until_us = 0;
   context.stream.retry_holdoff_active = false;
@@ -340,6 +363,41 @@ void host_metrics_update_latency(void) {
   float bitrate_mbps = bitrate_bps > 0 ? ((float)bitrate_bps / 1000000.0f) : 0.0f;
   uint64_t now_us = sceKernelGetProcessTimeWide();
 
+  // GH #258: detect a PS-button suspend/resume via a UI-loop clock jump and schedule an
+  // immediate decoder resync instead of waiting for loss-detection heuristics to stumble
+  // onto one 1-3.5s late. The anchor below is rewritten every tick regardless of outcome,
+  // so exactly one detection fires per actual suspend -- self-throttling by construction,
+  // no separate cooldown state needed.
+  if (context.stream.suspend_tick_last_us != 0) {
+    uint64_t suspend_gap_us = now_us - context.stream.suspend_tick_last_us;
+    if (suspend_gap_us > SUSPEND_GAP_THRESHOLD_US) {
+      LOGD("Suspend/resume detected — UI loop gap %llu ms",
+           (unsigned long long)(suspend_gap_us / 1000ULL));
+      context.stream.suspend_resync_next_us = now_us + SUSPEND_RESYNC_FIRST_DELAY_US;
+      context.stream.suspend_resync_shots_left = SUSPEND_RESYNC_SHOTS;
+      context.stream.suspend_fps_guard = true;
+      context.stream.last_rtt_refresh_us = now_us;
+      vitavideo_show_poor_net_indicator();
+    }
+  }
+  context.stream.suspend_tick_last_us = now_us;
+
+  // Fire scheduled post-resume resyncs one at a time. Checked here (fire time), not at
+  // detection time, so a stop or fast-restart that starts mid-schedule cancels the
+  // remaining shots cleanly instead of racing decoder teardown.
+  if (context.stream.suspend_resync_shots_left > 0 &&
+      now_us >= context.stream.suspend_resync_next_us) {
+    if (context.stream.stop_requested || context.stream.fast_restart_active) {
+      context.stream.suspend_resync_shots_left = 0;
+    } else {
+      host_request_decoder_resync("resume from suspend");
+      context.stream.suspend_resync_shots_left--;
+      if (context.stream.suspend_resync_shots_left > 0) {
+        context.stream.suspend_resync_next_us = now_us + SUSPEND_RESYNC_FOLLOWUP_DELAY_US;
+      }
+    }
+  }
+
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
   // D4: Windowed bitrate — 3-element ring buffer, time-based rate (not fps/frames).
@@ -419,6 +477,11 @@ void host_metrics_update_latency(void) {
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   bool low_fps_window =
       effective_target_fps > 0 && incoming_fps > 0 && incoming_fps + 5 < effective_target_fps;
+  // GH #258: mask the first post-resume window -- the collapsed fps during the resume
+  // burst/decoder-resync drain is expected, not a real health signal, and must not bump
+  // fps_under_target_windows or feed the recovery tiers below.
+  if (context.stream.suspend_fps_guard)
+    low_fps_window = false;
   bool av_diag_progressed =
       av_diag_missing_ref_count > context.stream.av_diag.logged_missing_ref_count ||
       av_diag_corrupt_burst_count > context.stream.av_diag.logged_corrupt_burst_count ||
@@ -466,6 +529,9 @@ void host_metrics_update_latency(void) {
         context.stream.post_reconnect_low_fps_windows++;
       }
     }
+    // GH #258: the guard only needs to suppress the first post-resume 1s window; clear it
+    // once that window has closed so subsequent windows are evaluated normally.
+    context.stream.suspend_fps_guard = false;
 
     // DEAD-CODE: this call always returns immediately at the callee's entry
     // guard clause -- post_reconnect_window_until_us is never set to a
