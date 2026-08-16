@@ -2,6 +2,7 @@
 #include "host_metrics.h"
 #include "host_feedback.h"
 #include "host_recovery.h"
+#include "host_callbacks.h"
 #include "audio.h"
 #include "video.h"
 
@@ -197,6 +198,11 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   // D5: Frame overwrite
   context.stream.frame_overwrite_count = 0;
   context.stream.freeze_engaged_count = 0;
+
+  // GH #262: staleness-gated presentation hold
+  context.stream.stale_hold_count = 0;
+  context.stream.stale_hold_frames_total = 0;
+  host_video_cb_reset_stale_tracker();
 
   // D6: Wi-Fi RSSI
   context.stream.wifi_rssi = -1;
@@ -774,7 +780,8 @@ void host_metrics_update_latency(void) {
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
         "windowed_mbps=%.2f overwrites=%u freeze=%u rssi=%d display_fps=%u stuck_streak=%u "
-        "stuck_used=%d cascade_streak=%u cascade_used=%d decode_q_drops=%u stale=%u",
+        "stuck_used=%d cascade_streak=%u cascade_used=%d decode_q_drops=%u stale=%u "
+        "stale_holds=%u stale_held=%u",
         context.stream.session_generation, context.stream.reconnect_generation,
         publish_incoming_fps, effective_target_fps, context.stream.fps_under_target_windows,
         context.stream.post_reconnect_low_fps_windows,
@@ -788,7 +795,8 @@ void host_metrics_update_latency(void) {
         context.stream.freeze_engaged_count, context.stream.wifi_rssi, publish_display_fps,
         context.stream.stuck_bitrate_low_fps_streak, (int)context.stream.stuck_bitrate_restart_used,
         context.stream.cascade_alarm_streak, (int)context.stream.cascade_alarm_restart_used,
-        vita_video_decode_queue_drops(), fps_stale);
+        vita_video_decode_queue_drops(), fps_stale, context.stream.stale_hold_count,
+        context.stream.stale_hold_frames_total);
     context.stream.latency_log_last_us = now_us;
   }
 

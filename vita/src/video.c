@@ -170,6 +170,15 @@ static volatile uint64_t incoming_frame_first_packet_ms = 0;
  * this explicitly rather than computing a bogus multi-decade span against process-start. */
 static volatile uint64_t incoming_frame_decode_done_us = 0;
 
+/* GH #262: backlog-drain staleness (ms) for the frame currently sitting in frame_texture,
+ * computed on the recv thread by host_video_cb_compute_staleness_ms() (host_callbacks.c)
+ * and carried through the decode queue alongside frame_corrupt/frame_first_packet_ms. Set
+ * alongside those in decode_frame_now() under `mtx`, on the decode thread; read by
+ * vita_video_render_latest_frame() on the UI thread as the staleness-gate's input. Same
+ * single-writer(decode thread)/single-reader(UI thread) volatile handshake as
+ * incoming_frame_corrupt above. 0 = not stale (includes "no receiver yet" / pre-init). */
+static volatile uint32_t incoming_frame_staleness_ms = 0;
+
 /* Consecutive corrupt-frame presentations. Reset on any clean frame.
  * When it reaches FREEZE_MAX_STREAK the freeze is released unconditionally. */
 static int frozen_frame_streak = 0;
@@ -177,6 +186,44 @@ static int frozen_frame_streak = 0;
 /* Maximum consecutive frames we will hold a frozen image. At this cap the
  * live (possibly corrupted) frame is presented so the picture always resumes. */
 #define FREEZE_MAX_STREAK 8
+
+/* GH #262: staleness-gated presentation ("freeze-then-jump" for backlog drains).
+ * Independent mechanism from the freeze-on-corrupt machinery above -- FREEZE_MAX_STREAK
+ * guards the ambiguous corrupt flag over a handful of frames; this guards a crisp numeric
+ * staleness measurement over up to several SECONDS (a real drain episode, per the #251/
+ * #257/#262 forensics, is 132+ frames -- far past FREEZE_MAX_STREAK by design, so the two
+ * caps do not compete). staleness_ms is produced by an arrival-cadence state machine in
+ * host_video_cb_compute_staleness_ms() (host_callbacks.c, GH #262 fix round 1) -- while
+ * HOLDING there, it reports a constant latched value (the triggering stall's clamped gap)
+ * every frame, then drops to 0 once that tracker's own cadence-based release confirms; see
+ * that function's comment for the state machine. This file's ENGAGE/RELEASE/MAX constants
+ * below only interpret that already-computed value -- they don't derive it. */
+// Engage once the reported staleness (the triggering stall's gap, clamped) exceeds this.
+// Forensics (hardware log 104199521041) put the worst BENIGN cadence excursion at ~113ms;
+// real stalls ran 509-4400ms. 400 sits with clear margin above the former, so ordinary
+// drift-submit episodes never reach it and the toggle's existing freeze-reduction on
+// ordinary loss is untouched automatically.
+#define STALE_HOLD_ENGAGE_MS 400
+// Release once staleness drops back under this. The upstream tracker reports a CONSTANT
+// value while HOLDING and drops straight to 0 the moment its own cadence-based release
+// fires (drain-end detected within STALE_RELEASE_CONFIRM_FRAMES=3 consecutive normal-
+// cadence arrivals, host_callbacks.c) -- so in practice this line is crossed in one step,
+// not approached gradually. 120 keeps a small margin below ENGAGE purely so a value that
+// happens to land between "just re-latched" and "about to drop to 0" can't flap the gate.
+#define STALE_HOLD_RELEASE_MS 120
+// Unconditional hard cap so the hold can never wedge the picture indefinitely if the
+// upstream tracker's release condition somehow never fires (e.g. cadence never fully
+// normalizes for a pathological session).
+#define STALE_HOLD_MAX_MS 6000
+
+/* Stale-hold state -- UI-thread-only (same thread as frozen_frame_streak above; both are
+ * read and written exclusively inside vita_video_render_latest_frame(), reset in
+ * vita_h264_start() alongside it). Plain (non-volatile) statics are correct for the same
+ * single-thread reason frozen_frame_streak needs none. */
+static bool stale_hold_active = false;    // true while presentation is holding last_good_texture
+static uint32_t stale_hold_frames = 0;    // frames held so far this engagement
+static uint64_t stale_hold_start_us = 0;  // sceKernelGetProcessTimeWide() at engage
+static uint32_t stale_hold_peak_ms = 0;   // peak staleness_ms observed this engagement
 
 typedef struct {
   unsigned int texture_width;
@@ -402,6 +449,10 @@ typedef struct {
    * carried through the queue so end-to-end latency can be measured at display time in
    * vita_video_render_latest_frame(). 0 if unavailable. */
   uint64_t frame_first_packet_ms;
+  /* GH #262: backlog-drain staleness (ms) for this frame, computed on the recv thread
+   * (host_video_cb_compute_staleness_ms(), host_callbacks.c) and carried through so the
+   * presentation-side hold gate judges the frame it is actually about to show. */
+  uint32_t staleness_ms;
 } DecodeSlot;
 
 /* Use a SEPARATE mutex from the existing decode `mtx` so the recv thread's
@@ -902,7 +953,7 @@ cleanup:
  * dedicated decode thread (GH #188). buf must be a stable DECODE_SLOT_CAPACITY
  * allocation (not the borrowed frame_buf pointer from videoreceiver). */
 static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
-                            uint64_t frame_first_packet_ms) {
+                            uint64_t frame_first_packet_ms, uint32_t staleness_ms) {
   chiaki_mutex_lock(&mtx);
 
   if (buf_size > (size_t)sceAvcdecDecodeAvailableSize(decoder)) {
@@ -972,6 +1023,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
      * stalled by it. */
     incoming_frame_corrupt = frame_corrupt;
     incoming_frame_first_packet_ms = frame_first_packet_ms;
+    incoming_frame_staleness_ms = staleness_ms;
     // PIPE/DISPLAY: stamp decode-done for the pickup_us span (see field comment above).
     incoming_frame_decode_done_us = sceKernelGetProcessTimeWide();
     // D5: Count frames overwritten before display consumed them
@@ -987,7 +1039,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
 }
 
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
-                           uint64_t frame_first_packet_ms) {
+                           uint64_t frame_first_packet_ms, uint32_t staleness_ms) {
   /* Early validation — reject garbage before touching the queue. */
   if (buf == NULL || buf_size == 0) {
     LOGD("VIDEO: Invalid frame (NULL or zero size), skipping");
@@ -1040,6 +1092,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   slot->size = buf_size;
   slot->frame_corrupt = frame_corrupt;
   slot->frame_first_packet_ms = frame_first_packet_ms;
+  slot->staleness_ms = staleness_ms;
   decode_q_tail = (decode_q_tail + 1) % DECODE_QUEUE_DEPTH;
   /* Latency investigation (item 2): depth just changed (increased) — record the
    * transition for the time-weighted occupancy average while still holding decode_q_mtx.
@@ -1106,6 +1159,55 @@ static void record_display_stage_sample(uint32_t *samples, uint32_t *sample_coun
   }
 }
 
+/* GH #262: advance the stale-hold state machine for the frame this render call is about
+ * to present (or paced-drop). Called unconditionally, once per call, BEFORE
+ * should_drop_frame_for_pacing() decides whether this tick actually draws -- both the
+ * paced-drop branch and the drawing branch below need to see the SAME engage/release
+ * decision for this frame, and the hold's own frames-held/peak/cap-timing bookkeeping must
+ * advance on every tick it is active, not just the ones that happen to draw.
+ *
+ * Engage requires last_good_texture != NULL (degraded single-texture mode has nothing to
+ * hold, so it self-disables here exactly like the freeze-on-corrupt path does). Release is
+ * an unconditional OR: below STALE_HOLD_RELEASE_MS, or the STALE_HOLD_MAX_MS hard cap --
+ * the cap has no exception, so the hold can never wedge the picture indefinitely. */
+static void update_stale_hold_state(uint32_t staleness_ms, uint64_t now_us) {
+  if (!stale_hold_active) {
+    if (staleness_ms > STALE_HOLD_ENGAGE_MS && last_good_texture != NULL) {
+      stale_hold_active = true;
+      stale_hold_frames = 0;
+      stale_hold_start_us = now_us;
+      stale_hold_peak_ms = staleness_ms;
+      // GH #262 fix round 1: staleness_ms IS the triggering stall's (clamped) gap under the
+      // new arrival-cadence tracker -- it reports that constant value for the whole hold --
+      // so trigger_gap_ms is the same quantity, logged explicitly per the round-1 review.
+      LOGD("PIPE/STALE_HOLD engaged staleness_ms=%u trigger_gap_ms=%u", staleness_ms, staleness_ms);
+      // Self-debounced (video_overlay.c, 500ms) -- also fixes the banner missing the
+      // worst excursions the #262 forensics found (it previously only fired from the
+      // loss-feedback path, which can trail the real event by up to 1.8s).
+      vitavideo_overlay_show_poor_net_indicator();
+      context.stream.stale_hold_count++;
+    }
+    return;
+  }
+
+  stale_hold_frames++;
+  if (staleness_ms > stale_hold_peak_ms)
+    stale_hold_peak_ms = staleness_ms;
+  uint64_t held_us = now_us - stale_hold_start_us;
+  bool cap_hit = held_us >= (uint64_t)STALE_HOLD_MAX_MS * 1000ULL;
+  if (staleness_ms < STALE_HOLD_RELEASE_MS || cap_hit) {
+    LOGD(
+        "PIPE/STALE_HOLD released after_ms=%llu frames_held=%u staleness_ms=%u cap=%d "
+        "peak_ms=%u",
+        (unsigned long long)(held_us / 1000ULL), stale_hold_frames, staleness_ms, cap_hit ? 1 : 0,
+        stale_hold_peak_ms);
+    context.stream.stale_hold_frames_total += stale_hold_frames;
+    stale_hold_active = false;
+    stale_hold_frames = 0;
+    stale_hold_peak_ms = 0;
+  }
+}
+
 bool vita_video_render_latest_frame(void) {
   /* GH #245 code review round 2: mark entry before any early return, cleared before
    * every return below (mirrors the file's existing lock-then-unlock-before-each-return
@@ -1135,6 +1237,11 @@ bool vita_video_render_latest_frame(void) {
    * paced-drop path (which never swaps buffers, and therefore never has a real display
    * timestamp) and the display path both see the same frame's timestamp consistently. */
   uint64_t frame_first_packet_ms_snapshot = incoming_frame_first_packet_ms;
+  /* GH #262: same cross-thread snapshot-once rationale -- the paced-drop and drawing
+   * paths below must both evaluate the stale-hold state machine against this frame's
+   * staleness, not a value that could change if incoming_frame_staleness_ms were re-read
+   * from each branch separately. */
+  uint32_t staleness_ms_snapshot = incoming_frame_staleness_ms;
   /* PIPE/DISPLAY: snapshot decode-done and read the render-entry clock together, before
    * should_drop_frame_for_pacing(), for the same reason as the snapshot above -- the
    * paced-drop path returns early and both this function's callers must see a consistent
@@ -1155,28 +1262,39 @@ bool vita_video_render_latest_frame(void) {
         render_entry_us - decode_done_us_snapshot);
   }
 
+  /* GH #262: advance the hold state machine BEFORE pacing decides whether this tick
+   * draws -- see update_stale_hold_state()'s comment for why. */
+  update_stale_hold_state(staleness_ms_snapshot, render_entry_us);
+
   bool drop_frame = should_drop_frame_for_pacing();
   if (drop_frame) {
     // Frame is paced out but still consumed — advance freeze state so the cap
-    // counts all consumed frames, not just displayed ones.
-    bool corrupt = incoming_frame_corrupt;
-    if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
-      frozen_frame_streak++;
-      context.stream.freeze_engaged_count++;
-    } else if (!corrupt) {
-      // Clean paced-drop: still promote this frame to last-good (no draw happens on
-      // this path, so the swap is unconditionally safe -- there is no concurrent GPU
-      // read of either texture to race against here).
-      if (frozen_frame_streak > 0) {
-        LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
+    // counts all consumed frames, not just displayed ones. GH #262: NOT while a hold is
+    // active -- promoting a paced-dropped-but-clean frame to last-good here would creep
+    // the frozen picture forward frame-by-frame during the hold instead of keeping it
+    // static until release (the whole point of "freeze-then-jump"). frame_texture keeps
+    // being overwritten by fresh decodes underneath regardless (DPB stays warm); it's
+    // just not promoted or shown until the hold releases.
+    if (!stale_hold_active) {
+      bool corrupt = incoming_frame_corrupt;
+      if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
+        frozen_frame_streak++;
+        context.stream.freeze_engaged_count++;
+      } else if (!corrupt) {
+        // Clean paced-drop: still promote this frame to last-good (no draw happens on
+        // this path, so the swap is unconditionally safe -- there is no concurrent GPU
+        // read of either texture to race against here).
+        if (frozen_frame_streak > 0) {
+          LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
+        }
+        frozen_frame_streak = 0;
+        (void)promote_decoded_frame_to_last_good();
+      } else {
+        /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
+        if (frozen_frame_streak > 0)
+          LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
+        frozen_frame_streak = 0;
       }
-      frozen_frame_streak = 0;
-      (void)promote_decoded_frame_to_last_good();
-    } else {
-      /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
-      if (frozen_frame_streak > 0)
-        LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
-      frozen_frame_streak = 0;
     }
     // PIPE/DISPLAY: pickup_us was already recorded above (real regardless of pacing);
     // snapshot/draw/swap never happen on this path (no buffer swap occurs), so recording
@@ -1201,7 +1319,16 @@ bool vita_video_render_latest_frame(void) {
   bool corrupt = incoming_frame_corrupt;
   vita2d_texture *present_texture = frame_texture;
 
-  if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
+  if (stale_hold_active) {
+    /* GH #262: staleness gate is the FIRST arm of this chain, ahead of the freeze-on-
+     * corrupt logic below -- independent mechanism, deliberately never touches
+     * frozen_frame_streak (see the constants block above for why the two caps don't
+     * compete). Keep drawing last_good_texture every call the hold is active so the
+     * poor-net overlay animation stays live too -- only the underlying picture is
+     * frozen. NOT promoted -- last_good_texture must stay fixed at the frame it held
+     * on engage until release, that's the "freeze" half of freeze-then-jump. */
+    present_texture = last_good_texture;
+  } else if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
     frozen_frame_streak++;
     context.stream.freeze_engaged_count++;
     if (frozen_frame_streak == 1)
@@ -1359,6 +1486,7 @@ static void *decode_thread_func(void *user) {
     size_t frame_size = decode_queue[popped_idx].size;
     bool corrupt = decode_queue[popped_idx].frame_corrupt;
     uint64_t frame_first_packet_ms = decode_queue[popped_idx].frame_first_packet_ms;
+    uint32_t staleness_ms = decode_queue[popped_idx].staleness_ms;
     /* Latency investigation (item 2): depth does NOT change here — head is deliberately
      * held back until decode completes (see comment above) — so there is nothing to
      * record at this point. The depth transition this slot's occupancy contributed
@@ -1370,7 +1498,7 @@ static void *decode_thread_func(void *user) {
     /* Decode the frame. The slot buffer is exclusively ours until we advance
      * decode_q_head below — the producer will block or drop-oldest on the
      * preceding slots rather than overwriting this one. */
-    decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms);
+    decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms, staleness_ms);
 
     /* Release the slot now that decode is done. Signal any blocked producer. */
     chiaki_mutex_lock(&decode_q_mtx);
@@ -1398,7 +1526,15 @@ void vita_h264_start() {
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
   incoming_frame_decode_done_us = 0;
+  incoming_frame_staleness_ms = 0;
   frozen_frame_streak = 0;
+  /* GH #262: stale-hold state must reset with every other per-stream video counter above --
+   * a hold left engaged (or a stale peak/frame-count left over) from a PRIOR stream would
+   * misreport this stream's very first PIPE/STALE_HOLD line. */
+  stale_hold_active = false;
+  stale_hold_frames = 0;
+  stale_hold_start_us = 0;
+  stale_hold_peak_ms = 0;
   /* GH #245 code review round 2: no render call is in flight at session start --
    * matches the same "reset to the idle value" treatment as frame_ready_for_display
    * above. See the declaration comment for the cross-thread invariant this flag
@@ -1439,6 +1575,7 @@ void vita_h264_start() {
     decode_queue[i].size = 0;
     decode_queue[i].frame_corrupt = false;
     decode_queue[i].frame_first_packet_ms = 0;
+    decode_queue[i].staleness_ms = 0;
     if (decode_queue[i].data == NULL) {
       LOGE("VIDEO: failed to allocate decode slot %d — decode thread disabled", i);
       for (int j = 0; j < i; j++) {
@@ -1487,6 +1624,7 @@ void vita_h264_stop() {
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
   incoming_frame_decode_done_us = 0;
+  incoming_frame_staleness_ms = 0;
   frozen_frame_streak = 0;
 
   /* --- Decode thread shutdown (GH #188) ---
