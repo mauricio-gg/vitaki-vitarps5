@@ -102,6 +102,17 @@ typedef struct chiaki_stream_connection_t
 	 */
 	bool transport_failed;
 	/**
+	 * True only while this run()'s takion is connected and its send path
+	 * usable -- i.e. from the moment state moves to STATE_EXPECT_BANG (big
+	 * sent, takion connect confirmed) until close_takion or a mid-stream
+	 * transport failure. Protected by state_mutex. Exists so
+	 * chiaki_stream_connection_request_idr() -- called from the video
+	 * receiver thread and from vita UI-thread callers -- can refuse to touch
+	 * takion's send path while it is mid-teardown for a restart, instead of
+	 * racing chiaki_takion_close().
+	 */
+	bool takion_active;
+	/**
 	 * Bounded DISCONNECT-ack tracking, protected by state_mutex like the
 	 * other fields above. disconnect_seq_num is the send-buffer sequence
 	 * number of the most recently sent DISCONNECT message; disconnect_ack_pending

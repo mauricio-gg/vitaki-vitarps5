@@ -56,6 +56,10 @@ void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_
 void host_request_decoder_resync(const char *reason) {
   if (!context.stream.session_init)
     return;
+  if (context.stream.fast_restart_active) {
+    LOGD("Decoder resync skipped (%s): restart in progress", reason ? reason : "unspecified");
+    return;
+  }
   ChiakiStreamConnection *stream_connection = &context.stream.session.stream_connection;
   ChiakiErrorCode err = chiaki_stream_connection_request_idr(stream_connection);
   if (err == CHIAKI_ERR_SUCCESS) {
