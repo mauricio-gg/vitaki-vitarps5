@@ -34,6 +34,12 @@ void host_event_cb(ChiakiEvent *event, void *user) {
       // this fresh session.
       context.stream.rp_in_use_retry_pending = false;
       context.stream.rp_in_use_retry_used = false;
+      // GH #258: a stale anchor from before this connect (e.g. a suspend that
+      // happened while a previous stream was tearing down) must not survive
+      // into the fresh session -- fixes the same latent stale-anchor issue
+      // as the CHIAKI_EVENT_STREAM_RESTARTING handler below, for the
+      // vita-initiated restart path.
+      context.stream.suspend_tick_last_us = 0;
       context.stream.restart_handshake_failures = 0;
       context.stream.last_restart_handshake_fail_us = 0;
       context.stream.restart_cooloff_until_us = 0;
@@ -60,6 +66,39 @@ void host_event_cb(ChiakiEvent *event, void *user) {
       break;
     case CHIAKI_EVENT_QUIT:
       host_handle_quit_event(event);
+      break;
+    case CHIAKI_EVENT_STREAM_RESTARTING:
+      // GH #261: the lib self-requests a soft restart when Takion's transport dies mid-
+      // stream on its own (console never disconnected us). That restart's bang-wait can
+      // take seconds with zero prior visibility -- this event is the only signal we get
+      // before it either completes or the ladder exhausts. Runs on the session thread
+      // (same as host_handle_quit_event); must not call chiaki_session_* here, only touch
+      // vita-side state -- mirrors request_stream_restart()'s state set (host_recovery.c).
+      LOGD("EventCB CHIAKI_EVENT_STREAM_RESTARTING");
+      if (context.stream.stop_requested)
+        break;
+      context.stream.fast_restart_active = true;
+      context.stream.is_streaming = false;  // lets the reconnect screen draw, ui.c:611-616
+      context.stream.reconnect_overlay_active = true;
+      context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+      context.stream.inputs_ready = true;
+      context.stream.inputs_resume_pending = true;
+      // Arm the hard-fallback escalation (host_quit.c's existing-but-dead retry path,
+      // capped at LOSS_RETRY_MAX_ATTEMPTS): if this soft restart also fails to complete,
+      // CHIAKI_EVENT_QUIT sees a nonzero loss_retry_bitrate_kbps and schedules a full
+      // session teardown + fresh reconnect instead of leaving the freeze silent forever.
+      // Deliberately the SAME bitrate, not a lowered one -- session.c's
+      // transport_only_failure comment documents a lowered restart bitrate wedging
+      // consoles into repeated "Remote Play crashed" refusals on hardware.
+      if (context.stream.session_init) {
+        context.stream.loss_retry_bitrate_kbps =
+            context.stream.session.connect_info.video_profile.bitrate;
+      }
+      // Metrics stop ticking the instant is_streaming flips above; a stale anchor left
+      // over from before this restart would otherwise fire a spurious #258 detection the
+      // moment streaming resumes.
+      context.stream.suspend_tick_last_us = 0;
+      context.stream.suspend_resync_shots_left = 0;
       break;
   }
 }

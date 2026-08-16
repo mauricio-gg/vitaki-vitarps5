@@ -38,16 +38,18 @@
 // streamconnection.c's mid-stream transport-failure path) without the console ever
 // indicating a disconnect. Bounds the restart loop so a genuinely dead link still
 // falls through to a full teardown (CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED)
-// instead of retrying forever. 3 matches this codebase's existing "three strikes"
-// convention for consecutive-failure thresholds (see CASCADE_SKIP_THRESHOLD in
-// lib/src/videoreceiver.c) and keeps the worst case bounded: each failed attempt
-// burns ~2s exhausting Takion's own ENOBUFS retry budget (hardware-observed: 401
-// attempts / 2098ms) plus up to EXPECT_TIMEOUT_MS if the reconnect handshake itself
-// times out, so 3 attempts cap the flap-recovery window at roughly 20s -- enough to
-// ride out a brief Wi-Fi hiccup without leaving the user staring at a frozen stream
-// indefinitely. Reset policy: see transport_failure_restart_count's doc comment in
-// session.h.
-#define CHIAKI_TRANSPORT_FAILURE_RESTART_MAX 3
+// instead of retrying forever. Lowered from 3 to 2 (GH #261): the #261 bang-wait
+// forensics found the console never sending bang back is a HELD-SESSION failure mode,
+// not a transient one -- rung 2 repeats rung 1 byte-for-byte against the same still-held
+// console session, so it buys negligible extra recovery odds for a real ~2s ENOBUFS
+// budget plus up to EXPECT_TIMEOUT_MS handshake wait per attempt. 2 attempts cap the
+// flap-recovery window at roughly 14s (was ~20s at 3) while item 1's hard-fallback
+// escalation (host_quit.c, now reachable) picks up exactly where this ladder gives up,
+// so a genuinely dead link still gets a full teardown + fresh reconnect rather than
+// silence -- see this function's transport_only_failure branch. Still enough to ride out
+// a brief Wi-Fi hiccup without leaving the user staring at a frozen stream indefinitely.
+// Reset policy: see transport_failure_restart_count's doc comment in session.h.
+#define CHIAKI_TRANSPORT_FAILURE_RESTART_MAX 2
 
 static void *session_thread_func(void *arg);
 static void regist_cb(ChiakiRegistEvent *event, void *user);
@@ -777,6 +779,15 @@ ctrl_failed:
 		err = chiaki_stream_connection_run(&session->stream_connection, data_sock);
 		chiaki_mutex_lock(&session->state_mutex);
 
+		/* Set alongside stream_restart_requested in the self-trigger block below, ONLY for
+		 * the transport-only-failure case (this thread arming its own restart, as opposed
+		 * to an external caller like host_recovery.c's loss-driven path having already set
+		 * stream_restart_requested before we got here). Drives the CHIAKI_EVENT_STREAM_RESTARTING
+		 * emission further down: vita-initiated restarts already have their own overlay path
+		 * and must not double-fire it. Re-declared false each loop iteration -- a stale true
+		 * from a previous iteration must never leak into this one's restart_requested check. */
+		bool self_restart_armed = false;
+
 		/* A restart request must not paper over a concurrent PS5-initiated teardown that
 		 * arrived in this same window: chiaki_stream_connection_run()'s own per-run reset
 		 * would then wipe remote_disconnect_reason on the "restarted" attempt and the
@@ -858,6 +869,7 @@ ctrl_failed:
 			{
 				session->transport_failure_restart_count++;
 				session->stream_restart_requested = true;
+				self_restart_armed = true;
 				// Leave stream_restart_profile_valid false: a transport failure says nothing
 				// about the console's ability to sustain the current bitrate (unlike a
 				// loss-driven restart), so the existing video profile carries over
@@ -934,6 +946,15 @@ ctrl_failed:
 				break;
 			}
 			chiaki_mutex_unlock(&session->state_mutex);
+			// Self-requested restarts only -- must not hold state_mutex while calling into
+			// the event_cb (see chiaki_session_send_event()'s other call sites for the same
+			// convention). Vita-initiated restarts already have their own overlay path.
+			if(self_restart_armed)
+			{
+				ChiakiEvent restart_event = { 0 };
+				restart_event.type = CHIAKI_EVENT_STREAM_RESTARTING;
+				chiaki_session_send_event(session, &restart_event);
+			}
 			chiaki_ecdh_fini(&session->ecdh);
 			chiaki_mutex_lock(&session->state_mutex);
 			CHIAKI_LOGI(session->log, "StreamConnection restart requested; attempting reconnect with bitrate %u kbps",

@@ -22,6 +22,32 @@
 #define LATENCY_PERCENTILE_P50 50
 #define LATENCY_PERCENTILE_P95 95
 
+/* GH #258: PS-button suspend/resume detection and recovery scheduling. A gap this large
+ * between consecutive UI-loop ticks cannot happen while actually streaming (normal cadence
+ * is 1-33ms). Lowered from 1s to 500ms per log 99798574648_vitarps5-testing.log forensics
+ * (GH #261 investigation): the original 1s threshold missed the user's real PS-button taps,
+ * which measured ~850-980ms -- under the old threshold entirely. 500ms still clears the
+ * 1-33ms normal tick cadence by >15x, so false positives from an ordinary frame stall remain
+ * as unlikely as before. */
+#define SUSPEND_GAP_THRESHOLD_US 500000ULL
+/* First scheduled resync fires quickly in case the console's resume burst hasn't yet
+ * stepped on the decoder's reference chain. */
+#define SUSPEND_RESYNC_FIRST_DELAY_US 250000ULL
+/* Second shot lands after the observed ~0.9s drain of the resume burst, bracketing the
+ * window where the first shot's IDR reply is likely to die in the keystream-desync burst
+ * (see GH #258 hardware evidence: both IDR replies #1 and #2 died there). */
+#define SUSPEND_RESYNC_FOLLOWUP_DELAY_US 1250000ULL
+/* Two shots bracket the drain window observed on hardware; a single shot risks landing
+ * inside the same failure window as the resume burst. */
+#define SUSPEND_RESYNC_SHOTS 2
+
+/* GH #261: PIPE/FPS republished the last measured incoming/display fps forever, even
+ * across a multi-second blackout (e.g. the bang-wait stall #261 investigates) where no
+ * new frame had actually arrived or been drawn -- which misled that very investigation
+ * into reading a healthy fps during an actual freeze. 2s comfortably exceeds one full
+ * PIPE/FPS log interval (1s) so a normal window boundary never falsely reads stale. */
+#define FPS_PUBLISH_STALE_US (2 * 1000 * 1000ULL)
+
 /* Insertion sort for the bounded (<= LATENCY_WINDOW_SAMPLE_CAP) per-window latency sample
  * array. O(n^2) worst case is trivial at this size (<=64 elements) and this runs once per
  * ~1s window on the UI thread -- not a hot path -- so a tiny in-place sort is simpler than
@@ -80,11 +106,19 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_rtt_ms = 0;
   context.stream.last_rtt_refresh_us = 0;
   context.stream.metrics_last_update_us = 0;
+  // GH #258: always clear the suspend-detection anchor, even when preserve_recovery_state
+  // is set (fast restart) -- a stale anchor surviving a fast restart would read as a bogus
+  // multi-second gap on the next tick and fire a spurious resync.
+  context.stream.suspend_tick_last_us = 0;
+  context.stream.suspend_resync_next_us = 0;
+  context.stream.suspend_resync_shots_left = 0;
+  context.stream.suspend_fps_guard = false;
   context.stream.retry_holdoff_ms = 0;
   context.stream.retry_holdoff_until_us = 0;
   context.stream.retry_holdoff_active = false;
   context.stream.video_first_frame_logged = false;
   context.stream.measured_incoming_fps = 0;
+  context.stream.incoming_frame_last_us = 0;
   context.stream.fps_under_target_windows = 0;
   context.stream.post_reconnect_low_fps_windows = 0;
   context.stream.post_reconnect_window_until_us = 0;
@@ -171,6 +205,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.display_fps = 0;
   context.stream.display_frame_count = 0;
   context.stream.display_fps_window_start_us = 0;
+  context.stream.display_frame_last_us = 0;
 
   // Stuck bitrate detection (streak resets always; once-per-session flag
   // survives fast restarts so we don't re-trigger after our own restart)
@@ -340,6 +375,41 @@ void host_metrics_update_latency(void) {
   float bitrate_mbps = bitrate_bps > 0 ? ((float)bitrate_bps / 1000000.0f) : 0.0f;
   uint64_t now_us = sceKernelGetProcessTimeWide();
 
+  // GH #258: detect a PS-button suspend/resume via a UI-loop clock jump and schedule an
+  // immediate decoder resync instead of waiting for loss-detection heuristics to stumble
+  // onto one 1-3.5s late. The anchor below is rewritten every tick regardless of outcome,
+  // so exactly one detection fires per actual suspend -- self-throttling by construction,
+  // no separate cooldown state needed.
+  if (context.stream.suspend_tick_last_us != 0) {
+    uint64_t suspend_gap_us = now_us - context.stream.suspend_tick_last_us;
+    if (suspend_gap_us > SUSPEND_GAP_THRESHOLD_US) {
+      LOGD("Suspend/resume detected — UI loop gap %llu ms",
+           (unsigned long long)(suspend_gap_us / 1000ULL));
+      context.stream.suspend_resync_next_us = now_us + SUSPEND_RESYNC_FIRST_DELAY_US;
+      context.stream.suspend_resync_shots_left = SUSPEND_RESYNC_SHOTS;
+      context.stream.suspend_fps_guard = true;
+      context.stream.last_rtt_refresh_us = now_us;
+      vitavideo_show_poor_net_indicator();
+    }
+  }
+  context.stream.suspend_tick_last_us = now_us;
+
+  // Fire scheduled post-resume resyncs one at a time. Checked here (fire time), not at
+  // detection time, so a stop or fast-restart that starts mid-schedule cancels the
+  // remaining shots cleanly instead of racing decoder teardown.
+  if (context.stream.suspend_resync_shots_left > 0 &&
+      now_us >= context.stream.suspend_resync_next_us) {
+    if (context.stream.stop_requested || context.stream.fast_restart_active) {
+      context.stream.suspend_resync_shots_left = 0;
+    } else {
+      host_request_decoder_resync("resume from suspend");
+      context.stream.suspend_resync_shots_left--;
+      if (context.stream.suspend_resync_shots_left > 0) {
+        context.stream.suspend_resync_next_us = now_us + SUSPEND_RESYNC_FOLLOWUP_DELAY_US;
+      }
+    }
+  }
+
   context.stream.measured_bitrate_mbps = bitrate_mbps;
 
   // D4: Windowed bitrate — 3-element ring buffer, time-based rate (not fps/frames).
@@ -419,6 +489,11 @@ void host_metrics_update_latency(void) {
   uint32_t incoming_fps = context.stream.measured_incoming_fps;
   bool low_fps_window =
       effective_target_fps > 0 && incoming_fps > 0 && incoming_fps + 5 < effective_target_fps;
+  // GH #258: mask the first post-resume window -- the collapsed fps during the resume
+  // burst/decoder-resync drain is expected, not a real health signal, and must not bump
+  // fps_under_target_windows or feed the recovery tiers below.
+  if (context.stream.suspend_fps_guard)
+    low_fps_window = false;
   bool av_diag_progressed =
       av_diag_missing_ref_count > context.stream.av_diag.logged_missing_ref_count ||
       av_diag_corrupt_burst_count > context.stream.av_diag.logged_corrupt_burst_count ||
@@ -466,6 +541,9 @@ void host_metrics_update_latency(void) {
         context.stream.post_reconnect_low_fps_windows++;
       }
     }
+    // GH #258: the guard only needs to suppress the first post-resume 1s window; clear it
+    // once that window has closed so subsequent windows are evaluated normally.
+    context.stream.suspend_fps_guard = false;
 
     // DEAD-CODE: this call always returns immediately at the callee's entry
     // guard clause -- post_reconnect_window_until_us is never set to a
@@ -678,13 +756,27 @@ void host_metrics_update_latency(void) {
         context.stream.display_swap_p50_us, context.stream.display_swap_p95_us,
         context.stream.display_sample_n, context.stream.display_dropped_n,
         context.stream.display_paced_n);
+    // GH #261: publish-time-only staleness substitution -- print 0 in place of the fps
+    // figures (and flag it via stale=) when no real frame sample has landed recently,
+    // rather than silently repeating the last window's numbers into a blackout. Local
+    // to this print: measured_incoming_fps/display_fps themselves are left untouched,
+    // since low_fps_window health accounting above already consumed the real values for
+    // this window (retroactively zeroing them here would be a lie either way -- the loss
+    // detection already ran against what was actually measured).
+    bool incoming_fps_stale = context.stream.incoming_frame_last_us == 0 ||
+                              now_us - context.stream.incoming_frame_last_us > FPS_PUBLISH_STALE_US;
+    bool display_fps_stale = context.stream.display_frame_last_us == 0 ||
+                             now_us - context.stream.display_frame_last_us > FPS_PUBLISH_STALE_US;
+    uint32_t publish_incoming_fps = incoming_fps_stale ? 0 : incoming_fps;
+    uint32_t publish_display_fps = display_fps_stale ? 0 : context.stream.display_fps;
+    uint32_t fps_stale = (incoming_fps_stale ? 1u : 0u) | (display_fps_stale ? 2u : 0u);
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
         "post_reconnect_low=%u post_window_remaining_ms=%llu decode_avg_ms=%.1f decode_max_ms=%.1f "
         "windowed_mbps=%.2f overwrites=%u freeze=%u rssi=%d display_fps=%u stuck_streak=%u "
-        "stuck_used=%d cascade_streak=%u cascade_used=%d decode_q_drops=%u",
-        context.stream.session_generation, context.stream.reconnect_generation, incoming_fps,
-        effective_target_fps, context.stream.fps_under_target_windows,
+        "stuck_used=%d cascade_streak=%u cascade_used=%d decode_q_drops=%u stale=%u",
+        context.stream.session_generation, context.stream.reconnect_generation,
+        publish_incoming_fps, effective_target_fps, context.stream.fps_under_target_windows,
         context.stream.post_reconnect_low_fps_windows,
         context.stream.post_reconnect_window_until_us &&
                 now_us < context.stream.post_reconnect_window_until_us
@@ -693,10 +785,10 @@ void host_metrics_update_latency(void) {
             : 0ULL,
         context.stream.decode_avg_us / 1000.0f, context.stream.decode_max_us / 1000.0f,
         context.stream.windowed_bitrate_mbps, context.stream.frame_overwrite_count,
-        context.stream.freeze_engaged_count, context.stream.wifi_rssi, context.stream.display_fps,
+        context.stream.freeze_engaged_count, context.stream.wifi_rssi, publish_display_fps,
         context.stream.stuck_bitrate_low_fps_streak, (int)context.stream.stuck_bitrate_restart_used,
         context.stream.cascade_alarm_streak, (int)context.stream.cascade_alarm_restart_used,
-        vita_video_decode_queue_drops());
+        vita_video_decode_queue_drops(), fps_stale);
     context.stream.latency_log_last_us = now_us;
   }
 

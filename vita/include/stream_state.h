@@ -48,6 +48,8 @@ typedef struct vita_chiaki_stream_t {
   uint32_t negotiated_fps;                 // max_fps requested from the console
   uint32_t target_fps;                     // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;          // latest measured incoming fps window
+  uint64_t incoming_frame_last_us;         // GH #261: process-time stamp of the last incoming
+                                           // frame sample, for PIPE/FPS staleness detection
   uint32_t session_generation;    // increments for each successfully initialized stream session
   uint32_t reconnect_generation;  // non-zero when this session is a reconnect/re-entry
   bool reset_reconnect_gen;       // next session should start as fresh (gen 0)
@@ -77,7 +79,12 @@ typedef struct vita_chiaki_stream_t {
   uint32_t measured_rtt_ms;                // Last measured round-trip time (ms)
   uint64_t last_rtt_refresh_us;            // Timestamp of latest latency refresh
   uint64_t metrics_last_update_us;         // Timestamp for latest metrics sample
-  uint64_t next_stream_allowed_us;         // Cooldown gate after quit
+  uint64_t suspend_tick_last_us;           // GH #258: previous UI-loop tick timestamp; a gap beyond
+                                           // SUSPEND_GAP_THRESHOLD_US means the app was suspended
+  uint64_t suspend_resync_next_us;  // GH #258: deadline for the next scheduled post-resume resync
+  uint32_t suspend_resync_shots_left;    // GH #258: remaining scheduled post-resume resync attempts
+  bool suspend_fps_guard;                // GH #258: suppresses the first post-resume low-fps window
+  uint64_t next_stream_allowed_us;       // Cooldown gate after quit
   bool post_stop_guard;                  // True only for the cooldown window following a deliberate
                                          // user stop; suppresses the "Streaming stopped" banner
                                          // since the console card already shows its own
@@ -216,6 +223,8 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t display_fps;         // Frames actually rendered to screen per second
   uint32_t display_frame_count;          // UI-thread-only counter within current window
   uint64_t display_fps_window_start_us;  // UI-thread-only window start timestamp
+  uint64_t display_frame_last_us;        // GH #261: process-time stamp of the last displayed
+                                         // frame, for PIPE/FPS staleness detection
 
   // --- Stuck bitrate detection ---
   bool stuck_bitrate_restart_used;        // Only allow one stuck-bitrate restart per session
