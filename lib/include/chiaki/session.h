@@ -169,6 +169,17 @@ typedef enum {
 	CHIAKI_EVENT_RUMBLE,
 	CHIAKI_EVENT_QUIT,
 	CHIAKI_EVENT_TRIGGER_EFFECTS,
+	/**
+	 * Dataless. Emitted only for a self-requested soft restart (a mid-stream
+	 * transport failure the lib is recovering from on its own -- see
+	 * transport_only_failure in session.c) so a UI layer can surface visible
+	 * feedback (e.g. a "Reconnecting..." overlay) for the multi-second window
+	 * while the restart's bang-wait ladder runs. Vita-initiated restarts
+	 * (host_recovery.c's loss-driven path) already have their own overlay
+	 * path and do not emit this. Appended at the end of the enum to preserve
+	 * ABI ordering of the existing values.
+	 */
+	CHIAKI_EVENT_STREAM_RESTARTING,
 } ChiakiEventType;
 
 typedef struct chiaki_event_t
