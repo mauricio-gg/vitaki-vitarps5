@@ -497,6 +497,10 @@ static void record_incoming_frame_sample(void) {
   if (context.stream.fps_window_start_us == 0)
     context.stream.fps_window_start_us = now_us;
 
+  // GH #261: PIPE/FPS staleness detection needs process time (see the CLOCK DOMAIN note
+  // below for why now_us above -- system time -- cannot be reused here).
+  context.stream.incoming_frame_last_us = sceKernelGetProcessTimeWide();
+
   context.stream.fps_window_frame_count++;
   if (now_us - context.stream.fps_window_start_us >= 1000000) {
     context.stream.measured_incoming_fps = context.stream.fps_window_frame_count;
@@ -1266,6 +1270,9 @@ bool vita_video_render_latest_frame(void) {
     if (context.stream.display_fps_window_start_us == 0)
       context.stream.display_fps_window_start_us = now_us;
     context.stream.display_frame_count++;
+    // GH #261: PIPE/FPS staleness detection. now_us above is already process time
+    // (sceKernelGetProcessTimeWide()), reused directly -- no extra clock read needed.
+    context.stream.display_frame_last_us = now_us;
     if (now_us - context.stream.display_fps_window_start_us >= 1000000) {
       context.stream.display_fps = context.stream.display_frame_count;
       context.stream.display_frame_count = 0;
