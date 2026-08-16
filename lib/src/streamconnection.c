@@ -107,6 +107,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->should_stop = false;
 	stream_connection->remote_disconnected = false;
 	stream_connection->transport_failed = false;
+	stream_connection->takion_active = false;
 	stream_connection->disconnect_seq_num = 0;
 	stream_connection->disconnect_ack_pending = false;
 	stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
@@ -277,6 +278,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	 * moving the reset here. */
 	stream_connection->remote_disconnected = false;
 	stream_connection->transport_failed = false;
+	stream_connection->takion_active = false;
 	stream_connection->disconnect_seq_num = 0;
 	stream_connection->disconnect_ack_pending = false;
 	stream_connection->disconnect_delivery = CHIAKI_STREAM_CONNECTION_DISCONNECT_NOT_SENT;
@@ -294,6 +296,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	}
 
 #ifdef VITARPS5_ENHANCED_RECOVERY
+	// DEAD-CODE: VITARPS5_ENHANCED_RECOVERY is never defined. See
+	// chiaki/takion.h:229 for the full explanation.
 	/* Wire the typed back-pointer so takion_data_drop() can safely call
 	 * chiaki_stream_connection_report_drop() without casting the generic
 	 * cb_user slot. Only StreamConnection sets this; Senkusha's Takion
@@ -322,6 +326,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	stream_connection->state = STATE_EXPECT_BANG;
 	stream_connection->state_finished = false;
 	stream_connection->state_failed = false;
+	// Takion is connected and its send path usable from here on -- see
+	// takion_active's doc comment in streamconnection.h.
+	stream_connection->takion_active = true;
 	err = stream_connection_send_big(stream_connection);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
@@ -469,6 +476,8 @@ err_congestion_control:
 	chiaki_congestion_control_stop(&stream_connection->congestion_control);
 
 close_takion:
+	// Send path is about to be torn down -- request_idr must stop touching it.
+	stream_connection->takion_active = false;
 	chiaki_mutex_unlock(&stream_connection->state_mutex);
 
 	chiaki_takion_close(&stream_connection->takion);
@@ -545,6 +554,7 @@ static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 				// the session freezes.
 				CHIAKI_LOGE(stream_connection->log, "StreamConnection: Takion transport disconnected mid-stream");
 				stream_connection->transport_failed = true;
+				stream_connection->takion_active = false;
 				if(!stream_connection->remote_disconnect_reason)
 					stream_connection->remote_disconnect_reason = strdup("Transport disconnected");
 				chiaki_cond_signal(&stream_connection->state_cond);
@@ -1290,6 +1300,23 @@ static ChiakiErrorCode stream_connection_send_heartbeat(ChiakiStreamConnection *
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_request_idr(ChiakiStreamConnection *stream_connection)
 {
+	// Liveness guard (GH #261 hardening): this is called from the video receiver
+	// thread (missing-ref recovery) and from vita UI-thread callers, any of which
+	// can race a restart's takion teardown (close_takion clears takion_active
+	// before unlocking, see streamconnection.h's doc comment). Without this check
+	// a request can land on a takion instance that's already being torn down or
+	// was never brought up for this run. Mirrors the locking precedent in
+	// stream_connection_send_disconnect() (state_mutex held across the send).
+	ChiakiErrorCode lock_err = chiaki_mutex_lock(&stream_connection->state_mutex);
+	if(lock_err != CHIAKI_ERR_SUCCESS)
+		return lock_err;
+	if(!stream_connection->takion_active || stream_connection->should_stop
+			|| stream_connection->transport_failed || stream_connection->remote_disconnected)
+	{
+		chiaki_mutex_unlock(&stream_connection->state_mutex);
+		return CHIAKI_ERR_UNINITIALIZED;
+	}
+
 	tkproto_TakionMessage msg = { 0 };
 	msg.type = tkproto_TakionMessage_PayloadType_IDRREQUEST;
 
@@ -1299,10 +1326,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_request_idr(ChiakiStreamC
 	if(!pbr)
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection IDR request protobuf encoding failed");
+		chiaki_mutex_unlock(&stream_connection->state_mutex);
 		return CHIAKI_ERR_UNKNOWN;
 	}
 
-	return chiaki_takion_send_message_data(&stream_connection->takion, 1, 1, buf, stream.bytes_written, NULL);
+	ChiakiErrorCode err = chiaki_takion_send_message_data(&stream_connection->takion, 1, 1, buf, stream.bytes_written, NULL);
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return err;
 }
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end)

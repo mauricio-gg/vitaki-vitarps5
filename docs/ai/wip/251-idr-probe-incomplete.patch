@@ -1,0 +1,288 @@
+diff --git a/lib/include/chiaki/videoreceiver.h b/lib/include/chiaki/videoreceiver.h
+index 86b3d041..951c09d2 100644
+--- a/lib/include/chiaki/videoreceiver.h
++++ b/lib/include/chiaki/videoreceiver.h
+@@ -129,6 +129,22 @@ typedef struct chiaki_video_receiver_t
+ 	uint32_t frame_bytes_count;
+ 	uint32_t frame_bytes_min;            // 0 = no sample yet this window
+ 	uint32_t frame_bytes_max;
++
++	// --- IDR round-trip probe (Task 1, diagnostic follow-up to D5 / GH #251) ---
++	// Same threading contract as D2/D5 above: written only from the Takion recv
++	// thread (video_receiver_maybe_request_idr() and the flush_frame() I-slice /
++	// FEC-failure sites are all reached only from chiaki_video_receiver_av_packet(),
++	// itself only ever called from the recv thread), read only by the 1s window
++	// emit in chiaki_video_receiver_flush_frame(). No render/UI thread touches
++	// them, so no locking is needed. No new chiaki_time_now_monotonic_*() calls
++	// were added to the per-packet OR per-frame path: the I-slice age sample
++	// reuses flush_start_ms, already read once per flush_frame() call.
++	uint32_t window_islice_count;              // I-slices (solicited or not) seen this window
++	uint32_t window_idr_requests_issued;       // IDR requests actually sent (not cooldown-suppressed) this window
++	uint32_t window_fec_failed_keyframe_sized; // FEC-FAILED frames whose units_source_expected met/exceeded idr_units_threshold this window
++	uint64_t idr_units_total;                  // window accumulator: sum of units_source_expected over SUCCESSFULLY flushed frames only (mirrors frame_bytes_total's success-only sampling)
++	uint32_t idr_units_count;                  // window accumulator: count of samples in idr_units_total
++	uint32_t idr_units_threshold;              // "keyframe-sized" cut = PREVIOUS window's mean units_source_expected, clamped
+ } ChiakiVideoReceiver;
+ 
+ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);
+diff --git a/lib/src/videoreceiver.c b/lib/src/videoreceiver.c
+index a71c8a01..88cbe6f6 100644
+--- a/lib/src/videoreceiver.c
++++ b/lib/src/videoreceiver.c
+@@ -256,6 +256,7 @@ static void video_receiver_maybe_request_idr(ChiakiVideoReceiver *video_receiver
+ 			video_receiver->idr_request_pending = true;
+ 			video_receiver->idr_request_start_ms = now_ms;
+ 			video_receiver->last_idr_request_ms = now_ms;
++			video_receiver->window_idr_requests_issued++; // Task 1b: per-window IDR-request counter
+ 			CHIAKI_LOGI(video_receiver->log, "Requesting IDR (%s)",
+ 				reason ? reason : "unknown");
+ 			CHIAKI_LOGD(video_receiver->log, "PIPE/SEND_CHAIN_BLOCKED ms=%llu",
+@@ -344,6 +345,18 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
+ 	video_receiver->frame_bytes_count = 0;
+ 	video_receiver->frame_bytes_min = 0;
+ 	video_receiver->frame_bytes_max = 0;
++	video_receiver->window_islice_count = 0;
++	video_receiver->window_idr_requests_issued = 0;
++	video_receiver->window_fec_failed_keyframe_sized = 0;
++	video_receiver->idr_units_total = 0;
++	video_receiver->idr_units_count = 0;
++	// Bootstrap at the minimum: unlike sizegap_threshold_bytes, there is no
++	// negotiated-profile field to derive an initial units-per-frame estimate
++	// from, so the mean self-populates from real samples starting with the
++	// first window (see the reset block in flush_frame()). This means the
++	// very first ~1s window can over-flag FEC failures as "keyframe-sized";
++	// acceptable since the probe is diagnostic, not decision-making.
++	video_receiver->idr_units_threshold = VIDEO_IDR_UNITS_THRESHOLD_MIN_UNITS;
+ 	{
+ 		// Bootstrap threshold from the negotiated profile; every subsequent
+ 		// window replaces it with the previous window's measured mean.
+@@ -695,6 +708,36 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 
+ 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
+ 		{
++			// Task 1c (GH #251 IDR round-trip probe): classify whether this
++			// FEC-failed frame was "keyframe-sized" using the frame's expected
++			// SOURCE unit count. units_source_expected was set by
++			// chiaki_frame_processor_alloc_frame() at this frame's boundary (in
++			// chiaki_video_receiver_av_packet()) and is not overwritten until the
++			// NEXT frame's alloc_frame() call -- which only happens on a future
++			// av_packet(), not before this flush() returns -- so reading it here
++			// never reads uninitialized memory; worst case (a malformed packet
++			// that fails alloc_frame()'s own guard) it reads the PREVIOUS frame's
++			// value rather than this one, which is an acceptable amount of noise
++			// in a diagnostic counter. A failed frame has no usable byte size, but
++			// this field is valid regardless of assembly outcome. Compared against
++			// idr_units_threshold (the window's mean units_source_expected, scaled
++			// by VIDEO_IDR_KEYFRAME_UNITS_MULT -- see that constant) across
++			// SUCCESSFULLY flushed frames (see the frame_bytes_* sibling sampling
++			// below in the succ block, and the window-reset block at the end of
++			// this function -- mirrors sizegap_threshold_bytes's adaptive pattern,
++			// just over units instead of bytes and with an added margin multiplier).
++			//
++			// How to read the resulting PIPE/IDR fec_fail_kf counter: >0
++			// keyframe-sized FEC failures in a ~1s window means the PS5 likely DID
++			// answer our IDR request, but the reply itself died in the same loss
++			// burst that triggered the request (possibility A: request a smaller,
++			// hardier retransmit path). fec_fail_kf == 0 across these windows means
++			// no keyframe-sized FEC failures occurred, consistent with the PS5
++			// simply being slow to produce/send the keyframe at all (possibility B:
++			// the round trip itself needs shortening, not the delivery reliability).
++			if(video_receiver->frame_processor.units_source_expected >= video_receiver->idr_units_threshold)
++				video_receiver->window_fec_failed_keyframe_sized++;
++
+ 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
+ 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
+ 			// Reuse flush_start_ms (captured at function entry) instead of a fresh
+@@ -733,6 +776,22 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 		{
+ 			video_receiver->consecutive_missing_ref = 0;
+ 			video_receiver->cascade_reset_attempts = 0;
++
++			// Task 1a (GH #251 IDR round-trip probe): log EVERY I-slice arrival,
++			// not just the "recovery complete" case below -- today only that
++			// branch logs, so a naturally-occurring (unsolicited) keyframe is
++			// invisible and can't be told apart from one we requested. Reuses
++			// flush_start_ms (captured at function entry) rather than a fresh
++			// clock read, per the no-new-clock-reads rule (see the comment on
++			// ChiakiTakion::video_jitter_stats, chiaki/takion.h).
++			uint64_t idr_pending_age_ms = (video_receiver->idr_request_pending
++				&& flush_start_ms >= video_receiver->idr_request_start_ms)
++				? flush_start_ms - video_receiver->idr_request_start_ms : 0;
++			CHIAKI_LOGD(video_receiver->log, "PIPE/ISLICE frame=%d pending=%d age_ms=%llu",
++				(int)video_receiver->frame_index_cur,
++				video_receiver->idr_request_pending ? 1 : 0,
++				(unsigned long long)idr_pending_age_ms);
++			video_receiver->window_islice_count++;
+ 		}
+ 
+ 		if(video_receiver->idr_request_pending)
+@@ -749,27 +808,78 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 				video_receiver_maybe_request_idr(video_receiver, chiaki_time_now_monotonic_ms(), "pending_non_i");
+ 			}
+ 		}
+-		// P-frames fall through to the existing reference-recovery logic below.
+-		// Missing refs -> try alternate reference (recovered=true) or mark succ=false.
+-		// Either way the pipeline advances. Brief visual artifacts, not a blackout.
++		// P-frames fall through to the reference-recovery logic below. On a
++		// missing-reference P-frame, we either rewrite it onto a newer available
++		// reference (recovered=true, via chiaki_bitstream_slice_set_reference_frame()
++		// -- see its DEAD-CODE comment: unreachable on this H.264-only build) or,
++		// if no candidate rewrite succeeds, set succ=false. succ=false skips the
++		// video_sample_cb() call below entirely (see `if(succ && ...)`), so the
++		// frame is silently DROPPED, not delivered with artifacts -- the decoder
++		// holds the last successfully displayed frame, which is exactly the
++		// freeze this GH #251 investigation is chasing, not a brief glitch.
+ 
+ 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_P)
+ 		{
+ 			ChiakiSeqNum16 ref_frame_index = video_receiver->frame_index_cur - slice.reference_frame - 1;
+ 			if(slice.reference_frame != 0xff && !have_ref_frame(video_receiver, ref_frame_index))
+ 			{
++				// Task 3a: distinguish "no candidate reference frame was ever
++				// available" (cand=0) from "a candidate existed but the rewrite
++				// refused it" (cand=1) -- these were previously indistinguishable
++				// from the log alone, which is why it took a code read rather than
++				// a log to find that the rewrite is unreachable on H.264 (see
++				// chiaki_bitstream_slice_set_reference_frame()'s DEAD-CODE comment).
++				bool candidate_found = false;
+ 				for(unsigned i = slice.reference_frame + 1; i < RECEIVER_REF_SLOTS; i++)
+ 				{
+ 					ChiakiSeqNum16 ref_frame_index_new = video_receiver->frame_index_cur - i - 1;
+ 					if(have_ref_frame(video_receiver, ref_frame_index_new))
+ 					{
++						candidate_found = true;
++						// DEAD-CODE on this build (H.264-only Vita): chiaki_bitstream_slice_set_reference_frame()
++						// unconditionally returns false for CHIAKI_CODEC_H264 (lib/src/bitstream.c) -- see that
++						// function's DEAD-CODE comment for the full citation chain. `recovered` below is never
++						// set true here in practice on this build; kept correct for a hypothetical H.265 build.
+ 						if(chiaki_bitstream_slice_set_reference_frame(&video_receiver->bitstream, frame, frame_size, i))
+ 						{
+ 							recovered = true;
+ 							video_receiver->consecutive_missing_ref = 0;
+ 							CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d -> changed to %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur, (int)ref_frame_index_new);
++							break;
+ 						}
+-						break;
++						// Task 3b: rewrite failed for this candidate -- keep scanning
++						// later slots instead of aborting the whole search. The old
++						// `break` sat here (outside this inner if), so one rewrite
++						// failure gave up even when later slots held usable reference
++						// frames. This is technically a behaviour change but is
++						// outcome-neutral both TODAY (H.264: the rewrite always
++						// returns false, see chiaki_bitstream_slice_set_reference_frame())
++						// and on any FUTURE H.265 build: slice_set_reference_frame_h265()
++						// (lib/src/bitstream.c) re-parses this same frame's data fresh on
++						// every call and only returns true when the `i` argument matches
++						// one of `num_negative_pics` indices, a count read once near the
++						// top of the RBSP and unaffected by anything the function does
++						// afterward. Since this loop only ever calls it with a
++						// MONOTONICALLY INCREASING `i`, once one `i` fails -- whether
++						// because `i >= num_negative_pics` or because of an earlier
++						// frame-level parse failure independent of `i` entirely -- every
++						// larger `i` in this same loop fails for the identical reason.
++						// So continuing here buys zero recovery benefit on H.265 either,
++						// not just on this H.264-only build; `recovered` ends up false
++						// regardless of how the loop is structured. Real costs of
++						// continuing on a future H.265 build: (a) up to
++						// RECEIVER_REF_SLOTS-1 (7) extra CHIAKI_LOGW calls instead of 1
++						// on a single failing frame, which matters given this codebase's
++						// log ring is known to silently evict under load; (b)
++						// slice_set_reference_frame_h265() mutates the frame buffer in
++						// place (clears/sets used_by_curr_pic_s0_flag bits) on every
++						// call including failed ones, so each retry redundantly repeats
++						// that mutation (idempotent in final state, but not free). Kept
++						// anyway because the top-level task explicitly requested an
++						// exhaustive-search read of this loop; the extra
++						// have_ref_frame() scanning itself (an 8-element int32_t array)
++						// is negligible -- the log volume and buffer-mutation costs
++						// above are the only things that would matter on H.265.
+ 					}
+ 				}
+ 				if(!recovered)
+@@ -778,9 +888,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+ 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
+ 					video_receiver->consecutive_missing_ref++;
+-					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
++					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u cand=%d)",
+ 						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
+-						video_receiver->consecutive_missing_ref);
++						video_receiver->consecutive_missing_ref, candidate_found ? 1 : 0);
+ 					/* Request IDR immediately; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms) prevents
+ 					 * flooding. Cascade skip fires at consecutive_missing_ref >= CASCADE_SKIP_THRESHOLD
+ 					 * as a backstop if the PS5 is slow to respond. */
+@@ -855,6 +965,15 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 				video_receiver->frame_bytes_min = bytes;
+ 			if(bytes > video_receiver->frame_bytes_max)
+ 				video_receiver->frame_bytes_max = bytes;
++
++			// Task 1b/1c: sample this SUCCESSFULLY flushed frame's expected
++			// source-unit count too, feeding idr_units_threshold's adaptive mean
++			// (see the FEC_FAILED classification above). Success-only sampling
++			// mirrors frame_bytes_total's own success-only population, so a
++			// FEC-failed keyframe's own huge unit count never pollutes the
++			// baseline it's being measured against.
++			video_receiver->idr_units_total += (uint64_t)video_receiver->frame_processor.units_source_expected;
++			video_receiver->idr_units_count++;
+ 		}
+ 	}
+ 
+@@ -920,6 +1039,18 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 				video_receiver->frame_bytes_min, frame_bytes_avg, video_receiver->frame_bytes_max);
+ 		}
+ 
++		{
++			// PIPE/IDR: IDR round-trip probe (Task 1, GH #251 follow-up to D5).
++			// See the classification comment on the FEC_FAILED branch above for
++			// how to read fec_fail_kf against islice/req.
++			CHIAKI_LOGD(video_receiver->log,
++				"PIPE/IDR islice=%u req=%u fec_fail_kf=%u thr_units=%u",
++				video_receiver->window_islice_count,
++				video_receiver->window_idr_requests_issued,
++				video_receiver->window_fec_failed_keyframe_sized,
++				video_receiver->idr_units_threshold);
++		}
++
+ 		// Cadence max alarm: detect PS5 encoder throttling
+ 		if (video_receiver->cadence_max_ms > 80) {
+ 			video_receiver->cadence_max_alarm_streak++;
+@@ -940,6 +1071,9 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 		video_receiver->stage_window_drops = 0;
+ 		video_receiver->old_frame_rejects_window = 0;
+ 		video_receiver->cascade_skip_count = 0;
++		video_receiver->window_islice_count = 0;
++		video_receiver->window_idr_requests_issued = 0;
++		video_receiver->window_fec_failed_keyframe_sized = 0;
+ 		video_receiver->cadence_min_ms = 0;
+ 		video_receiver->cadence_max_ms = 0;
+ 		video_receiver->cadence_total_ms = 0;
+@@ -970,6 +1104,29 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
+ 		}
+ 		video_receiver->frame_bytes_total = 0;
+ 		video_receiver->frame_bytes_count = 0;
++
++		if(video_receiver->idr_units_count > 0)
++		{
++			// Task 1c (code review fix, 2026-08-12): the "keyframe-sized" cut is the
++			// window's mean units_source_expected, scaled by VIDEO_IDR_KEYFRAME_UNITS_MULT
++			// -- see that constant's comment for why the plain mean was too weak a cut.
++			// The mean may include an occasional successfully-flushed I-slice sample
++			// (sampling doesn't distinguish slice type), which biases it slightly
++			// upward -- a safe direction, since it makes the resulting cut marginally
++			// more conservative, not less.
++			uint32_t mean_units = (uint32_t)(video_receiver->idr_units_total / video_receiver->idr_units_count);
++			uint32_t kf_units = (mean_units > VIDEO_IDR_UNITS_THRESHOLD_MAX_UNITS / VIDEO_IDR_KEYFRAME_UNITS_MULT)
++				? VIDEO_IDR_UNITS_THRESHOLD_MAX_UNITS  // avoid uint32_t overflow when the mean is already large
++				: mean_units * VIDEO_IDR_KEYFRAME_UNITS_MULT;
++			if(kf_units < VIDEO_IDR_UNITS_THRESHOLD_MIN_UNITS)
++				kf_units = VIDEO_IDR_UNITS_THRESHOLD_MIN_UNITS;
++			if(kf_units > VIDEO_IDR_UNITS_THRESHOLD_MAX_UNITS)
++				kf_units = VIDEO_IDR_UNITS_THRESHOLD_MAX_UNITS;
++			video_receiver->idr_units_threshold = kf_units;
++		}
++		video_receiver->idr_units_total = 0;
++		video_receiver->idr_units_count = 0;
++
+ 		video_receiver->sizegap_small_gap_total_ms = 0;
+ 		video_receiver->sizegap_large_gap_total_ms = 0;
+ 		video_receiver->sizegap_small_count = 0;

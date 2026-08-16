@@ -54,6 +54,67 @@ static inline uint32_t chiaki_seq16_span(ChiakiSeqNum16 start, ChiakiSeqNum16 en
 	return ((end_u16 - start_u16) & 0xFFFFU) + 1U;
 }
 
+// Forward distance in 16-bit sequence space: how many frame indices advanced
+// from `prev` to `cur`. Wrap-safe (65535 -> 2 yields 3). Returns 0 when
+// cur == prev. chiaki/seqnum.h exposes only _lt()/_gt() -- no distance helper
+// -- so this is derived from chiaki_seq16_span()'s inclusive span, which is
+// already unit-tested for wrap and full-range behaviour. There is no distinct
+// "backwards" case: unsigned wraparound arithmetic only knows "the long way
+// around", so a `cur` that is RFC-1982-behind `prev` yields a large delta
+// close to 65536 rather than a negative one. This codebase's only caller
+// (chiaki_video_receiver_av_packet()) already gates on chiaki_seq_num_16_gt()
+// before reaching here, so that case is unreached in practice.
+static inline uint32_t chiaki_seq16_forward_delta(ChiakiSeqNum16 prev, ChiakiSeqNum16 cur)
+{
+	if(prev == cur)
+		return 0U;
+	return chiaki_seq16_span(prev, cur) - 1U;
+}
+
+// --- D5: console->Vita video delivery-pattern probe (GH #251) --------------
+// Inter-frame gap histogram edges, ms, upper-exclusive. Deliberately ABSOLUTE
+// rather than fps-scaled: the behaviours under test (console-side byte pacing,
+// Wi-Fi batching, client radio power-save) live in wall-clock time, not frame
+// time. Tuned around the 33ms/30fps nominal so the two modes hardware log
+// 86770605157 shows (cadence_min clustered 19-23ms in 83/92 windows,
+// cadence_max clustered 53-61ms in 88/92) each get their OWN bucket instead of
+// being smeared into the nominal bucket -- min/max/avg over ~31 samples cannot
+// tell "one outlier per second" from "a repeating bimodal pattern", which is
+// the single blind spot this histogram exists to close. Note bucket 4
+// ([40,52)) is the discriminator: a pacer/frame-clock quantises INTO bucket 5
+// and leaves 4 nearly empty; a congested link smears continuously through 4.
+// At 60fps the 16.7ms nominal lands in bucket 1 -- read nom_ms= on the
+// PIPE/DELIVERY_INIT line before interpreting.
+//
+// Both videoreceiver_gap.c (the bucketing function below) and videoreceiver.c
+// (the one-time PIPE/DELIVERY_INIT log line) need these edges, so they live
+// here rather than in videoreceiver.c, to avoid duplicating the values.
+#define VIDEO_GAP_HIST_EDGE_0_MS    10U  // [0,10)    burst / catch-up release
+#define VIDEO_GAP_HIST_EDGE_1_MS    20U  // [10,20)   sub-half-period
+#define VIDEO_GAP_HIST_EDGE_2_MS    28U  // [20,28)   observed "early" mode
+#define VIDEO_GAP_HIST_EDGE_3_MS    40U  // [28,40)   nominal 30fps period (33.3)
+#define VIDEO_GAP_HIST_EDGE_4_MS    52U  // [40,52)   DISCRIMINATOR band
+#define VIDEO_GAP_HIST_EDGE_5_MS    70U  // [52,70)   observed "late" mode
+#define VIDEO_GAP_HIST_EDGE_6_MS   100U  // [70,100)  ~3 frame periods
+#define VIDEO_GAP_HIST_EDGE_7_MS   300U  // [100,300) stall
+                                         // [300,inf) hard stall (top bucket)
+// Number of edges above; the top (catch-all) bucket is index
+// VIDEO_GAP_HIST_EDGE_COUNT itself, so the bucketing function returns
+// [0, VIDEO_GAP_HIST_EDGE_COUNT] inclusive -- VIDEO_GAP_HIST_EDGE_COUNT + 1
+// values, which must equal CHIAKI_VIDEO_GAP_HIST_BUCKETS
+// (chiaki/videoreceiver.h) since that constant sizes gap_hist[]. Kept as a
+// literal count here rather than including the public header (heavy: pulls in
+// video.h/takion.h/frameprocessor.h/bitstream.h) into this lightweight
+// internal header -- mirrors the existing CHIAKI_VIDEO_RECEIVER_REF_SLOTS /
+// RECEIVER_REF_SLOTS aliasing pattern's reliance on the two staying in sync
+// by convention rather than by a shared symbol.
+#define VIDEO_GAP_HIST_EDGE_COUNT 8U
+
+// Buckets gap_ms into [0, VIDEO_GAP_HIST_EDGE_COUNT] using the edges above
+// (upper-exclusive; the last bucket catches everything >= EDGE_7). Pure
+// function of its argument, unit-tested in test/packet_path_tests.c.
+CHIAKI_EXPORT uint32_t chiaki_video_gap_hist_bucket(uint64_t gap_ms);
+
 typedef enum chiaki_video_corrupt_report_disposition_t
 {
 	// 0 is the safest default for an accidentally-zero-initialized/uninitialized

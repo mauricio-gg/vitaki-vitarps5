@@ -50,6 +50,49 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 #define IDR_REQUEST_TIMEOUT_MS 1000
 #define CASCADE_SKIP_THRESHOLD 3
 
+// --- D5: console->Vita video delivery-pattern probe (GH #251) --------------
+// Inter-frame gap histogram edges and chiaki_video_gap_hist_bucket() live in
+// videoreceiver_gap.h/.c (needed there for the pure, unit-testable bucketing
+// function, and shared with the PIPE/DELIVERY_INIT log line below) -- see the
+// rationale comment beside VIDEO_GAP_HIST_EDGE_0_MS there for why the buckets
+// are shaped the way they are around hardware log 86770605157's bimodal
+// cadence_min/cadence_max clustering.
+
+// Gaps above this are stalls / reconnect arcs, not delivery pacing. They still
+// land in the top histogram bucket (so they stay visible) but are excluded
+// from the drift series and the size-correlation sums. This is also what
+// bounds every per-window ms accumulator.
+#define VIDEO_GAP_SANITY_MAX_MS 10000U
+
+// Forward frame-index delta above this means a stall/resync, not frame loss.
+// 300 frames is 10s at 30fps -- beyond any plausible in-stream burst.
+#define VIDEO_DRIFT_MAX_FRAME_DELTA 300U
+#define VIDEO_DRIFT_FPS_MIN         15U
+#define VIDEO_DRIFT_FPS_MAX        120U
+#define VIDEO_DRIFT_FPS_FALLBACK    30U
+#define VIDEO_DRIFT_US_PER_SEC 1000000LL
+#define VIDEO_DRIFT_US_PER_MS     1000LL
+#define VIDEO_DRIFT_MS_PER_SEC    1000U
+
+// Size/gap correlation. The "large frame" cut is ADAPTIVE: each window uses
+// the previous window's mean completed-frame size, so it tracks the console's
+// runtime adaptive bitrate rather than a fixed guess that goes stale the
+// moment the PS5 ratchets down. Bootstrapped in _init() from the negotiated
+// profile: video_profile.bitrate is kbps, so
+// bytes/frame = kbps * 1000 / 8 / fps = kbps * 125 / fps.
+#define VIDEO_SIZEGAP_KBPS_TO_BYTES_PER_S    125U
+#define VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES   2048U
+#define VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES 262144U
+
+// Keyframe-size classifier for FEC-failed frames (GH #251 discriminator).
+// A frame whose expected source-unit count exceeds KF_UNITS_MULT x the running
+// mean is presumed to be an IDR that died in the loss burst. Heuristic,
+// diagnostic-only; thresholds bound the EWMA so startup noise can't classify.
+#define VIDEO_IDR_KEYFRAME_UNITS_MULT 3
+#define VIDEO_IDR_UNITS_EWMA_MIN 2
+#define VIDEO_IDR_UNITS_EWMA_SHIFT 3 // EWMA alpha = 1/8
+#define VIDEO_IDR_UNITS_EWMA_SCALE (1U << VIDEO_IDR_UNITS_EWMA_SHIFT)
+
 static void add_ref_frame(ChiakiVideoReceiver *video_receiver, int32_t frame)
 {
 	if(video_receiver->reference_frames[0] != -1)
@@ -87,6 +130,15 @@ static uint32_t saturating_add_u32(uint32_t lhs, uint32_t rhs)
 	if(lhs > UINT32_MAX - rhs)
 		return UINT32_MAX;
 	return lhs + rhs;
+}
+
+// max_fps comes from the negotiated profile (chiaki/session.h:54) and is 0 on
+// some malformed/PS4 handshakes. Clamp rather than divide by it blindly.
+static uint32_t video_receiver_clamp_fps(unsigned int max_fps)
+{
+	if(max_fps < VIDEO_DRIFT_FPS_MIN || max_fps > VIDEO_DRIFT_FPS_MAX)
+		return VIDEO_DRIFT_FPS_FALLBACK;
+	return (uint32_t)max_fps;
 }
 
 // Classifies and, if warranted, emits a corrupt-frame report for [start, end].
@@ -263,6 +315,10 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->stage_submit_total_ms = 0;
 	video_receiver->stage_window_frames = 0;
 	video_receiver->stage_window_drops = 0;
+	video_receiver->fec_fail_kf_count = 0;
+	video_receiver->drift_submit_streak = 0;
+	video_receiver->drift_submit_window_count = 0;
+	video_receiver->units_expected_ewma_x8 = 0;
 	video_receiver->idr_request_pending = false;
 	video_receiver->idr_request_start_ms = 0;
 	video_receiver->old_frame_rejects_window = 0;
@@ -276,12 +332,58 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->cadence_total_ms = 0;
 	video_receiver->cadence_count = 0;
 	video_receiver->cadence_max_alarm_streak = 0;
+
+	// D5: diagnostic instrumentation (GH #251). See field comments in
+	// chiaki/videoreceiver.h for the D5-A/B/C grouping.
+	memset(video_receiver->gap_hist, 0, sizeof(video_receiver->gap_hist));
+	video_receiver->drift_stream_start_ms = 0;
+	video_receiver->drift_cum_frames = 0;
+	video_receiver->drift_prev_arrival_ms = 0;
+	video_receiver->drift_last_scaled = 0;
+	video_receiver->drift_win_base_scaled = 0;
+	video_receiver->drift_win_min_scaled = 0;
+	video_receiver->drift_win_max_scaled = 0;
+	video_receiver->drift_fps = video_receiver_clamp_fps(video_receiver->session->connect_info.video_profile.max_fps);
+	video_receiver->drift_skipped_frames = 0;
+	video_receiver->drift_resync_count = 0;
+	video_receiver->drift_prev_frame_index = 0;
+	video_receiver->drift_has_prev = false;
+	video_receiver->sizegap_small_gap_total_ms = 0;
+	video_receiver->sizegap_large_gap_total_ms = 0;
+	video_receiver->frame_bytes_total = 0;
+	video_receiver->sizegap_small_count = 0;
+	video_receiver->sizegap_large_count = 0;
+	video_receiver->prev_completed_frame_bytes = 0;
+	video_receiver->frame_bytes_count = 0;
+	video_receiver->frame_bytes_min = 0;
+	video_receiver->frame_bytes_max = 0;
+	{
+		// Bootstrap threshold from the negotiated profile; every subsequent
+		// window replaces it with the previous window's measured mean.
+		uint32_t boot = (uint32_t)(((uint64_t)video_receiver->session->connect_info.video_profile.bitrate
+			* VIDEO_SIZEGAP_KBPS_TO_BYTES_PER_S) / video_receiver->drift_fps);
+		if(boot < VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES)
+			boot = VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES;
+		if(boot > VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES)
+			boot = VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES;
+		video_receiver->sizegap_threshold_bytes = boot;
+	}
+
 	CHIAKI_LOGI(video_receiver->log,
 		"Video gap profile: stable_default (hold_ms=%u force_span=%u cooldown_ms=%u growth_bypass=%u)",
 		VIDEO_GAP_REPORT_HOLD_MS,
 		VIDEO_GAP_REPORT_FORCE_SPAN,
 		VIDEO_CORRUPT_REPORT_COOLDOWN_MS,
 		VIDEO_CORRUPT_REPORT_GROWTH_BYPASS_SPAN);
+	CHIAKI_LOGI(video_receiver->log,
+		"PIPE/DELIVERY_INIT fps=%u nom_ms=%u thr0=%u edges=%u,%u,%u,%u,%u,%u,%u,%u",
+		video_receiver->drift_fps,
+		VIDEO_DRIFT_MS_PER_SEC / video_receiver->drift_fps,
+		video_receiver->sizegap_threshold_bytes,
+		VIDEO_GAP_HIST_EDGE_0_MS, VIDEO_GAP_HIST_EDGE_1_MS,
+		VIDEO_GAP_HIST_EDGE_2_MS, VIDEO_GAP_HIST_EDGE_3_MS,
+		VIDEO_GAP_HIST_EDGE_4_MS, VIDEO_GAP_HIST_EDGE_5_MS,
+		VIDEO_GAP_HIST_EDGE_6_MS, VIDEO_GAP_HIST_EDGE_7_MS);
 }
 
 CHIAKI_EXPORT void chiaki_video_receiver_fini(ChiakiVideoReceiver *video_receiver)
@@ -339,6 +441,9 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			return;
 		}
 		video_receiver->profile_cur = packet->adaptive_stream_index;
+		// A resolution change invalidates the old frame-size mean -- start the
+		// keyframe-size classifier's EWMA over from the new profile's frames.
+		video_receiver->units_expected_ewma_x8 = 0;
 
 		ChiakiVideoProfile *profile = video_receiver->profiles + video_receiver->profile_cur;
 		CHIAKI_LOGI(video_receiver->log, "Switched to profile %d, resolution: %ux%u", video_receiver->profile_cur, profile->width, profile->height);
@@ -346,6 +451,12 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 			video_receiver->session->video_sample_cb(profile->header, profile->header_sz, 0, false, video_receiver->session->video_sample_cb_user);
 		if(!chiaki_bitstream_header(&video_receiver->bitstream, profile->header, profile->header_sz))
 			CHIAKI_LOGE(video_receiver->log, "Failed to parse video header");
+		else if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264 && video_receiver->bitstream.h264.sps.valid_ext)
+			CHIAKI_LOGI(video_receiver->log, "SPS: max_num_ref_frames=%u gaps_in_frame_num_allowed=%u",
+				video_receiver->bitstream.h264.sps.max_num_ref_frames,
+				video_receiver->bitstream.h264.sps.gaps_in_frame_num_value_allowed_flag);
+		else if(video_receiver->bitstream.codec == CHIAKI_CODEC_H264)
+			CHIAKI_LOGW(video_receiver->log, "SPS: extended fields not parsed (drift-submit will stay disabled)");
 	}
 
 	// next frame?
@@ -422,6 +533,92 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 				video_receiver->cadence_max_ms = gap_ms;
 			video_receiver->cadence_total_ms += gap_ms;
 			video_receiver->cadence_count++;
+
+			// D5-A: bucket the gap so the window shows the DISTRIBUTION, not
+			// just its endpoints. Over-sanity gaps still land in the top
+			// bucket -- they are the thing we most want to see.
+			video_receiver->gap_hist[chiaki_video_gap_hist_bucket(gap_ms)]++;
+
+			// D5-C: attribute this gap to the PREVIOUS frame's encoded size.
+			// prev_completed_frame_bytes was set by that frame's successful
+			// flush and is zeroed here on consumption, so a dropped/FEC-failed
+			// frame in between leaves 0 and is correctly skipped rather than
+			// re-using a stale size.
+			if(video_receiver->prev_completed_frame_bytes > 0U
+				&& gap_ms <= (uint64_t)VIDEO_GAP_SANITY_MAX_MS)
+			{
+				if(video_receiver->prev_completed_frame_bytes >= video_receiver->sizegap_threshold_bytes)
+				{
+					video_receiver->sizegap_large_gap_total_ms += gap_ms;
+					video_receiver->sizegap_large_count++;
+				}
+				else
+				{
+					video_receiver->sizegap_small_gap_total_ms += gap_ms;
+					video_receiver->sizegap_small_count++;
+				}
+			}
+			video_receiver->prev_completed_frame_bytes = 0U;
+		}
+
+		// D5-B: cumulative expected-vs-actual arrival drift. Deliberately
+		// OUTSIDE the D2 if() above -- drift needs its own baseline on the
+		// very first frame, when prev_frame_first_packet_ms is still 0 and
+		// the D2 block above does not run.
+		//   drift = (arrival - stream_start) - (cum_frame_delta * frame_period)
+		// held scaled by fps (see the field comments in chiaki/videoreceiver.h)
+		// so this path does no division. Accumulating the FULL frame-index
+		// delta is what keeps a lost frame from manufacturing fake drift; lost
+		// frames are counted separately in drift_skipped_frames.
+		{
+			uint64_t arrival_ms = video_receiver->cur_frame_first_packet_ms;
+			bool rebase = !video_receiver->drift_has_prev;
+			if(!rebase)
+			{
+				uint32_t delta = chiaki_seq16_forward_delta(
+					(ChiakiSeqNum16)video_receiver->drift_prev_frame_index, frame_index);
+				// Backwards / duplicate deltas can't reach here (the caller
+				// already required _gt above) but delta==0 is floored to a
+				// rebase rather than silently accumulated.
+				if(delta == 0U || delta > VIDEO_DRIFT_MAX_FRAME_DELTA
+					|| arrival_ms < video_receiver->drift_stream_start_ms
+					|| arrival_ms < video_receiver->drift_prev_arrival_ms
+					|| arrival_ms - video_receiver->drift_prev_arrival_ms > (uint64_t)VIDEO_GAP_SANITY_MAX_MS)
+				{
+					rebase = true;
+					video_receiver->drift_resync_count++;
+				}
+				else
+				{
+					video_receiver->drift_cum_frames += (uint64_t)delta;
+					if(delta > 1U)
+						video_receiver->drift_skipped_frames += delta - 1U;
+					int64_t elapsed_us = (int64_t)((arrival_ms - video_receiver->drift_stream_start_ms)
+						* (uint64_t)VIDEO_DRIFT_US_PER_MS);
+					video_receiver->drift_last_scaled =
+						elapsed_us * (int64_t)video_receiver->drift_fps
+						- (int64_t)video_receiver->drift_cum_frames * VIDEO_DRIFT_US_PER_SEC;
+					if(video_receiver->drift_last_scaled < video_receiver->drift_win_min_scaled)
+						video_receiver->drift_win_min_scaled = video_receiver->drift_last_scaled;
+					if(video_receiver->drift_last_scaled > video_receiver->drift_win_max_scaled)
+						video_receiver->drift_win_max_scaled = video_receiver->drift_last_scaled;
+				}
+			}
+			if(rebase)
+			{
+				// A multi-second hole is a stall, not drift. Re-base so the
+				// series measures delivery pacing again; rsy= tells the
+				// reader that absolute drift restarted here.
+				video_receiver->drift_stream_start_ms = arrival_ms;
+				video_receiver->drift_cum_frames = 0;
+				video_receiver->drift_last_scaled = 0;
+				video_receiver->drift_win_base_scaled = 0;
+				video_receiver->drift_win_min_scaled = 0;
+				video_receiver->drift_win_max_scaled = 0;
+			}
+			video_receiver->drift_prev_frame_index = (uint16_t)frame_index;
+			video_receiver->drift_prev_arrival_ms = arrival_ms;
+			video_receiver->drift_has_prev = true;
 		}
 		video_receiver->prev_frame_first_packet_ms = video_receiver->cur_frame_first_packet_ms;
 
@@ -511,15 +708,21 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		video_receiver->stage_window_drops++;
 
-		// Request IDR only for hard FEC failures to avoid over-driving keyframe requests.
 		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
 		{
+			// Request IDR only for hard FEC failures to avoid over-driving keyframe requests.
 			uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 			video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "fec_failed");
-		}
 
-		if(flush_result == CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED)
-		{
+			uint32_t ewma_units = video_receiver->units_expected_ewma_x8 / VIDEO_IDR_UNITS_EWMA_SCALE;
+			uint32_t fail_units = video_receiver->frame_processor.units_source_expected;
+			if(ewma_units >= VIDEO_IDR_UNITS_EWMA_MIN && fail_units >= ewma_units * VIDEO_IDR_KEYFRAME_UNITS_MULT)
+			{
+				video_receiver->fec_fail_kf_count++;
+				CHIAKI_LOGW(video_receiver->log, "PIPE/FEC_FAIL_KF frame=%d units=%u ewma=%u",
+					(int)video_receiver->frame_index_cur, fail_units, ewma_units);
+			}
+
 			chiaki_stream_connection_report_fec_fail(&video_receiver->session->stream_connection);
 			ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 			// Reuse flush_start_ms (captured at function entry) instead of a fresh
@@ -550,14 +753,30 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 
 	bool succ = flush_result != CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FEC_FAILED;
 	bool recovered = false;
+	// Set within the drift-submit arm below; read in the callback-success block
+	// (search "drift_submit_streak = 0") to decide whether this frame continues
+	// or ends the current drift-submit episode (M1: the episode-end reset must
+	// not depend on an I-slice arriving -- add_ref_frame() below is the common,
+	// no-I-slice way an episode actually heals).
+	bool drift_submitted_this_frame = false;
 
 	ChiakiBitstreamSlice slice;
-	if(chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice))
+	bool slice_parsed = chiaki_bitstream_slice(&video_receiver->bitstream, frame, frame_size, &slice);
+	if(slice_parsed)
 	{
 		if(slice.slice_type == CHIAKI_BITSTREAM_SLICE_I)
 		{
 			video_receiver->consecutive_missing_ref = 0;
+			video_receiver->drift_submit_streak = 0;
 			video_receiver->cascade_reset_attempts = 0;
+
+			uint64_t islice_now_ms = chiaki_time_now_monotonic_ms();
+			uint64_t idr_age_ms = (video_receiver->idr_request_pending && islice_now_ms >= video_receiver->idr_request_start_ms)
+				? islice_now_ms - video_receiver->idr_request_start_ms : 0;
+			CHIAKI_LOGI(video_receiver->log, "PIPE/ISLICE frame=%d pending=%d age_ms=%llu",
+				(int)video_receiver->frame_index_cur,
+				video_receiver->idr_request_pending ? 1 : 0,
+				(unsigned long long)idr_age_ms);
 		}
 
 		if(video_receiver->idr_request_pending)
@@ -599,18 +818,45 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					succ = false;
-					video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+					bool drift_submit = video_receiver->session->connect_info.submit_on_missing_ref
+						&& chiaki_bitstream_h264_drift_safe(&video_receiver->bitstream);
 					chiaki_stream_connection_report_missing_ref(&video_receiver->session->stream_connection);
-					video_receiver->consecutive_missing_ref++;
-					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
-						(int)ref_frame_index, (int)video_receiver->frame_index_cur,
-						video_receiver->consecutive_missing_ref);
-					/* Request IDR immediately; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms) prevents
-					 * flooding. Cascade skip fires at consecutive_missing_ref >= CASCADE_SKIP_THRESHOLD
-					 * as a backstop if the PS5 is slow to respond. */
+					/* Request IDR immediately in both modes; cooldown (IDR_REQUEST_COOLDOWN_MS=100ms)
+					 * prevents flooding. Under drift-submit the IDR is the cleanup pass that
+					 * erases accumulated drift; without it, it is the only way motion resumes. */
 					uint64_t idr_now_ms = chiaki_time_now_monotonic_ms();
 					video_receiver_maybe_request_idr(video_receiver, idr_now_ms, "missing_ref");
+					if(drift_submit)
+					{
+						/* Submit the intact frame. The lost reference was never submitted, so
+						 * the decoder DPB's newest entry is the last good frame; the default
+						 * (unmodified) reference list resolves to it. Wrong reference ->
+						 * bounded drift, refreshed by the pending IDR. Do NOT count this frame
+						 * lost and do NOT bump the cascade counter: on callback success the
+						 * frame becomes a legitimate reference (add_ref_frame below). */
+						drift_submitted_this_frame = true;
+						video_receiver->drift_submit_streak++;
+						video_receiver->drift_submit_window_count++;
+						/* Log only the first frame of a drift-submit episode: an IDR round
+						 * trip can hold this branch for 0.8-1.5s, and logging every frame
+						 * (~24-45 lines/episode) risks evicting the pre-burst context the
+						 * log ring needs for the hardware A/B (the ring silently drops the
+						 * OLDEST lines under load). The streak resets on the next I-slice. */
+						if(video_receiver->drift_submit_streak == 1)
+						{
+							CHIAKI_LOGW(video_receiver->log, "PIPE/DRIFT_SUBMIT frame=%d missing_ref=%d (suppressing repeats until I-slice)",
+								(int)video_receiver->frame_index_cur, (int)ref_frame_index);
+						}
+					}
+					else
+					{
+						succ = false;
+						video_receiver->frames_lost = saturating_add_u32(video_receiver->frames_lost, 1U);
+						video_receiver->consecutive_missing_ref++;
+						CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d (cascade=%u)",
+							(int)ref_frame_index, (int)video_receiver->frame_index_cur,
+							video_receiver->consecutive_missing_ref);
+					}
 				}
 			}
 		}
@@ -631,6 +877,13 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		{
 			add_ref_frame(video_receiver, video_receiver->frame_index_cur);
 			video_receiver->consecutive_missing_ref = 0;
+			// M1: a drift-submit episode usually ends here -- the chain heals via
+			// this add_ref_frame() call, with no I-slice in sight. The I-slice
+			// branch above (search "drift_submit_streak = 0") is the other, rarer
+			// reset path. Without this one, streak stays >=1 forever after the
+			// first episode and PIPE/DRIFT_SUBMIT never logs again.
+			if(!drift_submitted_this_frame)
+				video_receiver->drift_submit_streak = 0;
 			CHIAKI_LOGV(video_receiver->log, "Added reference %c frame %d", slice.slice_type == CHIAKI_BITSTREAM_SLICE_I ? 'I' : 'P', (int)video_receiver->frame_index_cur);
 		}
 		if(submit_end_ms >= submit_start_ms)
@@ -642,6 +895,24 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	video_receiver->cur_frame_seen_last_unit = false;
 
 	if(succ) {
+		// M3: only P-frames feed the keyframe-size classifier's EWMA. I-frames are
+		// 3-10x larger and would inflate the running mean right after every IDR,
+		// which is exactly when the classifier (PIPE/FEC_FAIL_KF, above) needs an
+		// accurate baseline the most. slice_parsed guards against reading `slice`
+		// when chiaki_bitstream_slice() above failed to parse it.
+		if(slice_parsed && slice.slice_type == CHIAKI_BITSTREAM_SLICE_P)
+		{
+			uint32_t units = video_receiver->frame_processor.units_source_expected;
+			if(units > 0)
+			{
+				if(video_receiver->units_expected_ewma_x8 == 0)
+					video_receiver->units_expected_ewma_x8 = units * VIDEO_IDR_UNITS_EWMA_SCALE;
+				else
+					video_receiver->units_expected_ewma_x8 +=
+						((int32_t)(units * VIDEO_IDR_UNITS_EWMA_SCALE) - (int32_t)video_receiver->units_expected_ewma_x8) >> VIDEO_IDR_UNITS_EWMA_SHIFT;
+			}
+		}
+
 		// The fec_failed report above (search "fec_failed") is keyed on a start
 		// value of frame_index_prev_complete+1, which stays pinned for as long
 		// as no frame completes -- so a cooldown-deferred tail from repeated
@@ -664,6 +935,23 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->frame_index_prev_complete = video_receiver->frame_index_cur;
 		video_receiver->stage_window_frames++;
 		video_receiver->stage_assemble_total_ms += assemble_ms;
+
+		// D5-C: remember this frame's encoded size so the NEXT frame boundary
+		// can attribute its arrival gap to it. Only successful frames are
+		// recorded -- a dropped frame (cascade-skip or flush-failure, both of
+		// which return earlier in this function) leaves
+		// prev_completed_frame_bytes at whatever the previous boundary
+		// consumed it to (0), which the boundary sample correctly skips.
+		{
+			uint32_t bytes = frame_size > (size_t)UINT32_MAX ? UINT32_MAX : (uint32_t)frame_size;
+			video_receiver->prev_completed_frame_bytes = bytes;
+			video_receiver->frame_bytes_total += (uint64_t)bytes;
+			video_receiver->frame_bytes_count++;
+			if(video_receiver->frame_bytes_min == 0U || bytes < video_receiver->frame_bytes_min)
+				video_receiver->frame_bytes_min = bytes;
+			if(bytes > video_receiver->frame_bytes_max)
+				video_receiver->frame_bytes_max = bytes;
+		}
 	}
 
 	uint64_t now_ms = chiaki_time_now_monotonic_ms();
@@ -677,7 +965,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		uint64_t cadence_avg_ms = video_receiver->cadence_count > 0 ?
 			video_receiver->cadence_total_ms / video_receiver->cadence_count : 0;
 		CHIAKI_LOGD(video_receiver->log,
-			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu",
+			"PIPE/STAGE frames=%u drops=%u skips=%u old_rejects=%u avg_assemble_ms=%llu avg_submit_ms=%llu cadence_min=%llu cadence_max=%llu cadence_avg=%llu fec_fail_kf=%u drift=%u",
 			frames,
 			video_receiver->stage_window_drops,
 			video_receiver->cascade_skip_count,
@@ -686,7 +974,49 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			(unsigned long long)avg_submit_ms,
 			(unsigned long long)video_receiver->cadence_min_ms,
 			(unsigned long long)video_receiver->cadence_max_ms,
-			(unsigned long long)cadence_avg_ms);
+			(unsigned long long)cadence_avg_ms,
+			video_receiver->fec_fail_kf_count,
+			video_receiver->drift_submit_window_count);
+
+		{
+			// D5: emit the delivery-pattern probe. drift_div converts a
+			// fps-scaled us drift sample into ms (see the field comments in
+			// chiaki/videoreceiver.h) -- drift_fps is clamped to
+			// [VIDEO_DRIFT_FPS_MIN, VIDEO_DRIFT_FPS_MAX] in _init(), so this
+			// can never divide by zero.
+			int64_t drift_div = (int64_t)video_receiver->drift_fps * VIDEO_DRIFT_US_PER_MS;
+			int32_t drift_min_ms = (int32_t)((video_receiver->drift_win_min_scaled
+				- video_receiver->drift_win_base_scaled) / drift_div);
+			int32_t drift_max_ms = (int32_t)((video_receiver->drift_win_max_scaled
+				- video_receiver->drift_win_base_scaled) / drift_div);
+			int32_t drift_end_ms = (int32_t)((video_receiver->drift_last_scaled
+				- video_receiver->drift_win_base_scaled) / drift_div);
+			int32_t drift_abs_ms = (int32_t)(video_receiver->drift_last_scaled / drift_div);
+			uint64_t gap_small_avg_ms = video_receiver->sizegap_small_count > 0
+				? video_receiver->sizegap_small_gap_total_ms / video_receiver->sizegap_small_count : 0;
+			uint64_t gap_large_avg_ms = video_receiver->sizegap_large_count > 0
+				? video_receiver->sizegap_large_gap_total_ms / video_receiver->sizegap_large_count : 0;
+			uint32_t frame_bytes_avg = video_receiver->frame_bytes_count > 0
+				? (uint32_t)(video_receiver->frame_bytes_total / video_receiver->frame_bytes_count) : 0;
+			// gaph = per-bucket gap counts (sum must equal cadence_count on the
+			// PIPE/STAGE line above -- a free integrity check); drift=min/max/end
+			// = ms relative to the window's starting drift; abs= = ms since last
+			// re-base; skip= = frame indices skipped this window; rsy= =
+			// re-bases; thr= = the byte cut used; sm=/lg= = count/mean-gap for
+			// gaps following small/large frames; fsz= = min/avg/max completed
+			// frame bytes.
+			CHIAKI_LOGD(video_receiver->log,
+				"PIPE/DELIVERY gaph=%u,%u,%u,%u,%u,%u,%u,%u,%u drift=%d/%d/%d abs=%d skip=%u rsy=%u thr=%u sm=%u/%llu lg=%u/%llu fsz=%u/%u/%u",
+				video_receiver->gap_hist[0], video_receiver->gap_hist[1], video_receiver->gap_hist[2],
+				video_receiver->gap_hist[3], video_receiver->gap_hist[4], video_receiver->gap_hist[5],
+				video_receiver->gap_hist[6], video_receiver->gap_hist[7], video_receiver->gap_hist[8],
+				drift_min_ms, drift_max_ms, drift_end_ms, drift_abs_ms,
+				video_receiver->drift_skipped_frames, video_receiver->drift_resync_count,
+				video_receiver->sizegap_threshold_bytes,
+				video_receiver->sizegap_small_count, (unsigned long long)gap_small_avg_ms,
+				video_receiver->sizegap_large_count, (unsigned long long)gap_large_avg_ms,
+				video_receiver->frame_bytes_min, frame_bytes_avg, video_receiver->frame_bytes_max);
+		}
 
 		// Cadence max alarm: detect PS5 encoder throttling
 		if (video_receiver->cadence_max_ms > 80) {
@@ -708,10 +1038,44 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 		video_receiver->stage_window_drops = 0;
 		video_receiver->old_frame_rejects_window = 0;
 		video_receiver->cascade_skip_count = 0;
+		video_receiver->fec_fail_kf_count = 0;
+		video_receiver->drift_submit_window_count = 0;
 		video_receiver->cadence_min_ms = 0;
 		video_receiver->cadence_max_ms = 0;
 		video_receiver->cadence_total_ms = 0;
 		video_receiver->cadence_count = 0;
+
+		// D5: reset window-scoped diagnostic state. drift's absolute series
+		// (drift_last_scaled, drift_cum_frames, drift_stream_start_ms,
+		// drift_prev_*, drift_fps) and prev_completed_frame_bytes
+		// (boundary-consumed, not window state -- zeroing it here would
+		// silently drop one correlation sample per second) are intentionally
+		// NOT touched here; see the field comments in chiaki/videoreceiver.h.
+		memset(video_receiver->gap_hist, 0, sizeof(video_receiver->gap_hist));
+		video_receiver->drift_win_base_scaled = video_receiver->drift_last_scaled;
+		video_receiver->drift_win_min_scaled = video_receiver->drift_last_scaled;
+		video_receiver->drift_win_max_scaled = video_receiver->drift_last_scaled;
+		video_receiver->drift_skipped_frames = 0;
+		video_receiver->drift_resync_count = 0;
+		if(video_receiver->frame_bytes_count > 0)
+		{
+			// Recompute BEFORE the totals below are zeroed: next window's
+			// "large frame" cut is this window's measured mean, clamped.
+			uint32_t mean_bytes = (uint32_t)(video_receiver->frame_bytes_total / video_receiver->frame_bytes_count);
+			if(mean_bytes < VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES)
+				mean_bytes = VIDEO_SIZEGAP_THRESHOLD_MIN_BYTES;
+			if(mean_bytes > VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES)
+				mean_bytes = VIDEO_SIZEGAP_THRESHOLD_MAX_BYTES;
+			video_receiver->sizegap_threshold_bytes = mean_bytes;
+		}
+		video_receiver->frame_bytes_total = 0;
+		video_receiver->frame_bytes_count = 0;
+		video_receiver->sizegap_small_gap_total_ms = 0;
+		video_receiver->sizegap_large_gap_total_ms = 0;
+		video_receiver->sizegap_small_count = 0;
+		video_receiver->sizegap_large_count = 0;
+		video_receiver->frame_bytes_min = 0;
+		video_receiver->frame_bytes_max = 0;
 	}
 
 	return CHIAKI_ERR_SUCCESS;

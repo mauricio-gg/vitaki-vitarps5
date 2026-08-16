@@ -320,6 +320,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->transient_recv.log_ms = 0;
 	takion->send_error_log_ms = 0;
 #ifdef VITARPS5_ENHANCED_RECOVERY
+	// DEAD-CODE: VITARPS5_ENHANCED_RECOVERY is never defined. See
+	// chiaki/takion.h:229 for the full explanation.
 	/* Initialise to NULL; set by the StreamConnection attach path only.
 	 * Senkusha and any other non-StreamConnection caller leave this NULL so
 	 * takion_data_drop() skips the report_drop call for those contexts. */
@@ -1235,6 +1237,8 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user, C
 	// actually emits a log line.
 	takion_log_drop_summary(takion, chiaki_time_now_monotonic_ms(), false);
 #ifdef VITARPS5_ENHANCED_RECOVERY
+	// DEAD-CODE: VITARPS5_ENHANCED_RECOVERY is never defined. See
+	// chiaki/takion.h:229 for the full explanation.
 	/* Use the typed stream_connection pointer rather than casting the generic
 	 * cb_user slot. cb_user holds a ChiakiSenkusha * during MTU probe, so
 	 * casting it to ChiakiStreamConnection * would dereference the wrong
@@ -2031,6 +2035,8 @@ static bool takion_take_drop_data_queue_request(ChiakiTakion *takion)
 	return requested;
 }
 
+// DEAD-CODE: zero call sites in this codebase. Declared in chiaki/takion.h
+// and defined here but never invoked anywhere in the repo.
 CHIAKI_EXPORT void chiaki_takion_request_drop_data_queue(ChiakiTakion *takion)
 {
 	if(!takion)

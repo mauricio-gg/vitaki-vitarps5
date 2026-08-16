@@ -366,6 +366,7 @@ int host_stream(VitaChiakiHost *host) {
   chiaki_connect_info.video_profile = profile;
   chiaki_connect_info.video_profile_auto_downgrade = true;
   chiaki_connect_info.send_actual_start_bitrate = context.config.send_actual_start_bitrate;
+  chiaki_connect_info.submit_on_missing_ref = context.config.submit_on_missing_ref;
   chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 #if CHIAKI_CAN_USE_HOLEPUNCH
   if (psn_remote) {

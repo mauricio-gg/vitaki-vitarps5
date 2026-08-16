@@ -160,6 +160,16 @@ static void start_reconnect_recovery_state(void) {
   context.stream.reconnect.recover_stable_windows = 0;
 }
 
+// DEAD-CODE (entire function body unreachable): gated at entry by
+// `reconnect_window_active` (see the guard clause a few lines into this
+// function), which requires context.stream.post_reconnect_window_until_us to
+// be nonzero. Every writer of that field in this codebase sets it to 0
+// (vita/src/host_callbacks.c:25, vita/src/host_metrics.c:90) -- nothing ever
+// sets a future deadline -- so reconnect_window_active is always false and
+// this function returns at the guard clause on every call. This function's
+// own internal stages are RECOVER_STAGE_IDLE/IDR_REQUESTED/SOFT_RESTARTED/
+// ESCALATED (see the #defines above); the entire function, not some subset of
+// its stages, is unreachable.
 void host_recovery_handle_post_reconnect_degraded_mode(bool av_diag_progressed,
                                                        uint32_t incoming_fps, uint32_t target_fps,
                                                        bool low_fps_window, uint64_t now_us) {
