@@ -136,6 +136,15 @@ static volatile uint32_t log_lines_dropped = 0;
 // paper over, and adding it here would misstate the actual (single-writer,
 // mutex-serialized) access pattern.
 static uint32_t log_lines_evicted = 0;
+// GH #262: session-cumulative twin of log_lines_evicted, never reset by the per-window
+// summary below (same idea as latency_dropped_total_count in stream_state.h). Root cause
+// of the #262 investigation's 5s metrics hole: the eviction summaries themselves were
+// self-evicting during a sustained flood, so a per-window-only counter could read back as
+// 0 for the exact window that mattered. This total survives that -- it only ever grows,
+// so the LAST summary line of a flood still shows the full magnitude even if every
+// intermediate one got evicted. Same single-writer(log_mutex-serialized) discipline as
+// log_lines_evicted above -- see that field's comment.
+static uint64_t log_lines_evicted_total = 0;
 // First/last sceKernelGetProcessTimeWide() timestamp of an eviction since
 // the last summary report, so the summary can show how wide a time window
 // the lost lines spanned, not just how many were lost. Same locking
@@ -199,6 +208,7 @@ static void vita_log_queue_push_locked(char *data, size_t len) {
       log_first_eviction_us = evict_now_us;
     log_last_eviction_us = evict_now_us;
     log_lines_evicted++;
+    log_lines_evicted_total++;
   }
   log_queue[log_queue_tail].data = data;
   log_queue[log_queue_tail].len = len;
@@ -564,20 +574,28 @@ void vita_log_submit_line(ChiakiLogLevel level, const char *line) {
       log_last_eviction_us = 0;
       log_last_drop_report_us = now_us;
 
-      // Buffer sizing (worst case, all three fields at max width):
+      // Buffer sizing (worst case, all four fields at max width):
       //   "LOG_LINES_DROPPED overflow="   27 chars
       //   + up to 10 digits (uint32_t max 4294967295)
       //   " contention="                  12 chars
       //   + up to 10 digits (uint32_t max)
       //   " span_ms="                      9 chars
       //   + up to 20 digits (uint64_t max 18446744073709551615)
+      //   " total_overflow="              16 chars
+      //   + up to 20 digits (uint64_t max)
       //   "\n"                             1 char
       //   NUL                              1 char
-      //   = 27+10+12+10+9+20+1+1 = 90 bytes worst case; sized generously above that.
-      char summary[128];
-      int slen = sceClibSnprintf(summary, sizeof(summary),
-                                 "LOG_LINES_DROPPED overflow=%u contention=%u span_ms=%llu\n",
-                                 evicted_snapshot, dropped_snapshot, (unsigned long long)span_ms);
+      //   = 27+10+12+10+9+20+16+20+1+1 = 126 bytes worst case; sized generously above that.
+      // GH #262: total_overflow is log_lines_evicted_total -- session-cumulative, never
+      // reset (see its declaration comment) -- so even if THIS summary line itself later
+      // gets evicted by a still-ongoing flood, the next one that survives still carries
+      // the full-session magnitude, not just whatever this one window saw.
+      char summary[192];
+      int slen = sceClibSnprintf(
+          summary, sizeof(summary),
+          "LOG_LINES_DROPPED overflow=%u contention=%u span_ms=%llu total_overflow=%llu\n",
+          evicted_snapshot, dropped_snapshot, (unsigned long long)span_ms,
+          (unsigned long long)log_lines_evicted_total);
       if (slen > 0 && (size_t)slen < sizeof(summary)) {
         char *scopy = malloc((size_t)slen);
         if (scopy) {
