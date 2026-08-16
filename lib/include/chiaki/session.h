@@ -83,6 +83,7 @@ typedef struct chiaki_connect_info_t
 	ChiakiConnectVideoProfile video_profile;
 	bool video_profile_auto_downgrade; // Downgrade video_profile if server does not seem to support it.
 	bool send_actual_start_bitrate; // When true, send requested bitrate via RP-StartBitrate
+	bool submit_on_missing_ref; // GH #251: submit missing-ref P-frames to the decoder instead of dropping them
 	bool enable_keyboard;
 	bool enable_dualsense;
 #if CHIAKI_CAN_USE_HOLEPUNCH
@@ -215,6 +216,7 @@ typedef struct chiaki_session_t
 		ChiakiConnectVideoProfile video_profile;
 		bool video_profile_auto_downgrade;
 		bool send_actual_start_bitrate;
+		bool submit_on_missing_ref;
 		bool enable_keyboard;
 		bool enable_dualsense;
 		uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];

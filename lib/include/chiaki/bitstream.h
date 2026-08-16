@@ -23,6 +23,9 @@ typedef struct chiaki_bitstream_t
 			struct
 			{
 				uint32_t log2_max_frame_num_minus4;
+				unsigned max_num_ref_frames;
+				unsigned gaps_in_frame_num_value_allowed_flag;
+				bool valid_ext; // true when the fields above were parsed successfully
 			} sps;
 		} h264;
 
@@ -53,6 +56,12 @@ CHIAKI_EXPORT void chiaki_bitstream_init(ChiakiBitstream *bitstream, ChiakiLog *
 CHIAKI_EXPORT bool chiaki_bitstream_header(ChiakiBitstream *bitstream, uint8_t *data, unsigned size);
 CHIAKI_EXPORT bool chiaki_bitstream_slice(ChiakiBitstream *bitstream, uint8_t *data, unsigned size, ChiakiBitstreamSlice *slice);
 CHIAKI_EXPORT bool chiaki_bitstream_slice_set_reference_frame(ChiakiBitstream *bitstream, uint8_t *data, unsigned size, unsigned reference_frame);
+
+/* True only when the active H.264 SPS was fully parsed and permits the
+ * submit-through-loss policy: a frame_num gap must NOT trigger spec-mandated
+ * "non-existing frame" synthesis (clause 8.2.5.2), i.e.
+ * gaps_in_frame_num_value_allowed_flag == 0. H.265 and unparsed SPS -> false. */
+CHIAKI_EXPORT bool chiaki_bitstream_h264_drift_safe(ChiakiBitstream *bitstream);
 
 #ifdef __cplusplus
 }
