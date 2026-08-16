@@ -24,9 +24,12 @@
 
 /* GH #258: PS-button suspend/resume detection and recovery scheduling. A gap this large
  * between consecutive UI-loop ticks cannot happen while actually streaming (normal cadence
- * is 1-33ms); the shortest observed real suspend was ~2s, so 1s leaves headroom against
- * false positives from an ordinary frame stall while still catching every real suspend. */
-#define SUSPEND_GAP_THRESHOLD_US 1000000ULL
+ * is 1-33ms). Lowered from 1s to 500ms per log 99798574648_vitarps5-testing.log forensics
+ * (GH #261 investigation): the original 1s threshold missed the user's real PS-button taps,
+ * which measured ~850-980ms -- under the old threshold entirely. 500ms still clears the
+ * 1-33ms normal tick cadence by >15x, so false positives from an ordinary frame stall remain
+ * as unlikely as before. */
+#define SUSPEND_GAP_THRESHOLD_US 500000ULL
 /* First scheduled resync fires quickly in case the console's resume burst hasn't yet
  * stepped on the decoder's reference chain. */
 #define SUSPEND_RESYNC_FIRST_DELAY_US 250000ULL
