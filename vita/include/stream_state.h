@@ -216,6 +216,10 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t
       freeze_engaged_count;  // Corrupt frames suppressed (last-good presented in their place)
 
+  // --- GH #262: staleness-gated presentation hold (backlog-drain freeze-then-jump) ---
+  volatile uint32_t stale_hold_count;         // Number of times the hold engaged this stream
+  volatile uint32_t stale_hold_frames_total;  // Cumulative frames spent holding this stream
+
   // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
   volatile int32_t wifi_rssi;  // Latest Wi-Fi signal strength (-1 if unavailable)
 
