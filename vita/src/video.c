@@ -192,19 +192,28 @@ static int frozen_frame_streak = 0;
  * guards the ambiguous corrupt flag over a handful of frames; this guards a crisp numeric
  * staleness measurement over up to several SECONDS (a real drain episode, per the #251/
  * #257/#262 forensics, is 132+ frames -- far past FREEZE_MAX_STREAK by design, so the two
- * caps do not compete). See host_video_cb_compute_staleness_ms() (host_callbacks.c) for
- * how staleness_ms is derived. */
-// Engage once a frame's content is this far behind the recent arrival baseline. Forensics
-// (hardware log 104199521041) put the worst BENIGN excursion at ~113ms; 400 is a 3.5x
-// margin above that, so ordinary drift-submit episodes (16-330ms backlog) never reach it
-// and the toggle's existing freeze-reduction on ordinary loss is untouched automatically.
+ * caps do not compete). staleness_ms is produced by an arrival-cadence state machine in
+ * host_video_cb_compute_staleness_ms() (host_callbacks.c, GH #262 fix round 1) -- while
+ * HOLDING there, it reports a constant latched value (the triggering stall's clamped gap)
+ * every frame, then drops to 0 once that tracker's own cadence-based release confirms; see
+ * that function's comment for the state machine. This file's ENGAGE/RELEASE/MAX constants
+ * below only interpret that already-computed value -- they don't derive it. */
+// Engage once the reported staleness (the triggering stall's gap, clamped) exceeds this.
+// Forensics (hardware log 104199521041) put the worst BENIGN cadence excursion at ~113ms;
+// real stalls ran 509-4400ms. 400 sits with clear margin above the former, so ordinary
+// drift-submit episodes never reach it and the toggle's existing freeze-reduction on
+// ordinary loss is untouched automatically.
 #define STALE_HOLD_ENGAGE_MS 400
-// Release once content is back within this margin of fresh. 280ms of hysteresis below the
-// engage line prevents flapping right at the boundary; at the ~19.6ms/frame drain rate
-// observed in forensics this floors the minimum hold to ~14 frames once engaged.
+// Release once staleness drops back under this. The upstream tracker reports a CONSTANT
+// value while HOLDING and drops straight to 0 the moment its own cadence-based release
+// fires (drain-end detected within STALE_RELEASE_CONFIRM_FRAMES=3 consecutive normal-
+// cadence arrivals, host_callbacks.c) -- so in practice this line is crossed in one step,
+// not approached gradually. 120 keeps a small margin below ENGAGE purely so a value that
+// happens to land between "just re-latched" and "about to drop to 0" can't flap the gate.
 #define STALE_HOLD_RELEASE_MS 120
-// Unconditional hard cap so the hold can never wedge the picture indefinitely if staleness
-// somehow never falls below the release line (e.g. a pathological drift-tracker input).
+// Unconditional hard cap so the hold can never wedge the picture indefinitely if the
+// upstream tracker's release condition somehow never fires (e.g. cadence never fully
+// normalizes for a pathological session).
 #define STALE_HOLD_MAX_MS 6000
 
 /* Stale-hold state -- UI-thread-only (same thread as frozen_frame_streak above; both are
@@ -1168,7 +1177,10 @@ static void update_stale_hold_state(uint32_t staleness_ms, uint64_t now_us) {
       stale_hold_frames = 0;
       stale_hold_start_us = now_us;
       stale_hold_peak_ms = staleness_ms;
-      LOGD("PIPE/STALE_HOLD engaged staleness_ms=%u", staleness_ms);
+      // GH #262 fix round 1: staleness_ms IS the triggering stall's (clamped) gap under the
+      // new arrival-cadence tracker -- it reports that constant value for the whole hold --
+      // so trigger_gap_ms is the same quantity, logged explicitly per the round-1 review.
+      LOGD("PIPE/STALE_HOLD engaged staleness_ms=%u trigger_gap_ms=%u", staleness_ms, staleness_ms);
       // Self-debounced (video_overlay.c, 500ms) -- also fixes the banner missing the
       // worst excursions the #262 forensics found (it previously only fired from the
       // loss-feedback path, which can trail the real event by up to 1.8s).
