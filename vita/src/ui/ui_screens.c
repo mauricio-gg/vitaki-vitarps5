@@ -1240,7 +1240,8 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
                                   context.config.logging.enabled, selected);
         break;
       case UI_SETTINGS_ITEM_SUBMIT_ON_MISSING_REF:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Motion during loss (artifacts)",
+        draw_settings_toggle_item(content_x, y, content_w, item_h,
+                                  "Motion during loss (artifacts) (Experimental)",
                                   SETTINGS_TOGGLE_ANIM_SUBMIT_ON_MISSING_REF,
                                   context.config.submit_on_missing_ref, selected);
         break;
