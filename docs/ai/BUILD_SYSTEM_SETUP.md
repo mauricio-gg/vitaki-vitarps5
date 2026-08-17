@@ -85,7 +85,7 @@ cd vita
 ### Build Output Analysis
 ```
 Build completed successfully!
--rw-r--r-- 1 vitadev vitadev 2432012 vitarps5.vpk
+-rw-r--r-- 1 vitasdk vitasdk 2432012 vitarps5.vpk
 [SUCCESS] VPK created: ./build/vitarps5.vpk
 [SUCCESS] Versioned VPK: VitaRPS5v0.5.894.vpk
 [INFO] VPK size: 2.3M

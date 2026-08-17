@@ -1,40 +1,41 @@
 # Vitaki-Fork Development Environment
 # Based on official VitaSDK with additional development tools for the entire project
 
-FROM vitasdk/vitasdk:latest
+# Pinned deliberately: the floating `latest` tag silently changed base distro
+# from Alpine to Ubuntu 24.04 on 2026-08-15, which broke release CI (`apk: not
+# found`). Re-pin only after verifying the new tag's package set explicitly.
+FROM vitasdk/vitasdk:2026.08-20260815
 
 # Install additional development tools.
 # Note: clang-extra-tools is intentionally excluded; clang-format is installed
 # below via pip at a pinned version to guarantee identical output between this
 # image and CI (see the clang-format pip install step).
-RUN apk add --no-cache \
+# git, curl, wget, bash, and python3 already ship in the base image and are
+# not re-listed here. openssl-libs-static has no separate package on Debian —
+# libssl-dev already ships the static libssl.a/libcrypto.a archives.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     pngquant \
     imagemagick \
     optipng \
     cppcheck \
-    git \
-    curl \
-    wget \
     vim \
     nano \
     htop \
-    bash \
-    python3 \
-    py3-pip \
-    py3-protobuf \
-    py3-pillow \
-    openssl-dev \
-    openssl-libs-static \
-    protobuf \
-    protobuf-dev \
-    protobuf-c \
-    protobuf-c-dev
+    python3-pip \
+    python3-protobuf \
+    python3-pil \
+    libssl-dev \
+    protobuf-compiler \
+    libprotobuf-dev \
+    protobuf-c-compiler \
+    libprotobuf-c-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Python tooling: crash-dump analysis + pinned clang-format.
 # clang-format==19.1.5 is the single version pin shared with CI
 # (.github/workflows/lint-format.yml).  Both install from the same PyPI wheel
-# so the binary is byte-identical regardless of the underlying libc
-# (musl/Alpine here, glibc/Ubuntu on GitHub Actions runners).
+# so the binary is byte-identical — this image and the GitHub Actions runners
+# now share the same glibc/Ubuntu libc family, so no ABI mismatch is possible.
 # Rebuilding the Docker image is required when this version changes.
 RUN pip3 install --no-cache-dir --break-system-packages \
     "pyelftools==0.29" \
@@ -43,7 +44,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # Install nanopb (Protocol Buffers for embedded C) - cross-compile for ARM
 RUN cd /tmp && \
     wget https://github.com/nanopb/nanopb/archive/refs/tags/0.4.8.tar.gz && \
-    echo "3f78bf63722a810edb6da5ab5f0e76c7db13a961c2aad4ab49296e3095d0d830  0.4.8.tar.gz" | sha256sum -cs && \
+    echo "3f78bf63722a810edb6da5ab5f0e76c7db13a961c2aad4ab49296e3095d0d830  0.4.8.tar.gz" | sha256sum -c --status && \
     tar -xzf 0.4.8.tar.gz && \
     cd nanopb-0.4.8 && \
     mkdir build && cd build && \
@@ -59,7 +60,7 @@ RUN cd /tmp && \
 # Install json-c for Vita (required by Chiaki holepunch path)
 RUN cd /tmp && \
     wget https://github.com/json-c/json-c/archive/refs/tags/json-c-0.17-20230812.tar.gz && \
-    echo "024d302a3aadcbf9f78735320a6d5aedf8b77876c8ac8bbb95081ca55054c7eb  json-c-0.17-20230812.tar.gz" | sha256sum -cs && \
+    echo "024d302a3aadcbf9f78735320a6d5aedf8b77876c8ac8bbb95081ca55054c7eb  json-c-0.17-20230812.tar.gz" | sha256sum -c --status && \
     tar -xzf json-c-0.17-20230812.tar.gz && \
     cd json-c-json-c-0.17-20230812 && \
     mkdir build && cd build && \
@@ -92,7 +93,7 @@ COPY third-party/vita-stubs/ /tmp/vita-stubs/
 # Install miniupnpc for Vita (required by UPnP NAT traversal in holepunch path)
 RUN cd /tmp && \
     wget https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_3_3.tar.gz && \
-    echo "8cf2c833b3e76fc4893ff29c2a376e3394962449e5970e373c0a91421724d222  miniupnpc_2_3_3.tar.gz" | sha256sum -cs && \
+    echo "8cf2c833b3e76fc4893ff29c2a376e3394962449e5970e373c0a91421724d222  miniupnpc_2_3_3.tar.gz" | sha256sum -c --status && \
     tar -xzf miniupnpc_2_3_3.tar.gz && \
     cd miniupnp-miniupnpc_2_3_3/miniupnpc && \
     sed -i '/set(CMAKE_POSITION_INDEPENDENT_CODE ON)/d' CMakeLists.txt && \
@@ -120,11 +121,14 @@ ENV VITASDK=/usr/local/vitasdk
 ENV PATH=$VITASDK/bin:$PATH
 ENV NANOPB_DIR=/usr/local
 
-# Create non-root user for development
-RUN adduser -D -s /bin/bash vitadev && \
-    chown -R vitadev:vitadev /build
+# The base image already provides a non-root `vitasdk` user at uid 1000 (the
+# same uid the old Alpine `vitadev` user held), so reuse it instead of
+# creating a new one. /build does not exist in the base image; the WORKDIR
+# instruction above creates it as root, so it must be re-owned by vitasdk
+# here before we switch to that user below.
+RUN mkdir -p /build/git && chown -R vitasdk:vitasdk /build
 
-USER vitadev
+USER vitasdk
 
 # Set default command
 CMD ["/bin/bash"]

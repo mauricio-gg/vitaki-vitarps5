@@ -60,7 +60,12 @@ if(NOT CHIAKI_USE_SYSTEM_CURL)
 	# libcurl (with experimental WebSocket support enabled)
 	##################
 
-	set(BUILD_EXE OFF)
+	# BUILD_CURL_EXE, not BUILD_EXE — the latter matches no curl option and
+	# silently never worked, so curl's CLI tool was always built as collateral.
+	# We only ever consume CURL::libcurl_static; the exe is dead weight and
+	# fails to link anyway because VitaSDK's newlib has no pthread_rwlock_*
+	# family, which the toolchain's OpenSSL 1.1.1 references.
+	set(BUILD_CURL_EXE OFF)
 	set(BUILD_SHARED_LIBS OFF)
 	set(BUILD_STATIC_LIBS ON)
 	set(CURL_DISABLE_INSTALL ON)
@@ -72,6 +77,17 @@ if(WIN32)
 endif()
 	add_subdirectory(curl)
 	# Exported library is CURL::libcurl_static
+
+	# VitaSDK's OpenSSL 1.1.1 is built with `no-ui-console` (UI_OpenSSL is
+	# compiled out of libcrypto's ui_openssl.o) but its installed
+	# opensslconf.h fails to define OPENSSL_NO_UI_CONSOLE.  Without that
+	# define, curl's vtls/openssl.c enables USE_OPENSSL_ENGINE and links
+	# against the absent UI_OpenSSL.  Tell curl the truth about the library.
+	# Only OpenSSL ENGINE support (PKCS#11 / hardware crypto / engine-loaded
+	# client-cert keys) is lost, none of which the Vita client uses.
+	if(CHIAKI_IS_VITA AND TARGET libcurl_static)
+		target_compile_definitions(libcurl_static PRIVATE OPENSSL_NO_UI_CONSOLE)
+	endif()
 endif()
 
 if(CHIAKI_ENABLE_STEAM_SHORTCUT)

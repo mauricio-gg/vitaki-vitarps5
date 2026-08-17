@@ -14,7 +14,7 @@ CMAKE_EXTRA_FLAGS=""
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="971"
+VERSION_ITERATION="977"
 
 # Colors for output
 RED='\033[0;31m'
@@ -278,7 +278,8 @@ build_docker_image() {
 # Pull latest VitaSDK Docker image
 pull_docker_image() {
     log_info "Pulling latest VitaSDK Docker image..."
-    docker pull --platform linux/amd64 vitasdk/vitasdk:latest
+    # Keep this tag in sync with the FROM line in Dockerfile.
+    docker pull --platform linux/amd64 vitasdk/vitasdk:2026.08-20260815
     log_success "Base Docker image updated"
 }
 
