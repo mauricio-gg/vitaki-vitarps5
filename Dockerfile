@@ -121,11 +121,16 @@ ENV VITASDK=/usr/local/vitasdk
 ENV PATH=$VITASDK/bin:$PATH
 ENV NANOPB_DIR=/usr/local
 
-# The base image already provides a non-root `vitasdk` user at uid 1000 (the
-# same uid the old Alpine `vitadev` user held), so reuse it instead of
-# creating a new one. /build does not exist in the base image; the WORKDIR
-# instruction above creates it as root, so it must be re-owned by vitasdk
-# here before we switch to that user below.
+# The base image already provides a non-root `vitasdk` user at uid 1000, so
+# reuse it instead of creating a new one. (The old Alpine `vitadev` user was
+# uid 1001, not 1000 — the two do NOT match.) /build does not exist in the
+# base image; the WORKDIR instruction above creates it as root, so it must be
+# re-owned by vitasdk here before we switch to that user below.
+#
+# Anyone bind-mounting the workspace should not rely on this baked-in uid
+# matching their host user, though: tools/build.sh overrides it at run time
+# with `docker run -u "$(id -u):$(id -g)"` so writes into the mounted repo
+# land with the host's ownership instead of vitasdk's.
 RUN mkdir -p /build/git && chown -R vitasdk:vitasdk /build
 
 USER vitasdk

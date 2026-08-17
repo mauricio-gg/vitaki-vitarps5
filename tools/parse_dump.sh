@@ -70,7 +70,11 @@ echo "  ELF:  $ELF_FILE"
 echo ""
 
 # Run parser in Docker container
+# Container must run as the host uid:gid, not the image's baked-in uid, so it
+# can access the bind-mounted workspace (see tools/build.sh DOCKER_RUN_USER).
 docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -e HOME=/tmp \
     -v "$PROJECT_ROOT:/build/git" \
     vitaki-fork-dev:latest \
     python3 /build/git/scripts/vita/parse_core/main.py \
