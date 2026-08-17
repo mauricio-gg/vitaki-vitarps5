@@ -6,8 +6,8 @@
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
 #                 version pinned in both this file and the repo Dockerfile.  The PyPI wheel
-#                 ships an official LLVM binary, so the same version number produces
-#                 byte-identical output on musl/Alpine (Docker) and glibc/Ubuntu (CI runner).
+#                 ships an official LLVM binary — this image and the GitHub Actions runners
+#                 share the same glibc/Ubuntu libc family, so no ABI mismatch is possible.
 #                 Pin: 19.1.5  — update in BOTH places together when upgrading.
 #   cppcheck:     installed via apt in the lint job below.
 #
@@ -45,8 +45,9 @@ jobs:
 
       - name: Install pinned clang-format
         # Version must match the pin in Dockerfile (clang-format==19.1.5).
-        # The PyPI wheel ships an official LLVM binary, guaranteeing identical
-        # formatter output to the local Docker environment.
+        # The PyPI wheel ships an official LLVM binary, and this runner now
+        # shares the same glibc/Ubuntu libc family as the local Docker image,
+        # so formatter output stays identical.
         run: pip install clang-format==19.1.5
 
       - name: Verify clang-format version
