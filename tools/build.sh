@@ -12,9 +12,16 @@ TEST_BUILD_DIR="./build-test"
 SOURCE_DIR="./vita/src"
 CMAKE_EXTRA_FLAGS=""
 
+# Uid:gid the container runs as for every `docker run` that bind-mounts the
+# workspace ($(pwd):/build/git). Must match the host owner of that mount, not
+# whatever uid the image happens to bake in — the image's own uid drifted
+# 1001 -> 1000 when the base went Alpine -> Ubuntu, which silently broke
+# release CI (CMake couldn't create build/CMakeFiles on the mismatched dir).
+DOCKER_RUN_USER="$(id -u):$(id -g)"
+
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="977"
+VERSION_ITERATION="978"
 
 # Colors for output
 RED='\033[0;31m'
@@ -329,6 +336,8 @@ build_vpk() {
     # Run build in Docker container (with platform specification for ARM64 hosts)
     docker run --rm \
         --platform linux/amd64 \
+        -u "$DOCKER_RUN_USER" \
+        -e HOME=/tmp \
         -v "$(pwd):/build/git" \
         -w /build/git \
         "$DOCKER_IMAGE" \
@@ -417,6 +426,8 @@ format_code() {
 
     docker run --rm \
         --platform linux/amd64 \
+        -u "$DOCKER_RUN_USER" \
+        -e HOME=/tmp \
         -v "$(pwd):/build/git" \
         -w /build/git \
         "$DOCKER_IMAGE" \
@@ -436,6 +447,8 @@ lint_code() {
 
     docker run --rm \
         --platform linux/amd64 \
+        -u "$DOCKER_RUN_USER" \
+        -e HOME=/tmp \
         -e LINT_STRICT \
         -v "$(pwd):/build/git" \
         -w /build/git \
@@ -462,6 +475,8 @@ run_tests() {
     # Run test build in Docker container
     docker run --rm \
         --platform linux/amd64 \
+        -u "$DOCKER_RUN_USER" \
+        -e HOME=/tmp \
         -v "$(pwd):/build/git" \
         -w /build/git \
         "$DOCKER_IMAGE" \
@@ -516,9 +531,12 @@ run_tests() {
 dev_shell() {
     log_info "Starting interactive development shell..."
     log_info "Use 'exit' to return to host system"
-    
+    log_info "Prompt may show \"I have no name!\" — the shell runs as the host uid with no matching /etc/passwd entry; this is expected and harmless"
+
     docker run --rm -it \
         --platform linux/amd64 \
+        -u "$DOCKER_RUN_USER" \
+        -e HOME=/tmp \
         -v "$(pwd):/build/git" \
         -w /build/git \
         "$DOCKER_IMAGE" \
