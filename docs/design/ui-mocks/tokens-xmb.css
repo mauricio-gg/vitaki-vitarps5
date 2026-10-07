@@ -1,4 +1,4 @@
-/* VitaRPS5 UI mocks - shared design tokens (issue #271).
+/* VitaRPS5 UI mocks - XMB direction tokens (issue #271).
    Dark-first. Native target: 960x544 px on a 5" 220 ppi OLED/LCD.
    Every value below maps to a constant in a future ui_theme.h. */
 :root {
@@ -35,6 +35,7 @@
   --err: #ff7a7a;
   --psn: #9aa6ff;           /* PSN / remote route */
   --focus-ring: #ffffff;
+  --hud-bg: rgba(10, 16, 34, 0.72); /* stream overlay panels */
 
   /* Per-page colours (Launcher uses all three, others use --accent) */
   --c-home: #5ab0ff;

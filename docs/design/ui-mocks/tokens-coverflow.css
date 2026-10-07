@@ -1,0 +1,16 @@
+/* VitaRPS5 UI mocks - Cover-flow direction tokens (issue #271). Native target 960x544.
+   Own coherent set: not shared with the other directions. */
+:root {
+  --font: "Outfit", system-ui, sans-serif;
+  --w-regular: 500; --w-strong: 600; --w-heavy: 700;
+  --t-cap: 16px; --t-body: 20px; --t-title: 28px; --t-display: 48px;
+  --bg-0: #040405; --bg-1: #0b0c10; --surface: #17181f; --surface-2: #24262f;
+  --line: rgba(255,255,255,.12); --scrim: rgba(0,0,0,.72);
+  --text: #f6f3ee; --text-2: #c9c5bd; --text-3: #9a968d;
+  --accent: #ffc857; --accent-ink: #1a1200; --ok: #4fe0a0; --warn: #ffb347; --err: #ff7a7a; --psn: #b3a8ff; --focus-ring: #ffffff;
+  --hud-bg: rgba(10,10,14,.74);
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px;
+  --r-sm: 10px; --r-md: 18px; --r-lg: 30px; --r-pill: 999px;
+  --ease: cubic-bezier(.22,1,.36,1);
+  --d-fast: 200ms; --d-base: 420ms; --d-slow: 700ms;
+}
