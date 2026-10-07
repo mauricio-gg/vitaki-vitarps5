@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaRPS5 Mock - Showcase Carousel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#04060b;color:var(--text);font-family:var(--font);font-weight:var(--w-regular);-webkit-font-smoothing:antialiased}
+.shell{min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:var(--s2);padding:var(--s2)}
+.bar{display:flex;flex-wrap:wrap;gap:var(--s1);align-items:center;justify-content:center;max-width:1000px}
+.bar .ttl{font-weight:var(--w-heavy);font-size:var(--t-body);margin-right:var(--s2)}
+.bar a,.bar button{font:inherit;font-size:14px;font-weight:var(--w-strong);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 14px;cursor:pointer;text-decoration:none}
+.bar a:hover,.bar button:hover{background:var(--surface-2)}
+.bar button.on{background:var(--accent);color:var(--accent-ink)}
+.stageWrap{position:relative;width:calc(960px*var(--z,1));height:calc(544px*var(--z,1));outline:1px solid #2a3350;flex:none}
+.stage{position:absolute;left:0;top:0;width:960px;height:544px;overflow:hidden;transform:scale(var(--z,1));transform-origin:0 0;background:var(--bg-1);color:var(--text);user-select:none}
+#screen,#popLayer{position:absolute;inset:0}
+#popLayer{pointer-events:none}
+.legend{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3);justify-content:center;font-size:14px;color:var(--text-2);max-width:960px}
+.legend kbd{font:inherit;font-weight:var(--w-heavy);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 8px;color:var(--text);margin-right:6px}
+.note{font-size:13px;color:var(--text-3);max-width:960px;text-align:center}
+.ico{display:inline-block;vertical-align:middle;flex:none}
+button{font-family:inherit}
+[data-do]{cursor:pointer}
+@media (prefers-reduced-motion:reduce){*{animation-duration:1ms!important;transition-duration:1ms!important}}
+/* ---- popups ---- */
+.pop-scrim{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;pointer-events:auto;animation:fadeIn var(--d-base) var(--ease)}
+.pop{width:520px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s4);box-shadow:0 24px 64px rgba(0,0,0,.6);animation:popIn var(--d-base) var(--ease)}
+.pop .pi{width:48px;height:48px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;background:var(--surface-2);margin-bottom:var(--s2)}
+.pop.err .pi{background:rgba(255,122,122,.16);color:var(--err)}
+.pop h3{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.15;margin-bottom:var(--s1)}
+.pop p{font-size:var(--t-body);color:var(--text-2);line-height:1.4}
+.pop .pin{display:flex;gap:8px;margin:var(--s2) 0 0}
+.pop .pin b{width:44px;height:56px;border-radius:var(--r-sm);background:var(--bg-1);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:var(--t-title);font-weight:var(--w-heavy)}
+.pop .btns{display:flex;gap:var(--s1);margin-top:var(--s3)}
+.pop .btns.v{flex-direction:column}
+.pop-btn{flex:1;min-height:48px;font-size:var(--t-body);font-weight:var(--w-strong);color:var(--text);background:var(--surface-2);border:2px solid transparent;border-radius:var(--r-md);padding:0 var(--s2);display:flex;align-items:center;justify-content:center;gap:var(--s1);cursor:pointer;transition:all var(--d-fast) var(--ease)}
+.pop-btn.sel{background:var(--accent);color:var(--accent-ink);border-color:var(--focus-ring)}
+.pop-btn.dis{opacity:.55}
+.pop-btn small{font-size:var(--t-cap);font-weight:var(--w-regular);opacity:.85}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes popIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+/* ---- stream scene + HUD (shared; variant per direction) ---- */
+.scene{position:absolute;inset:0;background:linear-gradient(#ff9a5a 0%,#ff5f7a 38%,#3b1d5e 62%,#120a24 100%);overflow:hidden}
+.scene .sun{position:absolute;left:380px;top:150px;width:200px;height:200px;border-radius:50%;background:linear-gradient(#fff3b0,#ff8a5a)}
+.scene svg{position:absolute;inset:0;width:100%;height:100%}
+.scene .road{position:absolute;left:0;right:0;bottom:0;height:200px;background:linear-gradient(#3a1d63,#0f0a1d);clip-path:polygon(46% 0,54% 0,100% 100%,0 100%)}
+.scene .road i{position:absolute;left:50%;width:10px;margin-left:-5px;height:30px;background:#ffd36b;animation:dash 700ms linear infinite}
+@keyframes dash{from{top:0;transform:scaleX(.3);opacity:0}20%{opacity:1}to{top:200px;transform:scaleX(1.8)}}
+.hud{position:absolute;inset:0;pointer-events:none;font-weight:var(--w-strong)}
+.hud .stat{font-size:var(--t-cap);color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
+.hud .stat b{display:block;font-size:var(--t-title);font-weight:var(--w-heavy);color:var(--text);letter-spacing:0;text-transform:none;line-height:1.1}
+.hud .stat b em{font-style:normal;font-size:var(--t-cap);color:var(--text-2);margin-left:4px;font-weight:var(--w-strong)}
+.hud .unst{display:flex;align-items:center;gap:8px;font-size:var(--t-body);font-weight:var(--w-heavy);background:var(--warn);color:#1a1000;padding:8px 16px;border-radius:var(--r-pill);position:absolute;left:50%;top:24px;transform:translateX(-50%);animation:pulse2 1.2s ease-in-out infinite}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.78}}
+.hud .unst[hidden]{display:none}
+.hud .exit{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);font-size:var(--t-cap);color:var(--text);background:rgba(4,7,14,.66);padding:8px 16px;border-radius:var(--r-pill)}
+.hud .exit kbd{font:inherit;font-weight:var(--w-heavy);color:var(--accent)}
+.hud.nostats .panel{display:none}
+/* XMB: slim strip */
+body[data-dir=xmb] .hud .panel{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;gap:var(--s4);padding:12px 28px;border-radius:var(--r-pill);background:rgba(10,16,34,.62);border:1px solid var(--line)}
+body[data-dir=xmb] .hud .unst{top:92px}
+/* Showcase: bottom-left card */
+body[data-dir=show] .hud .panel{position:absolute;left:24px;bottom:24px;display:flex;gap:var(--s3);padding:16px 24px;border-radius:var(--r-md);background:rgba(10,14,26,.72);border-left:4px solid var(--accent)}
+body[data-dir=show] .hud .exit{left:auto;right:24px;transform:none;border-radius:var(--r-sm)}
+/* Launcher: bold flat chips top-right */
+body[data-dir=launch] .hud .panel{position:absolute;right:24px;top:24px;display:flex;gap:8px}
+body[data-dir=launch] .hud .panel .stat{background:var(--c-home);color:var(--accent-ink);padding:8px 16px;border-radius:var(--r-sm)}
+body[data-dir=launch] .hud .panel .stat b,body[data-dir=launch] .hud .panel .stat b em{color:var(--accent-ink)}
+body[data-dir=launch] .hud .panel .stat{color:#0b2a4a}
+body[data-dir=launch] .hud .unst{left:24px;transform:none;border-radius:var(--r-sm)}
+body[data-dir=launch] .hud .exit{border-radius:var(--r-sm)}
+/* console art + cover */
+.cover{position:relative;overflow:hidden;border-radius:var(--r-md);display:flex;align-items:flex-end;justify-content:flex-start;color:#fff;background:#222}
+.cover .ct{position:relative;z-index:1;padding:12px;font-weight:var(--w-heavy);font-size:var(--t-cap);line-height:1.1;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.cover svg.cv{position:absolute;inset:0;width:100%;height:100%}
+.cover.none{background:linear-gradient(160deg,#27324f,#161d33);border:1px dashed rgba(255,255,255,.22);align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--text-3);text-align:center}
+.cover.none .ct{padding:0 8px;text-shadow:none;color:var(--text-2)}
+
+body .hud.nostats .panel{display:none}
+
+.layer{position:absolute;inset:0}
+.bgl{position:absolute;inset:0;opacity:0;transition:opacity var(--d-slow) var(--ease)}
+.bgl.on{opacity:1}
+.bgl.sb{filter:saturate(.45) brightness(.8)}
+.shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,10,18,.88) 0,rgba(7,10,18,.55) 52%,rgba(7,10,18,.15) 100%),linear-gradient(0deg,rgba(7,10,18,.92) 0,transparent 45%)}
+.top{position:absolute;top:0;left:0;right:0;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 var(--s4);font-size:var(--t-cap);font-weight:var(--w-strong);color:var(--text-2)}
+.brand{font-weight:var(--w-heavy);letter-spacing:.1em;text-transform:uppercase;color:var(--text)}
+.top .r{display:flex;align-items:center;gap:var(--s2)}
+.tb{width:44px;height:44px;border-radius:var(--r-md);background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:var(--text);cursor:pointer;border:2px solid transparent}
+.tb:hover{border-color:rgba(255,255,255,.5)}
+#hero{position:absolute;left:48px;top:84px;width:470px;animation:rise var(--d-slow) var(--ease)}
+.lab{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.12em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--s1);display:flex;align-items:center;gap:var(--s1)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-cap);font-weight:var(--w-strong);padding:4px 12px;border-radius:var(--r-pill);background:rgba(255,255,255,.14);color:var(--text);letter-spacing:0;text-transform:none}
+.chip.psn{background:rgba(154,166,255,.22);color:#d3d9ff}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+#hero h1{font-size:var(--t-display);font-weight:var(--w-heavy);line-height:1.04;letter-spacing:-.01em;margin-bottom:var(--s1);max-width:460px}
+#hero p{font-size:var(--t-body);color:var(--text-2);margin-bottom:var(--s3)}
+.cta{display:inline-flex;align-items:center;gap:12px;height:56px;padding:0 var(--s4);border-radius:var(--r-pill);background:var(--accent);color:var(--accent-ink);font-size:var(--t-body);font-weight:var(--w-heavy);box-shadow:0 0 0 3px rgba(255,255,255,.9),0 12px 32px rgba(77,163,255,.35);cursor:pointer}
+.cta.warn{background:var(--warn)} .cta.psn{background:var(--psn)} .cta.mute{background:var(--text);}
+.cta-h{display:inline-block;margin-left:var(--s2);font-size:var(--t-cap);color:var(--text-2);font-weight:var(--w-strong)}
+#art{position:absolute;left:540px;top:78px;width:380px;height:240px;animation:rise var(--d-slow) var(--ease)}
+#art .ca{position:absolute;left:0;top:30px;filter:drop-shadow(0 20px 28px rgba(0,0,0,.55))}
+#art .cvr{position:absolute;right:0;top:0;box-shadow:0 20px 40px rgba(0,0,0,.6);transform:rotate(2deg)}
+#meta{position:absolute;left:48px;right:48px;top:320px;height:72px;border-radius:var(--r-md);background:rgba(16,24,46,.62);backdrop-filter:blur(16px);border:1px solid var(--line);display:flex;align-items:center}
+#meta .c{flex:1;padding:0 var(--s3);border-right:1px solid var(--line);min-width:0}
+#meta .c:last-child{border-right:0}#meta .c:nth-child(3){flex:1.8}
+#meta .k{font-size:var(--t-cap);color:var(--text-2);margin-bottom:2px}
+#meta .v{font-size:var(--t-body);font-weight:var(--w-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#strip{position:absolute;left:0;right:0;top:408px;height:96px}
+.cc{position:absolute;left:0;top:0;width:172px;height:76px;margin-top:8px;border-radius:var(--r-md);background:rgba(20,28,52,.78);border:2px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 12px 0 8px;transition:transform var(--d-base) var(--ease),border-color var(--d-base),background var(--d-base);cursor:pointer;overflow:hidden}
+.cc .ct{min-width:0}
+.cc .n{font-size:var(--t-cap);font-weight:var(--w-heavy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .s{font-size:var(--t-cap);color:var(--text-2);display:flex;align-items:center;gap:6px}
+.cc.sel{border-color:#fff;background:var(--surface-2);box-shadow:0 0 28px rgba(77,163,255,.4)}
+.cc .ico{color:var(--text-2)}
+.hints{position:absolute;left:0;right:0;bottom:0;height:32px;display:flex;gap:var(--s3);align-items:center;justify-content:center;font-size:var(--t-cap);font-weight:var(--w-strong);color:var(--text-2)}
+.hints b{color:var(--text);margin-right:6px}
+/* settings */
+#set{background:linear-gradient(160deg,#0f1830,#080d1a)}
+.tabs{position:absolute;left:32px;right:32px;top:24px;height:56px;display:flex;align-items:center;gap:8px}
+.tabs .sh{width:44px;height:36px;border-radius:var(--r-sm);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:var(--t-cap);font-weight:var(--w-heavy);color:var(--text-2);flex:none;cursor:pointer}
+.tab{flex:1;height:48px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;font-size:var(--t-cap);font-weight:var(--w-heavy);color:var(--text-2);cursor:pointer;border:2px solid transparent;transition:all var(--d-base) var(--ease)}
+.tab.on{background:var(--accent);color:var(--accent-ink);border-color:#fff}
+#rowsvp{position:absolute;left:48px;top:104px;width:528px;height:376px;overflow:hidden;-webkit-mask-image:linear-gradient(transparent 0,#000 10px,#000 calc(100% - 20px),transparent);mask-image:linear-gradient(transparent 0,#000 10px,#000 calc(100% - 20px),transparent)}
+#rows{transition:transform var(--d-base) var(--ease);animation:rise var(--d-base) var(--ease)}
+.row{height:56px;margin-bottom:8px;border-radius:var(--r-md);background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:space-between;padding:0 var(--s2) 0 var(--s3);font-size:var(--t-body);font-weight:var(--w-strong);cursor:pointer;border:2px solid transparent;transition:background var(--d-fast),border-color var(--d-fast)}
+.row.sel{background:var(--surface-2);border-color:var(--accent)}
+.row .val{display:flex;align-items:center;gap:12px;color:var(--text-2);font-size:var(--t-body)}
+.row.sel .val{color:var(--text)}
+.sw{width:56px;height:32px;border-radius:var(--r-pill);background:#33405f;position:relative;flex:none}
+.sw::after{content:"";position:absolute;left:4px;top:4px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform var(--d-base) var(--ease)}
+.sw.on{background:var(--accent)}.sw.on::after{transform:translateX(24px)}
+.arr{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center}
+#side{position:absolute;left:608px;top:112px;width:304px;height:360px;border-radius:var(--r-lg);background:rgba(20,30,58,.7);border:1px solid var(--line);padding:var(--s3);animation:rise var(--d-base) var(--ease)}
+#side .g{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:var(--s1)}
+#side h2{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.12;margin-bottom:var(--s2)}
+#side p{font-size:var(--t-body);color:var(--text-2);line-height:1.4}
+#side .big{margin-top:var(--s3);font-size:var(--t-title);font-weight:var(--w-heavy);color:var(--accent)}
+/* waking */
+#wk{background:#080c18}
+.wkc{position:absolute;left:56px;top:64px;width:360px}
+.wkc .num{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.12em;color:var(--text-2);text-transform:uppercase;margin-bottom:var(--s1)}
+.wkc h1{font-size:var(--t-display);font-weight:var(--w-heavy);line-height:1.05;margin-bottom:var(--s1);animation:rise var(--d-base) var(--ease)}
+.wkc p{font-size:var(--t-body);color:var(--text-2);margin-bottom:var(--s3)}
+.wkart{position:absolute;right:72px;top:96px;text-align:center}
+.wkbar{position:absolute;left:56px;right:56px;bottom:96px;display:flex;gap:8px}
+.wkbar i{flex:1;height:8px;border-radius:var(--r-sm);background:rgba(255,255,255,.14);transition:background var(--d-base)}
+.wkbar i.d{background:var(--ok)} .wkbar i.c{background:var(--accent);animation:pulse 900ms ease-in-out infinite}
+.wkl{position:absolute;left:56px;right:56px;bottom:60px;display:flex;justify-content:space-between;font-size:var(--t-cap);color:var(--text-2)}
+.wkl .on{color:var(--text);font-weight:var(--w-heavy)}
+</style></head><body>
+<div class="shell">
+  <div class="bar" id="bar">
+    <span class="ttl">Showcase Carousel</span>
+    <a href="index.html">&larr; All directions</a>
+    <button data-jump="home">Home</button>
+    <button data-jump="settings">Settings</button>
+    <button data-jump="waking">Connecting</button>
+    <button data-jump="stream">In-stream</button>
+    <button data-jump="unstable" id="bUnst">Network unstable</button>
+    <button data-jump="chooser">Connect via</button>
+    <button data-jump="register">Register PIN</button>
+    <button data-jump="error">Error popup</button>
+    <button id="bZoom">Zoom 2&times;</button>
+  </div>
+  <div class="stageWrap" id="wrap"><div class="stage" id="stage"><div id="screen"></div><div id="popLayer"></div></div></div>
+  <div class="legend">
+    <span><kbd>Arrows</kbd>D-pad</span><span><kbd>Enter</kbd>Cross (confirm)</span><span><kbd>Esc</kbd>Circle (back)</span>
+    <span><kbd>T</kbd>Triangle (options)</span><span><kbd>S</kbd>Square</span><span><kbd>Q</kbd>/<kbd>E</kbd>L / R shoulder</span><span><kbd>Space</kbd>Start</span><span><kbd>Click</kbd>front touch</span>
+  </div>
+  <div class="note">Mock at native 960&times;544. Console art is placeholder CSS/SVG. Backdrop blur and glow here become pre-blurred textures and 9-slice panels on the Vita; see FEASIBILITY.md.</div>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const ICONS={
+ console:'<rect x="8" y="3" width="8" height="18" rx="3"/><path d="M12 17h.01"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+ pad:'<path d="M6 8h12a4 4 0 0 1 4 4v2a3 3 0 0 1-5.2 2L15 14H9l-1.8 2A3 3 0 0 1 2 14v-2a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3M16 11.5h.01M18 13h.01"/>',
+ user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+ list:'<path d="M5 6h14M5 12h14M5 18h9"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ bolt:'<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
+ globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+ wifi:'<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/>',
+ battery:'<rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4M5 10v4M8 10v4M11 10v4"/>',
+ check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+ warn:'<path d="M12 3L2 21h20z"/><path d="M12 10v5M12 18h.01"/>',
+ lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+ play:'<path d="M7 4l13 8-13 8z"/>',
+ qr:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h3M20 18v3"/>',
+ lan:'<rect x="9" y="3" width="6" height="5"/><rect x="3" y="16" width="6" height="5"/><rect x="15" y="16" width="6" height="5"/><path d="M12 8v4M6 16v-4h12v4"/>',
+ moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>',
+ back:'<path d="M15 5l-7 7 7 7"/>',
+ next:'<path d="M9 5l7 7-7 7"/>'
+};
+const ico=(n,s=24)=>`<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+
+const CONSOLES=[
+ {name:'Living Room',model:'PS5',ip:'192.168.1.20',state:'ready',reg:true,lan:true,psn:true,game:'Astro Voyager',tid:'PPSA01234',cover:true,hue:215,last:'Yesterday, 21:40 · 1 h 52 min'},
+ {name:'Den',model:'PS4',ip:'192.168.1.31',state:'standby',reg:true,lan:true,psn:false,game:null,tid:null,cover:false,hue:30,last:'3 days ago · 48 min'},
+ {name:'Bedroom',model:'PS5',ip:'192.168.1.44',state:'ready',reg:false,lan:true,psn:false,game:'Neon Drift',tid:'PPSA05678',cover:false,hue:320,last:'Never'},
+ {name:'Office',model:'PS5',ip:'Remote only',state:'standby',reg:true,lan:false,psn:true,game:null,tid:null,cover:false,hue:160,last:'Last week · 2 h 05 min'}
+];
+const statusOf=c=>!c.reg?{k:'unreg',t:'Not registered',d:'Register to play',col:'var(--text-2)'}:
+  c.state==='ready'?{k:'ready',t:'Ready',d:c.game?('Playing '+c.game):'Ready to connect',col:'var(--ok)'}:
+  {k:'standby',t:'Standby',d:'Rest mode · will wake',col:'var(--warn)'};
+const routeOf=c=>c.lan?(c.psn?'LAN + PSN':'LAN'):'PSN only';
+const STEPS=(c,route)=>[
+ ['Waking console','Sending wake signal to '+c.name],
+ ['Waiting for console','Console is starting up'],
+ ['Console responded',route==='PSN'?'Relaying through PSN':'Found at '+c.ip],
+ ['Checking registration','Verifying saved credentials'],
+ ['Opening session','Contacting the remote play host'],
+ ['Securing connection','Exchanging encryption keys'],
+ ['Preparing video','Starting the hardware decoder'],
+ ['Starting stream','Almost there']
+];
+const SETTINGS=[
+ {id:'quality',label:'Quality Preset',grp:'Stream',type:'select',opts:['Auto','Low','Balanced','High'],v:2,desc:'Sets resolution and bitrate together. Higher needs a strong Wi-Fi link.'},
+ {id:'latency',label:'Latency Mode',grp:'Stream',type:'select',opts:['Ultra Low','Balanced','Stable'],v:1,desc:'Ultra Low drops frames sooner to stay responsive. Stable buffers more.'},
+ {id:'fps',label:'FPS Target',grp:'Stream',type:'select',opts:['30 fps','60 fps'],v:1,desc:'60 fps feels smoother but doubles the data the Vita must receive.'},
+ {id:'autowake',label:'Auto Wake',grp:'Connection',type:'toggle',v:true,desc:'Wake a console in rest mode automatically when you connect.'},
+ {id:'autoreconnect',label:'Auto Reconnect',grp:'Connection',type:'toggle',v:true,desc:'Try to rejoin the session if the connection drops.'},
+ {id:'psnfallback',label:'PSN Fallback',grp:'Connection',type:'toggle',v:true,desc:'Switch to PSN remote play when the LAN route fails.'},
+ {id:'fastrestart',label:'Fast Restart',grp:'Connection',type:'toggle',v:false,desc:'Restart the stream without a full handshake after a stall.'},
+ {id:'rumble',label:'Rumble',grp:'Input',type:'toggle',v:true,desc:'Pass controller vibration from the game to the Vita.'},
+ {id:'motion',label:'Motion Controls',grp:'Input',type:'toggle',v:false,desc:'Send Vita gyroscope data to games that support it.'},
+ {id:'touch',label:'Front Touch Input',grp:'Input',type:'toggle',v:true,desc:'Map the front touchscreen to the console touchpad.'},
+ {id:'stats',label:'Stats Overlay',grp:'Display',type:'toggle',v:true,desc:'Show latency, FPS and bitrate while streaming.'},
+ {id:'netwarn',label:'Network Warnings',grp:'Display',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
+ {id:'hideip',label:'Hide Console IPs',grp:'Display',type:'toggle',v:false,desc:'Mask IP addresses, useful for screenshots.'},
+ {id:'keepawake',label:'Keep Screen On',grp:'Advanced',type:'toggle',v:true,desc:'Prevent the Vita from dimming during a stream.'},
+ {id:'debug',label:'Debug Logging',grp:'Advanced',type:'toggle',v:false,desc:'Write detailed logs to ux0:data/vitarps5. Costs some performance.'}
+];
+const GROUPS=['Stream','Connection','Input','Display','Advanced'];
+const valText=s=>s.type==='select'?s.opts[s.v]:(s.v?'On':'Off');
+const cycle=(s,d)=>{ if(s.type==='select') s.v=(s.v+d+s.opts.length)%s.opts.length; else s.v=!s.v; };
+const PRESETS=['Default','Shooter','Racing'];
+const LOGS=[['21:41:07','INFO','Discovery: 4 consoles found'],['21:41:09','INFO','Living Room: ready, Astro Voyager'],['21:41:12','WARN','Den: no response, assuming standby'],['21:42:01','INFO','Session opened over LAN'],['21:42:03','INFO','Decoder started 960x544 @ 60'],['21:48:55','WARN','Loss 3.1% over 200 ms'],['21:48:58','WARN','Bitrate lowered to 7.5 Mbps'],['21:49:30','INFO','Stream recovered']];
+const SUNDRY={psn:'player_one',presetIdx:0};
+
+function consoleArt(c,w=120){
+ const led=c.state==='ready'?'#3ddc97':'#ffb547', dim=c.reg?1:.7, u=(consoleArt.n=(consoleArt.n||0)+1);
+ if(c.model==='PS5') return `<svg viewBox="0 0 120 160" width="${w}" style="opacity:${dim}" aria-hidden="true"><defs><linearGradient id="gA${u}" x1="0" x2="1"><stop offset="0" stop-color="#f4f7ff"/><stop offset="1" stop-color="#aab6d3"/></linearGradient><linearGradient id="gB${u}" x1="0" x2="1"><stop offset="0" stop-color="#2a3350"/><stop offset="1" stop-color="#121829"/></linearGradient></defs><rect x="40" y="10" width="40" height="140" rx="12" fill="url(#gB${u})"/><path d="M42 10C8 30 8 130 42 150V10z" fill="url(#gA${u})"/><path d="M78 10c34 20 34 120 0 140V10z" fill="url(#gA${u})"/><rect x="58" y="26" width="4" height="64" rx="2" fill="${led}"/><circle cx="60" cy="134" r="3" fill="#1a2238"/></svg>`;
+ return `<svg viewBox="0 0 160 100" width="${w*1.2}" style="opacity:${dim}" aria-hidden="true"><defs><linearGradient id="gC${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a567d"/><stop offset="1" stop-color="#232b49"/></linearGradient></defs><polygon points="30,26 152,26 134,50 12,50" fill="#6b79a3"/><polygon points="12,50 134,50 134,74 12,74" fill="url(#gC${u})"/><polygon points="134,50 152,26 152,48 134,74" fill="#171d33"/><rect x="22" y="60" width="64" height="4" rx="2" fill="${led}"/></svg>`;
+}
+function coverArt(c,w,h){
+ if(c.game && c.cover){
+  const a=c.hue,b=(c.hue+70)%360;
+  return `<div class="cover" style="width:${w}px;height:${h}px;background:linear-gradient(160deg,hsl(${a} 75% 52%),hsl(${b} 70% 22%))"><svg class="cv" viewBox="0 0 100 133" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><circle cx="70" cy="40" r="22" fill="hsl(${a+40} 90% 75%)" opacity=".85"/><path d="M0 110L28 62l22 34 18-22 32 42v17H0z" fill="hsl(${b} 60% 14%)" opacity=".85"/></svg><span class="ct">${c.game}</span></div>`;
+ }
+ const t=c.game?c.game:'No game running';
+ return `<div class="cover none" style="width:${w}px;height:${h}px">${ico('pad',Math.min(40,w/3))}<span class="ct">${t}</span></div>`;
+}
+
+const App={
+ S:{ci:0,route:'LAN',step:0,stream:{lat:38,fps:60,br:10.2,unst:false,hud:true},tod:'auto'},
+ pop:null, timers:[], zoom:1,
+ hhmm(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');},
+ mount(M){
+  this.M=M; document.body.dataset.dir=M.dir;
+  M.init($('#screen'));
+  addEventListener('keydown',e=>{
+   const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',Escape:'back',t:'tri',T:'tri',q:'L',Q:'L',e:'R',E:'R',s:'sq',S:'sq',' ':'start'};
+   const k=map[e.key]; if(!k) return; e.preventDefault(); this.key(k);
+  });
+  $('#stage').addEventListener('click',e=>{
+   const p=e.target.closest('[data-pop]'); if(p){this.popPress(+p.dataset.pop);return;}
+   const el=e.target.closest('[data-do]'); if(el&&!this.pop) M.act(el.dataset.do,el.dataset.arg,el);
+  });
+  $$('[data-jump]').forEach(b=>b.addEventListener('click',()=>this.jump(b.dataset.jump)));
+  $('#bZoom').addEventListener('click',e=>{this.zoom=this.zoom===1?2:1;$('#wrap').style.setProperty('--z',this.zoom);e.target.classList.toggle('on',this.zoom===2);});
+  document.documentElement.style.setProperty('--z',1);$('#wrap').style.setProperty('--z',1);
+  setInterval(()=>{$$('.clk').forEach(n=>n.textContent=this.hhmm());},5000);
+  setInterval(()=>this.tick(),1000);
+  M.go('home');
+ },
+ key(k){ if(this.pop){this.popKey(k);return;} this.M.key(k); },
+ go(n){
+  this.timers.forEach(clearTimeout);this.timers=[];
+  this.M.go(n);
+  $$('.bar [data-jump]').forEach(b=>b.classList.toggle('on',b.dataset.jump===n));
+ },
+ jump(n){
+  this.closePop();
+  if(n==='error') return this.popup(this.errorPop());
+  if(n==='register') return this.popup(this.registerPop(CONSOLES[2]));
+  if(n==='chooser') return this.popup(this.chooserPop(CONSOLES[0]));
+  if(n==='unstable'){ this.S.stream.unst=!this.S.stream.unst; $('#bUnst').classList.toggle('on',this.S.stream.unst); if(this.M.screen!=='stream') this.go('stream'); this.paintHud(); return; }
+  if(n==='waking'){ this.connect(1,'LAN',true); return; }
+  this.go(n);
+ },
+ connect(ci,route,force){
+  const c=CONSOLES[ci];
+  if(!c.reg && !force){ this.popup(this.registerPop(c)); return; }
+  this.S.ci=ci; this.S.route=route||(c.lan?'LAN':'PSN');
+  this.S.step=(c.state==='ready')?2:0;
+  this.go('waking');
+  const run=()=>{
+   this.timers.push(setTimeout(()=>{
+    this.S.step++; this.M.onWake&&this.M.onWake();
+    if(this.S.step<8) run(); else this.timers.push(setTimeout(()=>this.go('stream'),700));
+   },850));
+  };
+  run();
+ },
+ tick(){
+  const s=this.S.stream, u=s.unst;
+  s.lat=Math.round(u?90+Math.random()*60:34+Math.random()*10);
+  s.fps=u?Math.round(36+Math.random()*10):(SETTINGS[2].v?59+Math.round(Math.random()):30);
+  s.br=+(u?(4+Math.random()*2):(9.6+Math.random()*1.4)).toFixed(1);
+  this.paintHud();
+ },
+ paintHud(){
+  const s=this.S.stream,set=(k,v)=>$$(`[data-stat=${k}]`).forEach(n=>n.textContent=v);
+  set('lat',s.lat);set('fps',s.fps);set('br',s.br);
+  $$('.hud .unst').forEach(n=>n.hidden=!(s.unst&&SETTINGS[11].v));
+  $$('.hud').forEach(n=>n.classList.toggle('nostats',!SETTINGS[10].v));
+ },
+ sceneHTML(){
+  return `<div class="scene"><div class="sun"></div><svg viewBox="0 0 960 544" preserveAspectRatio="none" aria-hidden="true"><path d="M0 360L140 250l120 90 150-120 140 130 150-100 120 100 140-60v264H0z" fill="#241044"/><path d="M0 400L200 330l180 60 160-50 200 60 220-40v184H0z" fill="#170a30"/></svg><div class="road"><i></i><i style="animation-delay:-230ms"></i><i style="animation-delay:-470ms"></i></div></div>`;
+ },
+ hudHTML(){
+  return `<div class="hud"><div class="unst" hidden>${ico('warn',20)}Network Unstable</div>
+  <div class="panel"><div class="stat">Latency<b><span data-stat="lat">38</span><em>ms</em></b></div><div class="stat">FPS<b><span data-stat="fps">60</span></b></div><div class="stat">Bitrate<b><span data-stat="br">10.2</span><em>Mbps</em></b></div></div>
+  <div class="exit"><kbd>Esc</kbd> Leave stream &nbsp;&middot;&nbsp; <kbd>T</kbd> Stats</div></div>`;
+ },
+ /* ---- popups ---- */
+ popup(o){ this.pop=Object.assign({sel:0},o); this.paintPop(); },
+ closePop(){ this.pop=null; this.paintPop(); },
+ paintPop(){
+  const L=$('#popLayer'); const p=this.pop;
+  if(!p){L.style.pointerEvents='none';L.innerHTML='';return;}
+  L.style.pointerEvents='auto';
+  L.innerHTML=`<div class="pop-scrim"><div class="pop ${p.cls||''}" role="dialog" aria-label="${p.title}"><div class="pi">${ico(p.icon||'warn',28)}</div><h3>${p.title}</h3><p>${p.body}</p>${p.extra||''}<div class="btns ${p.vertical?'v':''}">${p.buttons.map((b,i)=>`<button class="pop-btn ${i===p.sel?'sel':''} ${b.dis?'dis':''}" data-pop="${i}">${b.icon?ico(b.icon,20):''}${b.label}${b.sub?` <small>${b.sub}</small>`:''}</button>`).join('')}</div></div></div>`;
+ },
+ popKey(k){
+  const p=this.pop,n=p.buttons.length;
+  if(k==='up'||k==='left') p.sel=(p.sel+n-1)%n;
+  else if(k==='down'||k==='right') p.sel=(p.sel+1)%n;
+  else if(k==='ok') return this.popPress(p.sel);
+  else if(k==='back') return this.closePop();
+  this.paintPop();
+ },
+ popPress(i){ const b=this.pop.buttons[i]; if(b.dis) return; this.closePop(); b.fn&&b.fn(); },
+ errorPop(){ return {cls:'err',title:'Can’t reach Office PS5',body:'The PSN relay timed out after 10 seconds (error RP-0x8A3). Check that the console is in rest mode and signed in to PSN.',buttons:[{label:'Retry',fn:()=>this.connect(3,'PSN')},{label:'Cancel'}]}; },
+ registerPop(c){ return {icon:'lock',title:'Register '+c.name,body:'On the console open Settings › System › Remote Play › Link Device and enter the 8-digit code shown there.',extra:'<div class="pin"><b>4</b><b>8</b><b>2</b><b>7</b><b>–</b><b>–</b><b>–</b><b>–</b></div>',buttons:[{label:'Register',fn:()=>{c.reg=true;this.M.refresh&&this.M.refresh();}},{label:'Cancel'}]}; },
+ chooserPop(c){ return {icon:'globe',title:'Connect via',body:'Pick how to reach '+c.name+'. LAN is faster; PSN works away from home.',vertical:true,buttons:[{icon:'lan',label:'Home network',sub:c.lan?'192.168.1.20 · lowest latency':'unavailable',dis:!c.lan,fn:()=>this.connect(CONSOLES.indexOf(c),'LAN')},{icon:'globe',label:'PlayStation Network',sub:c.psn?'remote · adds ~30 ms':'unavailable',dis:!c.psn,fn:()=>this.connect(CONSOLES.indexOf(c),'PSN')},{label:'Cancel'}]}; }
+};
+function slide(el,dx,dy,extra=''){el.style.transform=`translate3d(${dx}px,${dy}px,0) ${extra}`;}
+
+const TABS=['Stream','Connection','Input','Display','Advanced','Profile'];
+const rowsFor=t=>{
+ const g=TABS[t];
+ if(g==='Input') return [{label:'Controller Preset',type:'select',opts:PRESETS,v:Z.preset,own:'preset',desc:'Which button layout is sent to the console. Triangle edits a single mapping.'}].concat(SETTINGS.filter(s=>s.grp===g));
+ if(g==='Advanced') return SETTINGS.filter(s=>s.grp===g).concat(LOGS.slice(-4).map(l=>({label:l[2],type:'info',val:l[0],desc:l[1]+' log entry at '+l[0]+'.'})));
+ if(g==='Profile') return [{label:'PSN Account',type:'info',val:'player_one',desc:'Signed in. Remote play over PSN is available.'},{label:'Route',type:'info',val:'LAN · 4 ms',desc:'Round trip to the selected console.'},{label:'Packet loss',type:'info',val:'0.2 %',desc:'Measured over the last minute.'},{label:'Register console',type:'action',act:'reg',desc:'Link this Vita to a console with an 8-digit code.'},{label:'Phone login',type:'action',act:'qr',desc:'Sign in to PSN by scanning a QR code with your phone.'}];
+ return SETTINGS.filter(s=>s.grp===g);
+};
+const Z={dir:'show',screen:'home',sel:0,tab:0,row:[0,0,0,0,0,0],preset:0};
+const N=()=>CONSOLES.length+1;
+function bgHTML(){return CONSOLES.map((c,i)=>`<div class="bgl ${c.state==='standby'?'sb':''}" id="bg${i}" style="background:radial-gradient(circle at 78% 30%,hsl(${c.hue} 75% 48% / .6),transparent 55%),radial-gradient(circle at 15% 95%,hsl(${c.hue+60} 65% 32% / .55),transparent 55%),#0a0f1d"></div>`).join('')+`<div class="bgl" id="bgN" style="background:radial-gradient(circle at 70% 40%,hsl(215 40% 30% / .6),transparent 55%),#0a0f1d"></div>`;}
+function heroOf(i){
+ if(i===CONSOLES.length) return {lab:'New',chip:'',title:'Add a console',sub:'Find a console on your network or register one with its 8-digit code.',cta:['Add console','plus','']};
+ const c=CONSOLES[i],st=statusOf(c);
+ const chip=`<span class="chip"><i class="dot" style="background:${st.col}"></i>${st.t}</span>`+(!c.lan&&c.psn?` <span class="chip psn">${ico('globe',16)}PSN only</span>`:'');
+ let title,sub,cta;
+ if(!c.reg){title=c.game||'Not registered';sub='Not registered. Link this console to start playing.';cta=['Register','lock','mute'];}
+ else if(c.state==='standby'){title='In rest mode';sub=c.lan?'Wakes in about 20 seconds, then connects.':'Wakes through PSN, then connects.';cta=[c.lan?'Wake and connect':'Wake via PSN','bolt','warn'];}
+ else{title=c.game||'Ready to play';sub=c.game?'Running now on '+c.name+'.':'Nothing running. Start a game on the console.';cta=['Connect','play',c.lan?'':'psn'];}
+ return {lab:c.name+' · '+c.model,chip,title,sub,cta};
+}
+function paintHome(){
+ const i=Z.sel,h=heroOf(i);
+ $$('.bgl').forEach(b=>b.classList.remove('on'));$(i<CONSOLES.length?'#bg'+i:'#bgN').classList.add('on');
+ const hero=$('#hero');hero.style.animation='none';void hero.offsetWidth;hero.style.animation='';
+ hero.innerHTML=`<div class="lab">${h.lab} ${h.chip}</div><h1>${h.title}</h1><p>${h.sub}</p><span class="cta ${h.cta[2]}" data-do="primary">${ico(h.cta[1],24)}${h.cta[0]}</span><span class="cta-h">✕</span>`;
+ const art=$('#art');art.style.animation='none';void art.offsetWidth;art.style.animation='';
+ if(i===CONSOLES.length) art.innerHTML=`<div class="ca" style="left:90px;top:40px;color:var(--text-2);opacity:.9">${ico('plus',120)}</div>`;
+ else{const c=CONSOLES[i];art.innerHTML=`<div class="ca" style="left:${c.game?0:130}px;top:${c.game?30:0}px">${consoleArt(c,c.game?130:128)}</div>`+(c.game?`<div class="cvr">${coverArt(c,170,226)}</div>`:'');}
+ const m=$('#meta');
+ if(i===CONSOLES.length){m.style.display='none';}else{m.style.display='';const c=CONSOLES[i];
+  m.innerHTML=[['IP address',SETTINGS[12].v?'•••.•••.•.••':c.ip],['Route',routeOf(c)],['Last session',c.last],['Title ID',c.tid||'None']].map(a=>`<div class="c"><div class="k">${a[0]}</div><div class="v">${a[1]}</div></div>`).join('');}
+ layoutStrip();
+}
+function buildStrip(){
+ $('#strip').innerHTML=CONSOLES.map((c,i)=>`<div class="cc" data-do="card" data-arg="${i}"><div style="flex:none;width:44px;display:flex;justify-content:center">${consoleArt(c,c.model==='PS5'?26:34)}</div><div class="ct"><div class="n">${c.name}</div><div class="s"><i class="dot" style="background:${statusOf(c).col}"></i>${statusOf(c).t==='Not registered'?'No link':statusOf(c).t}</div></div></div>`).join('')+`<div class="cc" data-do="card" data-arg="${CONSOLES.length}"><div style="flex:none;width:44px;display:flex;justify-content:center">${ico('plus',28)}</div><div class="ct"><div class="n">Add</div><div class="s">console</div></div></div>`;
+}
+function layoutStrip(){
+ $$('#strip .cc').forEach((el,i)=>{const d=i-Z.sel;slide(el,480-86+d*184,0,d===0?'scale(1.12)':'');el.classList.toggle('sel',d===0);});
+}
+const rowsNow=()=>rowsFor(Z.tab);
+function rowHTML(r,i){
+ let v='';
+ if(r.type==='toggle')v=`<span class="val">${r.v?'On':'Off'}<span class="sw ${r.v?'on':''}"></span></span>`;
+ else if(r.type==='select')v=`<span class="val"><span class="arr" data-do="dec" data-arg="${i}">${ico('back',16)}</span>${r.opts[r.v]}<span class="arr" data-do="inc" data-arg="${i}">${ico('next',16)}</span></span>`;
+ else if(r.type==='info')v=`<span class="val">${r.val}</span>`;
+ else v=`<span class="val">${ico('next',20)}</span>`;
+ return `<div class="row ${i===Z.row[Z.tab]?'sel':''}" data-do="row" data-arg="${i}"><span>${r.label}</span>${v}</div>`;
+}
+function paintSet(full){
+ const rs=rowsNow(),s=Z.row[Z.tab];
+ $('#tabs').innerHTML=`<div class="sh" data-do="tabd">L</div>`+TABS.map((t,i)=>`<div class="tab ${i===Z.tab?'on':''}" data-do="tab" data-arg="${i}">${t}</div>`).join('')+`<div class="sh" data-do="tabu">R</div>`;
+ const rowsEl=$('#rows');
+ if(full){rowsEl.style.animation='none';void rowsEl.offsetWidth;rowsEl.style.animation='';}
+ rowsEl.innerHTML=rs.map(rowHTML).join('');
+ rowsEl.style.transform=`translateY(${-Math.max(0,s-3)*64}px)`;
+ const r=rs[s];
+ $('#side').innerHTML=`<div class="g">${TABS[Z.tab]}</div><h2>${r.label}</h2><p>${r.desc}</p>`+(r.type==='select'||r.type==='toggle'?`<div class="big">${r.type==='select'?r.opts[r.v]:(r.v?'On':'Off')}</div>`:'');
+}
+function paintWake(){
+ const c=CONSOLES[App.S.ci],r=App.S.route,st=STEPS(c,r),cur=Math.min(App.S.step,7);
+ $('#wk').innerHTML=`<div class="bgl on ${c.state==='standby'?'sb':''}" style="background:radial-gradient(circle at 80% 40%,hsl(${c.hue} 75% 48% / .55),transparent 55%),#080c18"></div><div class="shade" style="opacity:.6"></div>
+ <div class="wkc"><div class="num">Step ${cur+1} of 8 · ${c.name} ${ico(r==='PSN'?'globe':'lan',16)} ${r}</div><h1>${st[cur][0]}</h1><p>${st[cur][1]}</p></div>
+ <div class="wkart">${consoleArt(c,170)}</div>
+ <div class="wkbar">${st.map((s,i)=>`<i class="${i<App.S.step?'d':i===cur?'c':''}"></i>`).join('')}</div>
+ <div class="wkl">${st.map((s,i)=>`<span class="${i===cur?'on':''}">${i+1}</span>`).join('')}</div>
+ <div class="hints"><span><b>○</b>Cancel</span></div>`;
+}
+const M={dir:'show',screen:'home',
+ init(root){
+  root.innerHTML=`<div class="layer" id="home">${bgHTML()}<div class="shade"></div>
+   <div class="top"><span class="brand">VitaRPS5</span><span class="r"><span class="clk">${App.hhmm()}</span>${ico('wifi',20)}${ico('battery',24)}<span class="tb" data-do="gotoSet" role="button" aria-label="Settings">${ico('gear',24)}</span><span class="tb" data-do="gotoProf" role="button" aria-label="Profile">${ico('user',24)}</span></span></div>
+   <div id="hero"></div><div id="art"></div><div id="meta"></div><div id="strip"></div>
+   <div class="hints"><span><b>◀ ▶</b>Browse</span><span><b>✕</b>Connect</span><span><b>△</b>Options</span><span><b>□</b>Menu</span><span><b>Start</b>Settings</span></div></div>
+   <div class="layer" id="set" style="display:none"><div class="tabs" id="tabs"></div><div id="rowsvp"><div id="rows"></div></div><div id="side"></div><div class="hints"><span><b>L / R</b>Tab</span><span><b>▲▼</b>Select</span><span><b>◀ ▶</b>Change</span><span><b>✕</b>Confirm</span><span><b>○</b>Back</span></div></div>
+   <div class="layer" id="wk" style="display:none"></div><div class="layer" id="strm" style="display:none"></div>`;
+  buildStrip();
+ },
+ go(n){
+  const t=n==='settings'?'set':n==='home'?'home':n==='waking'?'wk':'strm';
+  ['home','set','wk','strm'].forEach(id=>$('#'+id).style.display=id===t?'':'none');
+  this.screen=n==='settings'?'settings':n;
+  if(n==='home')paintHome();
+  if(n==='settings')paintSet(true);
+  if(n==='waking')paintWake();
+  if(n==='stream'){$('#strm').innerHTML=App.sceneHTML()+App.hudHTML();App.paintHud();}
+ },
+ onWake(){paintWake();},
+ refresh(){paintHome();},
+ primary(){
+  const i=Z.sel;
+  if(i===CONSOLES.length) return App.popup(App.registerPop({name:'new console'}));
+  const c=CONSOLES[i];
+  App.connect(i);
+ },
+ optionsPop(){
+  const i=Z.sel;if(i===CONSOLES.length)return;const c=CONSOLES[i];
+  App.popup({icon:'console',title:c.name,body:statusOf(c).d+'.',vertical:true,buttons:[{icon:'globe',label:'Connect via…',fn:()=>App.popup(App.chooserPop(c))},{icon:'moon',label:'Wake only'},{icon:'lock',label:'Forget console'},{label:'Close'}]});
+ },
+ act(a,arg){
+  arg=+arg;
+  if(a==='card'){ if(Z.sel===arg)this.primary(); else {Z.sel=arg;paintHome();} }
+  else if(a==='primary')this.primary();
+  else if(a==='gotoSet'){Z.tab=0;App.go('settings');}
+  else if(a==='gotoProf'){Z.tab=5;App.go('settings');}
+  else if(a==='tab'){Z.tab=arg;paintSet(true);}
+  else if(a==='tabd')this.key('L'); else if(a==='tabu')this.key('R');
+  else if(a==='row'){ if(Z.row[Z.tab]!==arg){Z.row[Z.tab]=arg;paintSet(false);} else this.key('ok'); }
+  else if(a==='dec'||a==='inc'){Z.row[Z.tab]=arg;this.change(arg===undefined?0:(a==='inc'?1:-1));}
+ },
+ change(d){
+  const r=rowsNow()[Z.row[Z.tab]];
+  if(r.type==='select'||r.type==='toggle'){ cycle(r,d||1); if(r.own==='preset')Z.preset=r.v; paintSet(false); }
+ },
+ key(k){
+  if(this.screen==='waking'){if(k==='back')App.go('home');return;}
+  if(this.screen==='stream'){if(k==='back')App.go('home');if(k==='tri'){SETTINGS[10].v=!SETTINGS[10].v;App.paintHud();}return;}
+  if(this.screen==='settings'){
+   const rs=rowsNow(),t=Z.tab;
+   if(k==='back')App.go('home');
+   else if(k==='L'){Z.tab=(Z.tab+TABS.length-1)%TABS.length;paintSet(true);}
+   else if(k==='R'){Z.tab=(Z.tab+1)%TABS.length;paintSet(true);}
+   else if(k==='up'&&Z.row[t]>0){Z.row[t]--;paintSet(false);}
+   else if(k==='down'&&Z.row[t]<rs.length-1){Z.row[t]++;paintSet(false);}
+   else if(k==='left')this.change(-1);
+   else if(k==='right')this.change(1);
+   else if(k==='ok'){const r=rs[Z.row[t]];
+    if(r.type==='action'){ if(r.act==='reg')App.popup(App.registerPop({name:'new console'})); else App.popup({icon:'qr',title:'Phone login',body:'Scan the code with your phone camera, then confirm on the PSN website.',buttons:[{label:'Done'}]}); }
+    else this.change(1);}
+   return;
+  }
+  if(k==='left'||k==='L'){if(Z.sel>0){Z.sel--;paintHome();}}
+  else if(k==='right'||k==='R'){if(Z.sel<N()-1){Z.sel++;paintHome();}}
+  else if(k==='ok')this.primary();
+  else if(k==='tri')this.optionsPop();
+  else if(k==='start'){Z.tab=0;App.go('settings');}
+  else if(k==='sq')App.popup({icon:'list',title:'Menu',body:'Jump to another section.',vertical:true,buttons:[{icon:'gear',label:'Settings',fn:()=>{Z.tab=0;App.go('settings');}},{icon:'pad',label:'Controller',fn:()=>{Z.tab=2;App.go('settings');}},{icon:'user',label:'Profile',fn:()=>{Z.tab=5;App.go('settings');}},{icon:'list',label:'Logs',fn:()=>{Z.tab=4;App.go('settings');}},{label:'Close'}]});
+ }
+};
+App.mount(M);
+</script></body></html>

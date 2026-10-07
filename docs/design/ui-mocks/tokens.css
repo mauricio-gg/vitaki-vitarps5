@@ -1,0 +1,58 @@
+/* VitaRPS5 UI mocks - shared design tokens (issue #271).
+   Dark-first. Native target: 960x544 px on a 5" 220 ppi OLED/LCD.
+   Every value below maps to a constant in a future ui_theme.h. */
+:root {
+  /* Font: Manrope (SIL OFL). Three weights only: 500 / 700 / 800. */
+  --font: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --w-regular: 500;
+  --w-strong: 700;
+  --w-heavy: 800;
+
+  /* Type scale, 4 steps (px at native 960x544). Nothing below 16. */
+  --t-cap: 16px;    /* captions, hints, tags */
+  --t-body: 20px;   /* list rows, buttons, body */
+  --t-title: 28px;  /* headings, selected item */
+  --t-display: 48px;/* hero names, step numbers */
+
+  /* Colour: surfaces */
+  --bg-0: #070a12;
+  --bg-1: #0d1322;
+  --surface: #151d31;
+  --surface-2: #1f2a45;
+  --line: rgba(255, 255, 255, 0.10);
+  --scrim: rgba(4, 7, 14, 0.72);
+
+  /* Colour: text (all pass AA on --bg-1 and --surface-2) */
+  --text: #f3f6fc;      /* 16.9:1 on bg-1 */
+  --text-2: #bcc6da;    /* 10.0:1 on bg-1 */
+  --text-3: #93a0ba;    /* 6.4:1 on bg-1, 4.9:1 on surface-2 */
+
+  /* Colour: brand + semantic */
+  --accent: #4da3ff;        /* primary action, focus */
+  --accent-ink: #04101f;    /* text on accent: 8.3:1 */
+  --ok: #3ddc97;
+  --warn: #ffb547;
+  --err: #ff7a7a;
+  --psn: #9aa6ff;           /* PSN / remote route */
+  --focus-ring: #ffffff;
+
+  /* Per-page colours (Launcher uses all three, others use --accent) */
+  --c-home: #5ab0ff;
+  --c-settings: #ffc247;
+  --c-profile: #b794ff;
+
+  /* Spacing: 8 px grid */
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px;
+
+  /* Radii: 3 sizes (+ --r-pill for full pills). 9-slice PNG panels are cut at these. */
+  --r-sm: 8px;
+  --r-md: 16px;
+  --r-lg: 28px;
+  --r-pill: 999px; /* pills and circles: shape, not a size step */
+
+  /* Motion: one curve, three durations */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --d-fast: 120ms;  /* focus, press */
+  --d-base: 240ms;  /* selection move, panel slide */
+  --d-slow: 480ms;  /* screen change, carousel jump */
+}

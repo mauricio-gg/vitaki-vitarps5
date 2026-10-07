@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaRPS5 Mock - XMB Remote Play Bar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#04060b;color:var(--text);font-family:var(--font);font-weight:var(--w-regular);-webkit-font-smoothing:antialiased}
+.shell{min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:var(--s2);padding:var(--s2)}
+.bar{display:flex;flex-wrap:wrap;gap:var(--s1);align-items:center;justify-content:center;max-width:1000px}
+.bar .ttl{font-weight:var(--w-heavy);font-size:var(--t-body);margin-right:var(--s2)}
+.bar a,.bar button{font:inherit;font-size:14px;font-weight:var(--w-strong);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 14px;cursor:pointer;text-decoration:none}
+.bar a:hover,.bar button:hover{background:var(--surface-2)}
+.bar button.on{background:var(--accent);color:var(--accent-ink)}
+.stageWrap{position:relative;width:calc(960px*var(--z,1));height:calc(544px*var(--z,1));outline:1px solid #2a3350;flex:none}
+.stage{position:absolute;left:0;top:0;width:960px;height:544px;overflow:hidden;transform:scale(var(--z,1));transform-origin:0 0;background:var(--bg-1);color:var(--text);user-select:none}
+#screen,#popLayer{position:absolute;inset:0}
+#popLayer{pointer-events:none}
+.legend{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3);justify-content:center;font-size:14px;color:var(--text-2);max-width:960px}
+.legend kbd{font:inherit;font-weight:var(--w-heavy);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 8px;color:var(--text);margin-right:6px}
+.note{font-size:13px;color:var(--text-3);max-width:960px;text-align:center}
+.ico{display:inline-block;vertical-align:middle;flex:none}
+button{font-family:inherit}
+[data-do]{cursor:pointer}
+@media (prefers-reduced-motion:reduce){*{animation-duration:1ms!important;transition-duration:1ms!important}}
+/* ---- popups ---- */
+.pop-scrim{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;pointer-events:auto;animation:fadeIn var(--d-base) var(--ease)}
+.pop{width:520px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s4);box-shadow:0 24px 64px rgba(0,0,0,.6);animation:popIn var(--d-base) var(--ease)}
+.pop .pi{width:48px;height:48px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;background:var(--surface-2);margin-bottom:var(--s2)}
+.pop.err .pi{background:rgba(255,122,122,.16);color:var(--err)}
+.pop h3{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.15;margin-bottom:var(--s1)}
+.pop p{font-size:var(--t-body);color:var(--text-2);line-height:1.4}
+.pop .pin{display:flex;gap:8px;margin:var(--s2) 0 0}
+.pop .pin b{width:44px;height:56px;border-radius:var(--r-sm);background:var(--bg-1);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:var(--t-title);font-weight:var(--w-heavy)}
+.pop .btns{display:flex;gap:var(--s1);margin-top:var(--s3)}
+.pop .btns.v{flex-direction:column}
+.pop-btn{flex:1;min-height:48px;font-size:var(--t-body);font-weight:var(--w-strong);color:var(--text);background:var(--surface-2);border:2px solid transparent;border-radius:var(--r-md);padding:0 var(--s2);display:flex;align-items:center;justify-content:center;gap:var(--s1);cursor:pointer;transition:all var(--d-fast) var(--ease)}
+.pop-btn.sel{background:var(--accent);color:var(--accent-ink);border-color:var(--focus-ring)}
+.pop-btn.dis{opacity:.55}
+.pop-btn small{font-size:var(--t-cap);font-weight:var(--w-regular);opacity:.85}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes popIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+/* ---- stream scene + HUD (shared; variant per direction) ---- */
+.scene{position:absolute;inset:0;background:linear-gradient(#ff9a5a 0%,#ff5f7a 38%,#3b1d5e 62%,#120a24 100%);overflow:hidden}
+.scene .sun{position:absolute;left:380px;top:150px;width:200px;height:200px;border-radius:50%;background:linear-gradient(#fff3b0,#ff8a5a)}
+.scene svg{position:absolute;inset:0;width:100%;height:100%}
+.scene .road{position:absolute;left:0;right:0;bottom:0;height:200px;background:linear-gradient(#3a1d63,#0f0a1d);clip-path:polygon(46% 0,54% 0,100% 100%,0 100%)}
+.scene .road i{position:absolute;left:50%;width:10px;margin-left:-5px;height:30px;background:#ffd36b;animation:dash 700ms linear infinite}
+@keyframes dash{from{top:0;transform:scaleX(.3);opacity:0}20%{opacity:1}to{top:200px;transform:scaleX(1.8)}}
+.hud{position:absolute;inset:0;pointer-events:none;font-weight:var(--w-strong)}
+.hud .stat{font-size:var(--t-cap);color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
+.hud .stat b{display:block;font-size:var(--t-title);font-weight:var(--w-heavy);color:var(--text);letter-spacing:0;text-transform:none;line-height:1.1}
+.hud .stat b em{font-style:normal;font-size:var(--t-cap);color:var(--text-2);margin-left:4px;font-weight:var(--w-strong)}
+.hud .unst{display:flex;align-items:center;gap:8px;font-size:var(--t-body);font-weight:var(--w-heavy);background:var(--warn);color:#1a1000;padding:8px 16px;border-radius:var(--r-pill);position:absolute;left:50%;top:24px;transform:translateX(-50%);animation:pulse2 1.2s ease-in-out infinite}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.78}}
+.hud .unst[hidden]{display:none}
+.hud .exit{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);font-size:var(--t-cap);color:var(--text);background:rgba(4,7,14,.66);padding:8px 16px;border-radius:var(--r-pill)}
+.hud .exit kbd{font:inherit;font-weight:var(--w-heavy);color:var(--accent)}
+.hud.nostats .panel{display:none}
+/* XMB: slim strip */
+body[data-dir=xmb] .hud .panel{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;gap:var(--s4);padding:12px 28px;border-radius:var(--r-pill);background:rgba(10,16,34,.62);border:1px solid var(--line)}
+body[data-dir=xmb] .hud .unst{top:92px}
+/* Showcase: bottom-left card */
+body[data-dir=show] .hud .panel{position:absolute;left:24px;bottom:24px;display:flex;gap:var(--s3);padding:16px 24px;border-radius:var(--r-md);background:rgba(10,14,26,.72);border-left:4px solid var(--accent)}
+body[data-dir=show] .hud .exit{left:auto;right:24px;transform:none;border-radius:var(--r-sm)}
+/* Launcher: bold flat chips top-right */
+body[data-dir=launch] .hud .panel{position:absolute;right:24px;top:24px;display:flex;gap:8px}
+body[data-dir=launch] .hud .panel .stat{background:var(--c-home);color:var(--accent-ink);padding:8px 16px;border-radius:var(--r-sm)}
+body[data-dir=launch] .hud .panel .stat b,body[data-dir=launch] .hud .panel .stat b em{color:var(--accent-ink)}
+body[data-dir=launch] .hud .panel .stat{color:#0b2a4a}
+body[data-dir=launch] .hud .unst{left:24px;transform:none;border-radius:var(--r-sm)}
+body[data-dir=launch] .hud .exit{border-radius:var(--r-sm)}
+/* console art + cover */
+.cover{position:relative;overflow:hidden;border-radius:var(--r-md);display:flex;align-items:flex-end;justify-content:flex-start;color:#fff;background:#222}
+.cover .ct{position:relative;z-index:1;padding:12px;font-weight:var(--w-heavy);font-size:var(--t-cap);line-height:1.1;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.cover svg.cv{position:absolute;inset:0;width:100%;height:100%}
+.cover.none{background:linear-gradient(160deg,#27324f,#161d33);border:1px dashed rgba(255,255,255,.22);align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--text-3);text-align:center}
+.cover.none .ct{padding:0 8px;text-shadow:none;color:var(--text-2)}
+
+body .hud.nostats .panel{display:none}
+
+#screen{background:#060b1c}
+.layer{position:absolute;inset:0}
+#rib{position:absolute;left:0;top:0;width:960px;height:544px}
+.vig{position:absolute;inset:0;background:radial-gradient(120% 100% at 30% 45%,transparent 45%,rgba(0,0,0,.5));pointer-events:none}
+.top{position:absolute;top:20px;left:32px;right:32px;display:flex;justify-content:space-between;align-items:center;font-size:var(--t-cap);font-weight:var(--w-strong);color:var(--text-2)}
+.top .r{display:flex;gap:var(--s2);align-items:center}
+.top .brand{font-weight:var(--w-heavy);letter-spacing:.08em;text-transform:uppercase}
+.cat{position:absolute;left:0;top:0;width:128px;margin-left:-64px;text-align:center;transition:transform var(--d-base) var(--ease),opacity var(--d-base) var(--ease);cursor:pointer;opacity:.62}
+.cat .ci{width:64px;height:64px;margin:0 auto;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;color:var(--text-2);transition:all var(--d-base) var(--ease)}
+.cat .cl{margin-top:12px;font-size:var(--t-cap);font-weight:var(--w-heavy);opacity:0;transition:opacity var(--d-base)}
+.cat.on{opacity:1}
+.cat.on .ci{color:#fff;transform:scale(1.25);background:rgba(255,255,255,.14);box-shadow:0 0 0 2px rgba(255,255,255,.55),0 0 32px rgba(120,170,255,.45);margin-top:4px}
+.cat.on .cl{opacity:1;margin-top:20px}
+#list{position:absolute;left:140px;top:0;width:380px}
+.it{position:absolute;left:0;top:0;width:380px;height:56px;display:flex;align-items:center;gap:var(--s2);transition:transform var(--d-base) var(--ease),opacity var(--d-base) var(--ease);cursor:pointer}
+.it .ii{width:56px;height:56px;border-radius:var(--r-md);background:rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;color:var(--text);flex:none;overflow:hidden;transition:all var(--d-base) var(--ease)}
+.it .ii svg.art{width:36px;height:auto}
+.it .tt{min-width:0}
+.it .t{font-size:var(--t-body);font-weight:var(--w-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:font-size var(--d-base) var(--ease)}
+.it .s{font-size:var(--t-cap);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it.sel .ii{background:rgba(255,255,255,.2);box-shadow:0 0 0 2px #fff,0 0 28px rgba(120,170,255,.4)}
+.it.sel .t{font-size:var(--t-title);font-weight:var(--w-heavy)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+#panel{position:absolute;left:556px;top:176px;width:372px;height:296px;border-radius:var(--r-lg);background:rgba(12,20,46,.58);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.14);padding:20px 24px;overflow:hidden;animation:rise var(--d-base) var(--ease)}
+#panel h4{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.15;margin-bottom:var(--s1)}
+#panel p{font-size:var(--t-cap);color:var(--text-2);line-height:1.45}
+.row2{display:flex;gap:var(--s2);margin-bottom:var(--s2)}
+.kv{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:var(--t-cap)}
+.kv span{color:var(--text-2)} .kv b{font-weight:var(--w-strong);text-align:right}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-cap);font-weight:var(--w-strong);padding:4px 12px;border-radius:var(--r-pill);background:rgba(255,255,255,.12);margin-bottom:8px}
+.opt{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border-radius:var(--r-sm);font-size:var(--t-body);font-weight:var(--w-strong);cursor:pointer;margin-top:4px;border:2px solid transparent}
+.opt i{width:18px;height:18px;border-radius:50%;border:2px solid var(--text-3);flex:none}
+.opt.cur i{border-color:var(--accent);background:radial-gradient(var(--accent) 45%,transparent 50%)}
+.opt.foc{background:rgba(255,255,255,.16);border-color:#fff}
+.sw{width:72px;height:40px;border-radius:var(--r-pill);background:var(--surface-2);position:relative;margin:var(--s2) 0;transition:background var(--d-base)}
+.sw::after{content:"";position:absolute;left:4px;top:4px;width:32px;height:32px;border-radius:50%;background:#fff;transition:transform var(--d-base) var(--ease)}
+.sw.on{background:var(--accent)} .sw.on::after{transform:translateX(32px)}
+#opts{position:absolute;right:0;top:0;bottom:0;width:320px;background:rgba(6,10,24,.82);backdrop-filter:blur(22px);border-left:1px solid var(--line);padding:var(--s6) var(--s3) var(--s3);transform:translateX(100%);transition:transform var(--d-base) var(--ease);z-index:5}
+#opts.open{transform:none}
+#opts h4{font-size:var(--t-cap);color:var(--text-2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:var(--s2)}
+.oi{height:52px;display:flex;align-items:center;gap:12px;padding:0 var(--s2);border-radius:var(--r-md);font-size:var(--t-body);font-weight:var(--w-strong);margin-bottom:4px;cursor:pointer;border:2px solid transparent}
+.oi.sel{background:var(--accent);color:var(--accent-ink);border-color:#fff}
+.oi.dis{opacity:.5}
+.hints{position:absolute;left:0;right:0;bottom:0;height:48px;display:flex;gap:var(--s3);align-items:center;padding:0 var(--s4);font-size:var(--t-cap);font-weight:var(--w-strong);color:var(--text-2);background:linear-gradient(transparent,rgba(0,0,0,.5))}
+.hints b{color:var(--text);margin-right:6px}
+.wk{display:flex;gap:var(--s5);padding:var(--s6) var(--s6) 0;height:100%}
+.wk .l{width:240px;text-align:center;padding-top:var(--s5)}
+.wk .l h2{font-size:var(--t-title);font-weight:var(--w-heavy);margin-top:var(--s2)}
+.wk .r{flex:1;padding-top:var(--s2)}
+.wk .r h3{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.1em;color:var(--text-2);margin-bottom:var(--s2)}
+.st{height:48px;display:flex;align-items:center;gap:var(--s2);color:var(--text-3);border-radius:var(--r-md);padding:0 var(--s2);transition:all var(--d-base) var(--ease)}
+.st .n{width:28px;height:28px;border-radius:50%;border:2px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:var(--t-cap);font-weight:var(--w-heavy);flex:none}
+.st .tx{font-size:var(--t-body);font-weight:var(--w-strong)} .st .tx small{display:block;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2);display:none}
+.st.done{color:var(--ok)} .st.done .n{background:var(--ok);color:#04201a;border-color:var(--ok)}
+.st.cur{background:rgba(255,255,255,.14);color:#fff;height:68px} .st.cur .tx small{display:block}
+.st.cur .n{position:relative}.st.cur .n::after{content:'';position:absolute;inset:-6px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 900ms linear infinite}
+</style></head><body>
+<div class="shell">
+  <div class="bar" id="bar">
+    <span class="ttl">XMB Remote Play Bar</span>
+    <a href="index.html">&larr; All directions</a>
+    <button data-jump="home">Home</button>
+    <button data-jump="settings">Settings</button>
+    <button data-jump="waking">Connecting</button>
+    <button data-jump="stream">In-stream</button>
+    <button data-jump="unstable" id="bUnst">Network unstable</button>
+    <button data-jump="chooser">Connect via</button>
+    <button data-jump="register">Register PIN</button>
+    <button data-jump="error">Error popup</button>
+    <button id="bZoom">Zoom 2&times;</button>
+  </div>
+  <div class="stageWrap" id="wrap"><div class="stage" id="stage"><div id="screen"></div><div id="popLayer"></div></div></div>
+  <div class="legend">
+    <span><kbd>Arrows</kbd>D-pad</span><span><kbd>Enter</kbd>Cross (confirm)</span><span><kbd>Esc</kbd>Circle (back)</span>
+    <span><kbd>T</kbd>Triangle (options)</span><span><kbd>S</kbd>Square</span><span><kbd>Q</kbd>/<kbd>E</kbd>L / R shoulder</span><span><kbd>Space</kbd>Start</span><span><kbd>Click</kbd>front touch</span>
+  </div>
+  <div class="note">Mock at native 960&times;544. Console art is placeholder CSS/SVG. Backdrop blur and glow here become pre-blurred textures and 9-slice panels on the Vita; see FEASIBILITY.md.</div>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const ICONS={
+ console:'<rect x="8" y="3" width="8" height="18" rx="3"/><path d="M12 17h.01"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+ pad:'<path d="M6 8h12a4 4 0 0 1 4 4v2a3 3 0 0 1-5.2 2L15 14H9l-1.8 2A3 3 0 0 1 2 14v-2a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3M16 11.5h.01M18 13h.01"/>',
+ user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+ list:'<path d="M5 6h14M5 12h14M5 18h9"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ bolt:'<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
+ globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+ wifi:'<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/>',
+ battery:'<rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4M5 10v4M8 10v4M11 10v4"/>',
+ check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+ warn:'<path d="M12 3L2 21h20z"/><path d="M12 10v5M12 18h.01"/>',
+ lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+ play:'<path d="M7 4l13 8-13 8z"/>',
+ qr:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h3M20 18v3"/>',
+ lan:'<rect x="9" y="3" width="6" height="5"/><rect x="3" y="16" width="6" height="5"/><rect x="15" y="16" width="6" height="5"/><path d="M12 8v4M6 16v-4h12v4"/>',
+ moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>',
+ back:'<path d="M15 5l-7 7 7 7"/>',
+ next:'<path d="M9 5l7 7-7 7"/>'
+};
+const ico=(n,s=24)=>`<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+
+const CONSOLES=[
+ {name:'Living Room',model:'PS5',ip:'192.168.1.20',state:'ready',reg:true,lan:true,psn:true,game:'Astro Voyager',tid:'PPSA01234',cover:true,hue:215,last:'Yesterday, 21:40 · 1 h 52 min'},
+ {name:'Den',model:'PS4',ip:'192.168.1.31',state:'standby',reg:true,lan:true,psn:false,game:null,tid:null,cover:false,hue:30,last:'3 days ago · 48 min'},
+ {name:'Bedroom',model:'PS5',ip:'192.168.1.44',state:'ready',reg:false,lan:true,psn:false,game:'Neon Drift',tid:'PPSA05678',cover:false,hue:320,last:'Never'},
+ {name:'Office',model:'PS5',ip:'Remote only',state:'standby',reg:true,lan:false,psn:true,game:null,tid:null,cover:false,hue:160,last:'Last week · 2 h 05 min'}
+];
+const statusOf=c=>!c.reg?{k:'unreg',t:'Not registered',d:'Register to play',col:'var(--text-2)'}:
+  c.state==='ready'?{k:'ready',t:'Ready',d:c.game?('Playing '+c.game):'Ready to connect',col:'var(--ok)'}:
+  {k:'standby',t:'Standby',d:'Rest mode · will wake',col:'var(--warn)'};
+const routeOf=c=>c.lan?(c.psn?'LAN + PSN':'LAN'):'PSN only';
+const STEPS=(c,route)=>[
+ ['Waking console','Sending wake signal to '+c.name],
+ ['Waiting for console','Console is starting up'],
+ ['Console responded',route==='PSN'?'Relaying through PSN':'Found at '+c.ip],
+ ['Checking registration','Verifying saved credentials'],
+ ['Opening session','Contacting the remote play host'],
+ ['Securing connection','Exchanging encryption keys'],
+ ['Preparing video','Starting the hardware decoder'],
+ ['Starting stream','Almost there']
+];
+const SETTINGS=[
+ {id:'quality',label:'Quality Preset',grp:'Stream',type:'select',opts:['Auto','Low','Balanced','High'],v:2,desc:'Sets resolution and bitrate together. Higher needs a strong Wi-Fi link.'},
+ {id:'latency',label:'Latency Mode',grp:'Stream',type:'select',opts:['Ultra Low','Balanced','Stable'],v:1,desc:'Ultra Low drops frames sooner to stay responsive. Stable buffers more.'},
+ {id:'fps',label:'FPS Target',grp:'Stream',type:'select',opts:['30 fps','60 fps'],v:1,desc:'60 fps feels smoother but doubles the data the Vita must receive.'},
+ {id:'autowake',label:'Auto Wake',grp:'Connection',type:'toggle',v:true,desc:'Wake a console in rest mode automatically when you connect.'},
+ {id:'autoreconnect',label:'Auto Reconnect',grp:'Connection',type:'toggle',v:true,desc:'Try to rejoin the session if the connection drops.'},
+ {id:'psnfallback',label:'PSN Fallback',grp:'Connection',type:'toggle',v:true,desc:'Switch to PSN remote play when the LAN route fails.'},
+ {id:'fastrestart',label:'Fast Restart',grp:'Connection',type:'toggle',v:false,desc:'Restart the stream without a full handshake after a stall.'},
+ {id:'rumble',label:'Rumble',grp:'Input',type:'toggle',v:true,desc:'Pass controller vibration from the game to the Vita.'},
+ {id:'motion',label:'Motion Controls',grp:'Input',type:'toggle',v:false,desc:'Send Vita gyroscope data to games that support it.'},
+ {id:'touch',label:'Front Touch Input',grp:'Input',type:'toggle',v:true,desc:'Map the front touchscreen to the console touchpad.'},
+ {id:'stats',label:'Stats Overlay',grp:'Display',type:'toggle',v:true,desc:'Show latency, FPS and bitrate while streaming.'},
+ {id:'netwarn',label:'Network Warnings',grp:'Display',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
+ {id:'hideip',label:'Hide Console IPs',grp:'Display',type:'toggle',v:false,desc:'Mask IP addresses, useful for screenshots.'},
+ {id:'keepawake',label:'Keep Screen On',grp:'Advanced',type:'toggle',v:true,desc:'Prevent the Vita from dimming during a stream.'},
+ {id:'debug',label:'Debug Logging',grp:'Advanced',type:'toggle',v:false,desc:'Write detailed logs to ux0:data/vitarps5. Costs some performance.'}
+];
+const GROUPS=['Stream','Connection','Input','Display','Advanced'];
+const valText=s=>s.type==='select'?s.opts[s.v]:(s.v?'On':'Off');
+const cycle=(s,d)=>{ if(s.type==='select') s.v=(s.v+d+s.opts.length)%s.opts.length; else s.v=!s.v; };
+const PRESETS=['Default','Shooter','Racing'];
+const LOGS=[['21:41:07','INFO','Discovery: 4 consoles found'],['21:41:09','INFO','Living Room: ready, Astro Voyager'],['21:41:12','WARN','Den: no response, assuming standby'],['21:42:01','INFO','Session opened over LAN'],['21:42:03','INFO','Decoder started 960x544 @ 60'],['21:48:55','WARN','Loss 3.1% over 200 ms'],['21:48:58','WARN','Bitrate lowered to 7.5 Mbps'],['21:49:30','INFO','Stream recovered']];
+const SUNDRY={psn:'player_one',presetIdx:0};
+
+function consoleArt(c,w=120){
+ const led=c.state==='ready'?'#3ddc97':'#ffb547', dim=c.reg?1:.7, u=(consoleArt.n=(consoleArt.n||0)+1);
+ if(c.model==='PS5') return `<svg viewBox="0 0 120 160" width="${w}" style="opacity:${dim}" aria-hidden="true"><defs><linearGradient id="gA${u}" x1="0" x2="1"><stop offset="0" stop-color="#f4f7ff"/><stop offset="1" stop-color="#aab6d3"/></linearGradient><linearGradient id="gB${u}" x1="0" x2="1"><stop offset="0" stop-color="#2a3350"/><stop offset="1" stop-color="#121829"/></linearGradient></defs><rect x="40" y="10" width="40" height="140" rx="12" fill="url(#gB${u})"/><path d="M42 10C8 30 8 130 42 150V10z" fill="url(#gA${u})"/><path d="M78 10c34 20 34 120 0 140V10z" fill="url(#gA${u})"/><rect x="58" y="26" width="4" height="64" rx="2" fill="${led}"/><circle cx="60" cy="134" r="3" fill="#1a2238"/></svg>`;
+ return `<svg viewBox="0 0 160 100" width="${w*1.2}" style="opacity:${dim}" aria-hidden="true"><defs><linearGradient id="gC${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a567d"/><stop offset="1" stop-color="#232b49"/></linearGradient></defs><polygon points="30,26 152,26 134,50 12,50" fill="#6b79a3"/><polygon points="12,50 134,50 134,74 12,74" fill="url(#gC${u})"/><polygon points="134,50 152,26 152,48 134,74" fill="#171d33"/><rect x="22" y="60" width="64" height="4" rx="2" fill="${led}"/></svg>`;
+}
+function coverArt(c,w,h){
+ if(c.game && c.cover){
+  const a=c.hue,b=(c.hue+70)%360;
+  return `<div class="cover" style="width:${w}px;height:${h}px;background:linear-gradient(160deg,hsl(${a} 75% 52%),hsl(${b} 70% 22%))"><svg class="cv" viewBox="0 0 100 133" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><circle cx="70" cy="40" r="22" fill="hsl(${a+40} 90% 75%)" opacity=".85"/><path d="M0 110L28 62l22 34 18-22 32 42v17H0z" fill="hsl(${b} 60% 14%)" opacity=".85"/></svg><span class="ct">${c.game}</span></div>`;
+ }
+ const t=c.game?c.game:'No game running';
+ return `<div class="cover none" style="width:${w}px;height:${h}px">${ico('pad',Math.min(40,w/3))}<span class="ct">${t}</span></div>`;
+}
+
+const App={
+ S:{ci:0,route:'LAN',step:0,stream:{lat:38,fps:60,br:10.2,unst:false,hud:true},tod:'auto'},
+ pop:null, timers:[], zoom:1,
+ hhmm(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');},
+ mount(M){
+  this.M=M; document.body.dataset.dir=M.dir;
+  M.init($('#screen'));
+  addEventListener('keydown',e=>{
+   const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',Escape:'back',t:'tri',T:'tri',q:'L',Q:'L',e:'R',E:'R',s:'sq',S:'sq',' ':'start'};
+   const k=map[e.key]; if(!k) return; e.preventDefault(); this.key(k);
+  });
+  $('#stage').addEventListener('click',e=>{
+   const p=e.target.closest('[data-pop]'); if(p){this.popPress(+p.dataset.pop);return;}
+   const el=e.target.closest('[data-do]'); if(el&&!this.pop) M.act(el.dataset.do,el.dataset.arg,el);
+  });
+  $$('[data-jump]').forEach(b=>b.addEventListener('click',()=>this.jump(b.dataset.jump)));
+  $('#bZoom').addEventListener('click',e=>{this.zoom=this.zoom===1?2:1;$('#wrap').style.setProperty('--z',this.zoom);e.target.classList.toggle('on',this.zoom===2);});
+  document.documentElement.style.setProperty('--z',1);$('#wrap').style.setProperty('--z',1);
+  setInterval(()=>{$$('.clk').forEach(n=>n.textContent=this.hhmm());},5000);
+  setInterval(()=>this.tick(),1000);
+  M.go('home');
+ },
+ key(k){ if(this.pop){this.popKey(k);return;} this.M.key(k); },
+ go(n){
+  this.timers.forEach(clearTimeout);this.timers=[];
+  this.M.go(n);
+  $$('.bar [data-jump]').forEach(b=>b.classList.toggle('on',b.dataset.jump===n));
+ },
+ jump(n){
+  this.closePop();
+  if(n==='error') return this.popup(this.errorPop());
+  if(n==='register') return this.popup(this.registerPop(CONSOLES[2]));
+  if(n==='chooser') return this.popup(this.chooserPop(CONSOLES[0]));
+  if(n==='unstable'){ this.S.stream.unst=!this.S.stream.unst; $('#bUnst').classList.toggle('on',this.S.stream.unst); if(this.M.screen!=='stream') this.go('stream'); this.paintHud(); return; }
+  if(n==='waking'){ this.connect(1,'LAN',true); return; }
+  this.go(n);
+ },
+ connect(ci,route,force){
+  const c=CONSOLES[ci];
+  if(!c.reg && !force){ this.popup(this.registerPop(c)); return; }
+  this.S.ci=ci; this.S.route=route||(c.lan?'LAN':'PSN');
+  this.S.step=(c.state==='ready')?2:0;
+  this.go('waking');
+  const run=()=>{
+   this.timers.push(setTimeout(()=>{
+    this.S.step++; this.M.onWake&&this.M.onWake();
+    if(this.S.step<8) run(); else this.timers.push(setTimeout(()=>this.go('stream'),700));
+   },850));
+  };
+  run();
+ },
+ tick(){
+  const s=this.S.stream, u=s.unst;
+  s.lat=Math.round(u?90+Math.random()*60:34+Math.random()*10);
+  s.fps=u?Math.round(36+Math.random()*10):(SETTINGS[2].v?59+Math.round(Math.random()):30);
+  s.br=+(u?(4+Math.random()*2):(9.6+Math.random()*1.4)).toFixed(1);
+  this.paintHud();
+ },
+ paintHud(){
+  const s=this.S.stream,set=(k,v)=>$$(`[data-stat=${k}]`).forEach(n=>n.textContent=v);
+  set('lat',s.lat);set('fps',s.fps);set('br',s.br);
+  $$('.hud .unst').forEach(n=>n.hidden=!(s.unst&&SETTINGS[11].v));
+  $$('.hud').forEach(n=>n.classList.toggle('nostats',!SETTINGS[10].v));
+ },
+ sceneHTML(){
+  return `<div class="scene"><div class="sun"></div><svg viewBox="0 0 960 544" preserveAspectRatio="none" aria-hidden="true"><path d="M0 360L140 250l120 90 150-120 140 130 150-100 120 100 140-60v264H0z" fill="#241044"/><path d="M0 400L200 330l180 60 160-50 200 60 220-40v184H0z" fill="#170a30"/></svg><div class="road"><i></i><i style="animation-delay:-230ms"></i><i style="animation-delay:-470ms"></i></div></div>`;
+ },
+ hudHTML(){
+  return `<div class="hud"><div class="unst" hidden>${ico('warn',20)}Network Unstable</div>
+  <div class="panel"><div class="stat">Latency<b><span data-stat="lat">38</span><em>ms</em></b></div><div class="stat">FPS<b><span data-stat="fps">60</span></b></div><div class="stat">Bitrate<b><span data-stat="br">10.2</span><em>Mbps</em></b></div></div>
+  <div class="exit"><kbd>Esc</kbd> Leave stream &nbsp;&middot;&nbsp; <kbd>T</kbd> Stats</div></div>`;
+ },
+ /* ---- popups ---- */
+ popup(o){ this.pop=Object.assign({sel:0},o); this.paintPop(); },
+ closePop(){ this.pop=null; this.paintPop(); },
+ paintPop(){
+  const L=$('#popLayer'); const p=this.pop;
+  if(!p){L.style.pointerEvents='none';L.innerHTML='';return;}
+  L.style.pointerEvents='auto';
+  L.innerHTML=`<div class="pop-scrim"><div class="pop ${p.cls||''}" role="dialog" aria-label="${p.title}"><div class="pi">${ico(p.icon||'warn',28)}</div><h3>${p.title}</h3><p>${p.body}</p>${p.extra||''}<div class="btns ${p.vertical?'v':''}">${p.buttons.map((b,i)=>`<button class="pop-btn ${i===p.sel?'sel':''} ${b.dis?'dis':''}" data-pop="${i}">${b.icon?ico(b.icon,20):''}${b.label}${b.sub?` <small>${b.sub}</small>`:''}</button>`).join('')}</div></div></div>`;
+ },
+ popKey(k){
+  const p=this.pop,n=p.buttons.length;
+  if(k==='up'||k==='left') p.sel=(p.sel+n-1)%n;
+  else if(k==='down'||k==='right') p.sel=(p.sel+1)%n;
+  else if(k==='ok') return this.popPress(p.sel);
+  else if(k==='back') return this.closePop();
+  this.paintPop();
+ },
+ popPress(i){ const b=this.pop.buttons[i]; if(b.dis) return; this.closePop(); b.fn&&b.fn(); },
+ errorPop(){ return {cls:'err',title:'Can’t reach Office PS5',body:'The PSN relay timed out after 10 seconds (error RP-0x8A3). Check that the console is in rest mode and signed in to PSN.',buttons:[{label:'Retry',fn:()=>this.connect(3,'PSN')},{label:'Cancel'}]}; },
+ registerPop(c){ return {icon:'lock',title:'Register '+c.name,body:'On the console open Settings › System › Remote Play › Link Device and enter the 8-digit code shown there.',extra:'<div class="pin"><b>4</b><b>8</b><b>2</b><b>7</b><b>–</b><b>–</b><b>–</b><b>–</b></div>',buttons:[{label:'Register',fn:()=>{c.reg=true;this.M.refresh&&this.M.refresh();}},{label:'Cancel'}]}; },
+ chooserPop(c){ return {icon:'globe',title:'Connect via',body:'Pick how to reach '+c.name+'. LAN is faster; PSN works away from home.',vertical:true,buttons:[{icon:'lan',label:'Home network',sub:c.lan?'192.168.1.20 · lowest latency':'unavailable',dis:!c.lan,fn:()=>this.connect(CONSOLES.indexOf(c),'LAN')},{icon:'globe',label:'PlayStation Network',sub:c.psn?'remote · adds ~30 ms':'unavailable',dis:!c.psn,fn:()=>this.connect(CONSOLES.indexOf(c),'PSN')},{label:'Cancel'}]}; }
+};
+function slide(el,dx,dy,extra=''){el.style.transform=`translate3d(${dx}px,${dy}px,0) ${extra}`;}
+
+const CATS=[['Consoles','console'],['Settings','gear'],['Controller','pad'],['Profile','user'],['Logs','list']];
+const TOD={night:{a:'#050a1a',b:'#101d44',r:[[90,130,255],[60,200,230],[140,110,255]]},dawn:{a:'#1b1033',b:'#4a2250',r:[[255,140,170],[255,190,110],[190,130,255]]},day:{a:'#0a2a55',b:'#1f66a8',r:[[200,235,255],[110,200,255],[255,255,255]]},dusk:{a:'#1a0c2c',b:'#52203c',r:[[255,150,90],[255,90,150],[170,100,255]]}};
+const todNow=()=>{if(App.S.tod!=='auto')return App.S.tod;const h=new Date().getHours();return h<5?'night':h<9?'dawn':h<17?'day':h<21?'dusk':'night';};
+const X={dir:'xmb',screen:'home',cat:0,sel:[0,0,0,0,0],pf:null,opts:false,os:0,preset:0};
+let cv,g,reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function paintRibbons(t){
+ const P=TOD[todNow()];
+ const gr=g.createLinearGradient(0,0,0,544);gr.addColorStop(0,P.a);gr.addColorStop(1,P.b);
+ g.globalCompositeOperation='source-over';g.fillStyle=gr;g.fillRect(0,0,960,544);
+ g.globalCompositeOperation='lighter';
+ for(let i=0;i<4;i++){
+  const c=P.r[i%3],top=[],bot=[];
+  for(let x=-20;x<=980;x+=20){
+   const yc=330+i*26+Math.sin(x*.006+t*.0004*(1+i*.3)+i*1.7)*70+Math.sin(x*.013-t*.0003+i)*24;
+   const th=44+Math.sin(x*.004+i+t*.0002)*30;
+   top.push([x,yc-th/2]);bot.push([x,yc+th/2]);
+  }
+  g.beginPath();top.forEach((p,k)=>k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));
+  bot.reverse().forEach(p=>g.lineTo(p[0],p[1]));g.closePath();
+  const lg=g.createLinearGradient(0,0,960,0);lg.addColorStop(0,`rgba(${c},0)`);lg.addColorStop(.5,`rgba(${c},.20)`);lg.addColorStop(1,`rgba(${c},.05)`);
+  g.fillStyle=lg;g.fill();
+ }
+}
+function loop(t){paintRibbons(t);if(!reduce)setTimeout(()=>requestAnimationFrame(loop),33);}
+function items(ci){
+ const C=CONSOLES;
+ if(ci===0) return C.map((c,i)=>({k:'console',c,i,t:c.name,s:statusOf(c).t+' · '+c.model,art:true})).concat([{k:'add',t:'Add console',s:'Find or register a new one',ic:'plus'}]);
+ if(ci===1) return SETTINGS.map(s=>({k:'set',s,t:s.label,s2:valText(s),ic:s.type==='select'?'gear':'check'}));
+ if(ci===2) return PRESETS.map((p,i)=>({k:'preset',i,t:p+' preset',s:X.preset===i?'Active':'Tap to apply',ic:'pad'})).concat([{k:'map',t:'View mapping',s:'Front, back and touch',ic:'list'}]);
+ if(ci===3) return [{k:'acct',t:'PSN Account',s:'player_one · signed in',ic:'user'},{k:'conn',t:'Connection',s:'Route, loss, bitrate',ic:'wifi'},{k:'reg',t:'Register console',s:'Enter 8-digit code',ic:'lock'},{k:'qr',t:'Phone login',s:'Sign in with a QR code',ic:'qr'}];
+ return LOGS.map((l,i)=>({k:'log',l,t:l[2],s:l[0]+' · '+l[1],ic:l[1]==='WARN'?'warn':'list'}));
+}
+let cache=[];
+function buildCats(){
+ $('#cats').innerHTML=CATS.map((c,i)=>`<div class="cat" data-do="cat" data-arg="${i}" role="tab"><div class="ci">${ico(c[1],32)}</div><div class="cl">${c[0]}</div></div>`).join('');
+}
+function buildList(anim){
+ cache=items(X.cat);
+ $('#list').innerHTML=cache.map((it,i)=>{
+  let ic=it.ic?ico(it.ic,28):'', sub=it.s;
+  if(it.k==='console'){ic=consoleArt(it.c,36).replace('<svg ','<svg class="art" ');sub=`<i class="dot" style="background:${statusOf(it.c).col}"></i>${statusOf(it.c).t} · ${it.c.model} · ${it.c.lan?(it.c.psn?'LAN+PSN':'LAN'):'PSN'}`;}
+  if(it.k==='set') sub=it.s2;
+  return `<div class="it" data-do="item" data-arg="${i}"><div class="ii">${ic}</div><div class="tt"><div class="t">${it.t}</div><div class="s">${sub}</div></div></div>`;
+ }).join('');
+ if(anim){$('#list').style.animation='none';void $('#list').offsetWidth;$('#list').style.animation='rise var(--d-base) var(--ease)';}
+ layout();
+}
+function layout(){
+ $$('.cat').forEach((el,i)=>{const d=i-X.cat;slide(el,168+d*136,88);el.classList.toggle('on',d===0);});
+ const s=X.sel[X.cat];
+ $$('#list .it').forEach((el,i)=>{
+  const d=i-s;let y=d===0?236:d>0?236+88+(d-1)*64:236-64*(-d);
+  const vis=d>=0&&y<440;
+  slide(el,0,y);el.style.opacity=vis?(d===0?1:Math.max(.78,1-d*.1)):0;el.style.pointerEvents=vis?'auto':'none';
+  el.classList.toggle('sel',d===0);
+ });
+ paintPanel();
+}
+function selItem(){return cache[X.sel[X.cat]];}
+function paintPanel(){
+ const it=selItem(),P=$('#panel');let h='';
+ const kv=(a,b)=>`<div class="kv"><span>${a}</span><b>${b}</b></div>`;
+ if(!it){P.innerHTML='';return;}
+ if(it.k==='console'){const c=it.c,st=statusOf(c);
+  h=`<div class="row2">${coverArt(c,88,118)}<div><div class="chip"><i class="dot" style="background:${st.col}"></i>${st.t}</div><h4>${c.name}</h4><p>${c.game?c.game:'No game running'}</p></div></div>${kv('IP address',SETTINGS[12].v?'•••.•••.•.••':c.ip)}${kv('Route',routeOf(c))}${kv('Last session',c.last)}`;
+ } else if(it.k==='add') h=`<h4>Add console</h4><p>Make sure your console is on the same network and Remote Play is enabled. Then choose Register and enter the 8-digit code shown on the TV.</p>`;
+ else if(it.k==='set'){const s=it.s;h=`<h4>${s.label}</h4><p>${s.desc}</p>`;
+  if(s.type==='select') h+=s.opts.map((o,i)=>`<div class="opt ${i===s.v?'cur':''} ${X.pf===i?'foc':''}" data-do="opt" data-arg="${i}"><i></i>${o}</div>`).join('');
+  else h+=`<div class="sw ${s.v?'on':''}" data-do="item" data-arg="${X.sel[1]}"></div><p>${s.v?'On':'Off'}. Press Cross to toggle.</p>`;}
+ else if(it.k==='preset') h=`<h4>${PRESETS[it.i]} preset</h4><p>${['Standard layout: Vita sticks as sticks, shoulders as L1/R1, rear pad as L2/R2.','Rear pad regions act as L2/R2 and L3/R3 to keep thumbs on the sticks.','Shoulders as L2/R2 triggers, front touch for the handbrake.'][it.i]}</p>`;
+ else if(it.k==='map') h=`<h4>Mapping summary</h4><svg viewBox="0 0 340 170" width="70%" aria-label="Vita layout"><rect x="60" y="20" width="220" height="130" rx="34" fill="#1b2442" stroke="#8fa0cc" stroke-width="2"/><rect x="108" y="40" width="124" height="82" rx="6" fill="#0b1226"/><circle cx="84" cy="110" r="14" fill="#2c3a66"/><circle cx="256" cy="110" r="14" fill="#2c3a66"/><path d="M80 52v22M69 63h22" stroke="#bcc6da" stroke-width="3"/><circle cx="256" cy="52" r="4" fill="#bcc6da"/><circle cx="268" cy="64" r="4" fill="#bcc6da"/><circle cx="244" cy="64" r="4" fill="#bcc6da"/><circle cx="256" cy="76" r="4" fill="#bcc6da"/><text x="8" y="28" fill="#bcc6da" font-size="14" font-weight="700">L1</text><text x="308" y="28" fill="#bcc6da" font-size="14" font-weight="700">R1</text><text x="120" y="167" fill="#bcc6da" font-size="14" font-weight="700">Rear: L2 / R2</text></svg><p>Preset: ${PRESETS[X.preset]}. Triangle edits a single mapping.</p>`;
+ else if(it.k==='acct') h=`<div class="row2"><div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--psn));display:flex;align-items:center;justify-content:center;font-size:var(--t-title);font-weight:800;color:var(--accent-ink)">P</div><div><h4>player_one</h4><p>Signed in with PSN</p></div></div>${kv('Remote play over PSN','Enabled')}${kv('Token expires','in 29 days')}`;
+ else if(it.k==='conn') h=`<h4>Connection</h4>${kv('Route','LAN')}${kv('Round trip','4 ms')}${kv('Packet loss','0.2 %')}${kv('Bitrate','10.2 Mbps')}${kv('Decoder','Hardware H.264')}`;
+ else if(it.k==='reg') h=`<h4>Register console</h4><p>Link this Vita to a console. You will need the 8-digit code from the console Remote Play settings.</p>`;
+ else if(it.k==='qr') h=`<h4>Phone login</h4><p>Scan with your phone to sign in to PSN without typing.</p><svg viewBox="0 0 21 21" width="140" style="background:#fff;padding:8px;border-radius:var(--r-md);margin-top:12px" shape-rendering="crispEdges">${qr()}</svg>`;
+ else if(it.k==='log') h=`<h4>${it.l[1]}</h4><p>${it.l[0]}</p><p style="font-size:var(--t-body);color:var(--text);margin-top:12px">${it.l[2]}</p>`;
+ P.innerHTML=h;P.style.animation='none';void P.offsetWidth;P.style.animation='';
+}
+function qr(){let s='';const f=(x,y)=>`<rect x="${x}" y="${y}" width="7" height="7" fill="#000"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fff"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#000"/>`;s+=f(0,0)+f(14,0)+f(0,14);let r=7;for(let y=0;y<21;y++)for(let x=0;x<21;x++){if((x<8&&y<8)||(x>12&&y<8)||(x<8&&y>12))continue;r=(r*9301+49297)%233280;if(r%3===0)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#000"/>`;}return s;}
+function optsList(){
+ const it=selItem();
+ if(it.k==='console'){const c=it.c;return [[c.state==='ready'?'Connect':'Wake and connect','bolt',()=>App.connect(it.i)],['Connect via…','globe',()=>App.popup(App.chooserPop(c))],['Wake only','moon',()=>{}],['Forget console','lock',()=>{}]].map(a=>({l:a[0],i:a[1],f:a[2]}));}
+ if(it.k==='set') return [{l:'Reset to default',i:'back',f:()=>{}},{l:'Close',i:'check',f:()=>{}}];
+ return [{l:'Close',i:'check',f:()=>{}}];
+}
+function paintOpts(){
+ const L=optsList();
+ $('#opts').innerHTML=`<h4>Options</h4>`+L.map((o,i)=>`<div class="oi ${i===X.os&&X.opts?'sel':''}" data-do="oi" data-arg="${i}">${ico(o.i,24)}${o.l}</div>`).join('');
+ $('#opts').classList.toggle('open',X.opts);
+}
+function paintWake(){
+ const c=CONSOLES[App.S.ci],r=App.S.route,st=STEPS(c,r),cur=Math.min(App.S.step,7);
+ $('#wake').innerHTML=`<div class="wk"><div class="l">${consoleArt(c,120)}<h2>${c.name}</h2><div class="chip" style="margin-top:8px">${ico(r==='PSN'?'globe':'lan',16)}${r==='PSN'?'via PSN':'via LAN'}</div></div><div class="r"><h3>Connecting</h3>${st.map((s,i)=>`<div class="st ${i<App.S.step?'done':i===cur?'cur':''}"><span class="n">${i<App.S.step?ico('check',16):i+1}</span><span class="tx">${s[0]}<small>${s[1]}</small></span></div>`).join('')}</div></div><div class="hints"><span><b>○</b>Cancel</span></div>`;
+}
+const M={dir:'xmb',screen:'home',
+ init(root){
+  root.innerHTML=`<canvas id="rib" width="960" height="544"></canvas><div class="vig"></div>
+  <div class="layer" id="home"><div class="top"><span class="brand">VitaRPS5</span><span class="r">${ico('wifi',20)}<span>Wi-Fi</span>${ico('battery',24)}<span class="clk">${App.hhmm()}</span></span></div><div id="cats"></div><div id="list"></div><div id="panel"></div><div class="hints"><span><b>✕</b>Select</span><span><b>○</b>Back</span><span><b>△</b>Options</span><span><b>L / R</b>Category</span></div><div id="opts"></div></div>
+  <div class="layer" id="wake" style="display:none"></div>
+  <div class="layer" id="strm" style="display:none"></div>`;
+  cv=$('#rib');g=cv.getContext('2d');loop(0);
+  buildCats();
+  const b=document.createElement('button');b.id='bTod';b.textContent='Time of day: auto';
+  b.onclick=()=>{const o=['auto','night','dawn','day','dusk'];App.S.tod=o[(o.indexOf(App.S.tod)+1)%o.length];b.textContent='Time of day: '+App.S.tod;if(reduce)paintRibbons(0);};
+  $('#bar').insertBefore(b,$('#bZoom'));
+ },
+ go(n){
+  const set=(id,on)=>$('#'+id).style.display=on?'':'none';
+  if(n==='settings'){X.cat=1;n='home';}
+  if(n==='home'&&this.screen==='home'&&!$('#cats').children.length)buildCats();
+  this.screen=n;set('home',n==='home');set('wake',n==='waking');set('strm',n==='stream');$('#rib').style.opacity=n==='stream'?0:1;
+  if(n==='home'){X.opts=false;X.pf=null;buildList(true);paintOpts();}
+  if(n==='waking')paintWake();
+  if(n==='stream'){this.screen='stream';$('#strm').innerHTML=App.sceneHTML()+App.hudHTML();App.paintHud();}
+  if(reduce)paintRibbons(0);
+ },
+ onWake(){paintWake();},
+ refresh(){buildList(false);},
+ act(a,arg){
+  arg=+arg;
+  if(a==='cat'){X.cat=arg;X.pf=null;buildList(true);}
+  else if(a==='item'){ if(X.sel[X.cat]!==arg){X.sel[X.cat]=arg;X.pf=null;layout();} else this.key('ok'); }
+  else if(a==='opt'){const s=selItem().s;s.v=arg;X.pf=null;buildList(false);}
+  else if(a==='oi'){X.os=arg;this.key('ok');}
+ },
+ key(k){
+  if(this.screen==='waking'){if(k==='back')App.go('home');return;}
+  if(this.screen==='stream'){if(k==='back')App.go('home');if(k==='tri'){SETTINGS[10].v=!SETTINGS[10].v;App.paintHud();}return;}
+  const n=cache.length,c=X.cat;
+  if(X.opts){const L=optsList();
+   if(k==='up')X.os=(X.os+L.length-1)%L.length;else if(k==='down')X.os=(X.os+1)%L.length;
+   else if(k==='back'||k==='tri')X.opts=false;
+   else if(k==='ok'){X.opts=false;paintOpts();L[X.os].f();return;}
+   paintOpts();return;}
+  if(X.pf!==null){const s=selItem().s;
+   if(k==='up')X.pf=(X.pf+s.opts.length-1)%s.opts.length;else if(k==='down')X.pf=(X.pf+1)%s.opts.length;
+   else if(k==='ok'){s.v=X.pf;X.pf=null;buildList(false);return;}else if(k==='back')X.pf=null;
+   paintPanel();return;}
+  if(k==='up'&&X.sel[c]>0){X.sel[c]--;layout();}
+  else if(k==='down'&&X.sel[c]<n-1){X.sel[c]++;layout();}
+  else if((k==='left'||k==='L')&&c>0){X.cat--;buildList(true);}
+  else if((k==='right'||k==='R')&&c<CATS.length-1){X.cat++;buildList(true);}
+  else if(k==='start'){X.cat=1;buildList(true);}
+  else if(k==='tri'){X.opts=true;X.os=0;paintOpts();}
+  else if(k==='ok'){
+   const it=selItem();
+   if(it.k==='console')App.connect(it.i);
+   else if(it.k==='add'||it.k==='reg')App.popup(App.registerPop({name:'new console'}));
+   else if(it.k==='qr')App.popup({icon:'qr',title:'Phone login',body:'Scan the code with your phone camera, then confirm on the PSN website.',buttons:[{label:'Done'}]});
+   else if(it.k==='set'){ if(it.s.type==='select'){X.pf=it.s.v;paintPanel();} else {cycle(it.s,1);buildList(false);} }
+   else if(it.k==='preset'){X.preset=it.i;buildList(false);}
+  }
+ }
+};
+App.mount(M);
+</script></body></html>

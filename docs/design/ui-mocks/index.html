@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaRPS5 UI Directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-0);color:var(--text);font-family:var(--font);font-weight:var(--w-regular);line-height:1.5;-webkit-font-smoothing:antialiased}
+main{max-width:1240px;margin:0 auto;padding:var(--s6) var(--s3)}
+h1{font-size:var(--t-display);font-weight:var(--w-heavy);line-height:1.05;margin-bottom:var(--s2)}
+.lede{font-size:var(--t-body);color:var(--text-2);max-width:760px;margin-bottom:var(--s5)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s3)}
+@media (max-width:980px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column}
+.card a.th{display:block;line-height:0;border-bottom:1px solid var(--line)}
+.card img{width:100%;height:auto;display:block;transition:transform var(--d-base) var(--ease)}
+.card a.th:hover img{transform:scale(1.02)}
+.card a.th{overflow:hidden}
+.body{padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);flex:1}
+.num{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+h2{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.15}
+.card p{color:var(--text-2)}
+h3{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+.pros h3{color:var(--ok)} .cons h3{color:var(--warn)}
+ul{padding-left:20px;color:var(--text-2);font-size:var(--t-cap);line-height:1.5} li{margin-bottom:4px}
+.open{white-space:nowrap;margin-top:auto;display:inline-flex;align-self:flex-start;align-items:center;height:48px;padding:0 var(--s3);border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:var(--w-heavy);text-decoration:none;font-size:var(--t-body)}
+.open:hover{filter:brightness(1.1)}
+.open:focus-visible,.card a:focus-visible{outline:3px solid var(--focus-ring);outline-offset:3px}
+section{margin-top:var(--s6)}
+.sh{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s2)}
+.sh div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2);color:var(--text-2);font-size:var(--t-cap)}
+.sh b{display:block;color:var(--text);font-size:var(--t-body);margin-bottom:4px}
+.rec{background:var(--surface-2);border-left:6px solid var(--accent);border-radius:var(--r-md);padding:var(--s3);margin-top:var(--s5);color:var(--text-2)}
+.rec b{color:var(--text)}
+code{background:var(--bg-1);padding:1px 6px;border-radius:6px;font-size:.92em;color:var(--text)}
+footer{margin-top:var(--s5);font-size:var(--t-cap);color:var(--text-3)}
+</style></head><body><main>
+<h1>VitaRPS5: three UI directions</h1>
+<p class="lede">Issue #271. Three clickable mocks at the Vita's native 960&times;544, driven by keyboard like the console: arrows = D-pad, Enter = Cross, Esc = Circle, T = Triangle, Q/E = L/R. Each covers Home, Settings, Connecting and the in-stream overlay, plus ready vs standby, not registered, PSN-only and the error popup. All three share one <code>tokens.css</code> so you can judge layout and feel, not mismatched styling. Everything is drawable with vita2d; see <code>FEASIBILITY.md</code>.</p>
+
+<div class="grid">
+<article class="card">
+ <a class="th" href="xmb.html" aria-label="Open XMB mock"><img src="thumb-xmb.png" alt="XMB Home screen: category row, console list and a detail panel over animated ribbons" width="960" height="544"></a>
+ <div class="body">
+  <div class="num">Direction 1</div><h2>XMB &ldquo;Remote Play Bar&rdquo;</h2>
+  <p>A horizontal row of categories (Consoles, Settings, Controller, Profile, Logs) with a vertical list under the chosen one, over ribbons tinted by the time of day. Settings become items with a value panel on the right, and Triangle slides in an options panel. It is the most native to a controller and the lightest to draw.</p>
+  <div class="pros"><h3>Pros</h3><ul><li>Fits D-pad use perfectly: left/right category, up/down item.</li><li>Lightest: ribbons are 4 draw calls, no big textures (about 4 MB).</li><li>One pattern covers all five areas, so new screens are cheap.</li><li>The most distinctive "console" feel, and the biggest visual break from today.</li></ul></div>
+  <div class="cons"><h3>Cons</h3><ul><li>Lists, not browsing: no big moment for the console or game.</li><li>Home is about 88 draw calls as mocked, just over the 80 target.</li><li>Fifteen settings in one long list is functional, not delightful.</li><li>Ribbons need a CPU vertex update each frame.</li></ul></div>
+  <a class="open" href="xmb.html">Open XMB mock</a>
+ </div>
+</article>
+
+<article class="card">
+ <a class="th" href="showcase.html" aria-label="Open Showcase mock"><img src="thumb-showcase.png" alt="Showcase Home screen: hero for one console with game cover, metadata panel and a carousel strip" width="960" height="544"></a>
+ <div class="body">
+  <div class="num">Direction 2</div><h2>Showcase carousel</h2>
+  <p>One full-screen hero per console: its art, state, and the game it is running with cover art (or a clean fallback). A metadata panel gives IP, route and last session, and a carousel strip along the bottom switches console. Settings is a full-screen page with L/R tabs. It makes the app feel like a game library, using data we already receive but never show.</p>
+  <div class="pros"><h3>Pros</h3><ul><li>The biggest wow, and the clearest answer to &ldquo;which console, doing what&rdquo;.</li><li>The primary action is always one big button; the state of the console is impossible to miss.</li><li>Settings tabs are clearer than a single long list.</li><li>Works well even without covers; the fallback is deliberate, not broken.</li></ul></div>
+  <div class="cons"><h3>Cons</h3><ul><li>Needs assets we do not have: good console art and a cover source.</li><li>Heaviest on memory (about 7 to 9 MB) and about 100 draw calls as mocked (about 65 optimised).</li><li>A hero per console is wasted with a single console.</li><li>Needs the running game surfaced from discovery.</li></ul></div>
+  <a class="open" href="showcase.html">Open Showcase mock</a>
+ </div>
+</article>
+
+<article class="card">
+ <a class="th" href="launcher.html" aria-label="Open Launcher mock"><img src="thumb-launcher.png" alt="Launcher Home screen: flat colour tile grid with console tiles, quick actions and page tabs" width="960" height="544"></a>
+ <div class="body">
+  <div class="num">Direction 3</div><h2>Launcher home</h2>
+  <p>A flat, bold tile grid with a clock at the top. Tiles are consoles plus quick actions (Wake, Add console, Controller preset, Resume), and L/R flip between Home, Settings and Profile, each in its own colour. Settings turn into on/off tiles you can see at a glance. It is the densest and the most touch-friendly, and the simplest to build.</p>
+  <div class="pros"><h3>Pros</h3><ul><li>Cheapest to build and to run: about 64 draw calls, about 3.5 MB.</li><li>Most touch-friendly; big targets, nothing hidden behind menus.</li><li>Quick actions put Wake and Resume one press away.</li><li>On/off state of every toggle readable at a glance.</li></ul></div>
+  <div class="cons"><h3>Cons</h3><ul><li>Least emotional: the running game is not shown.</li><li>Needs 2-D focus movement the current focus manager may not have.</li><li>Large tiles truncate long console names.</li><li>Flat and bold is a strong look that may feel less &ldquo;premium&rdquo;.</li></ul></div>
+  <a class="open" href="launcher.html">Open Launcher mock</a>
+ </div>
+</article>
+</div>
+
+<div class="rec"><b>Designer's recommendation.</b> Build Direction 2 (Showcase) for Home, Connecting and Settings, and borrow Direction 1's ribbons as its backdrop when a console has no cover art, which costs 4 draw calls and no texture. It is the only option that uses the information we already have (the running game) and it makes the main screen the best part of the app. If cover art or console art proves hard, fall back to Direction 3, which is the cheapest and still a large step up. Choose Direction 1 only if the goal is the most console-like feel and the lowest cost over looking impressive.</div>
+
+<section><h2 style="margin-bottom:var(--s2)">Shared system</h2>
+<div class="sh">
+ <div><b>Type</b>Manrope (open licence), weights 500 / 700 / 800. Four sizes at native resolution: 16, 20, 28, 48 px. Nothing smaller than 16.</div>
+ <div><b>Colour</b>Dark first. Three text tones all pass AA on the surfaces. One accent, plus ok / warn / error / PSN. Launcher adds three page colours.</div>
+ <div><b>Space and shape</b>8 px grid. Three radii: 8, 16, 28.</div>
+ <div><b>Motion</b>One easing curve, three durations: 120, 240 and 480 ms. Reduced motion is respected.</div>
+</div></section>
+<footer>Console and cover art are placeholder CSS and SVG. Blur and glow in the mocks become pre-blurred textures and 9-slice panels on the Vita. Open files directly in a browser; no build step. Fonts load from Google Fonts.</footer>
+</main></body></html>
