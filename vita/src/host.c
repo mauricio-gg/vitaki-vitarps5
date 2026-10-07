@@ -7,6 +7,7 @@
 #include "host_metrics.h"
 #include "host_lifecycle.h"
 #include "host_callbacks.h"
+#include "host_quit.h"
 #include "host_constants.h"
 #include "discovery.h"
 #include "audio.h"
@@ -98,30 +99,25 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
 }
 
 /* True while a connect/stream is actively using this host's memory (connection worker alive,
- * session initialized, connect overlay up, or a packet-loss auto-retry is scheduled/in
- * flight). Free-guards must use this, not bare pointer identity against context.active_host:
- * nothing clears context.active_host once a host is selected (see assignments in
- * ui_screens.c/ui_components.c), so identity alone would make a guard permanent -- e.g. a
- * once-selected host would survive every subsequent refresh/dedup pass forever, even long
- * after the connect/stream that justified protecting it has ended.
+ * session initialized, connect overlay up, or hard-fallback recovery in progress). Free-guards
+ * must use this, not bare pointer identity against context.active_host: nothing clears
+ * context.active_host once a host is selected (see assignments in ui_screens.c/ui_components.c),
+ * so identity alone would make a guard permanent -- e.g. a once-selected host would survive every
+ * subsequent refresh/dedup pass forever, even long after the connect/stream that justified
+ * protecting it has ended.
  *
- * loss_retry_pending/loss_retry_active close a real gap that the first three predicates alone
- * miss: host_quit.c's auto-retry path runs on the Chiaki session's event-callback thread, not
- * the UI's connection worker thread, so ui_state_connection_thread_active() is already false by
- * the time it starts (ui_connection_cancel() tore that thread down first). It also clears
- * session_init before the retry's sleep-then-host_stream() sequence and only sets it again deep
- * inside that host_stream() call (host.c, well past the hydrate/PSN-auth/holepunch work an
- * in-flight retry can spend real time in). Without these two flags, a UI-thread refresh/dedup
- * pass could free and memset the very struct that retry call is reading from mid-flight.
- * loss_retry_pending covers the pre-retry delay (host_quit.c: set true right after scheduling,
- * false right before the retry's host_stream() call); loss_retry_active covers that
- * host_stream() call itself (set true immediately before it, false on either outcome) --
- * together they span the gap with no seam between them. */
+ * recovery_active closes a real gap that the other predicates miss (GH #272): after a transport
+ * death the old session is finalized (session_init false, no overlay, no connection worker) and
+ * the fallback connect only starts ~9 s later from the UI thread. Throughout that wait, and the
+ * connect itself (including the window before host_stream() sets session_init again), the
+ * fallback reads this host, so a UI-thread refresh/dedup pass must not free and memset it.
+ * loss_retry_pending/loss_retry_active are kept as belt and braces for the scheduled and
+ * bitrate-applying steps within that window. */
 bool host_in_active_use(const VitaChiakiHost *host) {
   return host && host == context.active_host &&
          (ui_state_connection_thread_active() || context.stream.session_init ||
-          context.stream.loss_retry_pending || context.stream.loss_retry_active ||
-          ui_connection_overlay_active());
+          context.stream.recovery_active || context.stream.loss_retry_pending ||
+          context.stream.loss_retry_active || ui_connection_overlay_active());
 }
 
 /* Frees the heap-owned members of a VitaChiakiHost but deliberately does NOT free the
@@ -513,6 +509,8 @@ int host_stream(VitaChiakiHost *host) {
 
 cleanup:
   if (result != 0) {
+    if (context.stream.recovery_active)
+      host_recovery_abort("fallback connect failed to start");
     context.stream.inputs_resume_pending = false;
     host_shutdown_media_pipeline();
     // Finalize if session was partially initialized

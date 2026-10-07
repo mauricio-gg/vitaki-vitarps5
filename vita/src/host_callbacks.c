@@ -88,6 +88,15 @@ void host_event_cb(ChiakiEvent *event, void *user) {
         context.stream.fast_restart_active = false;
         context.stream.reconnect_overlay_active = false;
       }
+      if (context.stream.recovery_active) {
+        // GH #272: the fallback session is up -- recovery is over. The attempt counter and
+        // bitrate are zeroed with the overlay on the first video frame (the Reconnecting
+        // screen still draws them until then); the quit handler also ignores them unless
+        // recovery was active, so a later drop gets the full attempt budget again.
+        LOGD("Recovery complete: fallback session connected after %u attempt(s)",
+             context.stream.loss_retry_attempts);
+        context.stream.recovery_active = false;
+      }
       break;
     case CHIAKI_EVENT_LOGIN_PIN_REQUEST:
       LOGD("EventCB CHIAKI_EVENT_LOGIN_PIN_REQUEST");
@@ -263,8 +272,13 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
   }
   context.stream.is_streaming = true;
   context.stream.reset_reconnect_gen = false;  // Streaming started — consume the reset flag
-  if (context.stream.reconnect_overlay_active)
+  if (context.stream.reconnect_overlay_active) {
     context.stream.reconnect_overlay_active = false;
+    if (!context.stream.recovery_active) {
+      context.stream.loss_retry_attempts = 0;
+      context.stream.loss_retry_bitrate_kbps = 0;
+    }
+  }
 
   /* Pass frame quality with the decode call so the corruption flag and the
    * last-good snapshot are updated atomically under the decode mutex —

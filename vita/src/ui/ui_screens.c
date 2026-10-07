@@ -33,6 +33,7 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
+#include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui.h"
@@ -3818,6 +3819,13 @@ UIScreenType ui_screen_draw_reconnecting(void) {
   int status_x = card_x + (card_w - status_w) / 2;
   ui_text_draw(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
                status_msg);
+
+  // Handle Circle button to cancel (mirrors the waking screen above)
+  if (btn_pressed(SCE_CTRL_CIRCLE)) {
+    host_recovery_cancel_by_user();
+    ui_state_set_reconnect_start_time(0);
+    return UI_SCREEN_TYPE_MAIN;
+  }
 
   return UI_SCREEN_TYPE_RECONNECTING;
 }

@@ -47,7 +47,9 @@
 #include "ui.h"
 #include "util.h"
 #include "video.h"
+#include "host_constants.h"
 #include "host_metrics.h"
+#include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui/ui_graphics.h"
@@ -524,6 +526,34 @@ void draw_ui() {
            * the next connection attempt. */
           context.stream.force_psn_holepunch = false;
           ui_connection_cancel();
+        }
+      }
+    }
+
+    // --- Hard-fallback recovery connect (GH #272, armed by host_handle_quit_event in
+    // host_quit.c) --- Runs on this UI thread, never the dying session's thread: that thread only
+    // schedules the attempt. Not gated on screen == MAIN (the screen is RECONNECTING for the whole
+    // recovery) and never switches to the WAKING screen. Waits until the old session has been
+    // joined and finalized (session_finalize_pending cleared by the block above) so the new
+    // connect can never overlap, or be finalized as, the old session.
+    if (context.stream.recovery_active && context.stream.loss_retry_pending &&
+        !context.stream.session_finalize_pending && !context.stream.session_init &&
+        !ui_state_connection_thread_active() &&
+        sceKernelGetProcessTimeWide() >= context.stream.loss_retry_ready_us) {
+      context.stream.loss_retry_pending = false;
+      if (!context.active_host) {
+        host_recovery_abort("no active host for fallback connect");
+      } else {
+        // Applies the fallback bitrate in host_stream(); restores the PSN-vs-LAN choice of the
+        // connect that just ended (host_stream() consumes force_psn_holepunch every call).
+        context.stream.loss_retry_active = true;
+        context.stream.force_psn_holepunch = context.stream.last_connect_used_psn_holepunch;
+        LOGD("Restarting stream after transport/packet-loss fallback attempt %u/%u at %u kbps",
+             context.stream.loss_retry_attempts, LOSS_RETRY_MAX_ATTEMPTS,
+             context.stream.loss_retry_bitrate_kbps);
+        if (!start_connection_thread(context.active_host)) {
+          context.stream.force_psn_holepunch = false;
+          host_recovery_abort("could not start connection thread for fallback connect");
         }
       }
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #define LOSS_RETRY_BITRATE_KBPS 800
+#define LOSS_RETRY_MAX_ATTEMPTS 2  // Hard-fallback connect attempts per recovery (GH #272)
 #define PSN_REMOTE_BITRATE_CAP_KBPS 3500
 #define RESTART_HANDSHAKE_REPEAT_WINDOW_US (60 * 1000 * 1000ULL)
 #define HINT_DURATION_KEYFRAME_US (4 * 1000 * 1000ULL)
