@@ -100,6 +100,13 @@ void host_handle_quit_event(ChiakiEvent *event) {
   context.stream.recovery_active = schedule_recovery;
   host_shutdown_media_pipeline();
   context.stream.inputs_resume_pending = schedule_recovery;
+  if (schedule_recovery) {
+    // The shutdown above cleared the overlay; put it back at once so the UI thread never
+    // draws the main menu between teardown and the scheduling below (GH #272).
+    context.stream.reconnect_overlay_active = true;
+    if (!recovery_was_active)
+      context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+  }
   ui_clear_waking_wait();
 
   // Always hand the dying session to the UI thread for join + fini. This callback runs on that
@@ -298,7 +305,6 @@ void host_handle_quit_event(ChiakiEvent *event) {
   }
   context.stream.loss_retry_pending = false;
   context.stream.loss_retry_active = false;
-  context.stream.reconnect_overlay_active = false;
 
   if (schedule_recovery) {
     // Nothing connects from this (dying) session thread: the UI thread starts the next attempt
@@ -309,8 +315,6 @@ void host_handle_quit_event(ChiakiEvent *event) {
     context.stream.loss_retry_attempts = retry_attempts + 1;
     context.stream.loss_retry_bitrate_kbps = retry_bitrate;
     context.stream.loss_retry_ready_us = ready_us;
-    context.stream.reconnect_overlay_active = true;
-    context.stream.reconnect_overlay_start_us = now_us;
     LOGD(
         "Recovery attempt %u/%u scheduled in %llu ms at %u kbps (reason=%d fast_restart=%d "
         "continuing=%d)",
@@ -323,6 +327,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
     __sync_synchronize();
     context.stream.loss_retry_pending = true;
   } else {
+    context.stream.reconnect_overlay_active = false;
     host_resume_discovery_if_needed();
     if (restart_failed && !retry_allowed_reason)
       LOGD("Skipping hard fallback retry for quit reason %d (%s)", event->quit.reason,
@@ -356,6 +361,9 @@ void host_recovery_cancel_by_user(void) {
   LOGD("Reconnecting cancelled by user (recovery_active=%d)",
        context.stream.recovery_active ? 1 : 0);
   recovery_clear_state();
+  // Pairs with the barrier + recovery_active check in host_stream() before session start: a
+  // connect that has not reached session_init yet is cancelled there, not by the stop below.
+  __sync_synchronize();
   // No-op when no session exists (the wait phase); during a fallback connect this stops it and
   // the resulting user-stop quit never schedules another attempt.
   host_cancel_stream_request();

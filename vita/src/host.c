@@ -241,6 +241,8 @@ int host_stream(VitaChiakiHost *host) {
 
   int result = 1;
   bool resume_inputs = context.stream.inputs_resume_pending;
+  // GH #272: a hard-fallback connect. Cancelling it clears recovery_active (see below).
+  bool recovery_connect = context.stream.recovery_active;
   context.stream.stop_requested = false;
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
@@ -492,6 +494,17 @@ int host_stream(VitaChiakiHost *host) {
   LOGD("PIPE/PRIORITY decode=%d audio=%d recv=%d feedback=%d input=%d", VITA_DECODE_THREAD_PRIORITY,
        VITA_AUDIO_THREAD_PRIORITY, HOST_LOG_TAKION_RECV_THREAD_PRIORITY,
        HOST_LOG_FEEDBACK_SENDER_THREAD_PRIORITY, VITA_INPUT_THREAD_PRIORITY);
+
+  // GH #272: Circle during a fallback connect cannot stop it through the session until
+  // session_init is set (request_stream_stop() ignores it, and this function reset
+  // stop_requested above), so the cancel is seen here instead. Each side writes then reads
+  // (cancel: clear recovery_active, then read session_init; here: set session_init, then read
+  // recovery_active) with a full barrier between, so at least one of them sees the other.
+  __sync_synchronize();
+  if (recovery_connect && !context.stream.recovery_active) {
+    LOGD("Fallback connect cancelled by user before session start");
+    goto cleanup;
+  }
 
   err = chiaki_session_start(&context.stream.session);
   if (err != CHIAKI_ERR_SUCCESS) {
