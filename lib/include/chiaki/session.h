@@ -113,10 +113,10 @@ typedef enum {
 	CHIAKI_QUIT_REASON_PSN_REGIST_FAILED,
 	// OUR transport gave up mid-stream (e.g. Takion's ENOBUFS retry budget exhausted)
 	// with no console-initiated disconnect -- distinct from REMOTE_DISCONNECTED so
-	// logs/UI don't blame the console for our own socket-buffer exhaustion. Only
-	// reached after session.c's self-triggered soft-restart budget
-	// (CHIAKI_TRANSPORT_FAILURE_RESTART_MAX) is exhausted; appended at the end of
-	// the enum to keep existing numeric quit-reason codes stable.
+	// logs/UI don't blame the console for our own socket-buffer exhaustion. The
+	// session ends immediately on such a failure (no soft restart is attempted,
+	// GH #272); appended at the end of the enum to keep existing numeric
+	// quit-reason codes stable.
 	CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED,
 } ChiakiQuitReason;
 
@@ -169,17 +169,6 @@ typedef enum {
 	CHIAKI_EVENT_RUMBLE,
 	CHIAKI_EVENT_QUIT,
 	CHIAKI_EVENT_TRIGGER_EFFECTS,
-	/**
-	 * Dataless. Emitted only for a self-requested soft restart (a mid-stream
-	 * transport failure the lib is recovering from on its own -- see
-	 * transport_only_failure in session.c) so a UI layer can surface visible
-	 * feedback (e.g. a "Reconnecting..." overlay) for the multi-second window
-	 * while the restart's bang-wait ladder runs. Vita-initiated restarts
-	 * (host_recovery.c's loss-driven path) already have their own overlay
-	 * path and do not emit this. Appended at the end of the enum to preserve
-	 * ABI ordering of the existing values.
-	 */
-	CHIAKI_EVENT_STREAM_RESTARTING,
 } ChiakiEventType;
 
 typedef struct chiaki_event_t
@@ -288,16 +277,6 @@ typedef struct chiaki_session_t
 	bool stream_restart_requested;
 	bool stream_restart_profile_valid;
 	ChiakiConnectVideoProfile stream_restart_profile;
-	/**
-	 * Consecutive stream restarts self-triggered by session_thread_func() because
-	 * OUR transport gave up (chiaki_stream_connection.transport_failed) with no
-	 * console-initiated disconnect -- see CHIAKI_TRANSPORT_FAILURE_RESTART_MAX in
-	 * session.c. Reset to 0 whenever a restart attempt's outcome is anything other
-	 * than another unresolved transport failure (clean stop, genuine remote
-	 * disconnect, or an externally-requested restart succeeding), so only a
-	 * genuinely stuck link exhausts the bound.
-	 */
-	uint32_t transport_failure_restart_count;
 } ChiakiSession;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, ChiakiConnectInfo *connect_info, ChiakiLog *log);
