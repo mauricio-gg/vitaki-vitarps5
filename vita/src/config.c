@@ -57,6 +57,8 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->submit_on_missing_ref = false;
   cfg->show_nav_labels = false;
   cfg->show_only_paired = false;
+  cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+  cfg->show_button_hints = true;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
   vita_logging_config_set_defaults(&cfg->logging);
 }
@@ -375,6 +377,25 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     cfg->controller_map_id = datum.u.i;
 }
 
+/*
+ * parse_background_blur — Reads settings.background_blur. A missing key keeps the default;
+ * a value outside the VitaChiakiBackgroundBlur range is not trusted and resets to the default.
+ */
+static void parse_background_blur(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  toml_datum_t datum = toml_int_in(settings, "background_blur");
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_BACKGROUND_BLUR_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range background_blur %lld; using %d",
+                (long long)datum.u.i, VITA_BACKGROUND_BLUR_NONE);
+    cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+    return;
+  }
+  cfg->background_blur = (VitaChiakiBackgroundBlur)datum.u.i;
+}
+
 static void normalize_controller_map_id(VitaChiakiConfig *cfg) {
   if (cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_1 ||
       cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2 ||
@@ -401,6 +422,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
       {"submit_on_missing_ref", false, &cfg->submit_on_missing_ref},
       {"show_nav_labels", false, &cfg->show_nav_labels},
       {"show_only_paired", false, &cfg->show_only_paired},
+      {"show_button_hints", true, &cfg->show_button_hints},
       {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
       {"enable_logging", false, &cfg->logging.enabled},
   };
@@ -535,6 +557,7 @@ void config_parse(VitaChiakiConfig *cfg) {
                                      &migrated_legacy_settings, &migrated_root_settings);
   parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
+  parse_background_blur(cfg, settings);
 
   // Security: runtime logging overrides are compile-time gated.
   parse_logging_settings(cfg, parsed);
@@ -714,11 +737,13 @@ bool config_serialize(VitaChiakiConfig *cfg) {
       {"submit_on_missing_ref", cfg->submit_on_missing_ref},
       {"show_nav_labels", cfg->show_nav_labels},
       {"show_only_paired", cfg->show_only_paired},
+      {"show_button_hints", cfg->show_button_hints},
       {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
       {"enable_logging", cfg->logging.enabled},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "background_blur = %d\n", (int)cfg->background_blur);
 
   // Save 3 custom map slots
   for (int slot = 0; slot < 3; slot++) {

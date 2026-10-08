@@ -29,6 +29,15 @@ typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_COUNT
 } VitaChiakiLatencyMode;
 
+/// Strength of the blur / darkening drawn behind menus (SPEC C27). Stored as an int in the config.
+typedef enum vita_chiaki_background_blur_t {
+  VITA_BACKGROUND_BLUR_NONE = 0,
+  VITA_BACKGROUND_BLUR_SOFT,
+  VITA_BACKGROUND_BLUR_STRONG,
+  VITA_BACKGROUND_BLUR_DARK,
+  VITA_BACKGROUND_BLUR_COUNT
+} VitaChiakiBackgroundBlur;
+
 /// Settings for the app
 typedef struct vita_chiaki_config_t {
   int cfg_version;
@@ -76,6 +85,8 @@ typedef struct vita_chiaki_config_t {
   VitaLoggingConfig logging;
   bool show_nav_labels;   // Show text labels below navigation icons when selected
   bool show_only_paired;  // Only show registered/paired consoles on main screen
+  VitaChiakiBackgroundBlur background_blur;  // Menu background treatment, default None
+  bool show_button_hints;  // Draw the button hint row on menus (not the in-stream exit hint)
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig *cfg);
