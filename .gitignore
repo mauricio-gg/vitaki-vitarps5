@@ -67,9 +67,5 @@ vitarps5/
 # graphify knowledge-graph output (regenerable build artifact, machine-specific paths)
 graphify-out/
 
-# AI Configs
-AGENTS.md
-CLAUDE.md
-
 # Git worktrees
 .worktrees/
