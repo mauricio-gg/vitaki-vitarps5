@@ -76,3 +76,14 @@ target_include_directories(ui_chrome_layout_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_chrome_layout_tests COMMAND ui_chrome_layout_tests)
+
+# ui_detail_tests.c has its own main() and tests the pure XMB helpers (status-message word wrap,
+# ease-out curve). Like bitstream_sps_tests it is cross-compiled but never run by
+# ./tools/build.sh test; the native command is at the top of the file.
+add_executable(ui_detail_tests ui_detail_tests.c ../vita/src/ui/ui_text_wrap.c)
+
+target_include_directories(ui_detail_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_detail_tests COMMAND ui_detail_tests)
