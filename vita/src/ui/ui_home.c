@@ -29,6 +29,7 @@
 #include "ui/ui_detail_panel.h"
 #include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
+#include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_top_bar.h"
@@ -112,7 +113,8 @@ _Static_assert(sizeof(PROFILE_ENTRIES) / sizeof(PROFILE_ENTRIES[0]) == UI_PROFIL
 static const char *const CATEGORY_LABELS[UI_CAT_COUNT] = {"Consoles", "Settings", "Controller",
                                                           "Profile"};
 
-/** The existing (old) screen that Confirm opens for each category's items. */
+/** The screen that Confirm opens for each category's items (Settings opens the XMB page, the rest
+ * the old screens). */
 static const UIScreenType CATEGORY_SCREENS[UI_CAT_COUNT] = {
     UI_SCREEN_TYPE_MAIN, UI_SCREEN_TYPE_SETTINGS, UI_SCREEN_TYPE_CONTROLLER,
     UI_SCREEN_TYPE_PROFILE};
@@ -364,6 +366,13 @@ static void refresh_items(const VitaChiakiHost *cooldown_host) {
   s_last_category = s_bar.focus;
 }
 
+void ui_home_select_settings_group(int group) {
+  ui_category_bar_set_focus(&s_bar, HOME_CAT_SETTINGS);
+  refresh_items(NULL);
+  ui_xmb_list_set_focus(&s_list, group);
+  s_confirm_tracking = false;
+}
+
 /* ============================================================================
  * Cooldown
  * ============================================================================ */
@@ -429,9 +438,11 @@ static UIScreenType connect_focused_console(bool force_psn) {
   return ui_screens_connect_host(card->host);
 }
 
-/** Open the existing screen for the focused Settings, Controller or Profile item. */
+/** Open the screen for the focused Settings, Controller or Profile item. */
 static UIScreenType open_category_screen(void) {
   UIScreenType target = CATEGORY_SCREENS[s_bar.focus];
+  if (s_bar.focus == HOME_CAT_SETTINGS)
+    ui_settings_open(s_list.focus);
   ui_focus_move_to_content(target);
   ui_nav_set_selected_icon(s_bar.focus);
   ui_nav_reset_collapsed();

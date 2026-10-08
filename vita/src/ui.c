@@ -68,6 +68,8 @@
 #include "ui/ui_component.h"
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
+#include "ui/ui_settings.h"
+#include "ui/ui_settings_actions.h"
 #include "ui/ui_shapes.h"
 
 vita2d_font *font;
@@ -112,9 +114,6 @@ static bool *touch_block_pending_clear = NULL;
 // Console card cache moved to ui_console_cards.c
 // CardFocusAnimState moved to ui_console_cards.c
 
-// ToggleAnimationState type moved to ui_types.h
-// ToggleAnimationState instance moved to ui_components.c
-
 // Component functions moved to ui_components.c (accessible via ui_internal.h)
 static void render_loss_indicator_preview(void);
 
@@ -158,13 +157,13 @@ char *cancel_btn_str = "Circle";
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting). They draw their own top bar (and hint row with the Network Unstable pill, where
- * they have one), so the corner
- * logo, the wave sidebar and the old loss indicator are not drawn over them.
+ * Reconnecting, Settings). They draw their own top bar (and hint row with the Network Unstable
+ * pill, where they have one), so the corner logo, the wave sidebar and the old loss indicator are
+ * not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING;
+         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -178,6 +177,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "connecting";
     case UI_SCREEN_TYPE_RECONNECTING:
       return "reconnecting";
+    case UI_SCREEN_TYPE_SETTINGS:
+      return "settings";
     default:
       return NULL;
   }
@@ -378,7 +379,6 @@ bool ui_reload_psn_account_id(void) {
 // ============================================================================
 // All screen rendering functions moved to ui_screens.c:
 // - ui_screen_draw_main()
-// - ui_screen_draw_settings()
 // - ui_screen_draw_profile()
 // - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
@@ -427,6 +427,7 @@ void init_ui() {
   ui_shapes_init();
   ui_home_init();
   ui_connecting_init();
+  ui_settings_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -436,10 +437,7 @@ void init_ui() {
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
 
   // Set yes/no buttons (circle = yes on Japanese vitas, typically)
-  SCE_CTRL_CONFIRM = context.config.circle_btn_confirm ? SCE_CTRL_CIRCLE : SCE_CTRL_CROSS;
-  SCE_CTRL_CANCEL = context.config.circle_btn_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
-  confirm_btn_str = context.config.circle_btn_confirm ? "Circle" : "Cross";
-  cancel_btn_str = context.config.circle_btn_confirm ? "Cross" : "Circle";
+  ui_settings_apply_circle_confirm();
 
   // Initialize UI modules
   ui_input_init();
@@ -672,7 +670,14 @@ void draw_ui() {
 
       ui_input_update_snapshot();
 
-      vita2d_start_drawing();
+      /*
+       * The background resets vita2d's pool and renders its blur target (a scene of its own)
+       * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
+       * which would reset the pool again.
+       */
+      ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
+                            screen == UI_SCREEN_TYPE_RECONNECTING);
+      vita2d_start_drawing_advanced(NULL, 0);
       vita2d_clear_screen();
 
       /*
@@ -741,10 +746,7 @@ void draw_ui() {
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
         next_screen = ui_screen_draw_reconnecting();
       } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
-        if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
-          context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
-        }
-        next_screen = ui_screen_draw_settings();
+        next_screen = ui_settings_frame();
       } else if (screen == UI_SCREEN_TYPE_PROFILE) {
         // Phase 2: Profile & Registration screen
         next_screen = ui_screen_draw_profile();

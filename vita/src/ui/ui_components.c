@@ -29,9 +29,6 @@
 // Internal State
 // ============================================================================
 
-// Toggle animation state
-static ToggleAnimationState toggle_anim = {-1, false, 0};
-
 // Hints popup state
 static HintsPopupState hints_popup = {0};
 
@@ -52,116 +49,8 @@ const char *debug_menu_options[] = {
 // Cursor blink state (for PIN entry) - defined in ui.c, declared in ui_internal.h
 
 // ============================================================================
-// Internal Helper Functions
-// ============================================================================
-
-/**
- * Linear interpolation
- */
-static inline float lerp(float a, float b, float t) {
-  return a + (b - a) * t;
-}
-
-/**
- * Ease-in-out cubic interpolation for smooth animation
- */
-static inline float ease_in_out_cubic(float t) {
-  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-}
-
-// ============================================================================
 // Widget Drawing Functions
 // ============================================================================
-
-/**
- * Draw an animated toggle switch control
- */
-void ui_draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
-  // Interpolate track color based on animation value
-  uint32_t color_off = RGBA8(0x60, 0x60, 0x68, 200);
-  uint32_t color_on = UI_COLOR_PRIMARY_BLUE;
-
-  // Blend between OFF and ON colors
-  uint8_t r = (uint8_t)lerp(0x60, 0x34, anim_value);
-  uint8_t g = (uint8_t)lerp(0x60, 0x90, anim_value);
-  uint8_t b = (uint8_t)lerp(0x68, 0xFF, anim_value);
-  uint8_t a = (uint8_t)lerp(200, 255, anim_value);
-  uint32_t track_color = RGBA8(r, g, b, a);
-
-  uint32_t knob_color = UI_COLOR_TEXT_PRIMARY;
-
-  // Enhanced selection highlight with glow
-  if (selected) {
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, height / 2 + 2,
-                         RGBA8(0x34, 0x90, 0xFF, 60));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, height / 2 + 1,
-                         UI_COLOR_PRIMARY_BLUE);
-  }
-
-  // Track shadow for depth
-  ui_draw_rounded_rect(x + 1, y + 1, width, height, height / 2, RGBA8(0x00, 0x00, 0x00, 40));
-
-  // Track (background)
-  ui_draw_rounded_rect(x, y, width, height, height / 2, track_color);
-
-  // Knob (circular button) - smoothly animated position
-  int knob_radius = (height - 4) / 2;
-  int knob_x_off = x + knob_radius + 2;
-  int knob_x_on = x + width - knob_radius - 2;
-  int knob_x = (int)lerp((float)knob_x_off, (float)knob_x_on, anim_value);
-  int knob_y = y + height / 2;
-
-  // Knob shadow
-  ui_draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
-  // Knob
-  ui_draw_circle(knob_x, knob_y, knob_radius, knob_color);
-}
-
-/**
- * Draw a dropdown control with label and current value
- */
-void ui_draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                      bool expanded, bool selected) {
-  // Modern card colors with subtle variation for selection
-  uint32_t bg_color = selected ? RGBA8(0x40, 0x42, 0x50, 255) : UI_COLOR_CARD_BG;
-
-  // Enhanced selection with shadow and glow
-  if (selected && !expanded) {
-    // Shadow
-    ui_draw_rounded_rect(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
-  } else {
-    // Subtle shadow for depth
-    ui_draw_rounded_rect(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
-  }
-
-  // Background
-  ui_draw_rounded_rect(x, y, width, height, 8, bg_color);
-
-  // Label text (left) — centered vertically in the row box.
-  ui_text_draw_centered_v(font, x + 15, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
-
-  // Value text (right) — same row box, right-aligned by pre-computing x from width.
-  int value_width = ui_text_width(font, FONT_SIZE_BODY, value);
-  ui_text_draw_centered_v(font, x + width - value_width - 30, y, height, UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_BODY, value);
-
-  // Down arrow indicator - enhanced with PlayStation Blue when selected
-  int arrow_x = x + width - 18;
-  int arrow_y = y + height / 2;
-  int arrow_size = 6;
-  uint32_t arrow_color = selected ? UI_COLOR_PRIMARY_BLUE : UI_COLOR_TEXT_SECONDARY;
-
-  // Draw downward pointing triangle
-  for (int i = 0; i < arrow_size; i++) {
-    vita2d_draw_rectangle(arrow_x - i, arrow_y + i, 1 + i * 2, 1, arrow_color);
-  }
-}
 
 /**
  * Draw a tabbed navigation bar with color-coded sections
@@ -295,49 +184,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
   int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
   int text_x = x + (w - text_w) / 2;
   ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
-
-// ============================================================================
-// Toggle Switch Animation
-// ============================================================================
-
-/**
- * Start toggle switch animation
- */
-void ui_toggle_start_animation(int toggle_index, bool target_state) {
-  toggle_anim.animating_index = toggle_index;
-  toggle_anim.target_state = target_state;
-  toggle_anim.start_time_us = sceKernelGetProcessTimeWide();
-}
-
-/**
- * Get current animation value for a toggle switch
- */
-float ui_toggle_get_animation_value(int toggle_index, bool current_state) {
-  // If not animating this toggle, return static value
-  if (toggle_anim.animating_index != toggle_index) {
-    return current_state ? 1.0f : 0.0f;
-  }
-
-  // Calculate animation progress
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - toggle_anim.start_time_us;
-  float progress = (float)elapsed_us / (TOGGLE_ANIMATION_DURATION_MS * 1000.0f);
-
-  // Clamp to 0.0-1.0
-  if (progress >= 1.0f) {
-    toggle_anim.animating_index = -1;  // Animation complete
-    return toggle_anim.target_state ? 1.0f : 0.0f;
-  }
-
-  // Apply easing for smooth motion
-  float eased = ease_in_out_cubic(progress);
-
-  // Interpolate from start to end
-  float start_val = toggle_anim.target_state ? 0.0f : 1.0f;
-  float end_val = toggle_anim.target_state ? 1.0f : 0.0f;
-
-  return lerp(start_val, end_val, eased);
 }
 
 // ============================================================================
@@ -963,15 +809,6 @@ bool ui_connect_popup_is_active(void) {
 // These static wrappers maintain backwards compatibility with existing ui.c code
 // Once ui.c is fully refactored, these can be removed
 
-void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
-  ui_draw_toggle_switch(x, y, width, height, anim_value, selected);
-}
-
-void draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                   bool expanded, bool selected) {
-  ui_draw_dropdown(x, y, width, height, label, value, expanded, selected);
-}
-
 void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
                   int num_tabs, int selected) {
   ui_draw_tab_bar(x, y, width, height, tabs, colors, num_tabs, selected);
@@ -987,14 +824,6 @@ void draw_section_header(int x, int y, int width, const char *title) {
 
 void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
   ui_draw_pin_digit(x, y, digit, is_current, has_value);
-}
-
-void start_toggle_animation(int toggle_index, bool target_state) {
-  ui_toggle_start_animation(toggle_index, target_state);
-}
-
-float get_toggle_animation_value(int toggle_index, bool current_state) {
-  return ui_toggle_get_animation_value(toggle_index, current_state);
 }
 
 void render_error_popup(void) {

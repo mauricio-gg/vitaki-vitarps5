@@ -9,7 +9,6 @@
 #include "chiaki/base64.h"
 #include "config.h"
 #include "context.h"
-#include "ui/ui_screens.h"
 
 VitaChiakiContext context = {0};
 
@@ -409,21 +408,6 @@ static void test_resolution_roundtrip(void) {
   }
 }
 
-static void test_settings_streaming_item_invariants(void) {
-  assert(UI_SETTINGS_ITEM_QUALITY_PRESET == 0);
-  assert(UI_SETTINGS_ITEM_LATENCY_MODE == 1);
-  assert(UI_SETTINGS_ITEM_FPS_TARGET == 2);
-  assert(UI_SETTINGS_ITEM_FORCE_30_FPS == 3);
-  assert(UI_SETTINGS_ITEM_AUTO_DISCOVERY == 4);
-  assert(UI_SETTINGS_ITEM_SHOW_LATENCY == 5);
-  assert(UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS == 6);
-  assert(UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE == 7);
-  assert(UI_SETTINGS_ITEM_FILL_SCREEN == 8);
-  assert(UI_SETTINGS_ITEM_SHOW_NAV_LABELS == 9);
-  assert(UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM == 10);
-  assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
-}
-
 static void test_registered_hosts_require_required_fields(void) {
   reset_config_file();
   write_config_text(
@@ -452,6 +436,63 @@ static void test_registered_hosts_require_required_fields(void) {
   assert(cfg.registered_hosts[0]->registered_state->rp_regist_key[0] != '\0');
 }
 
+/* catches: a config saved before these keys existed loading with blur or hints wrong, or the
+ * new keys disturbing values that were already there. */
+static void test_old_config_gets_new_field_defaults(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "fps = 60\n"
+      "show_latency = true\n"
+      "show_only_paired = true\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  assert(cfg.show_button_hints == true);
+  assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
+  assert(cfg.show_latency == true);
+  assert(cfg.show_only_paired == true);
+}
+
+/* catches: a non-default blur level or hints-off choice being lost on save or load, so the
+ * setting reverts after a restart. */
+static void test_new_fields_survive_save_and_load(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.background_blur = VITA_BACKGROUND_BLUR_STRONG;
+  cfg.show_button_hints = false;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+  assert(loaded.show_button_hints == false);
+}
+
+/* catches: a hand-edited or corrupt blur value outside 0..3 being trusted, which would index
+ * past the background levels. */
+static void test_out_of_range_blur_is_rejected(void) {
+  const int bad_values[] = {-1, 4, 99};
+  for (size_t i = 0; i < sizeof(bad_values) / sizeof(bad_values[0]); i++) {
+    char text[160];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\nbackground_blur = %d\n",
+             bad_values[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  }
+}
+
 void run_packet_path_tests(void);
 void run_json_escape_tests(void);
 void run_token_crypto_tests(void);
@@ -463,8 +504,10 @@ int main(void) {
   test_root_level_bool_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
-  test_settings_streaming_item_invariants();
   test_registered_hosts_require_required_fields();
+  test_old_config_gets_new_field_defaults();
+  test_new_fields_survive_save_and_load();
+  test_out_of_range_blur_is_rejected();
   run_packet_path_tests();
   run_json_escape_tests();
   run_token_crypto_tests();

@@ -23,6 +23,9 @@ const char *ui_label_latency_mode(VitaChiakiLatencyMode mode);
 /** ui_label_on_off() - "On" or "Off". */
 const char *ui_label_on_off(bool on);
 
+/** ui_label_background_blur() - "None", "Soft", "Strong" or "Dark". */
+const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur);
+
 /**
  * ui_profile_reference_host() - The console the Profile connection facts describe.
  * @return the active host while streaming, else the console selected on Home, else the first

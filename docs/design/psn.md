@@ -6,9 +6,9 @@ Internet play **is implemented and works on hardware** (first end-to-end session
 
 ## What the user sees
 
-1. **Turn it on.** Settings has a `psn_remoteplay_enabled` toggle (`vita/src/config.c:404`, `vita/src/ui/ui_screens.c:1119`). It defaults to off (`config.c:40`).
+1. **Turn it on.** Settings has a `psn_remoteplay_enabled` toggle (`vita/src/config.c:426`, `vita/src/ui/ui_settings.c:140-148`). It defaults to off (`config.c:40`).
 2. **Sign in.** On the Profile screen, X on the Connection card starts login. The Vita shows a QR code (`vita/src/ui/ui_qr.c`, drawn by `draw_profile_login_assist_panel` in `ui_screens.c`) that opens Sony's sign-in page on a phone. After signing in, the browser lands on a redirect page; the user copies that full URL (or the code in it) and pastes it into the Vita's on-screen keyboard (`open_psn_auth_code_ime`, `poll_psn_auth_code_ime`).
-3. **Pick a console.** After login, and at every app start, the client fetches the list of consoles on the account (`psn_remote_refresh_hosts`, `vita/src/psn_remote.c:442`; called from `vita/src/ui.c:498`). Each console that has Remote Play enabled and a registered seed host (next section) appears as a card with an internet badge.
+3. **Pick a console.** After login, and at every app start, the client fetches the list of consoles on the account (`psn_remote_refresh_hosts`, `vita/src/psn_remote.c:442`; called from `vita/src/ui.c:496`). Each console that has Remote Play enabled and a registered seed host (next section) appears as a card with an internet badge.
 4. **Connect.** Choosing the card (or "Connect via" internet on a console that is also seen on the LAN) runs `host_stream` (`vita/src/host.c`), which takes the PSN path when the host's source is `VITA_HOST_SOURCE_PSN_REMOTE` (`host.c:218`).
 
 Note on naming: the code and older notes call the login a "device flow" (`psn_auth_begin_device_login`, `VITARPS5_PSN_OAUTH_DEVICE_CODE_URL`). It is not Sony's device-code flow. The device-code URL is empty by default, and `psn_auth_poll_device_login` does nothing (`psn_auth.c:1078`). The real flow is a normal OAuth authorization-code grant: build an authorize URL, the user signs in elsewhere, the user pastes the result back (`psn_auth_submit_authorization_response`, `psn_auth.c:1182`).
@@ -19,7 +19,7 @@ Internet play needs all of these:
 
 - **PSN login** on the Vita (tokens present and refreshable). Checked in `host_stream`: `host.c:325-343`.
 - **A console registered on the LAN first (the "seed host").** Internet play does not register consoles itself. See below.
-- **A PSN account id on the Vita**, read from the Vita system registry (`load_psn_id_from_registry`, `vita/src/ui.c:337`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
+- **A PSN account id on the Vita**, read from the Vita system registry (`load_psn_id_from_registry`, `vita/src/ui.c:338`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
 - **The console must have Remote Play enabled** in its settings; devices without it are skipped (`psn_remote.c:181`).
 - **A holepunch build.** The default build has it. If it is compiled out, `psn_remote_prepare_connect_host` fails with "stack is unavailable" (`psn_remote.c`, `#else` branch).
 - **A network that allows UDP hole punching** (see Known limits).

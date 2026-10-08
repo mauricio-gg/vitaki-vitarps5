@@ -22,31 +22,6 @@
 // ============================================================================
 
 /**
- * Draw an animated toggle switch control
- * @param x X position of toggle
- * @param y Y position of toggle
- * @param width Total width of toggle track
- * @param height Height of toggle track
- * @param anim_value Animation progress (0.0 = OFF, 1.0 = ON)
- * @param selected true if this toggle is currently selected/focused
- */
-void ui_draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected);
-
-/**
- * Draw a dropdown control with label and current value
- * @param x X position of dropdown
- * @param y Y position of dropdown
- * @param width Width of dropdown
- * @param height Height of dropdown
- * @param label Label text displayed on left side
- * @param value Current value text displayed on right side
- * @param expanded true if dropdown menu is currently expanded
- * @param selected true if this dropdown is currently selected/focused
- */
-void ui_draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                      bool expanded, bool selected);
-
-/**
  * Draw a tabbed navigation bar with color-coded sections
  * @param x X position of tab bar
  * @param y Y position of tab bar
@@ -116,25 +91,6 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
  */
 void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
                          bool enabled);
-
-// ============================================================================
-// Toggle Switch Animation
-// ============================================================================
-
-/**
- * Start toggle switch animation
- * @param toggle_index Unique identifier for the toggle being animated
- * @param target_state Target state (true = animating to ON, false = animating to OFF)
- */
-void ui_toggle_start_animation(int toggle_index, bool target_state);
-
-/**
- * Get current animation value for a toggle switch
- * @param toggle_index Unique identifier for the toggle
- * @param current_state Current logical state of the toggle
- * @return Animation value from 0.0 (OFF) to 1.0 (ON)
- */
-float ui_toggle_get_animation_value(int toggle_index, bool current_state);
 
 // ============================================================================
 // Error Popup Dialog

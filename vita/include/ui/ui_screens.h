@@ -13,31 +13,6 @@
 #include "ui_types.h"
 
 // ============================================================================
-// Settings Screen Item Indexes
-// ============================================================================
-
-typedef enum ui_settings_streaming_item_t {
-  UI_SETTINGS_ITEM_QUALITY_PRESET = 0,
-  UI_SETTINGS_ITEM_LATENCY_MODE = 1,
-  UI_SETTINGS_ITEM_FPS_TARGET = 2,
-  UI_SETTINGS_ITEM_FORCE_30_FPS = 3,
-  UI_SETTINGS_ITEM_AUTO_DISCOVERY = 4,
-  UI_SETTINGS_ITEM_SHOW_LATENCY = 5,
-  UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS = 6,
-  UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT = 7,
-  UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE = 8,
-  UI_SETTINGS_ITEM_FILL_SCREEN = 9,
-  UI_SETTINGS_ITEM_SHOW_NAV_LABELS = 10,
-  UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 11,
-  UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED = 12,
-  UI_SETTINGS_ITEM_PSN_REMOTEPLAY = 13,
-  UI_SETTINGS_ITEM_ENABLE_LOGGING = 14,
-  UI_SETTINGS_ITEM_SUBMIT_ON_MISSING_REF = 15,
-} UISettingsStreamingItem;
-
-#define UI_SETTINGS_STREAMING_ITEM_COUNT 16
-
-// ============================================================================
 // Screen Initialization
 // ============================================================================
 
@@ -70,13 +45,6 @@ UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
  */
 UIScreenType ui_screens_repair_host(VitaChiakiHost *host);
-
-/**
- * Render the settings screen with streaming/quality controls
- * Displays toggles and dropdowns for resolution, FPS, latency mode, etc.
- * @return next screen to display
- */
-UIScreenType ui_screen_draw_settings(void);
 
 /**
  * Render the profile screen with PSN account info and registration controls

@@ -18,10 +18,8 @@
 #define PAGE_ICON_PATH_MAX 64
 
 static const char *const PAGE_ICON_FILES[UI_PAGE_ICON_COUNT] = {
-    [UI_PAGE_ICON_LAN] = "lan",
-    [UI_PAGE_ICON_GLOBE] = "globe",
-    [UI_PAGE_ICON_MOON] = "moon",
-    [UI_PAGE_ICON_WIFI] = "wifi",
+    [UI_PAGE_ICON_LAN] = "lan",   [UI_PAGE_ICON_GLOBE] = "globe", [UI_PAGE_ICON_MOON] = "moon",
+    [UI_PAGE_ICON_WIFI] = "wifi", [UI_PAGE_ICON_GEAR] = "gear",
 };
 
 static vita2d_texture *s_icons[UI_PAGE_ICON_COUNT];

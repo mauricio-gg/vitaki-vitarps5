@@ -42,6 +42,9 @@ typedef struct ui_category_bar_t {
 void ui_category_bar_init(UiCategoryBar *bar, vita2d_texture *const icons[UI_CAT_COUNT],
                           const char *const labels[UI_CAT_COUNT]);
 
+/** ui_category_bar_set_focus() - Focus category @index (clamped) at once, without a slide. */
+void ui_category_bar_set_focus(UiCategoryBar *bar, int index);
+
 /** ui_category_bar_draw() - Draw glow, icons and labels at their place in the slide. No state
  * change. */
 void ui_category_bar_draw(const UiCategoryBar *bar);

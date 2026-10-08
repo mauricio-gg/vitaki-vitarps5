@@ -39,6 +39,7 @@
 #include "util.h"
 #include "video.h"
 #include "ui/ui_screens.h"
+#include "ui/ui_settings_actions.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
 #include "ui/ui_connecting.h"
@@ -121,7 +122,6 @@ static void update_cursor_blink(void);
 static bool is_pin_complete(void);
 static uint32_t pin_to_number(void);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
-static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
                                               bool continue_on_failure);
 static bool open_url_in_vita_browser(const char *url);
@@ -131,12 +131,6 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
 static void profile_refresh_login_qr(const char *url);
 static void execute_psn_logout(void);
 static void show_cooldown_hint(VitaChiakiHost *host);
-
-static void persist_config_or_warn(void) {
-  if (!config_serialize(&context.config)) {
-    LOGE("Failed to persist config changes");
-  }
-}
 
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
                                               bool continue_on_failure) {
@@ -457,7 +451,7 @@ static void poll_psn_auth_code_ime(uint64_t now_unix) {
   }
 
   if (psn_auth_submit_authorization_response(auth_input, now_unix)) {
-    persist_config_or_warn();
+    ui_settings_persist_config();
     trigger_hints_popup("PSN login complete");
     if (psn_remote_refresh_hosts() == 0)
       ui_cards_update_cache(true);
@@ -592,7 +586,7 @@ UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
   }
 
   host->type &= ~REGISTERED;
-  persist_config_or_warn();
+  ui_settings_persist_config();
   LOGD("Registration data deleted for console: %s", host->hostname);
 
   context.active_host = host;
@@ -601,373 +595,6 @@ UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
 
 UIScreenType ui_screen_draw_main(void) {
   return ui_home_frame();
-}
-
-// ============================================================================
-// PHASE 2: SETTINGS SCREEN
-// ============================================================================
-
-typedef struct {
-  int selected_item;
-  int scroll_offset;
-  bool dropdown_expanded;
-  int dropdown_selected_option;
-} SettingsState;
-
-static SettingsState settings_state = {0};
-
-// Settings scroll constants (item dimensions match original draw code)
-#define SETTINGS_VISIBLE_ITEMS 7  // Max items fitting in content area (~420px / 60px per item)
-#define SETTINGS_ITEM_HEIGHT 50   // Consistent with other UI item heights
-#define SETTINGS_ITEM_SPACING 10  // Standard UI spacing
-#define SETTINGS_STREAMING_ITEMS \
-  UI_SETTINGS_STREAMING_ITEM_COUNT  // Streaming settings: 3 dropdowns + 13 toggles
-
-// Shared toggle geometry for settings rows
-#define SETTINGS_TOGGLE_X_OFFSET 70
-#define SETTINGS_TOGGLE_WIDTH 60
-#define SETTINGS_TOGGLE_HEIGHT 30
-
-// Toggle animation IDs
-#define SETTINGS_TOGGLE_ANIM_FORCE_30FPS 3
-#define SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY 4
-#define SETTINGS_TOGGLE_ANIM_SHOW_LATENCY 5
-#define SETTINGS_TOGGLE_ANIM_FILL_SCREEN 6
-#define SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART 7
-#define SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS 8
-#define SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT 9
-#define SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS 10
-#define SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM 101
-#define SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED 11
-#define SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY 12
-#define SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING 13
-#define SETTINGS_TOGGLE_ANIM_SUBMIT_ON_MISSING_REF 14
-
-static void settings_update_scroll_for_selection(void) {
-  int total_items = SETTINGS_STREAMING_ITEMS;
-  int max_scroll = total_items - SETTINGS_VISIBLE_ITEMS;
-  if (max_scroll < 0)
-    max_scroll = 0;
-
-  // Clamp scroll
-  if (settings_state.scroll_offset > max_scroll)
-    settings_state.scroll_offset = max_scroll;
-  if (settings_state.scroll_offset < 0)
-    settings_state.scroll_offset = 0;
-
-  // Keep selection visible
-  if (settings_state.selected_item < settings_state.scroll_offset) {
-    settings_state.scroll_offset = settings_state.selected_item;
-  } else if (settings_state.selected_item >=
-             settings_state.scroll_offset + SETTINGS_VISIBLE_ITEMS) {
-    settings_state.scroll_offset = settings_state.selected_item - SETTINGS_VISIBLE_ITEMS + 1;
-  }
-}
-
-static void apply_force_30fps_runtime(void) {
-  if (!context.stream.session_init)
-    return;
-  uint32_t clamp = context.stream.negotiated_fps ? context.stream.negotiated_fps : 60;
-  if (context.config.force_30fps && clamp > 30)
-    clamp = 30;
-  context.stream.target_fps = clamp;
-  context.stream.pacing_accumulator = 0;
-}
-
-static void settings_toggle_bool(bool *value, int anim_index) {
-  *value = !(*value);
-  start_toggle_animation(anim_index, *value);
-  persist_config_or_warn();
-}
-
-static void settings_activate_selected_item(void) {
-  switch (settings_state.selected_item) {
-    case UI_SETTINGS_ITEM_QUALITY_PRESET:
-      switch (context.config.resolution) {
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        default:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-      }
-      persist_config_or_warn();
-      break;
-    case UI_SETTINGS_ITEM_LATENCY_MODE:
-      context.config.latency_mode = (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-      persist_config_or_warn();
-      break;
-    case UI_SETTINGS_ITEM_FPS_TARGET:
-      context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30)
-                               ? CHIAKI_VIDEO_FPS_PRESET_60
-                               : CHIAKI_VIDEO_FPS_PRESET_30;
-      persist_config_or_warn();
-      break;
-    case UI_SETTINGS_ITEM_FORCE_30_FPS:
-      settings_toggle_bool(&context.config.force_30fps, SETTINGS_TOGGLE_ANIM_FORCE_30FPS);
-      apply_force_30fps_runtime();
-      break;
-    case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
-      settings_toggle_bool(&context.config.auto_discovery, SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY);
-      break;
-    case UI_SETTINGS_ITEM_SHOW_LATENCY:
-      settings_toggle_bool(&context.config.show_latency, SETTINGS_TOGGLE_ANIM_SHOW_LATENCY);
-      break;
-    case UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS:
-      settings_toggle_bool(&context.config.show_network_indicator,
-                           SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS);
-      if (!context.config.show_network_indicator)
-        vitavideo_hide_poor_net_indicator();
-      break;
-    case UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT:
-      settings_toggle_bool(&context.config.show_stream_exit_hint,
-                           SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT);
-      break;
-    case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
-      settings_toggle_bool(&context.config.clamp_soft_restart_bitrate,
-                           SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART);
-      break;
-    case UI_SETTINGS_ITEM_FILL_SCREEN:
-      settings_toggle_bool(&context.config.stretch_video, SETTINGS_TOGGLE_ANIM_FILL_SCREEN);
-      break;
-    case UI_SETTINGS_ITEM_SHOW_NAV_LABELS:
-      settings_toggle_bool(&context.config.show_nav_labels, SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS);
-      break;
-    case UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM:
-      settings_toggle_bool(&context.config.circle_btn_confirm,
-                           SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM);
-      break;
-    case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
-      settings_toggle_bool(&context.config.show_only_paired, SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED);
-      ui_cards_update_cache(true);
-      break;
-    case UI_SETTINGS_ITEM_PSN_REMOTEPLAY:
-      settings_toggle_bool(&context.config.psn_remoteplay_enabled,
-                           SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY);
-      break;
-    case UI_SETTINGS_ITEM_ENABLE_LOGGING:
-      settings_toggle_bool(&context.config.logging.enabled, SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING);
-      vita_log_update_enabled(context.config.logging.enabled);
-      context.log.level_mask = vita_logging_profile_mask(
-          context.config.logging.enabled ? VITA_LOG_PROFILE_VERBOSE : VITA_LOG_PROFILE_ERRORS);
-      break;
-    case UI_SETTINGS_ITEM_SUBMIT_ON_MISSING_REF:
-      settings_toggle_bool(&context.config.submit_on_missing_ref,
-                           SETTINGS_TOGGLE_ANIM_SUBMIT_ON_MISSING_REF);
-      break;
-    default:
-      break;
-  }
-}
-
-/// Helper to draw a single settings item (toggle with label)
-static void draw_settings_toggle_item(int x, int y, int w, int h, const char *label, int anim_index,
-                                      bool value, bool selected) {
-  draw_toggle_switch(x + w - SETTINGS_TOGGLE_X_OFFSET, y + (h - SETTINGS_TOGGLE_HEIGHT) / 2,
-                     SETTINGS_TOGGLE_WIDTH, SETTINGS_TOGGLE_HEIGHT,
-                     get_toggle_animation_value(anim_index, value), selected);
-  ui_text_draw_centered_v(font, x + 15, y, h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
-}
-
-/// Draw Streaming Quality tab content with scrolling
-static void draw_settings_streaming_tab(int content_x, int content_y, int content_w) {
-  int item_h = SETTINGS_ITEM_HEIGHT;
-  int item_spacing = SETTINGS_ITEM_SPACING;
-  int item_stride = item_h + item_spacing;
-
-  // Determine visible range (streaming tab always has SETTINGS_STREAMING_ITEMS)
-  int total_items = SETTINGS_STREAMING_ITEMS;
-  int first_visible = settings_state.scroll_offset;
-  int last_visible = first_visible + SETTINGS_VISIBLE_ITEMS;
-  if (last_visible > total_items)
-    last_visible = total_items;
-
-  // Draw only visible items
-  static int last_invalid_settings_item = -1;
-  for (int i = first_visible; i < last_visible; i++) {
-    int y = content_y + (i - first_visible) * item_stride;
-    bool selected = (settings_state.selected_item == i);
-
-    switch (i) {
-      case UI_SETTINGS_ITEM_QUALITY_PRESET:
-        draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
-                      ui_label_resolution(context.config.resolution), false, selected);
-        break;
-      case UI_SETTINGS_ITEM_LATENCY_MODE:
-        draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
-                      ui_label_latency_mode(context.config.latency_mode), false, selected);
-        break;
-      case UI_SETTINGS_ITEM_FPS_TARGET:
-        draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
-                      ui_label_fps(context.config.fps), false, selected);
-        break;
-      case UI_SETTINGS_ITEM_FORCE_30_FPS:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Force 30 FPS Output",
-                                  SETTINGS_TOGGLE_ANIM_FORCE_30FPS, context.config.force_30fps,
-                                  selected);
-        break;
-      case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Auto Discovery",
-                                  SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY,
-                                  context.config.auto_discovery, selected);
-        break;
-      case UI_SETTINGS_ITEM_SHOW_LATENCY:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Latency",
-                                  SETTINGS_TOGGLE_ANIM_SHOW_LATENCY, context.config.show_latency,
-                                  selected);
-        break;
-      case UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Network Alerts",
-                                  SETTINGS_TOGGLE_ANIM_SHOW_NETWORK_ALERTS,
-                                  context.config.show_network_indicator, selected);
-        break;
-      case UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Exit Shortcut Hint",
-                                  SETTINGS_TOGGLE_ANIM_SHOW_STREAM_EXIT_HINT,
-                                  context.config.show_stream_exit_hint, selected);
-        break;
-      case UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Clamp Soft Restart Bitrate",
-                                  SETTINGS_TOGGLE_ANIM_CLAMP_SOFT_RESTART,
-                                  context.config.clamp_soft_restart_bitrate, selected);
-        break;
-      case UI_SETTINGS_ITEM_FILL_SCREEN:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Fill Screen",
-                                  SETTINGS_TOGGLE_ANIM_FILL_SCREEN, context.config.stretch_video,
-                                  selected);
-        break;
-      case UI_SETTINGS_ITEM_SHOW_NAV_LABELS:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Navigation Labels",
-                                  SETTINGS_TOGGLE_ANIM_SHOW_NAV_LABELS,
-                                  context.config.show_nav_labels, selected);
-        break;
-      case UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM:
-        draw_toggle_switch(content_x + content_w - SETTINGS_TOGGLE_X_OFFSET,
-                           y + (item_h - SETTINGS_TOGGLE_HEIGHT) / 2, SETTINGS_TOGGLE_WIDTH,
-                           SETTINGS_TOGGLE_HEIGHT,
-                           get_toggle_animation_value(SETTINGS_TOGGLE_ANIM_CIRCLE_BUTTON_CONFIRM,
-                                                      context.config.circle_btn_confirm),
-                           selected);
-        ui_text_draw_centered_v(font, content_x + 15, y, item_h, UI_COLOR_TEXT_PRIMARY,
-                                FONT_SIZE_BODY, "Circle Button Confirm");
-        break;
-      case UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Show Only Paired",
-                                  SETTINGS_TOGGLE_ANIM_SHOW_ONLY_PAIRED,
-                                  context.config.show_only_paired, selected);
-        break;
-      case UI_SETTINGS_ITEM_PSN_REMOTEPLAY:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Enable PSN Internet Mode",
-                                  SETTINGS_TOGGLE_ANIM_PSN_REMOTEPLAY,
-                                  context.config.psn_remoteplay_enabled, selected);
-        break;
-      case UI_SETTINGS_ITEM_ENABLE_LOGGING:
-        draw_settings_toggle_item(content_x, y, content_w, item_h, "Enable Logging",
-                                  SETTINGS_TOGGLE_ANIM_ENABLE_LOGGING,
-                                  context.config.logging.enabled, selected);
-        break;
-      case UI_SETTINGS_ITEM_SUBMIT_ON_MISSING_REF:
-        draw_settings_toggle_item(content_x, y, content_w, item_h,
-                                  "Motion during loss (artifacts) (Experimental)",
-                                  SETTINGS_TOGGLE_ANIM_SUBMIT_ON_MISSING_REF,
-                                  context.config.submit_on_missing_ref, selected);
-        break;
-      default:
-        if (last_invalid_settings_item != i) {
-          LOGD("Ignoring unsupported settings item index in renderer: %d", i);
-          last_invalid_settings_item = i;
-        }
-        break;
-    }
-  }
-
-  // Draw scroll indicator if content exceeds visible area
-  if (total_items > SETTINGS_VISIBLE_ITEMS) {
-    int bar_x = content_x + content_w + 8;
-    int content_h = SETTINGS_VISIBLE_ITEMS * item_stride;
-    int thumb_h = (content_h * SETTINGS_VISIBLE_ITEMS) / total_items;
-    if (thumb_h < 20)
-      thumb_h = 20;
-
-    int max_scroll = total_items - SETTINGS_VISIBLE_ITEMS;
-    int track_travel = content_h - thumb_h;
-    int thumb_y = content_y;
-    if (max_scroll > 0) {
-      thumb_y = content_y + (track_travel * settings_state.scroll_offset) / max_scroll;
-    }
-
-    // Track background
-    ui_draw_rounded_rect(bar_x, content_y, 4, content_h, 2, RGBA8(60, 65, 80, 180));
-    // Thumb
-    ui_draw_rounded_rect(bar_x, thumb_y, 4, thumb_h, 2, RGBA8(150, 200, 255, 220));
-  }
-}
-
-/// Main Settings screen rendering function
-/// @return next screen to display
-UIScreenType ui_screen_draw_settings(void) {
-  UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_SETTINGS, &nav_screen, true))
-    return nav_screen;
-
-  // Main content area (nav is overlay - content centered on full screen)
-  int content_w = 800;                           // Fixed width for content
-  int content_x = (VITA_WIDTH - content_w) / 2;  // Center on screen
-  int content_y = 100;
-
-  // Settings title (centered on full screen width)
-  const char *title = "Streaming Settings";
-  int title_width = ui_text_width(font, FONT_SIZE_HEADER, title);
-  int title_x = (VITA_WIDTH - title_width) / 2;
-  int min_title_x = NAV_PILL_X + NAV_PILL_WIDTH + 20;
-  if (title_x < min_title_x)
-    title_x = min_title_x;
-  ui_text_draw(font, title_x, 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER, title);
-
-  // Content area (no tabs needed - only one section)
-  int tab_content_y = 90;
-  int tab_content_w = content_w - 40;
-  int tab_content_x = content_x + 20;
-
-  draw_settings_streaming_tab(tab_content_x, tab_content_y, tab_content_w);
-
-  // Select button shows hints popup
-  if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("Up/Down: Navigate | X: Toggle/Select | Circle: Back");
-  }
-
-  // === INPUT HANDLING ===
-
-  int max_items = SETTINGS_STREAMING_ITEMS;
-
-  // Up/Down: Navigate items (only when not in nav bar)
-  if (!ui_focus_is_nav_bar()) {
-    if (btn_pressed(SCE_CTRL_UP)) {
-      settings_state.selected_item = (settings_state.selected_item - 1 + max_items) % max_items;
-      settings_update_scroll_for_selection();
-    } else if (btn_pressed(SCE_CTRL_DOWN)) {
-      settings_state.selected_item = (settings_state.selected_item + 1) % max_items;
-      settings_update_scroll_for_selection();
-    }
-  }
-
-  // X: Activate selected item (toggle or cycle dropdown)
-  if (btn_pressed(SCE_CTRL_CROSS) && !ui_focus_is_nav_bar())
-    settings_activate_selected_item();
-
-  // Circle: Back to main menu
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  return UI_SCREEN_TYPE_SETTINGS;
 }
 
 // ============================================================================
@@ -1009,7 +636,7 @@ static bool profile_screen_initialized = false;
 static void execute_psn_logout(void) {
   psn_auth_clear_tokens();
   psn_remote_clear_cached_hosts();
-  persist_config_or_warn();
+  ui_settings_persist_config();
   ui_cards_update_cache(true);
   trigger_hints_popup("PSN login removed");
   s_logout_confirm_until_us = 0;
@@ -1495,7 +1122,7 @@ UIScreenType ui_screen_draw_profile(void) {
    * body flow rather than attempting a logout with invalid state. */
   if (btn_pressed(SCE_CTRL_CROSS) && profile_state.current_section == PROFILE_SECTION_INFO) {
     if (ui_reload_psn_account_id()) {
-      persist_config_or_warn();
+      ui_settings_persist_config();
       trigger_hints_popup("Account ID refreshed from system profile");
     } else {
       trigger_hints_popup("Could not refresh Account ID");
@@ -2460,7 +2087,7 @@ static void handle_mapping_popup_input(void) {
     apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
     ctrl_last_mapping_output = output;
     // BUG FIX: Persist mapping changes immediately
-    persist_config_or_warn();
+    ui_settings_persist_config();
     ctrl_popup_active = false;
     ctrl_popup_input_count = 0;
     ctrl_popup_touch_down = false;
@@ -2522,7 +2149,7 @@ static void handle_mapping_popup_input(void) {
       apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
       ctrl_last_mapping_output = output;
       // BUG FIX: Persist mapping changes immediately
-      persist_config_or_warn();
+      ui_settings_persist_config();
       ctrl_popup_active = false;
       ctrl_popup_input_count = 0;
     }
@@ -2697,11 +2324,11 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_LEFT)) {
         cycle_controller_preset(-1);
         // BUG FIX: Persist preset selection immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       } else if (btn_pressed(SCE_CTRL_RIGHT)) {
         cycle_controller_preset(1);
         // BUG FIX: Persist preset selection immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
       if (btn_pressed(SCE_CTRL_LTRIGGER)) {
         change_callout_page(-1);
@@ -2726,7 +2353,7 @@ UIScreenType ui_screen_draw_controller(void) {
           controller_front_clear_all_mappings();
         }
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
     }
 
@@ -2833,7 +2460,7 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_SQUARE)) {
         controller_front_clear_all_mappings();
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
 
       if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2902,7 +2529,7 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_SQUARE)) {
         controller_back_clear_all_mappings();
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
 
       if (btn_pressed(SCE_CTRL_CROSS)) {

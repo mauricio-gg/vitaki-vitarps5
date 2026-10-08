@@ -241,16 +241,11 @@ void ui_clear_waking_wait(void);
 
 // Components (ui_components.c)
 // Legacy compatibility wrappers - internal use only
-void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected);
-void draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                   bool expanded, bool selected);
 void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
                   int num_tabs, int selected);
 void draw_status_dot(int x, int y, int radius, int status);
 void draw_section_header(int x, int y, int width, const char *title);
 void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
-void start_toggle_animation(int toggle_index, bool target_state);
-float get_toggle_animation_value(int toggle_index, bool current_state);
 void render_error_popup(void);
 void handle_error_popup_input(void);
 void render_connect_popup(void);
