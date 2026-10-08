@@ -23,9 +23,11 @@
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
 #include "ui/ui_console_status.h"
+#include "ui/ui_hint_row.h"
 #include "ui/ui_input.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
+#include "ui/ui_top_bar.h"
 #include "ui/ui_xmb_list.h"
 
 /* ============================================================================
@@ -105,15 +107,21 @@ static const char STATUS_COOLDOWN[] = "Please wait...";
 static const char ROUTE_INTERNET[] = "\xC2\xB7 Internet";
 static const char EMPTY_SEARCHING[] = "Searching for consoles...";
 static const char EMPTY_NO_MATCH[] = "No consoles match filter";
-static const char BANNER_FORMAT[] = "Streaming stopped: %s - Please wait a few moments";
 static const char BANNER_DEFAULT_REASON[] = "Connection interrupted";
 static const char FILTER_LINE_FORMAT[] = "Filter: \"%s\" (%d found) - Start to clear";
-/* Interim Select toast text; the hint row replaces it. */
-static const char SELECT_HINT[] = "L/R: Browse | Cross: Connect | Start: Filter";
+static const char HINT_CONNECT[] = "Connect";
+static const char HINT_WAKE[] = "Wake";
+static const char HINT_PAIR[] = "Pair";
+static const char HINT_PLEASE_WAIT[] = "Please wait";
+static const char HINT_OPEN[] = "Open";
+static const char HINT_CATEGORY[] = "Category";
 
-/** Cooldown banner height: the top-bar band (TOP_Y above, 32 px bar). */
-#define BANNER_H (UI_TOP_Y + UI_S4)
-#define BANNER_TEXT_MAX 196
+/**
+ * Interim active-filter line (the Filter row and its hints come with a later ticket).
+ * It sits in the 24 px band directly above the hint row, so it never overlaps the hints.
+ */
+#define FILTER_LINE_Y (UI_HINT_Y - UI_S3)
+#define FILTER_LINE_H UI_S3
 #define FILTER_LINE_MAX 96
 
 /* ============================================================================
@@ -125,6 +133,11 @@ static UiXmbList s_list;
 static UiXmbItem s_items[UI_LIST_MAX_ITEMS];
 static vita2d_texture *s_item_icons[HOME_ICON_COUNT];
 static int s_item_count = 0;
+/** Status of each console row, parallel to s_items while Consoles is focused (drives the hint
+ * verb). */
+static UiConsoleStatus s_console_status[UI_LIST_MAX_ITEMS];
+/** Hint layout of the last drawn frame; taps are resolved against it. */
+static UiHintLayout s_hints;
 
 /** Confirm is being held on a console that offers both routes (long press opens the popup). */
 static bool s_confirm_tracking = false;
@@ -147,7 +160,10 @@ void ui_home_init(void) {
 
   ui_category_bar_init(&s_bar, category_icons, CATEGORY_LABELS);
   ui_xmb_list_init(&s_list);
+  ui_top_bar_init();
+  ui_hint_row_init();
   s_item_count = 0;
+  s_hints.count = 0;
   s_confirm_tracking = false;
 }
 
@@ -156,6 +172,7 @@ void ui_home_on_enter(void) {
     ui_focus_set_zone(FOCUS_ZONE_MAIN_CONTENT);
   ui_nav_reset_collapsed();
   s_confirm_tracking = false;
+  s_hints.count = 0;
 }
 
 /* ============================================================================
@@ -224,6 +241,7 @@ static int fill_console_items(const VitaChiakiHost *cooldown_host) {
         card->is_registered, card->is_discovered, card->state == 2 /* Standby */,
         card->has_internet && token_ok, cooldown_host && card->host == cooldown_host);
     s_items[i] = console_item(card, state);
+    s_console_status[i] = state.status;
   }
   return count;
 }
@@ -255,18 +273,20 @@ static void refresh_items(const VitaChiakiHost *cooldown_host) {
  * ============================================================================ */
 
 /**
- * cooldown_host_and_banner() - Draw the cooldown banner while the stream cooldown is active.
+ * cooldown_host() - Find the console in cooldown and the reason for the top-bar banner.
+ * @banner_reason: Out: the reason text while a cooldown is active, otherwise NULL.
  *
- * Interim: the banner moves into the top bar (C23) with the top-bar ticket.
+ * Also expires a stale disconnect reason once its banner window has passed.
  *
  * @return the console in cooldown, or NULL when no cooldown is active
  */
-static const VitaChiakiHost *cooldown_host_and_banner(void) {
+static const VitaChiakiHost *cooldown_host(const char **banner_reason) {
   const uint64_t now_us = sceKernelGetProcessTimeWide();
   const uint64_t cooldown_until_us = stream_cooldown_until_us();
   const bool active =
       cooldown_until_us && cooldown_until_us > now_us && !context.stream.post_stop_guard;
 
+  *banner_reason = NULL;
   if (!active && context.stream.disconnect_banner_until_us &&
       context.stream.disconnect_banner_until_us <= now_us) {
     context.stream.disconnect_reason[0] = '\0';
@@ -275,16 +295,10 @@ static const VitaChiakiHost *cooldown_host_and_banner(void) {
   if (!active)
     return NULL;
 
-  const char *reason =
+  *banner_reason =
       (context.stream.disconnect_reason[0] && context.stream.disconnect_banner_until_us > now_us)
           ? context.stream.disconnect_reason
           : BANNER_DEFAULT_REASON;
-  char text[BANNER_TEXT_MAX];
-  snprintf(text, sizeof(text), BANNER_FORMAT, reason);
-
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, BANNER_H, UI_PANEL);
-  int text_x = (VITA_WIDTH - ui_text_face_width(UI_FACE_T16, text)) / 2;
-  ui_text_draw_face_centered_v(UI_FACE_T16, text_x, 0, BANNER_H, UI_TEXT, text);
   return context.active_host;
 }
 
@@ -409,8 +423,47 @@ static void draw_console_status_text(void) {
   if (ui_cards_is_filter_active()) {
     char line[FILTER_LINE_MAX];
     snprintf(line, sizeof(line), FILTER_LINE_FORMAT, ui_cards_get_filter_text(), s_item_count);
-    ui_text_draw_face_centered_v(UI_FACE_T14, UI_MARGIN_X, UI_HINT_Y, UI_ROW_H, UI_TEXT_2, line);
+    ui_text_draw_face_centered_v(UI_FACE_T14, UI_MARGIN_X, FILTER_LINE_Y, FILTER_LINE_H, UI_TEXT_2,
+                                 line);
   }
+}
+
+/** Confirm verb for a console in @status (SPEC 3.1). */
+static const char *console_confirm_verb(UiConsoleStatus status) {
+  switch (status) {
+    case UI_CONSOLE_STANDBY:
+      return HINT_WAKE;
+    case UI_CONSOLE_UNPAIRED:
+      return HINT_PAIR;
+    case UI_CONSOLE_COOLDOWN:
+      return HINT_PLEASE_WAIT;
+    default:
+      return HINT_CONNECT;
+  }
+}
+
+/**
+ * build_hints() - Fill @out with the hints for what is focused (SPEC 3.1) and return how many.
+ *
+ * Consoles with a console focused: Confirm with the console's verb, then L R Category (low
+ * priority). Cooldown shows "Please wait" dimmed. Other categories: Confirm Open. An empty
+ * console list: L R Category only. The Options hint arrives with ticket #303.
+ */
+static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
+  int n = 0;
+  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
+
+  if (!consoles || s_item_count > 0) {
+    const UiConsoleStatus status = consoles ? s_console_status[s_list.focus] : UI_CONSOLE_READY;
+    out[n++] = (UiHintItem){
+        .action = UI_BTN_CONFIRM,
+        .label = consoles ? console_confirm_verb(status) : HINT_OPEN,
+        .dim = consoles && status == UI_CONSOLE_COOLDOWN,
+    };
+  }
+  out[n++] =
+      (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_CATEGORY, .low_priority = true};
+  return n;
 }
 
 /* ============================================================================
@@ -418,40 +471,54 @@ static void draw_console_status_text(void) {
  * ============================================================================ */
 
 UIScreenType ui_home_frame(void) {
-  const UiInput *in = ui_input_snapshot();
+  /* A tapped hint acts as that button pressed and released in one frame. */
+  UiInput in = *ui_input_snapshot();
+  const uint32_t tapped = ui_hint_row_tap(&s_hints, &in);
+  if (tapped) {
+    in.pressed |= tapped;
+    in.released |= tapped;
+    in.touch.pressed = false;
+    in.touch.released = false;
+    in.touch.down = false;
+  }
 
   ui_cards_update_cache(false);
   ui_cards_poll_filter_ime();
 
-  const VitaChiakiHost *cooldown_host = cooldown_host_and_banner();
-  refresh_items(cooldown_host);
+  const char *banner_reason;
+  const VitaChiakiHost *cooldown = cooldown_host(&banner_reason);
+  refresh_items(cooldown);
 
   UIScreenType next = UI_SCREEN_TYPE_MAIN;
 
   if (ui_connect_popup_is_active()) {
     next = update_connect_popup();
   } else {
-    if (ui_category_bar_input(&s_bar, in) == UI_EVENT_MOVED) {
+    if (ui_category_bar_input(&s_bar, &in) == UI_EVENT_MOVED) {
       ui_xmb_list_set_focus(&s_list, 0);
       s_confirm_tracking = false;
-      refresh_items(cooldown_host);
+      refresh_items(cooldown);
       if (s_bar.focus == HOME_CAT_CONSOLES)
         ui_cards_set_selected_index(0);
     } else {
-      next = update_list(in);
+      next = update_list(&in);
     }
 
     if (s_bar.focus == HOME_CAT_CONSOLES && next == UI_SCREEN_TYPE_MAIN)
-      next = update_console_shortcuts(in);
-    if (in->pressed & UI_BTN_BROWSER)
-      trigger_hints_popup(SELECT_HINT);
+      next = update_console_shortcuts(&in);
   }
 
   ui_background_draw_home_vignette();
+  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
+  ui_top_bar_draw(consoles ? banner_reason : NULL);
   ui_category_bar_draw(&s_bar);
   ui_xmb_list_draw(&s_list);
-  if (s_bar.focus == HOME_CAT_CONSOLES)
+  if (consoles)
     draw_console_status_text();
+
+  UiHintItem hints[UI_HINT_MAX_ITEMS];
+  ui_hint_row_layout(&s_hints, hints, build_hints(hints));
+  ui_hint_row_draw(&s_hints);
 
   return next;
 }

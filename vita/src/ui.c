@@ -67,6 +67,7 @@
 #include "ui/ui_text.h"
 #include "ui/ui_component.h"
 #include "ui/ui_home.h"
+#include "ui/ui_shapes.h"
 
 vita2d_font *font;
 vita2d_font *font_mono;
@@ -401,6 +402,7 @@ void init_ui() {
   vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
   ui_text_init(font, font_mono, font_light);
   ui_glow_init();
+  ui_shapes_init();
   ui_home_init();
 
   vita2d_set_vblank_wait(true);
@@ -671,8 +673,8 @@ void draw_ui() {
 
       // Focus overlay moved to after screen rendering for correct z-order
 
-      // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
-      if (vita_rps5_logo) {
+      // Old screens only: Home draws the logo in its own top bar (C23)
+      if (vita_rps5_logo && screen != UI_SCREEN_TYPE_MAIN) {
         int logo_w = vita2d_texture_get_width(vita_rps5_logo);
         int logo_h = vita2d_texture_get_height(vita_rps5_logo);
         float logo_scale = 0.1f;  // 10% of original size
@@ -764,7 +766,9 @@ void draw_ui() {
       render_hints_indicator();
       render_hints_popup();
 
-      render_loss_indicator_preview();
+      // Home shows Network Unstable as a pill in its hint row (C06) instead
+      if (screen != UI_SCREEN_TYPE_MAIN)
+        render_loss_indicator_preview();
       render_connect_popup();
       render_debug_menu();
       render_error_popup();
