@@ -55,6 +55,10 @@ UiConsoleMessage ui_console_message_class(const char *msg, bool is_error, uint64
   return is_error ? UI_CONSOLE_MESSAGE_ERROR : UI_CONSOLE_MESSAGE_RETRYING;
 }
 
+bool ui_console_hint_is_failure(const char *msg, bool is_error) {
+  return ui_console_message_class(msg, is_error, 0, 0) == UI_CONSOLE_MESSAGE_ERROR;
+}
+
 const char *ui_console_status_label(UiConsoleStatus status) {
   switch (status) {
     case UI_CONSOLE_READY:

@@ -94,12 +94,45 @@ static void test_long_name_never_overflows_the_body(void) {
   assert(strlen(area) < SMALL);
 }
 
+/** catches: a long console name plus a long reason overflowing the popup body buffer, and a
+ * console that left the list still offering Try again (which would connect to nothing). */
+static void test_connect_failed_copy(void) {
+  char name[100];
+  char reason[120];
+  memset(name, 'N', sizeof(name) - 1);
+  name[sizeof(name) - 1] = '\0';
+  memset(reason, 'R', sizeof(reason) - 1);
+  reason[sizeof(reason) - 1] = '\0';
+
+  enum { SMALL = 64, GUARD = 8 };
+  char area[SMALL + GUARD];
+  memset(area, 0x5A, sizeof(area));
+  UiResultCopy copy;
+  assert(ui_result_copy_connect_failed(name, reason, true, area, SMALL, &copy));
+  assert(memchr(area, '\0', SMALL) != NULL);
+  for (int i = SMALL; i < SMALL + GUARD; i++)
+    assert(area[i] == 0x5A);
+
+  char body[BODY_SIZE];
+  assert(ui_result_copy_connect_failed("PS5-Living", "Console busy", true, body, BODY_SIZE, &copy));
+  assert(strcmp(body, "PS5-Living: Console busy") == 0);
+  assert(strcmp(copy.title, "Could not connect") == 0);
+  assert(copy.tone == UI_RESULT_TONE_ERR);
+  assert(copy.button_count == 2 && strcmp(copy.buttons[1], "Try again") == 0);
+  assert(copy.primary_button == 1);
+
+  assert(ui_result_copy_connect_failed("PS5-Living", "Console busy", false, body, BODY_SIZE, &copy));
+  assert(copy.button_count == 1 && strcmp(copy.buttons[0], "Close") == 0);
+  assert(copy.primary_button == 0);
+}
+
 int main(void) {
   test_lib_canceled_is_decided_by_why_it_was_stopped();
   test_success_needs_storing_and_real_outcomes_win();
   test_failure_popups();
   test_paired_popup_and_cancel_has_none();
   test_long_name_never_overflows_the_body();
+  test_connect_failed_copy();
   printf("pairing_result_tests: all passed\n");
   return 0;
 }

@@ -65,6 +65,17 @@ UiConsoleState ui_console_classify(bool registered, bool discovered, bool standb
 UiConsoleMessage ui_console_message_class(const char *msg, bool is_error, uint64_t expire_us,
                                           uint64_t now_us);
 
+/**
+ * ui_console_hint_is_failure() - Does a hint open the "Could not connect" popup (SPEC C14)?
+ * @msg:      The hint text being set; NULL or empty means none.
+ * @is_error: The flag the hint is set with.
+ *
+ * True exactly when the hint counts as an Error (ui_console_message_class(), never expiring), so
+ * the popup and the row's Error status always agree. Messages the app is retrying through, even
+ * when their caller flags them as errors, never open it.
+ */
+bool ui_console_hint_is_failure(const char *msg, bool is_error);
+
 /** ui_console_status_label() - The word a status goes by on Home: "Ready", "Standby", ... */
 const char *ui_console_status_label(UiConsoleStatus status);
 

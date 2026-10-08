@@ -2,8 +2,7 @@
  * @file ui_result_copy.h
  * @brief Pure copy for the C14 ResultPopup (SPEC.md section 3.3)
  *
- * No SDK dependency. Only pairing results have copy here; connection-failure copy is added
- * beside it later.
+ * No SDK dependency. Copy for pairing results and for a failed connection.
  */
 
 #pragma once
@@ -42,3 +41,18 @@ typedef struct ui_result_copy_t {
  */
 bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, char *body,
                             size_t body_size, UiResultCopy *out);
+
+/**
+ * ui_result_copy_connect_failed() - Popup copy for a connection that failed.
+ * @name:      The console's name; NULL or empty reads as "The console".
+ * @reason:    The raw reason the connection gave (SPEC 3.3); NULL or empty reads as "Connection
+ *             failed".
+ * @can_retry: The console is still in the list. When false only Close is offered.
+ * @body:      Receives "<name>: <reason>", always terminated, truncated to fit.
+ * @body_size: Size of @body in bytes.
+ * @out:       Receives tone (ERR), title ("Could not connect") and buttons (Close, Try again).
+ *
+ * Returns false when the arguments are unusable; @body is then set to "" when it can be.
+ */
+bool ui_result_copy_connect_failed(const char *name, const char *reason, bool can_retry, char *body,
+                                   size_t body_size, UiResultCopy *out);
