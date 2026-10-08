@@ -13,7 +13,7 @@ Internet play **is implemented and works on hardware** (first end-to-end session
 
 Note on naming: the code and older notes call the login a "device flow" (`psn_auth_begin_device_login`, `VITARPS5_PSN_OAUTH_DEVICE_CODE_URL`). It is not Sony's device-code flow. The device-code URL is empty by default, and `psn_auth_poll_device_login` does nothing (`psn_auth.c:1078`). The real flow is a normal OAuth authorization-code grant: build an authorize URL, the user signs in elsewhere, the user pastes the result back (`psn_auth_submit_authorization_response`, `psn_auth.c:1182`).
 
-## Requirements (answers issue #90)
+## Requirements
 
 Internet play needs all of these:
 
@@ -54,8 +54,8 @@ Auth and device-list calls use `web.np.playstation.com` and `auth.api.sonyentert
 
 | Step | Thread | Code |
 |---|---|---|
-| Login, token refresh, host-list refresh, steps 1-2 | UI thread (blocking) | `psn_auth.c`, `psn_remote.c` |
-| Steps 3-5 (`session_create`, `session_start`, control punch) | connection thread started from `host_stream` | `holepunch.c:977,1140` |
+| Login, startup and idle token refresh, host-list refresh | UI thread (blocking) | `psn_auth.c`, `psn_remote.c`, `ui.c` |
+| Connect steps 1-5 (token check/refresh, retry gate, UPnP, `session_create`, `session_start`, control punch) | `VitaConnWorker`, which runs `host_stream` | `vita/src/ui/ui_state.c:173,180-187`, `host.c:346`, `holepunch.c:977,1140` |
 | Push WebSocket: pings, console messages | "Chiaki Holepunch WS" | `holepunch.c:990`, `websocket_thread_func` at `:2286` |
 | RUDP, session request, data punch, Takion | the normal session thread | `lib/src/session.c:536-736` |
 
@@ -64,7 +64,7 @@ Auth and device-list calls use `web.np.playstation.com` and `auth.api.sonyentert
 - Access and refresh tokens, expiry and the client duid live in `chiaki.toml` (`vita/src/config.c`).
 - **At rest, tokens are encrypted** with AES-256-GCM. The key is derived from an app salt plus the Vita's hardware OpenPsID (`vita/src/token_crypto.c`, header comment). A blob that fails to decrypt is dropped and the user must log in again; there is no fallback to plaintext (`config.c:250-253`, `312-315`). Old plaintext tokens are migrated on first load (`config.c:298-330`).
 - **Exception:** builds made with `--env testing` turn on `VITARPS5_PLAINTEXT_TOKEN_STORAGE` and also write plaintext (`tools/build.sh:~203-206`, `vita/CMakeLists.txt:150`). Never use that for release.
-- **Refresh:** `psn_auth_refresh_token_if_needed` (`psn_auth.c:1266`) uses the refresh token. It runs at app start (`ui.c:~468`), once a minute while idle (`ui.c:~576-588`) and before each connect (`host.c:338`, `psn_remote.c`). Today these calls block the UI thread (issue #163).
+- **Refresh:** `psn_auth_refresh_token_if_needed` (`psn_auth.c:1266`) uses the refresh token. It runs at app start (`ui.c:~468`), once a minute while idle (`ui.c:~576-588`) and before each connect (`host.c:338`, `psn_remote.c`; this one runs on the `VitaConnWorker` thread). The startup and idle refreshes block the UI thread (issue #163).
 - All Sony HTTPS calls (OAuth, device list, push server name, WebSocket) verify against a bundled CA file, `assets/psn-ca-bundle.pem`, loaded from `app0:/assets/` (`psn_auth.c:50`, `holepunch.c:107,166`).
 
 ## Invariants worth protecting
