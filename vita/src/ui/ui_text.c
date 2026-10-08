@@ -17,6 +17,7 @@
 
 #include "ui/ui_text.h"
 #include "ui/ui_constants.h"
+#include "ui/ui_theme.h"
 
 /* ============================================================================
  * Named Constants — no magic numbers below this section
@@ -63,6 +64,37 @@ static const int UI_FONT_PREWARM_MONO_SIZES[] = {
 /* Number of entries in the monospace prewarm size table. */
 #define UI_FONT_PREWARM_MONO_SIZE_COUNT \
   ((int)(sizeof(UI_FONT_PREWARM_MONO_SIZES) / sizeof(UI_FONT_PREWARM_MONO_SIZES[0])))
+
+/*
+ * Sizes baked for the Light weight: T20, T28 and T40 (SPEC 1.2).  Regular T14 and T16 reuse
+ * the existing regular-font sizes above.
+ */
+static const int UI_FONT_PREWARM_LIGHT_SIZES[] = {
+    UI_T20_SIZE,
+    UI_T28_SIZE,
+    UI_T40_SIZE,
+};
+
+#define UI_FONT_PREWARM_LIGHT_SIZE_COUNT \
+  ((int)(sizeof(UI_FONT_PREWARM_LIGHT_SIZES) / sizeof(UI_FONT_PREWARM_LIGHT_SIZES[0])))
+
+/*
+ * The five SPEC type faces, indexed by UiFace: point size and which weight draws it.
+ * Light faces use s_font_light, falling back to the regular font if Light failed to load.
+ */
+typedef struct {
+  int pt_size;
+  int line_height;
+  int weight;
+} FaceSpec;
+
+static const FaceSpec UI_FACE_TABLE[UI_FACE_COUNT] = {
+    [UI_FACE_T14] = {UI_T14_SIZE, UI_T14_LINE, UI_T14_WEIGHT},
+    [UI_FACE_T16] = {UI_T16_SIZE, UI_T16_LINE, UI_T16_WEIGHT},
+    [UI_FACE_T20] = {UI_T20_SIZE, UI_T20_LINE, UI_T20_WEIGHT},
+    [UI_FACE_T28] = {UI_T28_SIZE, UI_T28_LINE, UI_T28_WEIGHT},
+    [UI_FACE_T40] = {UI_T40_SIZE, UI_T40_LINE, UI_T40_WEIGHT},
+};
 
 /*
  * Character set to bake into the atlas.
@@ -167,6 +199,7 @@ static FontSizeMetrics s_metrics[UI_FONT_PREWARM_SIZE_COUNT];
 
 static vita2d_font *s_font_regular = NULL;
 static vita2d_font *s_font_mono = NULL;
+static vita2d_font *s_font_light = NULL;
 static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_init() */
 
 /* ============================================================================
@@ -343,6 +376,8 @@ static int utf8_extract(const char **pp, char *out_buf) {
  * @regular: Proportional font, or NULL (both metric computation and atlas
  *           prewarm are skipped if either pointer is NULL).
  * @mono:    Monospace font, or NULL (see above).
+ * @light:   Light-weight font for the T20/T28/T40 faces.  If NULL the faces fall
+ *           back to the regular font so the UI stays usable.
  *
  * Must be called after fonts are loaded and before ui_text_prewarm().
  * This function does NOT compute metrics — that is intentionally deferred to
@@ -352,9 +387,13 @@ static int utf8_extract(const char **pp, char *out_buf) {
  *
  * Both pointers are borrowed — ownership remains with the caller.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono) {
+void ui_text_init(vita2d_font *regular, vita2d_font *mono, vita2d_font *light) {
   s_font_regular = regular;
   s_font_mono = mono;
+  s_font_light = light;
+
+  if (!light)
+    sceClibPrintf("[WARN] ui_text_init: Light font missing — T20/T28/T40 fall back to Regular\n");
 
   if (!regular || !mono) {
     sceClibPrintf(
@@ -415,6 +454,7 @@ static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
  * Iterates:
  *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (6 sizes)
  *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
+ *   - UI_FONT_PREWARM_LIGHT_SIZES x UI_FONT_PREWARM_CHARSET for s_font_light (3 sizes)
  *
  * Metrics (ascent, line-height) are derived from s_font_regular only.
  * Roboto Regular and RobotoMono share the same UPM and ascender, so a single
@@ -451,6 +491,11 @@ void ui_text_prewarm(void) {
 
   /* --- Bake mono font: body and small sizes only --- */
   prewarm_one_font(s_font_mono, UI_FONT_PREWARM_MONO_SIZES, UI_FONT_PREWARM_MONO_SIZE_COUNT);
+
+  /* --- Bake Light font: the three SPEC Light sizes --- */
+  if (s_font_light) {
+    prewarm_one_font(s_font_light, UI_FONT_PREWARM_LIGHT_SIZES, UI_FONT_PREWARM_LIGHT_SIZE_COUNT);
+  }
 
   s_prewarm_needed = 0;
 }
@@ -555,4 +600,47 @@ void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsign
 
   baseline_y = box_y + (box_h + s_metrics[idx].ascent) / 2;
   ui_text_draw(f, x, baseline_y, color, pt_size, s);
+}
+
+/* ============================================================================
+ * SPEC type faces
+ * ============================================================================ */
+
+/**
+ * face_font() - Pick the loaded font that draws @face.
+ *
+ * Returns NULL (after a warning) for an out-of-range face.
+ */
+static vita2d_font *face_font(UiFace face, const char *caller) {
+  if ((int)face < 0 || face >= UI_FACE_COUNT) {
+    sceClibPrintf("[WARN] ui_text: %s received unknown face=%d\n", caller, (int)face);
+    return NULL;
+  }
+  if (UI_FACE_TABLE[face].weight == UI_WEIGHT_LIGHT && s_font_light)
+    return s_font_light;
+  return s_font_regular;
+}
+
+void ui_text_draw_face(UiFace face, int x, int baseline_y, unsigned int color, const char *s) {
+  vita2d_font *f = face_font(face, "ui_text_draw_face");
+  if (f)
+    ui_text_draw(f, x, baseline_y, color, UI_FACE_TABLE[face].pt_size, s);
+}
+
+int ui_text_face_width(UiFace face, const char *s) {
+  vita2d_font *f = face_font(face, "ui_text_face_width");
+  return f ? ui_text_width(f, UI_FACE_TABLE[face].pt_size, s) : 0;
+}
+
+void ui_text_draw_face_centered_v(UiFace face, int x, int box_y, int box_h, unsigned int color,
+                                  const char *s) {
+  vita2d_font *f = face_font(face, "ui_text_draw_face_centered_v");
+  if (f)
+    ui_text_draw_centered_v(f, x, box_y, box_h, color, UI_FACE_TABLE[face].pt_size, s);
+}
+
+int ui_text_face_line_height(UiFace face) {
+  if ((int)face < 0 || face >= UI_FACE_COUNT)
+    return 0;
+  return UI_FACE_TABLE[face].line_height;
 }

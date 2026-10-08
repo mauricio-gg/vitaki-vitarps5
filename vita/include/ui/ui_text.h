@@ -28,6 +28,7 @@
 
 #include <vita2d.h>
 #include "ui/ui_constants.h"
+#include "ui/ui_theme.h"
 
 /* ============================================================================
  * Initialization & Warm-up
@@ -37,6 +38,8 @@
  * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font loaded by init_ui() (Roboto-Regular.ttf).
  * @mono:    Monospace font loaded by init_ui() (RobotoMono-Regular.ttf).
+ * @light:   Light font loaded by init_ui() (Roboto-Light.ttf), used by the SPEC
+ *           faces T20/T28/T40.  May be NULL: those faces then draw in Regular.
  *
  * Must be called after fonts are loaded and before ui_text_prewarm().
  * Both pointers are borrowed — ownership remains with the caller.
@@ -46,7 +49,7 @@
  * paths require an active render pass.  If either font pointer is NULL,
  * both metric computation and atlas prewarm are skipped.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono);
+void ui_text_init(vita2d_font *regular, vita2d_font *mono, vita2d_font *light);
 
 /**
  * ui_text_needs_prewarm() - True until ui_text_prewarm() has been called.
@@ -63,9 +66,9 @@ int ui_text_needs_prewarm(void);
  * pair on the render thread so that texture uploads are committed.
  *
  * Iterates UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for the regular
- * font (6 sizes) and UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for
- * the mono font (2 sizes).  Draws each character at alpha=0 at off-screen
- * coordinates so glyphs are baked into the atlas without appearing on screen.
+ * font (7 sizes), UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for
+ * the mono font (3 sizes) and the three Light sizes for the Light font.  Draws each character at
+ * alpha=0 at off-screen coordinates so glyphs are baked into the atlas without appearing on screen.
  * Also measures per-size metrics (ascent, line-height) while inside the active
  * render pass.
  */
@@ -154,3 +157,35 @@ int ui_text_line_height(int pt_size);
  */
 void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsigned int color,
                              int pt_size, const char *s);
+
+/* ============================================================================
+ * SPEC type faces (ui_theme.h: T14, T16 Regular; T20, T28, T40 Light)
+ * ============================================================================ */
+
+/**
+ * ui_text_draw_face() - Draw a string in one of the five SPEC faces.
+ * @face:       UI_FACE_T14 .. UI_FACE_T40.
+ * @x:          Left edge of the first glyph, in screen pixels.
+ * @baseline_y: Baseline Y coordinate, in screen pixels.
+ * @color:      ABGR colour value.
+ * @s:          NUL-terminated UTF-8 string.
+ */
+void ui_text_draw_face(UiFace face, int x, int baseline_y, unsigned int color, const char *s);
+
+/** ui_text_face_width() - Pixel width of @s in @face; 0 for an unknown face. */
+int ui_text_face_width(UiFace face, const char *s);
+
+/**
+ * ui_text_draw_face_centered_v() - Draw a string in @face vertically centred in a box.
+ * @face:  UI_FACE_T14 .. UI_FACE_T40.
+ * @x:     Left edge X, in screen pixels.
+ * @box_y: Top edge of the box, in screen pixels.
+ * @box_h: Height of the box, in screen pixels.
+ * @color: ABGR colour value.
+ * @s:     NUL-terminated UTF-8 string.
+ */
+void ui_text_draw_face_centered_v(UiFace face, int x, int box_y, int box_h, unsigned int color,
+                                  const char *s);
+
+/** ui_text_face_line_height() - SPEC line height of @face in pixels; 0 for an unknown face. */
+int ui_text_face_line_height(UiFace face);

@@ -22,6 +22,9 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/touch.h>
+#include <string.h>
+
+#include "ui/ui_theme.h"
 
 // ============================================================================
 // Module State
@@ -32,12 +35,6 @@
  * Used during screen transitions to avoid accidental carryover presses
  */
 static uint32_t button_block_mask = 0;
-
-/**
- * Timestamp (microseconds) of when the Cross button was first pressed.
- * Zero means Cross is not currently held.
- */
-static uint64_t cross_press_start_us = 0;
 
 /**
  * Touch block state - prevents touch input processing
@@ -131,6 +128,145 @@ bool ui_input_is_touch_blocked(void) {
 }
 
 // ============================================================================
+// Per-Frame Snapshot
+// ============================================================================
+
+/** Maps one logical button to the physical Vita button(s) that produce it. */
+typedef struct {
+  UiButton logical;
+  uint32_t physical;
+} ButtonMapping;
+
+/** Touch-snapshot state carried between frames. */
+static bool snap_touch_active = false;  ///< last frame's unblocked touch-down state
+static bool snap_touch_dragged = false;
+static float snap_touch_start_x = 0.0f;
+static float snap_touch_start_y = 0.0f;
+static float snap_touch_x = 0.0f;
+static float snap_touch_y = 0.0f;
+
+/** D-pad hold-repeat state, indexed by position in snap_dpad[]. */
+static uint64_t snap_hold_start_us[4];
+static uint64_t snap_last_repeat_us[4];
+
+static const UiButton snap_dpad[4] = {UI_BTN_UP, UI_BTN_DOWN, UI_BTN_LEFT, UI_BTN_RIGHT};
+
+/** Convert a physical button mask to logical UiButton bits. */
+static uint32_t to_logical(uint32_t physical, const ButtonMapping *map, int count) {
+  uint32_t logical = 0;
+  for (int i = 0; i < count; i++) {
+    if (physical & map[i].physical)
+      logical |= (uint32_t)map[i].logical;
+  }
+  return logical;
+}
+
+/** Fill out->repeat: the press edge of each D-pad direction, then hold-repeat while held. */
+static void snapshot_dpad_repeat(UiInput *out, uint64_t now_us) {
+  out->repeat = 0;
+  for (int i = 0; i < 4; i++) {
+    uint32_t bit = (uint32_t)snap_dpad[i];
+    if (out->pressed & bit) {
+      snap_hold_start_us[i] = now_us;
+      snap_last_repeat_us[i] = now_us;
+      out->repeat |= bit;
+    } else if (out->down & bit) {
+      bool held_long_enough = now_us - snap_hold_start_us[i] >= UI_REPEAT_DELAY_MS * 1000ULL;
+      bool interval_elapsed = now_us - snap_last_repeat_us[i] >= UI_REPEAT_INTERVAL_MS * 1000ULL;
+      if (held_long_enough && interval_elapsed) {
+        snap_last_repeat_us[i] = now_us;
+        out->repeat |= bit;
+      }
+    } else {
+      snap_hold_start_us[i] = 0;
+    }
+  }
+}
+
+/** Fill out->touch from the front panel, honouring the transition touch block. */
+static void snapshot_touch(UiInput *out, bool suppressed) {
+  const SceTouchData *panel = &context.ui_state.touch_state_front;
+  bool raw_down = panel->reportNum > 0;
+
+  if (touch_block_active) {
+    if (!raw_down) {
+      touch_block_active = false;
+      touch_block_pending_clear = false;
+    }
+  }
+  bool active = raw_down && !touch_block_active && !suppressed;
+
+  if (raw_down) {
+    snap_touch_x = ((float)panel->report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
+    snap_touch_y =
+        ((float)panel->report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
+  }
+
+  UiTouch *t = &out->touch;
+  t->pressed = active && !snap_touch_active;
+  t->released = !raw_down && snap_touch_active;
+  t->down = active;
+
+  if (t->pressed) {
+    snap_touch_start_x = snap_touch_x;
+    snap_touch_start_y = snap_touch_y;
+    snap_touch_dragged = false;
+  }
+  t->x = snap_touch_x;
+  t->y = snap_touch_y;
+  t->dx = snap_touch_x - snap_touch_start_x;
+  t->dy = snap_touch_y - snap_touch_start_y;
+  if (active && (t->dx * t->dx + t->dy * t->dy) > (float)(UI_TOUCH_DRAG_PX * UI_TOUCH_DRAG_PX)) {
+    snap_touch_dragged = true;
+  }
+  t->dragged = (active || t->released) && snap_touch_dragged;
+
+  /* A touch that becomes blocked mid-way is swallowed: it neither taps nor releases. */
+  snap_touch_active = active;
+}
+
+static UiInput frame_snapshot;
+
+void ui_input_update_snapshot(void) {
+  UiInput *out = &frame_snapshot;
+  const bool circle_confirm = context.config.circle_btn_confirm;
+  const ButtonMapping map[] = {
+      {UI_BTN_CONFIRM, circle_confirm ? SCE_CTRL_CIRCLE : SCE_CTRL_CROSS},
+      {UI_BTN_CANCEL, circle_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE},
+      {UI_BTN_OPTIONS, SCE_CTRL_TRIANGLE},
+      {UI_BTN_CLEAR, SCE_CTRL_SQUARE},
+      {UI_BTN_FILTER, SCE_CTRL_START},
+      {UI_BTN_BROWSER, SCE_CTRL_SELECT},
+      {UI_BTN_L, SCE_CTRL_LTRIGGER},
+      {UI_BTN_R, SCE_CTRL_RTRIGGER},
+      {UI_BTN_UP, SCE_CTRL_UP},
+      {UI_BTN_DOWN, SCE_CTRL_DOWN},
+      {UI_BTN_LEFT, SCE_CTRL_LEFT},
+      {UI_BTN_RIGHT, SCE_CTRL_RIGHT},
+  };
+  const int map_count = (int)(sizeof(map) / sizeof(map[0]));
+
+  memset(out, 0, sizeof(*out));
+  const bool suppressed = context.ui_state.error_popup_active || context.ui_state.debug_menu_active;
+
+  if (!suppressed) {
+    const uint32_t state = context.ui_state.button_state;
+    const uint32_t old_state = context.ui_state.old_button_state;
+    const uint32_t unblocked = ~button_block_mask;
+    out->down = to_logical(state & unblocked, map, map_count);
+    out->pressed = to_logical(state & ~old_state & unblocked, map, map_count);
+    out->released = to_logical(~state & old_state & unblocked, map, map_count);
+  }
+
+  snapshot_dpad_repeat(out, sceKernelGetProcessTimeWide());
+  snapshot_touch(out, suppressed);
+}
+
+const UiInput *ui_input_snapshot(void) {
+  return &frame_snapshot;
+}
+
+// ============================================================================
 // Hit Testing Utilities
 // ============================================================================
 
@@ -142,52 +278,6 @@ bool ui_input_point_in_circle(float px, float py, int cx, int cy, int radius) {
 
 bool ui_input_point_in_rect(float px, float py, int rx, int ry, int rw, int rh) {
   return (px >= (float)rx && px <= (float)(rx + rw) && py >= (float)ry && py <= (float)(ry + rh));
-}
-
-// ============================================================================
-// Cross Button Hold Tracking
-// ============================================================================
-
-/**
- * Update Cross button hold timing — must be called once per frame after
- * button_state / old_button_state are refreshed.
- *
- * Records the timestamp on the leading edge of a Cross press and clears it
- * when the button is released, enabling duration-aware queries via
- * ui_input_cross_held_ms().
- */
-void ui_input_update_hold_tracking(void) {
-  /* Detect fresh Cross press — record timestamp. */
-  if ((context.ui_state.button_state & SCE_CTRL_CROSS) &&
-      !(context.ui_state.old_button_state & SCE_CTRL_CROSS))
-    cross_press_start_us = sceKernelGetProcessTimeWide();
-  /* Clear when released. */
-  if (!(context.ui_state.button_state & SCE_CTRL_CROSS))
-    cross_press_start_us = 0;
-}
-
-/**
- * Query whether the Cross button has been held continuously for at least
- * the given number of milliseconds.
- *
- * @param ms  Minimum hold duration in milliseconds.
- * @return    true if Cross has been held for >= ms, false otherwise.
- */
-bool ui_input_cross_held_ms(uint32_t ms) {
-  if (!cross_press_start_us)
-    return false;
-  uint64_t now = sceKernelGetProcessTimeWide();
-  return (now - cross_press_start_us) >= (uint64_t)ms * 1000ULL;
-}
-
-/**
- * Reset the Cross button hold tracker.
- *
- * Call this after consuming a long-press event so the same hold does not
- * trigger additional actions in subsequent frames.
- */
-void ui_input_cross_hold_reset(void) {
-  cross_press_start_us = 0;
 }
 
 // ============================================================================
