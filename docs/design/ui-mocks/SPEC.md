@@ -288,7 +288,7 @@ y 16, h 32, x 48..912. Three slots: logo (h 32, `Vita_RPS5_Logo.png`) left; cent
 Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searching. Used by: Home consoles.
 
 ### C27 Background (display-only, one static ribbon state)
-5 ribbons, 36 dust points, one fixed palette (section 1.1), CPU vertex update at 30 Hz (freeze or halve while Connecting). **Option pending CEO choice:** the mock has a switchable "Glass" exploration (soft blur of the wave with a light veil, or frosted panels behind content); default and spec stay as designed. See FEASIBILITY.md section 8. FEASIBILITY.md has the costing. Replaces: `ui_particles`.
+5 ribbons, 36 dust points, one fixed palette (section 1.1), CPU vertex update at 30 Hz (freeze or halve while Connecting). **Option pending CEO choice:** the mock has a switchable "Glass" exploration (soft blur with a light veil; strong blur at 1/16 size in a frost or dark variant; frosted panels, rejected); default and spec stay as designed. See FEASIBILITY.md section 8. FEASIBILITY.md has the costing. Replaces: `ui_particles`.
 
 ### C28 FilterLine (interactive)
 x 608, y 144, h 32, T16 TEXT_2. Either `[Start] Filter` (more than 4 consoles) or `Filter: "text" (N found)` plus a clear box. The line (visible h 32) and the clear box (visible 32 px) both have a **hit rect of at least 48 x 48**. Tap the line opens the keyboard; tap the clear box clears.

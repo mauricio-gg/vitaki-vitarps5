@@ -36,8 +36,8 @@ function paintGlass(id){
  $('#glassLayer').innerHTML=(GPANELS[id]||[]).map(r=>`<div class="gpanel" style="left:${r[0]}px;top:${r[1]}px;width:${r[2]}px;height:${r[3]}px"></div>`).join('');
 }
 function setGlass(m){
- S.glass=m;$('#screen').classList.toggle('glass-soft',m==='soft');$('#screen').classList.toggle('glass-panels',m==='panels');
- $('#bGlass').textContent='Glass: '+m;$('#bGlass').classList.toggle('on',m!=='off');
+ S.glass=m;['soft','strong','strongdark','panels'].forEach(k=>$('#screen').classList.toggle('glass-'+k,m===k));
+ $('#bGlass').textContent='Glass: '+({strong:'strong (frost)',strongdark:'strong (dark)'}[m]||m);$('#bGlass').classList.toggle('on',m!=='off');
  if(reduce)paintWave(0);
 }
 function paintTop(){
@@ -716,7 +716,7 @@ function init(){
  const sel=$('#jump');let grp='';
  sel.innerHTML=JUMPS.map(j=>{const o=(j[0]!==grp?(grp?'</optgroup>':'')+`<optgroup label="${j[0]}">`:'')+`<option value="${j[1]}">${j[2]}</option>`;grp=j[0];return o;}).join('')+'</optgroup>';
  sel.addEventListener('change',()=>{location.hash=sel.value;sel.blur();});
- $('#bGlass').addEventListener('click',()=>setGlass({off:'soft',soft:'panels',panels:'off'}[S.glass]));
+ $('#bGlass').addEventListener('click',()=>setGlass({off:'soft',soft:'strong',strong:'strongdark',strongdark:'panels',panels:'off'}[S.glass]));
  $('#bCc').addEventListener('click',e=>{SET('cc').v=!SET('cc').v;e.target.textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');e.target.classList.toggle('on',SET('cc').v);refreshHints();if(S.screen==='page')paintPage(false);});
  $('#bUn').addEventListener('click',e=>{S.unst=!S.unst;e.target.classList.toggle('on',S.unst);e.target.textContent='Network unstable: '+(S.unst?'on':'off');refreshHints();paintHud();});
  $('#bZoom').addEventListener('click',e=>{S.zoom=S.zoom===1?2:1;fit();e.target.classList.toggle('on',S.zoom===2);});
@@ -727,7 +727,7 @@ function init(){
 }
 function fit(){const dev=$('#wrap').classList.contains('dev'),w=dev?1260:960,f=Math.min(1,(innerWidth-32)/w);$('#wrap').style.setProperty('--z',+(S.zoom*f).toFixed(3));}
 init();
-function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),gm=q&&(new URLSearchParams(q).get('glass'));if(gm&&['off','soft','panels'].includes(gm))setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
+function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),gm=q&&(new URLSearchParams(q).get('glass'));const gd=q&&(new URLSearchParams(q).get('gdiv'));if(gd)GSTRONG=gd;if(gm&&['off','soft','strong','strongdark','panels'].includes(gm))setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
 addEventListener('hashchange',route);
 if(location.hash)setTimeout(route,60);else jump('home');
 document.addEventListener('dragstart',e=>e.preventDefault());

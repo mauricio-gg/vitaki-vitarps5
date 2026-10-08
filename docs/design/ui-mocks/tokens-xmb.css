@@ -59,6 +59,8 @@
   --glass-veil: rgba(2,5,14,0.14);     /* soft: veil over the blurred wave */
   --glass-tint: rgba(255,255,255,0.05);/* panels: faint white tint */
   --glass-blur: 16px;                  /* panels: backdrop blur */
+  --glass-frost: rgba(255,255,255,0.05);   /* strong (frost): white tint, used with --glass-veil */
+  --glass-veil-dark: rgba(2,5,14,0.20);    /* strong (dark): dark veil only */
 
   /* WAVE (fixed palette, no time-of-day) */
   --wave-top: #06204A; --wave-mid: #0F4585; --wave-bot: #245F9C;

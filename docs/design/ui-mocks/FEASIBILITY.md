@@ -131,3 +131,42 @@ Isolating the two ingredients of soft (same method): blur alone raises the brigh
 - **panels with the specified white tint make legibility slightly worse** (the tint lightens the background: Home mean 6.3 -> 5.5, hints 4.2 -> 3.9). A dark tint fixes that (Home 8.1, hints 5.0) but is a different, darker look. **Honest look verdict: on Home the two frosted rectangles read as cards**, especially the detail panel with its edge; on pages the pane panel reads as a box. This is the boxy look rejected earlier, so panels are not recommended.
 - **Red hint text is the weak spot in every variant.** `ERR` #FF8080 on the ribbons averages 4.2 to 4.9 and the worst spots are 1.5 to 3 for all variants. Neither blur nor panels fixes that; a slightly lighter ERR hint colour or a dark text shadow would.
 - **Recommendation:** if the CEO wants a legibility gain, adopt **soft** at 1/4 resolution with the 14% veil: it costs about +2 draw calls, about 0.13 MB, is probably cheaper than today's wave, and does not change the look. The same mean-contrast gain is available from the veil alone with no render target at all (one rectangle), so the cheapest honest option is veil only; add the 1/4 blur if the CEO likes the softer ribbons. Do not build panels. Separately, lighten the ERR hint text colour or add a text shadow behind hint lines.
+
+### Round 6f: strong glass (the panel effect over the whole screen, no rectangles)
+
+Modes in the mock: `?glass=strong` (frost) and `?glass=strongdark`; toolbar cycles off / soft / strong (frost) / strong (dark) / panels. Panels stay for reference (rejected).
+
+**Blur method and which resolution to ship.** The mock renders the wave into a small canvas and draws it upscaled with bilinear smoothing, exactly the Vita method, so for strong the mock is a faithful preview (only the browser's smoothing kernel differs a little from GXM's). Tried at the same instant (`?gdiv=8|16|2step`):
+- 1/8 (120 x 68): visible grid and cross-hatch artefacts from the 8x bilinear upscale, and the ribbons still read as bands. Too blocky for a "frosted" look.
+- 1/4 then 1/8 (two bilinear downsample steps): smooth, a little more ribbon structure survives, but it needs the 1/4 pass anyway.
+- 1/16 (60 x 34): smooth, no visible blocks, ribbons become soft clouds of light. **Ship 1/16**: one tiny render target (60 x 34 RGBA = 8 KB), one pass, cheapest. A 16x bilinear upscale is a triangle kernel about 32 px wide (roughly a Gaussian of sigma 6 to 7 px); the mock's panel blur is a true `blur(16px)` (sigma 16), so panels were blurrier on paper, but at this ribbon scale (bands 35 to 70 px thick) the strong result reads about the same.
+
+**Variants.** *strong (frost)*: white 5% tint plus the 14% dark veil. *strong (dark)*: 20% dark veil, no white. The ribbons survive as moving soft light in both; frost is hazier and lighter, dark is a deep gradient with faint glow.
+
+**Cost (paper estimates).** One 60 x 34 render target (8 KB; a second 240 x 136 only if you want the two-step version, 130 KB). Draw calls: the wave geometry (about 12) moves into the target, plus 1 upscaled full-screen quad and 1 veil rectangle: about +2. Fill: the wave is shaded at 1/256 of the pixels instead of full screen, then one bilinear quad (522k pixels) and the veil (522k): likely cheaper than today's full-resolution wave (5 overlapping strips over 522k). Because the result is so soft, the ribbons can be updated into the small target at 15 to 30 Hz while the quad is drawn every frame; nobody will see the lower rate. Unknown: the cost of switching to a render target and back (one extra render-target pass per frame), to be measured; skipped entirely on frames where the ribbons are not updated.
+
+**Contrast** (same method as above: text made transparent, wave frozen at 12 instants, brightest pixel / p95 / mean at the worst instant):
+
+| Text on | variant | brightest px | p95 | mean |
+|---|---|---|---|---|
+| Home list, TEXT_2 | off | 2.57 | 4.17 | 6.29 |
+| | soft | 4.64 | 5.42 | 7.48 |
+| | strong (frost) | 4.59 | 4.88 | 6.47 |
+| | strong (dark) | 5.73 | 6.10 | 7.92 |
+| Home red hints, ERR | off | 1.48 | 2.50 | 4.23 |
+| | soft | 2.23 | 2.99 | 4.84 |
+| | strong (frost) | 2.35 | 2.71 | 4.21 |
+| | strong (dark) | 2.88 | 3.35 | 5.10 |
+| Settings, TEXT_2 | off | 4.53 | 6.81 | 9.75 |
+| | soft | 6.69 | 7.92 | 10.72 |
+| | strong (frost) | 6.49 | 6.89 | 9.29 |
+| | strong (dark) | 8.14 | 8.52 | 11.20 |
+| Profile error, ERR | off | 3.65 | 5.04 | 5.09 |
+| | soft | 4.88 | 5.25 | 5.28 |
+| | strong (frost) | 4.39 | 4.47 | 4.54 |
+| | strong (dark) | 5.25 | 5.32 | 5.36 |
+
+**Verdict (strong).**
+- **Look.** Strong does not feel like XMB any more; it feels like a blurry wallpaper. The waves lose their lines and edges and turn into soft cloud shapes; there is no more sense of ribbons flowing past. Frost is hazy and slightly milky; dark is almost a flat dark-blue gradient with a faint glow. Without the thin highlight lines the background loses the "moving light" that defines the XMB feel; soft keeps it.
+- **Legibility.** Frost is no better than off on typical contrast (the white tint cancels the veil: Home mean 6.29 to 6.47, hints 4.23 to 4.21, Profile error 5.09 to 4.54, which is worse); it only removes the worst peaks. Dark is the best of all variants (Home mean 7.92, hints 5.10, Settings 11.2, Profile error 5.36), about 6 to 20% above soft on mean and 1.2 to 1.9 above soft on the worst peaks, but it is the one that looks flattest. Soft is within about 5% of strong dark on typical contrast while keeping the ribbons.
+- **Pick.** If the CEO wants the strong look at all, ship **strong (dark)** at 1/16, not frost. My overall recommendation is unchanged: **soft** (or just the veil) is the best trade; it keeps what the CEO likes about the look and gets most of the legibility gain. Strong dark is the choice only if legibility matters more than the wave.
