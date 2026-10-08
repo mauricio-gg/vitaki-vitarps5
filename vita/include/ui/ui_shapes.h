@@ -39,6 +39,7 @@ typedef enum ui_shape9_t {
 typedef enum ui_shape1_t {
   UI_SHAPE1_PIN_BOX = 0,    /**< the 56 x 72 PIN box, R_SM corners (C17) */
   UI_SHAPE1_PIN_BOX_BORDER, /**< its 2 px outline */
+  UI_SHAPE1_GRID_CELL,      /**< the 128 x 104 focused cell of the icon grid, R_SM corners (C12) */
   UI_SHAPE1_COUNT
 } UiShape1;
 

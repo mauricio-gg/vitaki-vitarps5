@@ -58,6 +58,7 @@
 #include "ui/ui_background.h"
 #include "ui/ui_draw_stats.h"
 #include "ui/ui_freeze.h"
+#include "ui/ui_list_popup.h"
 #include "ui/ui_pin.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
@@ -433,6 +434,7 @@ void init_ui() {
   ui_connecting_init();
   ui_settings_init();
   ui_pin_init();
+  ui_list_popup_init();
 
   vita2d_set_vblank_wait(true);
 

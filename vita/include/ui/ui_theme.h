@@ -389,6 +389,39 @@ typedef enum ui_face_t {
 /** Bytes kept of the title and of the subtitle (UTF-8). */
 #define UI_POPUP_TEXT_MAX 96
 
+/* ============================================================================
+ * C12 ListPopup (ui_list_popup.c): rows and the icon grid inside a C11 popup
+ * ============================================================================ */
+
+#define UI_LISTPOP_ROW_H UI_SHAPE_H_BAR
+/** Label and right label sit this far inside the row's focus bar. */
+#define UI_LISTPOP_ROW_PAD UI_S1
+/** A list or grid in an M or L popup starts this far under the header. */
+#define UI_LISTPOP_TOP_GAP UI_S2
+/** Rows an L popup shows before it scrolls. */
+#define UI_LISTPOP_MAX_VISIBLE 6
+/** Rows or cells a list popup holds. */
+#define UI_LISTPOP_MAX_ROWS 16
+/** Bytes kept of a row's label and of its right label (UTF-8). */
+#define UI_LISTPOP_TEXT_MAX 48
+/** The check mark of the current row, drawn from the 32 px popup check art scaled down. */
+#define UI_LISTPOP_CHECK 20
+/** Space between a right label and the check mark. */
+#define UI_LISTPOP_CHECK_GAP UI_S1
+#define UI_LISTPOP_GRID_COLS 3
+#define UI_LISTPOP_CELL_W 128
+#define UI_LISTPOP_CELL_H 104
+#define UI_LISTPOP_CELL_GAP UI_S2
+#define UI_LISTPOP_CELL_ICON UI_ROOM_ICON_GRID
+/** Gap between a cell's icon and its label. */
+#define UI_LISTPOP_CELL_LABEL_GAP UI_S1
+#define UI_LISTPOP_CELL_ICON_PCT 70
+#define UI_LISTPOP_CELL_ICON_FOCUS_PCT 120
+#define UI_LISTPOP_CELL_GLOW UI_ROW_GLOW
+/** The quiet check of the current cell, and its inset from the cell's top-right corner. */
+#define UI_LISTPOP_CELL_CHECK 16
+#define UI_LISTPOP_CELL_CHECK_INSET UI_S1
+
 /* The background freeze (ui_freeze.c): a half-resolution copy of the screen behind a popup. */
 #define UI_FREEZE_W 480
 #define UI_FREEZE_H 272
