@@ -94,8 +94,15 @@ void host_event_cb(ChiakiEvent *event, void *user) {
         // bitrate are zeroed with the overlay on the first video frame (the Reconnecting
         // screen still draws them until then); the quit handler also ignores them unless
         // recovery was active, so a later drop gets the full attempt budget again.
-        LOGD("Recovery complete: fallback session connected after %u attempt(s)",
-             context.stream.loss_retry_attempts);
+        // GH #277: the release polls and elapsed time measure how long the console really took
+        // to let go of the old session.
+        LOGD(
+            "Recovery complete: fallback session connected after %u attempt(s), %u release "
+            "poll(s), %llu ms since recovery start",
+            context.stream.loss_retry_attempts, context.stream.recovery_release_polls,
+            (unsigned long long)((sceKernelGetProcessTimeWide() -
+                                  context.stream.reconnect_overlay_start_us) /
+                                 1000ULL));
         context.stream.recovery_active = false;
       }
       break;
@@ -288,6 +295,7 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     context.stream.reconnect_overlay_active = false;
     if (!context.stream.recovery_active) {
       context.stream.loss_retry_attempts = 0;
+      context.stream.recovery_release_polls = 0;
       context.stream.recovery_bitrate_kbps = 0;
       context.stream.recovery_cause = NULL;
     }

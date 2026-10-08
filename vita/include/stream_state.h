@@ -152,8 +152,9 @@ typedef struct vita_chiaki_stream_t {
   char disconnect_reason[128];
   uint64_t disconnect_banner_until_us;
   volatile bool
-      loss_retry_pending;        // Whether a fallback connect is scheduled (UI thread starts it)
-  uint32_t loss_retry_attempts;  // Number of fallback retries used
+      loss_retry_pending;           // Whether a fallback connect is scheduled (UI thread starts it)
+  uint32_t loss_retry_attempts;     // Number of fallback retries used
+  uint32_t recovery_release_polls;  // RP_IN_USE release polls used this recovery episode (GH #277)
   // Bitrate the pending/in-flight recovery reconnect will start at (host_default_video_profile):
   // display only (Reconnecting screen); host_stream() always recomputes it, never reads it.
   uint32_t recovery_bitrate_kbps;

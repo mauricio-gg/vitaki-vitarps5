@@ -292,6 +292,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   // and Reconnecting overlay must survive until the new session reports CONNECTED.
   if (!context.stream.recovery_active) {
     context.stream.loss_retry_attempts = 0;
+    context.stream.recovery_release_polls = 0;
     context.stream.recovery_bitrate_kbps = 0;
     context.stream.recovery_cause = NULL;
     context.stream.loss_retry_ready_us = 0;
