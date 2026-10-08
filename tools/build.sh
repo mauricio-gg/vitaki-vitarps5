@@ -21,7 +21,7 @@ DOCKER_RUN_USER="$(id -u):$(id -g)"
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="987"
+VERSION_ITERATION="993"
 
 # Colors for output
 RED='\033[0;31m'
@@ -157,7 +157,10 @@ configure_logging_cmake_args() {
     CMAKE_EXTRA_FLAGS="${cmake_args[*]}"
 }
 
+# Args: $1 = build command (build, debug, test, ...), used for the debug-tools gate.
 configure_feature_cmake_args() {
+    local build_command="$1"
+    local debug_tools_val=0
     local holepunch_val
     local parity_inclusive_val
     local cmake_args=()
@@ -185,6 +188,16 @@ configure_feature_cmake_args() {
     else
         cmake_args+=("-DVITARPS5_CONGESTION_PARITY_INCLUSIVE_RECEIVED=OFF")
     fi
+
+    # GH #275 debug tools (stream-screen resync widget): compiled in for the
+    # testing profile and for the "debug" command, out of every other build.
+    # Always emit an explicit -D (0 included) so a stale CMakeCache.txt from a
+    # previous debug build can never leak the tools into a release build; same
+    # reasoning as the GH #221 flag above.
+    if [ "$(basename "$ENV_PROFILE_PATH")" = ".env.testing" ] || [ "$build_command" = "debug" ]; then
+        debug_tools_val=1
+    fi
+    cmake_args+=("-DVITARPS5_DEBUG_TOOLS=${debug_tools_val}")
 
     # Security: plaintext token storage is OFF by default (production-safe).
     # Enable automatically for .env.testing so QA token persistence keeps working.
@@ -653,7 +666,7 @@ main() {
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
-    configure_feature_cmake_args
+    configure_feature_cmake_args "$command"
     append_build_metadata_cmake_args
 
     local debug_menu_val

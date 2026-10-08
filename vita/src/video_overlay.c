@@ -1,6 +1,7 @@
 #include "video_overlay.h"
 
 #include "context.h"
+#include "debug_tools.h"
 #include "ui.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_text.h"
@@ -234,6 +235,9 @@ void vitavideo_overlay_render(void) {
   draw_stream_exit_hint();
   draw_stream_stats_panel();
   draw_indicators();
+#if VITARPS5_DEBUG_TOOLS
+  debug_tools_draw_widget();
+#endif
 }
 
 void vitavideo_overlay_on_stream_start(void) {

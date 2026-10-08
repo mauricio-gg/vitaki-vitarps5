@@ -1,4 +1,5 @@
 #include "context.h"
+#include "debug_tools.h"
 #include "host_feedback.h"
 #include "host_metrics.h"
 #include "host_quit.h"
@@ -140,6 +141,9 @@ void host_video_cb_reset_stale_tracker(void) {
   stale_stall_gap_ms = 0;
   stale_pending_frames = 0;
   stale_release_frames = 0;
+#if VITARPS5_DEBUG_TOOLS
+  debug_tools_reset_session();
+#endif
 }
 
 /* GH #262 fix round 1: model-free arrival-cadence gate (replaces the drift-excursion
@@ -191,6 +195,11 @@ static uint32_t host_video_cb_compute_staleness_ms(ChiakiVideoReceiver *receiver
 
   uint32_t gap_ms = (uint32_t)(arrival_ms - stale_prev_arrival_ms);
   stale_prev_arrival_ms = arrival_ms;
+
+#if VITARPS5_DEBUG_TOOLS
+  if (gap_ms >= STALE_STALL_TRIGGER_MS)
+    debug_tools_note_stall(arrival_ms);
+#endif
 
   if (gap_ms > STALE_STALL_TRIGGER_MS) {
     /* Arm (or re-latch) unconditionally, then return WITHOUT falling into the confirm/
@@ -260,6 +269,9 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     LOGD("VIDEO CALLBACK: First frame received (size=%zu)", buf_size);
     LOGD("PIPE/TIME_TO_FIRST_FRAME us=%llu", (unsigned long long)delta_us);
     context.stream.video_first_frame_logged = true;
+#if VITARPS5_DEBUG_TOOLS
+    debug_tools_on_first_frame();
+#endif
 
     if (ui_connection_overlay_active()) {
       ui_connection_complete();
@@ -303,6 +315,9 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     if (receiver)
       frame_first_packet_ms = receiver->cur_frame_first_packet_ms;
   }
+#if VITARPS5_DEBUG_TOOLS
+  debug_tools_publish_abs(receiver);
+#endif
 
   /* GH #262: backlog-drain staleness for the presentation-side hold gate (video.c). Same
    * receiver pointer, same same-thread justification as the read directly above. */

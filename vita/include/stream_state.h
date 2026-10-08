@@ -5,6 +5,7 @@
 #include <chiaki/thread.h>
 
 #include "controller.h"
+#include "debug_tools.h"
 
 /* Maximum length of a resolved PSN holepunch address string.
  * INET6_ADDRSTRLEN is 46 bytes; 64 gives comfortable headroom. */
@@ -163,6 +164,14 @@ typedef struct vita_chiaki_stream_t {
   // fallback session reports CONNECTED or recovery ends. Survives host_stream() (unlike the
   // loss_retry_* fields it guards); written by the session thread and the UI thread.
   volatile bool recovery_active;
+#if VITARPS5_DEBUG_TOOLS
+  // GH #275: the input thread raises resync_tap_requested on the touch-down of a tap on the
+  // debug widget; the UI thread consumes it. resync_requested marks the stop the UI thread
+  // then requests as a resync, so the quit handler reconnects at once instead of treating it
+  // as a plain user stop.
+  volatile bool resync_tap_requested;
+  volatile bool resync_requested;
+#endif
   bool reconnect_overlay_active;  // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
   bool fast_restart_active;  // Whether a soft reconnect is underway

@@ -1,4 +1,5 @@
 #include "context.h"
+#include "debug_tools.h"
 #include "host.h"
 #include "host_constants.h"
 #include "host_disconnect.h"
@@ -31,6 +32,15 @@
 
 void host_handle_quit_event(ChiakiEvent *event) {
   bool user_stop_requested = context.stream.stop_requested || context.stream.stop_requested_by_user;
+#if VITARPS5_DEBUG_TOOLS
+  // GH #275: a debug-widget resync is a user-style stop that reconnects at once. The marker is
+  // consumed here on every path so it can never leak into a later real user stop; it counts only
+  // if the stop it was raised for is the one being handled.
+  bool resync_quit = context.stream.resync_requested && context.stream.stop_requested;
+  context.stream.resync_requested = false;
+#else
+  const bool resync_quit = false;
+#endif
   // Snapshot BEFORE host_shutdown_media_pipeline() (called below) clears
   // is_streaming -- this tells the guard-mapping below whether a real RP
   // session was ever live on the console, or the connect was cancelled
@@ -83,9 +93,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
       event->quit.reason == CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED;
   // Recovery (a full teardown + fresh connect, run from the UI thread) starts or continues when
   // transport died, a vita-initiated soft restart failed, or a fallback connect itself failed.
-  bool recovery_trigger = !user_stop_requested && context.active_host &&
-                          (transport_death || (restart_failed && retry_allowed_reason) ||
-                           (recovery_was_active && (remote_in_use || retry_allowed_reason)));
+  bool recovery_trigger = (resync_quit && context.active_host) ||
+                          (!user_stop_requested && context.active_host &&
+                           (transport_death || (restart_failed && retry_allowed_reason) ||
+                            (recovery_was_active && (remote_in_use || retry_allowed_reason))));
   bool schedule_recovery = recovery_trigger && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
   bool recovery_exhausted = recovery_trigger && !schedule_recovery;
   if (recovery_was_active && user_stop_requested) {
@@ -307,16 +318,19 @@ void host_handle_quit_event(ChiakiEvent *event) {
   if (schedule_recovery) {
     // Nothing connects from this (dying) session thread: the UI thread starts the next attempt
     // (ui.c) once it has joined and finalized this session and loss_retry_ready_us has passed.
-    uint64_t ready_us = now_us + RECOVERY_CONSOLE_RELEASE_DELAY_US;
+    // A resync reconnects as soon as the post-stop guard (set above for the acked/unacked
+    // DISCONNECT) allows: the session was ended cleanly, so the console is not holding it.
+    uint64_t ready_us = resync_quit ? now_us : now_us + RECOVERY_CONSOLE_RELEASE_DELAY_US;
     if (context.stream.next_stream_allowed_us > ready_us)
       ready_us = context.stream.next_stream_allowed_us;
     context.stream.loss_retry_attempts = retry_attempts + 1;
     ChiakiConnectVideoProfile reconnect_profile = {};
     host_default_video_profile(&reconnect_profile, context.stream.last_connect_used_psn_holepunch);
     context.stream.recovery_bitrate_kbps = reconnect_profile.bitrate;
-    context.stream.recovery_cause = recovery_was_active ? "follow-up after failed reconnect"
-                                    : transport_death   ? "transport death"
-                                                        : "failed packet-loss soft restart";
+    context.stream.recovery_cause = resync_quit           ? "user resync"
+                                    : recovery_was_active ? "follow-up after failed reconnect"
+                                    : transport_death     ? "transport death"
+                                                          : "failed packet-loss soft restart";
     context.stream.loss_retry_ready_us = ready_us;
     LOGD(
         "Recovery attempt %u/%u scheduled in %llu ms at %u kbps (reason=%d fast_restart=%d "
@@ -331,6 +345,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
     context.stream.loss_retry_pending = true;
   } else {
     context.stream.reconnect_overlay_active = false;
+#if VITARPS5_DEBUG_TOOLS
+    // No further attempt is coming, so no new stream will report the resync figures.
+    debug_tools_resync_clear();
+#endif
     host_resume_discovery_if_needed();
     if (restart_failed && !retry_allowed_reason)
       LOGD("Skipping hard fallback retry for quit reason %d (%s)", event->quit.reason,
@@ -350,6 +368,9 @@ static void recovery_clear_state(void) {
   context.stream.recovery_cause = NULL;
   context.stream.loss_retry_ready_us = 0;
   context.stream.reconnect_overlay_active = false;
+#if VITARPS5_DEBUG_TOOLS
+  debug_tools_resync_clear();
+#endif
 }
 
 void host_recovery_abort(const char *why) {
