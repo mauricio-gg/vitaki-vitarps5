@@ -32,6 +32,7 @@
 #include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
 #include "ui/ui_page_frame.h"
+#include "ui/ui_profile_login.h"
 #include "ui/ui_scroll_indicator.h"
 #include "ui/ui_setting_list.h"
 #include "ui/ui_settings_actions.h"
@@ -569,8 +570,15 @@ static bool handle_group_event(UiEvent event, bool tapped) {
  * Draw
  * ============================================================================ */
 
+/** True while the phone login replaces the PlayStation Network rows. */
+static bool login_pane_shows(void) {
+  return s_group == UI_PROFILE_GROUP_PSN && ui_profile_login_showing();
+}
+
 /** Fill @out with the hints for what is focused (SPEC 3.7) and return how many. */
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
+  if (login_pane_shows())
+    return ui_profile_login_hints(out);
   int n = 0;
   if (!s_pane_focus) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_OPEN, .dim = s_pane.count == 0};
@@ -600,14 +608,27 @@ static void draw_description(void) {
  * ============================================================================ */
 
 UIScreenType ui_profile_frame(void) {
+  /* While the system keyboard is open, and in the frame it closes, the page does not act. */
+  const bool keyboard_was_open = ui_profile_login_busy();
+  ui_profile_login_poll();
+  ui_profile_login_update();
+
   /* A tapped hint acts as that button pressed in one frame; the D-pad hint has no action. */
-  UiInput in = *ui_input_snapshot();
+  UiInput in = keyboard_was_open ? (UiInput){0} : *ui_input_snapshot();
   const uint32_t tapped = ui_hint_row_tap(&s_hints, &in);
   if (tapped) {
     in.pressed |= tapped & ~(uint32_t)UI_BTN_DPAD;
     in.touch.pressed = false;
     in.touch.released = false;
     in.touch.down = false;
+  }
+
+  /* The login pane takes the face buttons and touch whatever had focus (its buttons are touch
+   * targets and take no controller focus), so the focus stays with the pane while it shows. */
+  const bool login_in = login_pane_shows();
+  if (login_in) {
+    s_pane_focus = true;
+    ui_profile_login_input(&in);
   }
 
   /* Keys go to the column that has focus, so one press never acts twice; L and R always reach
@@ -622,9 +643,15 @@ UIScreenType ui_profile_frame(void) {
     pane_in.repeat = 0;
   }
 
-  handle_pane_event(ui_setting_list_input(&s_pane, &pane_in));
-  const bool back =
-      handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
+  if (!login_in)
+    handle_pane_event(ui_setting_list_input(&s_pane, &pane_in));
+  bool back = handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
+  /* Cancel goes back to Home; the login keeps running and its pane shows again on return. */
+  if (login_in && (in.pressed & UI_BTN_CANCEL))
+    back = true;
+  const bool login = login_pane_shows();
+  if (login)
+    s_pane_focus = true;
 
   refresh_items();
   update_arm();
@@ -637,12 +664,16 @@ UIScreenType ui_profile_frame(void) {
   ui_top_bar_draw(NULL);
   ui_group_list_draw(&s_groups);
   draw_identity();
-  ui_setting_list_draw(&s_pane);
-  ui_scroll_indicator_draw(UI_PAGE_SCROLL_X, UI_PAGE_BODY_Y, UI_PAGE_PANE_H, s_pane.count,
-                           UI_PAGE_PANE_ROWS, s_pane.scroll);
-  /* The toast covers the description's place, so the description waits until it is gone. */
-  if (!ui_toast_active())
-    draw_description();
+  if (login) {
+    ui_profile_login_draw();
+  } else {
+    ui_setting_list_draw(&s_pane);
+    ui_scroll_indicator_draw(UI_PAGE_SCROLL_X, UI_PAGE_BODY_Y, UI_PAGE_PANE_H, s_pane.count,
+                             UI_PAGE_PANE_ROWS, s_pane.scroll);
+    /* The toast covers the description's place, so the description waits until it is gone. */
+    if (!ui_toast_active())
+      draw_description();
+  }
 
   UiHintItem hints[UI_HINT_MAX_ITEMS];
   ui_hint_row_layout(&s_hints, hints, build_hints(hints));

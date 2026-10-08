@@ -89,6 +89,9 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_settings_actions.c
     src/ui/ui_settings.c
     src/ui/ui_profile.c
+    src/ui/ui_profile_login.c
+    src/ui/ui_qr_panel.c
+    src/ui/ui_utf16.c
     src/ui/ui_toast.c
     src/ui/ui_reconnecting.c
     src/ui/ui_gradient.c
@@ -350,6 +353,8 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
+        FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
+        FILE assets/glyphs/hint_select.png assets/glyphs/hint_select.png
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png

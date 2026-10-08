@@ -42,6 +42,8 @@ static const DpadPoint DPAD_TRIANGLE[DPAD_TRIANGLES][3] = {
 
 static vita2d_texture *s_badge_l = NULL;
 static vita2d_texture *s_badge_r = NULL;
+static vita2d_texture *s_badge_start = NULL;
+static vita2d_texture *s_badge_select = NULL;
 static vita2d_texture *s_badge_dpad_h = NULL;
 static vita2d_texture *s_badge_dpad_v = NULL;
 
@@ -86,6 +88,8 @@ static float dpad_alpha(float px, float py, const void *ctx) {
 void ui_hint_row_init(void) {
   s_badge_l = ui_load_png_linear(BADGE_DIR "hint_l.png");
   s_badge_r = ui_load_png_linear(BADGE_DIR "hint_r.png");
+  s_badge_start = ui_load_png_linear(BADGE_DIR "hint_start.png");
+  s_badge_select = ui_load_png_linear(BADGE_DIR "hint_select.png");
   static const bool HORIZONTAL = false;
   static const bool VERTICAL = true;
   if (!s_badge_dpad_h) {
@@ -120,6 +124,10 @@ static vita2d_texture *glyph_texture(uint32_t action) {
       return symbol_triangle;
     case UI_BTN_CLEAR:
       return symbol_square;
+    case UI_BTN_FILTER:
+      return s_badge_start;
+    case UI_BTN_BROWSER:
+      return s_badge_select;
     case UI_BTN_L:
       return s_badge_l;
     case UI_BTN_R:

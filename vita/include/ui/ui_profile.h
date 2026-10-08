@@ -5,7 +5,8 @@
  * A C07 page frame with a GroupList on the left (Account, Connection, PlayStation Network), the
  * identity block under it, a C08 SettingRow pane on the right, a description line for the focused
  * row, the hint row and the C15 toast. Rows are described by data in the group tables of
- * ui_profile.c, as on the Settings page.
+ * ui_profile.c, as on the Settings page. While a PSN phone login runs, the PlayStation Network
+ * group shows the login pane of ui_profile_login.c in place of its rows.
  */
 
 #pragma once

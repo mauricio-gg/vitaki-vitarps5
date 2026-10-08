@@ -729,6 +729,32 @@ typedef enum ui_face_t {
 #define UI_PIN_TEXT_MAX 160
 
 /* ============================================================================
+ * C18 QrPanel (ui_qr_panel.c): the QR art sits on a plate with UI_QR_QUIET around it
+ * ============================================================================ */
+
+#define UI_QR_BOX 176
+#define UI_QR_ART 160
+#define UI_QR_QUIET ((UI_QR_BOX - UI_QR_ART) / 2)
+
+/* ============================================================================
+ * Phone login (ui_profile_login.c, SPEC 3.7): the pane the PlayStation Network group shows while
+ * a login runs. The title is one line, the QR panel and the steps share the next band, then the
+ * Code and URL lines, then the three buttons.
+ * ============================================================================ */
+
+#define UI_LOGIN_TITLE_H 32
+#define UI_LOGIN_QR_Y (UI_BODY_Y + UI_LOGIN_TITLE_H + UI_S1)
+#define UI_LOGIN_STEPS_X (UI_PAGE_PANE_X + UI_QR_BOX + UI_S3)
+#define UI_LOGIN_STEP_PITCH (UI_T16_LINE + UI_S1)
+/** Width of the step number column, and the gap around a glyph drawn inside a step. */
+#define UI_LOGIN_STEP_NUM_W 18
+#define UI_LOGIN_GLYPH_GAP 4
+#define UI_LOGIN_INFO_Y (UI_LOGIN_QR_Y + UI_QR_BOX + UI_S2)
+#define UI_LOGIN_INFO_GAP UI_S2
+#define UI_LOGIN_BUTTONS_Y 432
+#define UI_LOGIN_BUTTON_GAP UI_S2
+
+/* ============================================================================
  * Connecting screen (ui_connecting.c, SPEC 3.4)
  * ============================================================================ */
 
