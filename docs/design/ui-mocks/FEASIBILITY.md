@@ -85,3 +85,49 @@ Well under the 15 MB budget. The wave costs none.
 | Wi-Fi, battery and clock reads for the top bar | low | poll about once per second (`sceNetCtl`, `scePower`, RTC) |
 | Glow looks right on the Vita OLED | low | the mock uses CSS drop-shadow; confirm the baked texture on hardware |
 | All numbers are estimates | n/a | measure Home first; it is the screen at the budget |
+
+## 8. Glass option (CEO exploration, round 6e, default off)
+
+Two optional treatments between the wave and the UI, both switchable in the mock (toolbar "Glass", or `?glass=soft|panels` on any deep link). The default design is unchanged.
+
+**soft**: the wave is rendered into a 240 x 136 render target (1/4 size) and drawn upscaled with bilinear filtering; that upscale is the blur. A light dark veil (`rgba(2,5,14,.14)`) is drawn over it. The mock does exactly this (canvas at 1/4 size, `drawImage` with smoothing). A 4x bilinear upscale is a mild blur (roughly 4 px); for the 6 to 10 px the brief mentions, use a 120 x 68 target (1/8).
+**panels**: frosted rectangles behind the content zones only (Home: list column and detail panel; pages: group list and pane; none on Controller, PIN, Connecting). Blur 16 px, white tint 5%, 1 px `LINE_FAINT` edge, square, no shadow. The mock uses CSS `backdrop-filter: blur(16px)`. Vita method: the wave drawn into a smaller texture (1/8 or 1/16, 120 x 68 or 60 x 34, because 16 px of blur needs a very small texture), drawn only inside the panel rects with `vita2d_set_clip_rectangle`, then a tint rectangle and an outline. The mock's blur is a true Gaussian; the Vita result will be blockier-soft, so expect it to look slightly different.
+
+### Cost (paper estimates, not measured)
+
+| | soft | panels |
+|---|---|---|
+| Extra texture memory | one 240 x 136 RGBA render target, about 0.13 MB (up to 0.15 MB with alignment) | the same target plus a 120 x 68 one, about 0.16 MB in total |
+| Draw calls | wave geometry (about 12 calls) moves into the render target; add 1 upscaled quad and 1 veil rectangle: about +2 | per panel: 1 clipped quad, 1 tint rect, 1 outline (4 thin rects): about 6; Home has 2 panels, so about +12 (Home 75 -> about 87, over the 80 budget) |
+| Per-frame fill cost | the wave is shaded at 1/16 of the pixels (about 33k instead of 522k per layer, about 5 overlapping strips), then one full-screen bilinear quad (522k). Likely equal or cheaper than today's full-resolution wave. The render target can be refreshed at 30 Hz while the quad is drawn every frame | one extra small render pass plus about 40% of the screen redrawn through the clipped quads; roughly +10% fill |
+| Unknowns | cost of switching to a render target and back on GXM (one extra scene or render-target pass per frame); measure | same, plus the clip rectangle changes |
+
+### Legibility measurements
+
+Method: for each screen the text is made transparent, the wave is frozen at 12 different instants (0 to 66 s in 6 s steps, covering about one full cycle of the slowest ribbon), and the pixels inside each text line's rectangle are measured. Contrast is WCAG (text colour luminance + 0.05) / (background luminance + 0.05). Text colours: body `TEXT_2` #DDE3F0, hint `ERR` #FF8080. "brightest px" is the worst case: the single brightest background pixel under any glyph row at the worst instant (thin ribbon highlight lines). "p95" is the 95th-percentile pixel at the worst instant. "mean" is the average pixel at the worst instant. 4.5 is the WCAG AA target for body text.
+
+| Text on | variant | brightest px | p95 | mean (worst instant) |
+|---|---|---|---|---|
+| Home list text (TEXT_2) | off | 2.57 | 4.17 | 6.29 |
+| | soft | 4.64 | 5.42 | 7.48 |
+| | panels (white 5%) | 4.07 | 4.46 | 5.50 |
+| | panels, dark tint (extra test) | 5.63 | 6.80 | 8.11 |
+| Home red hints (ERR) | off | 1.48 | 2.50 | 4.23 |
+| | soft | 2.23 | 2.99 | 4.84 |
+| | panels (white 5%) | 2.32 | 2.37 | 3.85 |
+| | panels, dark tint (extra test) | 3.03 | 3.61 | 4.99 |
+| Settings description and labels (TEXT_2) | off | 4.53 | 6.81 | 9.75 |
+| | soft | 6.69 | 7.92 | 10.72 |
+| | panels (white 5%) | 4.53 | 6.62 | 8.97 |
+| Profile red error value (ERR) | off | 3.65 | 5.04 | 5.09 |
+| | soft | 4.88 | 5.25 | 5.28 |
+| | panels (white 5%) | 4.34 | 4.34 | 4.35 |
+
+Isolating the two ingredients of soft (same method): blur alone raises the brightest-px case (Home 2.57 -> 3.66, hints 1.48 -> 1.74) and leaves the mean unchanged (Home 6.29 -> 6.30); the veil alone raises the mean (Home 6.29 -> 7.47, hints 4.23 -> 4.85) and the p95 (4.17 -> 5.23), with a smaller gain on the brightest px (3.36).
+
+### What it shows, and the recommendation
+
+- **soft helps a little, mostly through the veil.** Typical contrast rises about 10 to 19% and the worst thin-highlight spots improve (Home brightest px 2.6 to 4.6). The blur itself only softens the bright ribbon lines; it does not lift typical contrast. Visually soft is almost indistinguishable from today (ribbons slightly softer); it keeps the look the CEO likes.
+- **panels with the specified white tint make legibility slightly worse** (the tint lightens the background: Home mean 6.3 -> 5.5, hints 4.2 -> 3.9). A dark tint fixes that (Home 8.1, hints 5.0) but is a different, darker look. **Honest look verdict: on Home the two frosted rectangles read as cards**, especially the detail panel with its edge; on pages the pane panel reads as a box. This is the boxy look rejected earlier, so panels are not recommended.
+- **Red hint text is the weak spot in every variant.** `ERR` #FF8080 on the ribbons averages 4.2 to 4.9 and the worst spots are 1.5 to 3 for all variants. Neither blur nor panels fixes that; a slightly lighter ERR hint colour or a dark text shadow would.
+- **Recommendation:** if the CEO wants a legibility gain, adopt **soft** at 1/4 resolution with the 14% veil: it costs about +2 draw calls, about 0.13 MB, is probably cheaper than today's wave, and does not change the look. The same mean-contrast gain is available from the veil alone with no render target at all (one rectangle), so the cheapest honest option is veil only; add the 1/4 blur if the CEO likes the softer ribbons. Do not build panels. Separately, lighten the ERR hint text colour or add a text shadow behind hint lines.

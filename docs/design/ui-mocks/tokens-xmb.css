@@ -55,6 +55,11 @@
   --vig-strong: rgba(2,5,14,0.55); --vig-top: rgba(0,0,0,0.32); --vig-bottom: rgba(0,0,0,0.40); /* Home vignette */
   --stage-bg: #060B1C; --scene-bg: #10102A;
 
+  /* GLASS option (CEO exploration, default off) */
+  --glass-veil: rgba(2,5,14,0.14);     /* soft: veil over the blurred wave */
+  --glass-tint: rgba(255,255,255,0.05);/* panels: faint white tint */
+  --glass-blur: 16px;                  /* panels: backdrop blur */
+
   /* WAVE (fixed palette, no time-of-day) */
   --wave-top: #06204A; --wave-mid: #0F4585; --wave-bot: #245F9C;
   --wave-r1: #96CDFF; --wave-r2: #64B4F0; --wave-r3: #BEDCFF; --wave-horizon: rgba(160,210,255,0.28);

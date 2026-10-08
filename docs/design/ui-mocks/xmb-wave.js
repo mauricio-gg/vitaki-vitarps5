@@ -26,4 +26,13 @@ function paintRibbons(t){
  }
  DUST.forEach(d=>{const tw=.3+.3*Math.sin(t*.0012+d.p);g.fillStyle=`rgba(255,255,255,${tw*.5})`;g.beginPath();g.arc((d.x+t*.004*d.s)%960,d.y+Math.sin(t*.0004+d.p)*6,d.s,0,6.3);g.fill();});
 }
-function loop(t){paintRibbons(t);if(!reduce)setTimeout(()=>requestAnimationFrame(loop),33);}
+/* Glass option "soft": the wave is rendered into a 1/GLASS_DIV size texture and drawn upscaled with bilinear filtering; the upscale is the blur (the Vita does the same with a 240x136 render target). */
+const GLASS_DIV=4;
+const small=document.createElement('canvas');small.width=960/GLASS_DIV;small.height=544/GLASS_DIV;
+function paintWave(t){
+ if(S.glass==='soft'){
+  const sg=small.getContext('2d'),main=g;g=sg;sg.setTransform(1/GLASS_DIV,0,0,1/GLASS_DIV,0,0);paintRibbons(t);g=main;
+  g.globalCompositeOperation='source-over';g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(small,0,0,960,544);
+ } else paintRibbons(t);
+}
+function loop(t){if(!window.__freeze)paintWave(t);if(!reduce)setTimeout(()=>requestAnimationFrame(loop),33);}

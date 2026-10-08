@@ -307,3 +307,10 @@ img.g{height:24px}
 #flt [data-do=kbflt]{position:relative;display:flex;align-items:center;height:32px}
 #flt [data-do=kbflt]::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}
 .toast-on #pdesc{visibility:hidden}
+
+/* ---- Glass option (default off). soft = veil over the blurred wave; panels = frosted rects behind content zones ---- */
+.glassveil{position:absolute;inset:0;background:var(--glass-veil);pointer-events:none;opacity:0;transition:opacity var(--d2)}
+.glass-soft .glassveil{opacity:1}
+#glassLayer{position:absolute;inset:0;pointer-events:none}
+.gpanel{position:absolute;display:none;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));background:var(--glass-tint);border:var(--lw1) solid var(--line-faint)}
+.glass-panels .gpanel{display:block}
