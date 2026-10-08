@@ -250,8 +250,15 @@ img.g{height:24px}
 .rc small{display:block;font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-3);line-height:24px;margin-top:var(--s2)}
 
 /* stream: scene + overlay (C19 Pill, C25 StatsPanel) */
-.scene{position:absolute;inset:0;background:var(--scene-bg) url(img/scene.jpg) center/cover no-repeat;overflow:hidden}
-.scene .drift{position:absolute;inset:-4%;background:url(img/scene.jpg) center/cover;animation:drift 18s ease-in-out infinite alternate}
+.scene{position:absolute;inset:0;background:linear-gradient(180deg,#0A1030 0%,#16204A 42%,#3A3466 62%,#1A1838 63%,#0B0D22 100%);overflow:hidden}
+.scene .drift{position:absolute;inset:-4%;animation:drift 18s ease-in-out infinite alternate;
+background:
+radial-gradient(circle at 68% 30%,rgba(255,236,200,.85) 0,rgba(255,236,200,.85) 3.2%,rgba(255,236,200,.18) 3.3%,transparent 7%),
+radial-gradient(ellipse 60% 22% at 62% 62%,rgba(255,170,120,.30),transparent 70%),
+radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)}
+.scene .drift::before,.scene .drift::after{content:"";position:absolute;left:0;right:0;bottom:0}
+.scene .drift::before{height:46%;background:#0F1230;clip-path:polygon(0 38%,12% 22%,24% 34%,38% 12%,52% 30%,66% 16%,80% 32%,92% 20%,100% 30%,100% 100%,0 100%)}
+.scene .drift::after{height:30%;background:linear-gradient(180deg,#080A1C,#05060F);clip-path:polygon(0 46%,16% 30%,30% 44%,48% 24%,64% 42%,82% 26%,100% 40%,100% 100%,0 100%)}
 @keyframes drift{from{transform:scale(1.02) translate(0,0)}to{transform:scale(1.08) translate(-1.2%,.8%)}}
 .hud{position:absolute;inset:0;pointer-events:none;text-shadow:none}
 .hud .exit{position:absolute;right:16px;top:16px;transition:opacity 500ms linear}
