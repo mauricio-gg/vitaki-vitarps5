@@ -115,6 +115,20 @@ target_include_directories(ui_console_status_tests PRIVATE
 
 add_test(NAME vitarps5_ui_console_status_tests COMMAND ui_console_status_tests)
 
+# pairing_result_tests.c checks the pairing result decision and the result popup copy.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(pairing_result_tests
+    pairing_result_tests.c
+    ../vita/src/host_registration_result.c
+    ../vita/src/ui/ui_result_copy.c
+)
+
+target_include_directories(pairing_result_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_pairing_result_tests COMMAND pairing_result_tests)
+
 # ui_console_rows_tests.c checks the pure Consoles list rules (Filter row, row-to-console
 # mapping, focus, filter match). Standalone binary with its own main(); run natively (see the
 # file header).
