@@ -118,8 +118,16 @@ ConsoleCardInfo *ui_cards_get_selected_card(void);
  * @card:     The console.
  * @token_ok: The PSN token is valid, so a PSN route counts as reachable.
  * @cooldown: The post-stream cooldown is active for this console.
+ * @message:  What the console's live status message counts as (ui_cards_message()).
  */
-UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown);
+UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown,
+                                 UiConsoleMessage message);
+
+/**
+ * ui_cards_message() - What the status message of a cached console counts as right now:
+ * none (no message or expired), Error or Retrying (see ui_console_message_class()).
+ */
+UiConsoleMessage ui_cards_message(const ConsoleCardInfo *card);
 
 // ============================================================================
 // Filter
