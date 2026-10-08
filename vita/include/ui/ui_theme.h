@@ -152,6 +152,8 @@ typedef enum ui_face_t {
 #define UI_TOGGLE_MS 180
 #define UI_CASCADE_STEP_MS 45
 #define UI_CASCADE_MAX_ROWS 6
+/** A rising item (list row cascade, detail panel) starts this many pixels low and fades in. */
+#define UI_RISE_PX 16
 /** Ease-out curve cubic-bezier(.22, .7, .2, 1): control points (x1, y1) and (x2, y2). */
 #define UI_EASE_X1 0.22f
 #define UI_EASE_Y1 0.7f
@@ -337,6 +339,7 @@ typedef enum ui_face_t {
 #define UI_SHAPE_H_PILL 32
 #define UI_SHAPE_H_TRACK 24
 
+/* =====================================================================
 /* ============================================================================
  * C19 Pill
  * ============================================================================ */
@@ -380,3 +383,31 @@ typedef enum ui_face_t {
 #define UI_HINT_ALERT_GAP UI_S2
 /** The most hints one row can hold. */
 #define UI_HINT_MAX_ITEMS 8
+=======
+ * C04 DetailPanel
+ * ============================================================================ */
+
+#define UI_DETAIL_X 608
+#define UI_DETAIL_Y 192
+#define UI_DETAIL_W 304
+#define UI_DETAIL_LOGO_H 48
+#define UI_DETAIL_LOGO_PS5_W 176
+#define UI_DETAIL_LOGO_PS4_W 200
+/** Source rows cropped to the wordmark: PS5_logo.png (132 x 49) keeps 36 rows from row 8; ps4.png
+ * (100 x 100) keeps 24 rows from row 38. The crop is scaled so the visible height is
+ * UI_DETAIL_LOGO_H. */
+#define UI_DETAIL_PS5_SRC_W 132
+#define UI_DETAIL_PS5_SRC_Y 8
+#define UI_DETAIL_PS5_SRC_H 36
+#define UI_DETAIL_PS4_SRC_W 100
+#define UI_DETAIL_PS4_SRC_Y 38
+#define UI_DETAIL_PS4_SRC_H 24
+#define UI_DETAIL_KV_H 32
+/** Gap between a kv label and its value; the value is clipped to what is left. */
+#define UI_DETAIL_KV_GAP UI_S1
+/** The status message wraps to at most this many lines of UI_T16_LINE. */
+#define UI_DETAIL_MESSAGE_LINES 3
+/** Space left under the status line when a message follows it (the mock pulls it up by 8). */
+#define UI_DETAIL_MESSAGE_GAP UI_S1
+/** A list-kind panel without a description keeps this much blank under the title. */
+#define UI_DETAIL_BLANK_H UI_S2

@@ -3,8 +3,12 @@
  * @brief C01 CategoryBar: the Consoles / Settings / Controller / Profile row (SPEC.md C01)
  *
  * The focused category sits at UI_CAT_X0, scaled up with a glow and a label; the
- * others sit to its left (scaled down) and right at fixed steps, dimmed. There is no
- * slide animation and no swipe yet (animation and swipe are separate tickets).
+ * others sit to its left (scaled down) and right at fixed steps, dimmed.
+ *
+ * A focus change slides every icon to its new place over UI_D2_MS on the ease-out curve while
+ * the glow and the new label fade in and the old label fades out. A change during a slide
+ * restarts from where each icon is now. visible[] and hit[] always hold the settled layout, so
+ * a tap during a slide hits the icon where it will end up. There is no swipe yet.
  */
 
 #pragma once
@@ -20,6 +24,13 @@ typedef struct ui_category_bar_t {
   int focus;                            ///< focused category index
   UiRect visible[UI_CAT_COUNT];         ///< drawn icon rect per category, for the current focus
   UiRect hit[UI_CAT_COUNT];             ///< touch rect per category (at least UI_CAT_HIT square)
+
+  /* Slide state. A zero start timestamp means the bar is settled. */
+  uint64_t slide_start_us;
+  float from_cx[UI_CAT_COUNT];       ///< icon centre x (px) when the slide started
+  float from_scale[UI_CAT_COUNT];    ///< icon scale when the slide started
+  float from_opacity[UI_CAT_COUNT];  ///< icon opacity (0..1) when the slide started
+  float from_label[UI_CAT_COUNT];    ///< label opacity (0..1) when the slide started
 } UiCategoryBar;
 
 /**
@@ -31,7 +42,8 @@ typedef struct ui_category_bar_t {
 void ui_category_bar_init(UiCategoryBar *bar, vita2d_texture *const icons[UI_CAT_COUNT],
                           const char *const labels[UI_CAT_COUNT]);
 
-/** ui_category_bar_draw() - Draw glow, icons and the focused label. No state change. */
+/** ui_category_bar_draw() - Draw glow, icons and labels at their place in the slide. No state
+ * change. */
 void ui_category_bar_draw(const UiCategoryBar *bar);
 
 /**

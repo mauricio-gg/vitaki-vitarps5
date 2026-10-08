@@ -4,8 +4,16 @@
  *
  * Generic over items: each row has an icon, a name and an optional status line (dot
  * and label in a status colour, plus an optional route label). The focused row sits
- * at UI_LIST_FOCUS_Y with a gap after it; rows above the focus are not drawn yet
- * (slide and fade arrive with the animation ticket). The icon never scales.
+ * at UI_LIST_FOCUS_Y with a gap after it; rows above the focus sit UI_LIST_SLIDE higher
+ * per step and are fully faded out. The icon never scales.
+ *
+ * Motion (SPEC 3.1), all time-based and free of extra draws or allocation:
+ *   - A focus change from input slides every row to its new place over UI_D2_MS. A change
+ *     during a slide restarts from where each row is now, so rows never snap.
+ *   - ui_xmb_list_cascade_in() fades the rows in one after another (row i after
+ *     UI_CASCADE_STEP_MS x min(i, UI_CASCADE_MAX_ROWS)), each rising UI_RISE_PX over UI_D3_MS.
+ *   - visible[] and hit[] always hold the settled layout, so a tap during a slide hits the
+ *     row where it will end up.
  */
 
 #pragma once
@@ -33,6 +41,12 @@ typedef struct ui_xmb_list_t {
   int focus;                          ///< focused row, always valid when count > 0
   UiRect visible[UI_LIST_MAX_ITEMS];  ///< row rect for the current focus
   UiRect hit[UI_LIST_MAX_ITEMS];      ///< touch rect; an empty rect for rows that are not shown
+
+  /* Motion state. A zero start timestamp means that motion is not running. */
+  uint64_t slide_start_us;              ///< start of the current focus slide
+  float from_top[UI_LIST_MAX_ITEMS];    ///< row top (px) when the slide started
+  float from_alpha[UI_LIST_MAX_ITEMS];  ///< row opacity (0..1) when the slide started
+  uint64_t cascade_start_us;            ///< start of the cascade-in
 } UiXmbList;
 
 /** ui_xmb_list_init() - Empty list with focus 0. */
@@ -44,10 +58,16 @@ void ui_xmb_list_init(UiXmbList *list);
  */
 void ui_xmb_list_set_items(UiXmbList *list, const UiXmbItem *items, int count);
 
-/** ui_xmb_list_set_focus() - Focus row @index (clamped) and re-lay out the rows. */
+/**
+ * ui_xmb_list_set_focus() - Focus row @index (clamped), re-lay out the rows and show them in
+ * place at once (any slide in progress is dropped). Input-driven moves slide instead.
+ */
 void ui_xmb_list_set_focus(UiXmbList *list, int index);
 
-/** ui_xmb_list_draw() - Draw the focused row and the rows below it. No state change. */
+/** ui_xmb_list_cascade_in() - Start the cascade-in of the rows, from the settled layout. */
+void ui_xmb_list_cascade_in(UiXmbList *list);
+
+/** ui_xmb_list_draw() - Draw the rows at their current place in the motion. No state change. */
 void ui_xmb_list_draw(const UiXmbList *list);
 
 /**
