@@ -172,7 +172,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Constants | `UI_OPTS_X` 608 (w 352 to the right edge), `UI_OPTS_PAD` 48, `UI_OPTS_ROW_H` 56, first row y 160 |
 | Anatomy | Slides in from the right 300 ms, left edge feathered into `PANEL_EDGE`. Console name T28 at y 88, "Options" T16 at y 120, rows T20 with 1 px `LINE_FAINT` divider. Focused row: TEXT, 2 px white underline, glow. Home dims behind it. |
 | Items | Connect (Wake and connect on standby) / Connect via (only when Local and Internet both exist) / Re-pair / Change icon. Unpaired consoles get Pair / Change icon. Cooldown disables Connect and Connect via. |
-| Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); tap anywhere outside closes. |
+| Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); a tap anywhere outside closes the column and is consumed (it never also acts on what is underneath). While open, the category bar, list, detail panel, filter line and top bar dim to 25%; the column and the hint row stay bright. |
 
 ### C06 HintRow (display-only, with hit test)
 | | |
@@ -270,7 +270,7 @@ h 32, padding 0 16, `HUD` fill, T16 TEXT, square. Variants: **warn** (2 px `WARN
 | cursor | 2 px white border, `FILL_FOCUS` fill (mapped fill replaced) | over mapped |
 | picked (multi-select) | 2 px white border, `FILL_ON` fill, 14 px inner `GLOW_INNER` | highest; a cell that is both cursor and picked draws as picked |
 
-Input: D-pad moves; hold Confirm and move adds cells to the selection (popup on release; a plain tap assigns the one cell); touch: finger paint across cells, backtracking one cell removes the last, release opens the popup; tap = one cell. Used by: Front and Rear zone views; Summary page 2 shows the grid read-only (tap opens Rear zones).
+Input: D-pad moves; hold Confirm and move adds cells to the selection (popup on release; a plain tap assigns the one cell); touch (a single-cell gesture opens that cell's popup on release, and the click that follows is ignored): finger paint across cells, backtracking one cell removes the last, release opens the popup; tap = one cell. Used by: Front and Rear zone views; Summary page 2 shows the grid read-only (tap opens Rear zones).
 
 ### C22 TextButton (interactive)
 h 48, min w 128, padding 0 24, T20, 1 px `LINE` border, no fill. Focused: `FILL_FOCUS`, white border, glow. Disabled: 45%. Pressed: `FILL_ON`. Hit = visible (already above 48). Used by: popups, PIN, Connecting (Cancel). Replaces: `text_button`.
@@ -291,7 +291,7 @@ Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searchin
 5 ribbons, 36 dust points, one fixed palette (section 1.1), CPU vertex update at 30 Hz (freeze or halve while Connecting). FEASIBILITY.md has the costing. Replaces: `ui_particles`.
 
 ### C28 FilterLine (interactive)
-x 608, y 144, h 32, T16 TEXT_2. Either `[Start] Filter` (more than 4 consoles) or `Filter: "text" (N found)` plus a clear box. The clear box is visible 32 px but **hit 48 x 48**. Tap the line opens the keyboard; tap the clear box clears.
+x 608, y 144, h 32, T16 TEXT_2. Either `[Start] Filter` (more than 4 consoles) or `Filter: "text" (N found)` plus a clear box. The line (visible h 32) and the clear box (visible 32 px) both have a **hit rect of at least 48 x 48**. Tap the line opens the keyboard; tap the clear box clears.
 
 ---
 
@@ -415,18 +415,19 @@ Page shell, title "Profile". Groups: Account, Connection, PlayStation Network. *
 | Connection | per the state table below |
 | PlayStation Network | PSN Auth status row, then actions by state |
 
-**Connection state table** (rows that show; `-` = row hidden). Streaming metrics (Latency, Bitrate, Packet Loss) are removed from Profile.
+**Connection state table.** Streaming metrics (Latency, Bitrate, Packet Loss) are removed from Profile. Rows follow today's code (`ui_screens.c`, connection card) except Status, which is a deliberate fix (Flags).
 
 | Situation | Network Type | Console | Console IP | Status | Quality | Deep link |
 |---|---|---|---|---|---|---|
-| Paired, on the local network | Local Wi-Fi | name | address | Ready | 540p (current preset) | `#profile-connection` |
-| Paired, internet route only | PSN Internet | name | - | Ready | preset | `#profile-connection-psn` |
-| Manual host (address typed in config) | Manual Host | name | address | Ready | preset | not in the mock |
-| Selected console not reachable | Unavailable | name | - | None | - | `#profile-connection-unavailable` |
-| Selected console not paired | Local Wi-Fi | name | address | Not Registered | - | `#profile-connection-unpaired` |
-| No console selected | Unavailable | Not selected | - | None | - | `#profile-connection-none` |
+| Console found on the local network, ready | Local Wi-Fi | name | address | Ready | current preset | `#profile-connection` |
+| Same, in rest mode | Local Wi-Fi | name | address | Standby | preset | `#profile-connection-standby` |
+| Same, not paired | Local Wi-Fi | name | address | Unpaired | preset | `#profile-connection-unpaired` |
+| Internet (PSN) console | PSN Internet | name | address when known (usually none) | Ready | preset | `#profile-connection-psn` |
+| Manually added host | Manual Host | name | address | Ready | preset | not in the mock |
+| Console selected, no discovery, PSN or manual route applies | Unavailable | name | address if known | Unavailable | preset | `#profile-connection-unavailable` |
+| No console selected | Unavailable | Not selected | - | None | preset | `#profile-connection-none` |
 
-The Unavailable and Not Registered rows are derived from the inventory's value lists (Network Type: Local Wi-Fi / PSN Internet / Manual Host / Unavailable; Status: Ready / Not Registered / None); engineers confirm against `ui_screens.c`.
+Rules: Network Type is Local Wi-Fi when the console is discovered, else PSN Internet when its source is PSN, else Manual Host when manually added, else Unavailable. Console is the display name, else the hostname, else "Not selected". Console IP shows whenever a hostname/address is known. **Quality always shows** (it is the user's setting: 360p or 540p). **Status uses the console's real state with the Home list's words** (Ready, Standby, Unpaired, Unavailable; "None" only when no console is selected).
 
 PSN Auth states (`#profile-psn-<state>`): Disabled (`profile-psn-disabled`, Log in disabled, description "Enable PSN internet mode in Settings", pressing it toasts "PSN internet mode is disabled in Settings"), Authenticated (`profile-psn`: Refresh hosts, Log out), Refreshing token (`profile-psn-refresh`, no actions), Awaiting browser sign-in (`profile-login`), Token expired (`profile-psn-expired`), Not authenticated (`profile-psn-none`), error text (`profile-psn-error`, e.g. "Login failed: invalid redirect URL"). Not authenticated, Token expired and error offer Log in. **Error styling**: the three red states show the value in `ERR` with a 20 px warning icon before it and a 2 px `ERR` rule at the row's left edge, so they read as errors without relying on colour alone.
 **Log out**: first Confirm turns the row into "Press [Confirm] again to confirm log out" in `WARN`; second Confirm within 3.0 s logs out (toast "PSN login removed"); otherwise it resets (`#profile-logout`). Touch: two taps.
@@ -516,7 +517,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 **Settings**: group names Video, Network, Display, Controls, Advanced; row labels and values in section 3.6; descriptions (new, draft for sign-off): Quality Preset "Video resolution requested from the console."; Latency Mode "Sets the target bitrate. Higher looks better but needs a stronger connection."; FPS Target "Frame rate requested from the console."; Force 30 FPS Output "Output video at 30 FPS."; Fill Screen "Stretch the video to fill the whole screen."; Auto Discovery "Find consoles on your network automatically. Takes effect the next time the app starts."; Enable PSN Internet Mode "Connect to your consoles over the internet with your PSN account."; Show Only Paired "Hide consoles that are not paired."; Show Latency "Show latency and frame rate in the stream overlay."; Show Network Alerts "Show a badge when the connection becomes unstable."; Show Exit Shortcut Hint "Show how to leave the stream when it starts."; Circle Button Confirm "Use Circle to confirm and Cross to go back, on every screen."; Clamp Soft Restart Bitrate "Limit the bitrate when the stream restarts after packet loss."; Motion during loss "Keep motion going while packets are lost. May show visual artifacts."; Enable Logging "Write diagnostic logs on the Vita for troubleshooting."; On, Off; hints Toggle, Next, Change, Group, Back, Open
 
-**Profile**: Account, Connection, PlayStation Network; identity block: PSN Account ID, PlayStation Network; Account ID, Not Set, Refresh Account ID ("Read the Account ID again from the system profile." new); Network Type (Local Wi-Fi, PSN Internet, Manual Host, Unavailable), Console (Not selected), Console IP, Status (Ready, Not Registered, None), Quality; PSN Auth; Disabled, Authenticated, Refreshing token, Awaiting browser sign-in, Token expired, Not authenticated, <error text>; Log in, Log out, Refresh hosts; Press [Confirm] again to confirm log out ; Phone Login Assist; 1 Press [Start] to show or hide the QR code; 2 Scan the QR code with your phone and sign in; 3 Press [Confirm] and paste the redirect URL or code; 4 [Select] opens the Vita browser instead; Code: Paste redirect URL/code; URL: my.account.sony.com/sso/ca/authorize (short form) ; QR hidden ; hints Enter code, QR, Browser, Cancel login, Confirm log out, Refresh
+**Profile**: Account, Connection, PlayStation Network; identity block: PSN Account ID, PlayStation Network; Account ID, Not Set, Refresh Account ID ("Read the Account ID again from the system profile." new); Network Type (Local Wi-Fi, PSN Internet, Manual Host, Unavailable), Console (Not selected), Console IP, Status (Ready, Standby, Unpaired, Unavailable, None), Quality; PSN Auth; Disabled, Authenticated, Refreshing token, Awaiting browser sign-in, Token expired, Not authenticated, <error text>; Log in, Log out, Refresh hosts; Press [Confirm] again to confirm log out ; Phone Login Assist; 1 Press [Start] to show or hide the QR code; 2 Scan the QR code with your phone and sign in; 3 Press [Confirm] and paste the redirect URL or code; 4 [Select] opens the Vita browser instead; Code: Paste redirect URL/code; URL: my.account.sony.com/sso/ca/authorize (short form) ; QR hidden ; hints Enter code, QR, Browser, Cancel login, Confirm log out, Refresh
 - Descriptions: "Enable PSN internet mode in Settings" (today); "Sign in with your phone. Needed for internet Remote Play." (new); "Reload your internet-capable consoles." (new); "Remove the saved PSN login from this Vita." (new)
 - Toasts (all): Account ID refreshed from system profile / Could not refresh Account ID / PSN internet mode is disabled in Settings / Scan QR on phone, then press [Confirm] to paste the full redirect URL / PSN login could not start / PSN internet host list refreshed / PSN internet host refresh failed / PSN login canceled / QR shown. Scan it with your phone. (reworded from "QR shown...") / QR hidden. Press Start to show it again. (reworded) / Opened browser fallback. Phone QR is still recommended. / Could not open browser. Use the phone QR. / Could not open text input / No URL/code entered / PSN login complete / PSN login failed / PSN login removed
 - System keyboard titles: Filter Consoles; Paste full redirect URL
@@ -533,7 +534,7 @@ Open:
 1. **Show Latency default and scope (CEO pending).** With Profile metrics gone, Show Latency only controls the stream overlay stats panel. Default stays off (today); say so if you want it on, or if it should be renamed (for example "Show Stream Stats").
 2. **Pairing results need backend work.** The result popups need registration to report finished OK, PIN not accepted, console unreachable or timeout to the UI (3.3). Today there is no success or failure UI and the registration code may not distinguish these. Timeout length proposed at 30 s. If the code cannot tell "unreachable" from "PIN not accepted", collapse to one failure copy.
 3. **Login URL shown in a short form** (`my.account.sony.com/sso/ca/authorize`). Today the app prints up to 2 lines of the full authorize URL and silently drops the tail; the full URL stays in memory for the QR and browser. Typing the full URL by hand was never practical.
-4. **Profile Connection rows for Unavailable and Not Registered are derived** from the inventory's value lists, and Quality hides when no paired console is reachable; confirm against `ui_screens.c`.
+4. **Profile Status is a deliberate fix.** Today it says "Ready" or "Ready / Not Registered" even for a console that is asleep or unreachable. The spec shows the console's real state (Ready, Standby, Unpaired, Unavailable, None) in the same words as the Home list. Everything else in the Connection group matches today's code.
 5. **Rear controller art edited.** `controller_back_clean.png` removes the tiny "Sony Computer Entertainment Inc" line (unreadable at that size, off-brand for our app). Ship the clean copy; the original stays in `assets/`.
 6. **New copy needs sign-off**: all Settings descriptions, Profile action descriptions, Re-pair confirm, Change icon popup, the pairing and connection result popups, the three pairing failure reasons.
 7. **Room icon needs storage**: one small integer per console in the host config (default TV).

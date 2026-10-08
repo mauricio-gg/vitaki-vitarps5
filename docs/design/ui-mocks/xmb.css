@@ -130,8 +130,8 @@ img.g{height:24px}
 .oi{height:56px;display:flex;align-items:center;font-size:var(--t20);font-weight:var(--w-light);cursor:pointer;color:var(--text-2);border-bottom:var(--lw1) solid var(--line-faint);white-space:nowrap}
 .oi.sel{color:var(--text);border-bottom:var(--lw2) solid var(--text);text-shadow:0 0 12px var(--glow),0 1px 4px var(--shadow)}
 .oi.dis{opacity:.45}
-#ly-home.oo .topbar,#ly-home.oo #detail,#ly-home.oo #flt{opacity:0}
-#ly-home.oo .cat:not(.on){opacity:.12}
+/* Options open: every other Home layer dims; Options column and hint row stay bright */
+.opts-open #top,.opts-open #listvp,.opts-open #detail,.opts-open #flt,.opts-open #cats,.opts-open #empty{opacity:.25;transition:opacity var(--d2)}
 
 /* C07 PageShell: title y64 h48, rule y120, groups x48 w256, pane x336 w576 */
 .ptitle{position:absolute;left:var(--mx);top:var(--title-y);height:48px;display:flex;align-items:center;gap:var(--s2)}
@@ -303,3 +303,6 @@ img.g{height:24px}
 .ident i{font-style:normal;font-size:var(--t16);line-height:24px;color:var(--text-3)}
 .lgn .qr{cursor:pointer}
 .stage img{-webkit-user-drag:none}
+
+#flt [data-do=kbflt]{position:relative}
+#flt [data-do=kbflt]::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}

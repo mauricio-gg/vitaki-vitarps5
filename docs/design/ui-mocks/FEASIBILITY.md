@@ -1,46 +1,87 @@
-# XMB mock: feasibility notes (issue #271, round 3)
+# XMB feasibility (issue #271, round 6c)
 
-A short realism check for the chosen direction. Not an implementation plan. Nothing was built or measured on a Vita; counts and sizes are estimates. Budget: about 80 draw calls for Home, 15 MB of textures.
+One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita2d. It replaces every earlier version. Nothing was built or measured on a Vita; all counts and sizes are paper estimates to be checked on hardware. Budgets: about 80 draw calls on Home, about 15 MB of textures.
 
-## What the mock uses, and what it becomes on the Vita
+## 1. Asset inventory
 
-| Mock element | vita2d |
+| Asset | Source | Used for | Notes |
+|---|---|---|---|
+| `icon_play.png`, `icon_settings.png` (48 px) | existing in the app | Consoles and Settings categories, setting-group rows | white, drawn tinted |
+| `icons/controller.svg`, `icons/profile.svg` | new, flat white | Controller and Profile categories, page titles | bake to 48 px PNG |
+| Room icons `tv, sofa, bed, bunk, desk, house` | new, flat white | status ring centre | one atlas, 6 x 48 px, under 0.05 MB; default tv |
+| Status ring and badge | baked once | console state | one 2 px ring texture per state colour (OK, WARN, ERR) + one dashed IDLE ring + 6 badge glyphs; tinted at draw time |
+| Status dot | none | list rows | flat circle `vita2d_draw_fill_circle` in a token colour (the ellipse PNGs are no longer used) |
+| `PS5_logo.png` (132 x 49), `ps4.png` (100 x 100) | existing in the app | detail panel, Connecting | cropped to the wordmark, drawn large in white |
+| Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 24 |
+| Flat hint glyphs: D-pad (all, left-right, up-down), L, R, Start, Select | new, baked | hint row, login steps, stream exit pill | 24 px high, white |
+| Wi-Fi, battery, check, warning, lock, globe, moon, clock, chevrons, close | new, simple strokes | top bar, badges, rows, popups | one small glyph atlas |
+| `controller_front.png` (874 x 396), `controller_back.png` (720 x 327) | existing in the app | Controller screens | unchanged; the mock uses `controller_back_clean.png` (the tiny "Sony Computer Entertainment Inc" line erased), ship that copy |
+| `Vita_RPS5_Logo.png` | existing | top bar | scaled to 32 px high |
+| Glow | one baked soft white blob texture | focus glow behind icons, text glow | reused for every glowing element |
+| Wave | no texture | background | ribbons are geometry (section 3) |
+
+Removed from the app by this design: the wave sidebar, particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations.
+
+## 2. Type
+
+4 sizes, 6 faces, pre-rendered into the existing FreeType atlas:
+
+| Face | Size | Use |
+|---|---|---|
+| Roboto Light | 20, 28 | rows, buttons, titles |
+| Roboto Regular | 16 | hints, captions, kv rows |
+| Roboto Mono Regular | 16, 28, 40 | IDs and values (16), Reconnecting bitrate (28), PIN digits (40) |
+
+Today the app loads Roboto Regular and Roboto Mono only (7 sizes). Roboto Light is **one new TTF (170 KB)**, decided. Atlas about 1.5 MB in total (about 0.3 MB more than today). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+
+## 3. Background
+
+Fixed palette (no time of day). 5 ribbons: one triangle strip per ribbon fill plus one line strip per highlight, vertex colours fade the edges, one full-screen gradient, 36 dust points. Vertices are updated on the CPU at 30 Hz; freeze or halve the update while Connecting. About 12 calls and no texture. Page wash, scrim and the Home vignette are full-screen alpha rectangles (1 call each). There is no backdrop blur on the Vita: popups use a darker scrim, or a pre-blurred copy of the last frame.
+
+## 4. Draw-call budget per screen (paper)
+
+| Screen | Estimate | Breakdown |
+|---|---|---|
+| Home (Consoles) | about 75 | wave 12, categories 5, list 32 (4 rows x 8), detail 14, hint row 10, top bar 6, filter line 2 |
+| Home with Options open | about 55 | dimmed layers are still drawn; the column adds about 15; skip the list cascade |
+| Settings, Profile | about 40 | groups 6, rows 6 x 5, lines, identity block (Profile) 5, hint row 10 |
+| Controller summary | about 30 | diagram 1, callouts 6, footers 4, preset switcher 4, hint row 12 |
+| Controller zone view | about 60 | diagram 1, 18 cells + 18 labels, hint row 10, borders for picked and cursor |
+| PIN | about 35 | 8 digit boxes, chevrons, 3 buttons, prompt, hint row |
+| Connecting | about 30 | ring, spinner arc, halo, logo, steps text, button |
+| Stream overlay | about 8 | up to 3 pills or panels |
+| Popups | about 15 to 20 on top of the screen behind | the screen behind is drawn once, dimmed |
+
+Home is at the 80-call budget. Two savings if it goes over: skip the text shadow, and draw at most 3 full rows plus a faded fourth. Status hints are wrapped once when they change (word-by-word `ui_text_width`), never per frame.
+
+## 5. Texture budget (paper)
+
+| Group | MB |
 |---|---|
-| Flowing wave background (5 ribbons, time-of-day tint, a few dust points) | One `vita2d_draw_array` strip per ribbon fill, plus one line strip per ribbon highlight, vertex colours fade the edges. Updated on the CPU at 30 Hz. Background gradient: 1 `draw_array`. About 12 calls. |
-| Category icons, list icons | The app's own `icon_play` and `icon_settings`, plus four new flat white icons (`icons/controller.svg`, `profile.svg`, `logs.svg`, `add.svg`) baked to PNG at 48 px and drawn as quads. Selection is brightness (`vita2d_draw_texture_tint`), scale and a baked soft-glow texture behind it. No boxes. |
-| Console status in lists | A room icon in a thin ring: the six room icons live in one small atlas texture (6 x 48 px white glyphs, under 0.05 MB) drawn tinted. The ring is one baked 1-2 px circle texture per state colour (green ready, amber standby, purple PSN-only, dashed grey not registered), drawn tinted, plus a baked corner badge (check, moon, globe, lock). 3 calls per item. |
-| Detail panel logo | `PS5_logo.png` or `ps4.png` (both already in the app, the same images the card code draws) drawn large in white with `vita2d_draw_texture_scale`, cropped to the wordmark. Under it plain text rows. 1 texture call plus text. No card, no cover, no per-frame cost. |
-| Change icon picker | Squared popup (dark rectangle and 1 px border) with 6 atlas icons in a 3x2 grid and 6 labels. Focus is a tinted, scaled draw plus the baked glow, so 6 icon calls and 6 text calls. The choice is saved per console in the host config (one small integer). |
-| Status dots | The existing `ellipse_green/yellow/red.png`, tinted for PSN and unregistered. |
-| Thin text with a soft shadow | The existing FreeType atlas. Roboto Light, Regular and Medium at 16, 20 and 28 px, plus Roboto Mono at 16 and 28 for numbers. The shadow is the same text drawn once more, offset and dark (doubles the text calls; skip it for small text if the budget needs it). |
-| Hints row | The existing button-symbol PNGs plus text. |
-| Settings and Profile pages | Flat `background.png`, text, 1 px lines as `vita2d_draw_rectangle`, selection as a translucent rectangle. Toggle is two rectangles. No 9-slice at all. |
-| Controller screen | The existing `controller_front.png` and `controller_back.png` (already how today's screen works), with the 3x6 touch grid as rectangles over the diagram and short labels as text. Callouts are text and a line. |
-| Popups and the options column | A dark translucent rectangle with a 1 px border, text rows, a gradient strip for selection. The blur behind a popup is a pre-blurred copy of the last frame, or just a darker scrim. |
+| Category and group icons, glyph atlas (hint glyphs, status icons) | 0.15 |
+| Room-icon atlas, badges, rings, glow | 0.25 |
+| PS5 and PS4 logos | 0.05 |
+| Controller diagrams at source size (scale down for a saving) | 2.5 |
+| Font atlases (6 faces) | 1.5 |
+| Top-bar logo, misc | 0.1 |
+| **Total** | **about 4.6** |
 
-## Draw-call estimates (paper)
-- Home about 70: ribbons and gradient 12, category row 6, list rows 4 x 6 = 24 (ring, art, badge, dot, two texts), detail view about 18, hints and top bar about 10.
-- Settings and Profile pages about 30 (groups, rows, lines, hints). Controller summary about 25. Mapping view about 45 (18 zones plus labels). Connecting about 28. Stream overlay about 8. Popups about 12.
-- This is under the 80-call Home budget. The thin-text shadow is the one thing that can push it over; drawing it only for titles keeps it in.
+Well under the 15 MB budget. The wave costs none.
 
-## Textures (estimate)
-Nav icons and symbols about 0.15 MB, icon atlas (controller, profile, logs, add, six room icons) under 0.1 MB, PS5 and PS4 logos about 0.05 MB, rings, badges and glow about 0.2 MB, controller diagrams about 2.5 MB at source size (874x396 and 720x327 RGBA; scale down for a saving), Roboto atlas about 1.5 MB. **About 5 MB total.** The wave itself costs no texture.
+## 6. Reuse
 
-## Reuse
-- `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (three views, preset slots, mapping popup). Only the drawing colours and chrome change.
-- `ui_focus.c` zones: category row, list, options column, Settings groups and rows, controller views, popup. I did not verify that nothing in the focus manager assumes the wave sidebar.
-- `ui_input.c`, the IME dialog and `ui_text.c` atlas: reused. The wave sidebar in `ui_navigation.c` is deleted.
+- `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (summary pages, zone views, mapping popup, preset slots). Only chrome, colours and the new Triangle entry to the zone view change.
+- `ui_focus.c` zones: category row, list, options column, page groups and rows, controller views, popup. Not verified that nothing in the focus manager assumes the wave sidebar.
+- `ui_input.c`, the IME dialog, `ui_text.c` atlas, `ui_qr.c`: reused as they are.
 
-## Build risk: low
-- The wave needs a CPU vertex update each frame; freeze or halve it while a stream is starting.
-- The glow is a baked texture drawn behind the selected icon; confirm it looks right on the Vita's OLED (the mock uses CSS drop-shadow).
-- Touch: the mock keeps left categories as a small tappable trail. True XMB lets them slide off; that is our addition for touch.
+## 7. Risks
 
-## Assumptions
-1. The three presets are today's Custom 1/2/3 slots. "Save" copies the active mapping into another slot; "Apply" makes a slot active.
-2. The stream overlay content and Esc/Circle to leave are assumed, as before.
-3. Controller (original PlayStation pad), Profile, Logs, Add and the six room icons use supplied flat SVGs (they are the only drawn icons; wifi, lock and QR on Profile rows are still simple glyphs).
-4. The ps5/ps4 `_rest`, `_off` and plain images are loaded in `ui.c` but never drawn by the card code, so the mock does not use them.
-
-## Round 6 update
-The Logs category, the Add item and `logs.svg` / `add.svg` are gone. Icons are now: `controller.svg`, `profile.svg` and six room icons, plus baked button glyphs (D-pad, L, R, Start, Select; 24 px, new). The theme is 4 type sizes / 6 faces and one token header; popups are 3 fixed sizes; status dots are flat circles (`vita2d_draw_fill_circle`) in token colours instead of the ellipse PNGs. The draw-call estimates above still hold. Full component and screen contract: `SPEC.md`.
+| Risk | Level | Mitigation |
+|---|---|---|
+| Static screens, popups, pages, overlay | low | plain rectangles and text |
+| Home list with variable row heights (wrapped hint lines) and slide animation | medium | one layout function; compute heights once per data change; hints wrap at most 2 lines (copy rule) |
+| Touch swipe and paint gestures (list, categories, pane, popup list, zone paint) | medium | thresholds in SPEC section 4; a touch over 8 px is never also a tap |
+| Registration and connection outcomes (finished OK, PIN not accepted, unreachable, timeout) | medium, backend | the UI needs these four results from the registration code (SPEC 3.3), not UI work |
+| Wi-Fi, battery and clock reads for the top bar | low | poll about once per second (`sceNetCtl`, `scePower`, RTC) |
+| Glow looks right on the Vita OLED | low | the mock uses CSS drop-shadow; confirm the baked texture on hardware |
+| All numbers are estimates | n/a | measure Home first; it is the screen at the budget |

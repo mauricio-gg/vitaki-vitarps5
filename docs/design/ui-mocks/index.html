@@ -8,23 +8,23 @@ body{background:radial-gradient(90% 50% at 50% 0,#14203c,#060a16);color:var(--te
 main{max-width:1200px;margin:0 auto;padding:var(--s5) var(--s3) var(--s6)}
 header{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3)}
 header img{height:56px}
-h1{font-size:var(--t-display);font-weight:var(--w-thin);letter-spacing:-.01em;line-height:1.05}
-.lede{font-size:var(--t-body);color:var(--text-2);max-width:780px;margin-bottom:var(--s4)}
-.open{display:inline-block;margin:0 var(--s2) var(--s4) 0;padding:12px var(--s3);border:1px solid #fff;color:#fff;text-decoration:none;font-size:var(--t-body);font-weight:var(--w-light);letter-spacing:.02em;transition:background var(--d-fast)}
+h1{font-size:var(--t40);font-weight:var(--w-light);letter-spacing:-.01em;line-height:1.05}
+.lede{font-size:var(--t20);color:var(--text-2);max-width:780px;margin-bottom:var(--s4)}
+.open{display:inline-block;margin:0 var(--s2) var(--s4) 0;padding:12px var(--s3);border:1px solid #fff;color:#fff;text-decoration:none;font-size:var(--t20);font-weight:var(--w-light);letter-spacing:.02em;transition:background var(--d1)}
 .open:hover,.open:focus-visible{background:rgba(255,255,255,.18);outline:none}
 .hero{display:grid;grid-template-columns:1fr;gap:var(--s3);margin-bottom:var(--s5)}
 .hero img{width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,.18)}
-h2{font-size:var(--t-title);font-weight:var(--w-light);margin:var(--s5) 0 var(--s2);padding-bottom:8px;border-bottom:1px solid var(--line)}
+h2{font-size:var(--t28);font-weight:var(--w-light);margin:var(--s5) 0 var(--s2);padding-bottom:8px;border-bottom:1px solid var(--line)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:var(--s3) var(--s2)}
 .grid a{color:inherit;text-decoration:none;display:block}
-.grid img{width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,.16);transition:border-color var(--d-fast),filter var(--d-fast);filter:brightness(.92)}
+.grid img{width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,.16);transition:border-color var(--d1),filter var(--d1);filter:brightness(.92)}
 .grid a:hover img,.grid a:focus-visible img{border-color:#fff;filter:brightness(1.1)}
 .grid a:focus-visible{outline:none}
-.grid span{display:block;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2);margin-top:6px}
+.grid span{display:block;font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-2);margin-top:6px}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
 @media (max-width:760px){.cols{grid-template-columns:1fr}}
-ul{padding-left:20px;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2)} li{margin-bottom:6px}
-p.note{font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-3);margin-top:var(--s2)}
+ul{padding-left:20px;font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-2)} li{margin-bottom:6px}
+p.note{font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-3);margin-top:var(--s2)}
 kbd{font-family:var(--font-mono);color:#fff;border:1px solid var(--line);padding:0 6px}
 code{font-family:var(--font-mono);color:var(--text-3);margin-left:8px;font-size:13px}
 </style></head><body><main>
@@ -97,6 +97,7 @@ code{font-family:var(--font-mono);color:var(--text-3);margin-left:8px;font-size:
 <div class="grid">
 <a href="xmb.html#profile"><img src="screens/profile.png" alt="Account" width="960" height="544" loading="lazy"><span>Account<code>#profile</code></span></a>
 <a href="xmb.html#profile-connection"><img src="screens/profile-connection.png" alt="Connection: Local Wi-Fi" width="960" height="544" loading="lazy"><span>Connection: Local Wi-Fi<code>#profile-connection</code></span></a>
+<a href="xmb.html#profile-connection-standby"><img src="screens/profile-connection-standby.png" alt="Connection: console on standby" width="960" height="544" loading="lazy"><span>Connection: console on standby<code>#profile-connection-standby</code></span></a>
 <a href="xmb.html#profile-connection-psn"><img src="screens/profile-connection-psn.png" alt="Connection: PSN Internet" width="960" height="544" loading="lazy"><span>Connection: PSN Internet<code>#profile-connection-psn</code></span></a>
 <a href="xmb.html#profile-connection-unavailable"><img src="screens/profile-connection-unavailable.png" alt="Connection: Unavailable" width="960" height="544" loading="lazy"><span>Connection: Unavailable<code>#profile-connection-unavailable</code></span></a>
 <a href="xmb.html#profile-connection-unpaired"><img src="screens/profile-connection-unpaired.png" alt="Connection: unpaired console" width="960" height="544" loading="lazy"><span>Connection: unpaired console<code>#profile-connection-unpaired</code></span></a>

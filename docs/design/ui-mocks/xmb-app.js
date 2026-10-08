@@ -163,7 +163,7 @@ function optsList(){
 function paintOpts(){
  const it=selItem(),L=optsList();
  $('#opts').innerHTML=it&&it.k==='console'?`<h4>${it.c.name}</h4><div class="sub">Options</div>`+L.map((o,i)=>`<div class="oi ${i===S.os&&S.opts?'sel':''} ${o.dis?'dis':''}" data-do="oi" data-arg="${i}">${o.l}</div>`).join(''):'';
- $('#opts').classList.toggle('open',S.opts);$('#ly-home').classList.toggle('oo',S.opts);
+ $('#opts').classList.toggle('open',S.opts);$('#ly-home').classList.toggle('oo',S.opts);$('#screen').classList.toggle('opts-open',S.opts);
  refreshHints();
 }
 function homeHints(){
@@ -198,8 +198,8 @@ const connFail=(c,why)=>resultPop({tone:'err',icon:'warn',title:'Could not conne
 /* ---------------- PAGES: Settings and Profile (C07 PageShell, C08 SettingRow) ---------------- */
 const PG={settings:{title:'Settings',icon:'assets/icon_settings.png',groups:GROUPS},profile:{title:'Profile',icon:'icons/profile.svg',groups:['Account','Connection','PlayStation Network']}};
 const ACCT='dGhlX3BsYXllcl9vbmU=';
-/* Profile > Connection by situation: rows shown (Console IP only with a local address, Quality only for a paired reachable console) */
-const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready',q:'540p'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready',q:'540p'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready',q:'540p'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'None',q:null},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Not Registered',q:null},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None',q:null}};
+/* Profile > Connection by situation. Network Type, Console, Console IP (when an address is known) and Quality follow today's code; Status uses the Home list wording */
+const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready'},standby:{net:'Local Wi-Fi',con:'Den',ip:'192.168.1.31',st:'Standby'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'Unavailable'},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Unpaired'},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None'}};
 function pageRows(kind,g){
  if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>({label:s.label,type:s.type,s,desc:s.desc,plain:setVal(s)}));
  if(g===0)return [{label:'Account ID',type:'info',val:`<span class="mono">${ACCT}</span>`,plain:ACCT.slice(0,10)+'...'},{label:'Refresh Account ID',type:'action',desc:'Read the Account ID again from the system profile.',act:'acct',plain:''}];
@@ -207,7 +207,7 @@ function pageRows(kind,g){
   const c=PCONN[S.pconn],r=[{label:'Network Type',type:'info',val:c.net,plain:c.net},{label:'Console',type:'info',val:c.con,plain:c.con}];
   if(c.ip)r.push({label:'Console IP',type:'info',val:`<span class="mono">${c.ip}</span>`,plain:c.ip});
   r.push({label:'Status',type:'info',val:c.st,plain:c.st});
-  if(c.q)r.push({label:'Quality',type:'info',val:c.q,plain:c.q});
+  r.push({label:'Quality',type:'info',val:SET('quality').opts[SET('quality').v],plain:SET('quality').opts[SET('quality').v]});
   return r;
  }
  const ps=psnState(),st={label:'PSN Auth',type:'info',val:PSN_STATES[ps],plain:PSN_STATES[ps],tone:ps==='auth'?'':ps==='disabled'?'':'' ,cls:ps==='auth'?'on':ps==='none'||ps==='expired'||ps==='error'?'bad':ps==='refresh'?'mid':''};
@@ -590,7 +590,7 @@ document.addEventListener('pointerup',()=>{if(sw&&sw.moved)suppressUntil=Date.no
 document.addEventListener('click',e=>{
  if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
- if(S.opts&&!S.pop&&!e.target.closest('#opts')&&!e.target.closest('[data-do=btn]')&&!e.target.closest('[data-do=item]')){S.opts=false;paintOpts();return;}
+ if(S.opts&&!S.pop&&!e.target.closest('#opts')&&!e.target.closest('[data-do=btn]')){S.opts=false;paintOpts();e.stopPropagation();return;}
  const p=e.target.closest('[data-pop]');if(p&&S.pop){S.pop.sel=+p.dataset.pop;popPress(+p.dataset.pop);return;}
  const el=e.target.closest('[data-do]');if(el){
   if(S.pop&&!['pop','scrim'].includes(el.dataset.do)&&el.dataset.do!=='btn')return;
@@ -601,7 +601,7 @@ document.addEventListener('click',e=>{
 let paint=null;
 document.addEventListener('pointerdown',e=>{const c=e.target.closest&&e.target.closest('.cell');if(c&&S.screen==='ctrl'&&S.ct.view!=='summary'&&!S.pop){paint=[+c.dataset.arg];S.ct.pick=paint.slice();S.ct.cur=paint[0];e.preventDefault();}});
 document.addEventListener('pointermove',e=>{if(!paint)return;const el=document.elementFromPoint(e.clientX,e.clientY),c=el&&el.closest&&el.closest('.cell');if(!c)return;const i=+c.dataset.arg;if(paint[paint.length-2]===i)paint.pop();else if(!paint.includes(i))paint.push(i);S.ct.pick=paint.slice();S.ct.cur=i;paintCtrl();});
-document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint=null;if(pk.length>1)zonePop(pk);else{S.ct.pick=[];}});
+document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint=null;suppressUntil=Date.now()+80;S.ct.cur=pk[pk.length-1];zonePop(pk);});
 
 /* ---------------- mock chrome: deep links, toggles, device frame ---------------- */
 const JUMPS=[
@@ -611,7 +611,7 @@ const JUMPS=[
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
  ['Stream','stream','Stream overlay'],['Stream','stream-stats','Stream with stats'],['Stream','unstable','Network unstable'],['Stream','stream-quiet','Overlay after hint faded'],
  ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
- ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-unpaired','Connection: unpaired console'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
+ ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-unpaired','Connection: unpaired console'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
 const DL={};
@@ -658,6 +658,7 @@ Object.assign(DL,{
  'settings-circle':()=>{SET('cc').v=true;openPage('settings',3,'r');},
  profile:()=>{S.psn='auth';openPage('profile',0,'r');},
  'profile-connection':()=>{S.pconn='wifi';openPage('profile',1,'r');},
+ 'profile-connection-standby':()=>{S.pconn='standby';openPage('profile',1,'r');},
  'profile-connection-psn':()=>{S.pconn='psn';openPage('profile',1,'r');},
  'profile-connection-unavailable':()=>{S.pconn='unavail';openPage('profile',1,'r');},
  'profile-connection-unpaired':()=>{S.pconn='unreg';openPage('profile',1,'r');},
