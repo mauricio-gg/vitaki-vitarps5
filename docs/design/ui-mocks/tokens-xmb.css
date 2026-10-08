@@ -17,7 +17,7 @@
   --text-2: #dde3f0;     /* TEXT_SECONDARY: labels, unfocused rows, hints */
   --text-3: #b3bdd2;     /* TEXT_TERTIARY: captions, disabled labels, empty states */
   --ok: #4ee09a;         /* STATUS_OK: ready, success, good loss */
-  --warn: #ffbe4d;       /* STATUS_WARN: standby, unstable, cooldown banner, amber loss */
+  --warn: #ffbe4d;       /* STATUS_WARN: standby, retrying, please wait, cooldown banner, armed log out, amber loss */
   --err: #ff8080;        /* STATUS_ERROR: Error status, error text */
   --psn: #a9b2ff;        /* STATUS_INTERNET: internet route label */
   --idle: #c9d0df;       /* STATUS_IDLE: Unpaired dot */
@@ -71,7 +71,7 @@
 
   /* LINES */
   --lw1: 1px; --lw2: 2px;   /* hairline / ring, focus underline, toggle */
-  /* RADII: three tokens. R_SM selection bars and small chips, R_MD popups, toast and panels, R_PILL (half the height) buttons, toggles, badges, pills */
+  /* RADII: three tokens. R_SM selection bars and small chips, R_MD popups, stats panel and keyboard stand-in, R_PILL (half the height) buttons, toggles, toast, badges, pills */
   --r-sm: 8px; --r-md: 16px; --r-pill: 999px;
 
   /* MOTION */
