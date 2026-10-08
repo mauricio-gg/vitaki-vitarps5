@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- bg_color="66.0, 120.0, 96.0, 255.0" header_footer_text_color="219.0, 161.0, 35.0, 255.0" title_text_color="35.0, 216.0, 219.0, 255.0" value_text_color="35.0, 29.0, 181.0, 255.0" back_button_color="201.0, 65.0, 44.0, 255.0" -->
 <application_settings version="1.0" bg_color="45.0, 45.0, 45.0, 255.0">
-	<setting_list id="main_screen" title="Vitaki">
+	<setting_list id="main_screen" title="VitaRPS5">
 	    <button id="sample_button" title="hello wooooooo" description="bryg" hint="aaaaaa" success_dialog_message="Discovering"/>
 		<list id="sample_list" title="msg_sample_list" key="sample_list" default_value="0">
 			<list_item id="sample_list_00" title="msg_sample_list_00" value="0" />

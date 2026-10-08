@@ -1,4 +1,4 @@
-# Vitaki-Fork Development Environment
+# VitaRPS5 Development Environment
 # Based on official VitaSDK with additional development tools for the entire project
 
 # Pinned deliberately: the floating `latest` tag silently changed base distro

@@ -1,11 +1,11 @@
 #!/bin/bash
-# build.sh - Vitaki-Fork Docker Build Script
+# build.sh - VitaRPS5 Docker Build Script
 # Usage: ./build.sh [command] [options]
 
 set -e  # Exit on any error
 
 # Configuration
-PROJECT_NAME="vitaki-fork"
+PROJECT_NAME="vitarps5"
 DOCKER_IMAGE="vitaki-fork-dev:latest"
 BUILD_DIR="./build"
 TEST_BUILD_DIR="./build-test"
@@ -21,7 +21,7 @@ DOCKER_RUN_USER="$(id -u):$(id -g)"
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="995"
+VERSION_ITERATION="998"
 
 # Colors for output
 RED='\033[0;31m'
@@ -39,7 +39,7 @@ increment_version() {
 }
 
 get_version_string() {
-    echo "VitakiForkv${VERSION_PHASE}.${VERSION_ITERATION}"
+    echo "VitaRPS5v${VERSION_PHASE}.${VERSION_ITERATION}"
 }
 
 # Environment handling -------------------------------------------------------
@@ -288,9 +288,9 @@ setup_build_dir() {
     log_info "Build directory: $BUILD_DIR"
 }
 
-# Build custom Vitaki-Fork development image
+# Build custom VitaRPS5 development image
 build_docker_image() {
-    log_info "Building Vitaki-Fork development Docker image..."
+    log_info "Building VitaRPS5 development Docker image..."
     docker build --platform linux/amd64 -t "$DOCKER_IMAGE" .
     log_success "Custom Docker image built successfully"
 }
@@ -333,7 +333,7 @@ build_vpk() {
     # Increment version BEFORE build so it shows correctly in logs
     increment_version
     
-    log_info "Building Vitaki-Fork ($build_type mode)..."
+    log_info "Building VitaRPS5 ($build_type mode)..."
     
     # Generate version header before building
     generate_version_header
@@ -592,7 +592,7 @@ show_version() {
 
 # Show help
 show_help() {
-    echo "Vitaki-Fork Build Script"
+    echo "VitaRPS5 Build Script"
     echo "Usage: ./build.sh [--env <profile>] [--env-file <path>] [command] [options]"
     echo ""
     echo "Commands:"

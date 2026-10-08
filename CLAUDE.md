@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-VitaRPS5: a PS Vita Remote Play client for PS5/PS4, a fork of Vitaki (which is built on Chiaki). Hardware limits that matter: 960x544 screen, tight RAM and CPU, rendering through vita2d.
+VitaRPS5: a PS Vita Remote Play client for PS5/PS4. It is its own project now; it was originally based on Vitaki (ywnico's vitaki-fork), itself a fork of Chiaki via AAGaming's Vita port. Hardware limits that matter: 960x544 screen, tight RAM and CPU, rendering through vita2d.
 
 ## Read first
 
@@ -16,13 +16,13 @@ Never call VitaSDK by hand. All commands run from the repo root.
 
 | Command | What it does |
 |---|---|
-| `./tools/build.sh` | Release build. Bumps the version, writes `build/vitaki-fork.vpk` and a versioned `.vpk` copy in the repo root. |
+| `./tools/build.sh` | Release build. Bumps the version, writes `build/vitarps5.vpk` and a versioned `.vpk` copy in the repo root. |
 | `./tools/build.sh --env testing` | Loads `.env.testing`. Required for any on-device streaming validation, because it enables runtime logs. |
 | `./tools/build.sh debug` | Debug build with symbols. Also bumps the version. |
 | `./tools/build.sh test` | Cross-compiles the test suite in `build-test/`. See pitfalls: it does not run anything. |
 | `./tools/build.sh format` | Runs clang-format over the sources. |
 | `./tools/build.sh shell` | Interactive shell inside the build container. |
-| `./tools/build.sh deploy <vita_ip>` | Uploads `build/vitaki-fork.vpk` to the Vita over FTP (port 1337). Build first. |
+| `./tools/build.sh deploy <vita_ip>` | Uploads `build/vitarps5.vpk` to the Vita over FTP (port 1337). Build first. |
 
 ## Repo map
 
