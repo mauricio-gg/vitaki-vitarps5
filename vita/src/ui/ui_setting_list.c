@@ -122,14 +122,26 @@ void ui_setting_list_init(UiSettingList *list) {
   }
 }
 
-/** Width function for ui_ellipsize_to_fit(): a choice value's face. */
+/** Width function for ui_ellipsize_to_fit(); @ctx points to the value's UiFace. */
 static int measure_value(const char *text, void *ctx) {
-  (void)ctx;
-  return ui_text_face_width(UI_FACE_T20, text);
+  return ui_text_face_width(*(const UiFace *)ctx, text);
+}
+
+/** The face an item's value is drawn in: a choice is T20, an info row T20 or T16 as it asks. */
+static UiFace value_face(const UiSettingItem *item) {
+  return item->kind == UI_SETTING_INFO && item->small_value ? UI_FACE_T16 : UI_FACE_T20;
+}
+
+/** The room an item's value has: a choice's fixed box, or what an info row's label leaves. */
+static int value_max_width(const UiSettingList *list, int index) {
+  if (list->items[index].kind == UI_SETTING_CHOICE)
+    return UI_CHOICE_VALUE_W;
+  return UI_PAGE_PANE_W - 2 * UI_ROW_PAD - list->label_w[index] - UI_INFO_VALUE_GAP;
 }
 
 /**
- * refresh_caches() - Re-measure what changed in the items since the last call.
+ * refresh_caches() - Re-measure what changed in the items since the last call (the shortened
+ * text and width of every choice and info value; the knob of every toggle).
  * @animate: Start the knob slide of a toggle whose value changed; otherwise place it at once.
  */
 static void refresh_caches(UiSettingList *list, bool animate) {
@@ -142,13 +154,16 @@ static void refresh_caches(UiSettingList *list, bool animate) {
       }
       continue;
     }
+    if (item->kind == UI_SETTING_ACTION)
+      continue;
     const char *text = item->value_text ? item->value_text : "";
     if (strncmp(list->value_raw[i], text, UI_SETTING_VALUE_MAX - 1) == 0)
       continue;
+    UiFace face = value_face(item);
     snprintf(list->value_raw[i], sizeof(list->value_raw[i]), "%s", text);
-    ui_ellipsize_to_fit(list->value_raw[i], UI_CHOICE_VALUE_W, measure_value, NULL,
+    ui_ellipsize_to_fit(list->value_raw[i], value_max_width(list, i), measure_value, &face,
                         list->value_fit[i], sizeof(list->value_fit[i]));
-    list->value_w[i] = ui_text_face_width(UI_FACE_T20, list->value_fit[i]);
+    list->value_w[i] = ui_text_face_width(face, list->value_fit[i]);
   }
 }
 
@@ -241,6 +256,22 @@ static void draw_choice(const UiSettingList *list, int index, UiRect left, UiRec
                                list->value_fit[index]);
 }
 
+/** Draw the value of info row @index right-aligned at the row padding. */
+static void draw_info(const UiSettingList *list, int index, UiRect row, uint32_t text_color) {
+  const int x = row.x + row.w - UI_ROW_PAD - list->value_w[index];
+  ui_text_draw_face_centered_v(value_face(&list->items[index]), x, row.y, row.h, text_color,
+                               list->value_fit[index]);
+}
+
+/** Draw the chevron of an enabled action at the right row padding, in @color. */
+static void draw_action(UiRect row, uint32_t color) {
+  if (!s_chevron_right)
+    return;
+  vita2d_draw_texture_tint(s_chevron_right,
+                           (float)(row.x + row.w - UI_ROW_PAD - UI_CHOICE_ARROW_ART),
+                           (float)(row.y + (row.h - UI_CHOICE_ARROW_ART) / 2), color);
+}
+
 /** True for UI_ROW_PRESS_MS after a row acted. */
 static bool row_pressed(const UiSettingList *list) {
   return list->press_start_us != 0 &&
@@ -255,7 +286,10 @@ void ui_setting_list_draw(const UiSettingList *list) {
     const UiSettingItem *item = &list->items[i];
     const UiRect row = list->row[slot];
     const bool focused = i == list->focus;
-    const uint32_t text_color = focused ? UI_TEXT : UI_TEXT_2;
+    const bool disabled = item->kind == UI_SETTING_ACTION && item->disabled;
+    uint32_t text_color = focused ? UI_TEXT : UI_TEXT_2;
+    if (disabled)
+      text_color = ui_color_scale_alpha(text_color, (float)UI_ROW_DISABLED_PCT / 100.0f);
     const int label_x = row.x + UI_ROW_PAD;
 
     if (focused) {
@@ -273,13 +307,24 @@ void ui_setting_list_draw(const UiSettingList *list) {
     }
     ui_text_draw_face_centered_v(UI_FACE_T20, label_x, row.y, row.h, text_color, item->label);
 
-    if (item->kind == UI_SETTING_TOGGLE) {
-      const int x =
-          row.x + row.w - UI_ROW_PAD - UI_TOGGLE_W - UI_TOGGLE_TEXT_GAP - UI_TOGGLE_TEXT_W;
-      draw_toggle(list, i, x, row.y, text_color);
-    } else {
-      draw_choice(list, i, list->arrow_left[slot], list->arrow_right[slot], row.y, focused,
-                  text_color);
+    switch (item->kind) {
+      case UI_SETTING_TOGGLE:
+        draw_toggle(
+            list, i,
+            row.x + row.w - UI_ROW_PAD - UI_TOGGLE_W - UI_TOGGLE_TEXT_GAP - UI_TOGGLE_TEXT_W, row.y,
+            text_color);
+        break;
+      case UI_SETTING_CHOICE:
+        draw_choice(list, i, list->arrow_left[slot], list->arrow_right[slot], row.y, focused,
+                    text_color);
+        break;
+      case UI_SETTING_INFO:
+        draw_info(list, i, row, text_color);
+        break;
+      case UI_SETTING_ACTION:
+        if (!disabled)
+          draw_action(row, text_color);
+        break;
     }
   }
 }
@@ -316,7 +361,22 @@ static UiEvent activate(UiSettingList *list, int step) {
   return UI_EVENT_ACTIVATED;
 }
 
-/** A tap at (@x, @y): a chevron steps its way, a row steps forward. */
+/** Focus row @index and scroll to it. */
+static void focus_row(UiSettingList *list, int index) {
+  list->focus = index;
+  follow_focus(list);
+}
+
+/** True when row @index only takes focus: an info row, or a disabled action. */
+static bool focus_only(const UiSettingList *list, int index) {
+  const UiSettingItem *item = &list->items[index];
+  return item->kind == UI_SETTING_INFO || (item->kind == UI_SETTING_ACTION && item->disabled);
+}
+
+/**
+ * A tap at (@x, @y): a chevron steps its way, a row steps forward (acts), and a row that only
+ * takes focus reports UI_EVENT_MOVED.
+ */
 static UiEvent handle_tap(UiSettingList *list, float x, float y) {
   for (int slot = 0; slot < UI_PAGE_PANE_ROWS && list->scroll + slot < list->count; slot++) {
     const int i = list->scroll + slot;
@@ -331,9 +391,8 @@ static UiEvent handle_tap(UiSettingList *list, float x, float y) {
       step = 1;
     if (!step)
       continue;
-    list->focus = i;
-    follow_focus(list);
-    return activate(list, step);
+    focus_row(list, i);
+    return focus_only(list, i) ? UI_EVENT_MOVED : activate(list, step);
   }
   return UI_EVENT_NONE;
 }
@@ -364,17 +423,19 @@ UiEvent ui_setting_list_input(UiSettingList *list, const UiInput *in) {
   if (swiped != UI_EVENT_NONE)
     return swiped;
 
-  const bool toggle = list->items[list->focus].kind == UI_SETTING_TOGGLE;
+  const UiSettingKind kind = list->items[list->focus].kind;
   if ((in->repeat & UI_BTN_UP) && set_focus(list, list->focus - 1))
     return UI_EVENT_MOVED;
   if ((in->repeat & UI_BTN_DOWN) && set_focus(list, list->focus + 1))
     return UI_EVENT_MOVED;
   if (in->pressed & UI_BTN_CONFIRM)
+    return focus_only(list, list->focus) ? UI_EVENT_NONE : activate(list, 1);
+  if (kind == UI_SETTING_TOGGLE && (in->pressed & UI_BTN_RIGHT))
     return activate(list, 1);
-  if (toggle ? (in->pressed & UI_BTN_RIGHT) : (in->repeat & UI_BTN_RIGHT))
+  if (kind == UI_SETTING_CHOICE && (in->repeat & UI_BTN_RIGHT))
     return activate(list, 1);
   if (in->repeat & UI_BTN_LEFT)
-    return toggle ? UI_EVENT_CANCELLED : activate(list, -1);
+    return kind == UI_SETTING_CHOICE ? activate(list, -1) : UI_EVENT_CANCELLED;
   if (in->pressed & UI_BTN_CANCEL)
     return UI_EVENT_CANCELLED;
   if (ui_touch_tap(in))

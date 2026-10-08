@@ -577,6 +577,12 @@ typedef enum ui_face_t {
 #define UI_TOGGLE_TEXT_GAP UI_S2
 #define UI_TOGGLE_TEXT_W 24
 
+/* Info: the value is right-aligned at the row padding, at least UI_INFO_VALUE_GAP after the label.
+ */
+#define UI_INFO_VALUE_GAP UI_S2
+/** A disabled row is drawn at this opacity. */
+#define UI_ROW_DISABLED_PCT 50
+
 /* Choice: a chevron box, the centred value, a chevron box. */
 #define UI_CHOICE_VALUE_W 224
 #define UI_CHOICE_ARROW 48
@@ -591,6 +597,40 @@ typedef enum ui_face_t {
  * ============================================================================ */
 
 #define UI_SCROLL_W UI_LW2
+
+/* ============================================================================
+ * C15 Toast (ui_toast.c): a pill centred at the bottom of the screen, one at a time. It rises
+ * UI_RISE_PX and fades in over UI_TOAST_ENTER_MS, stays until UI_TOAST_VISIBLE_MS after it was
+ * shown, then fades out over UI_TOAST_EXIT_MS.
+ * ============================================================================ */
+
+#define UI_TOAST_Y 432
+#define UI_TOAST_H UI_SHAPE_H_BUTTON
+#define UI_TOAST_PAD UI_S3
+#define UI_TOAST_ICON 24
+#define UI_TOAST_ICON_GAP UI_S2
+#define UI_TOAST_MAX_W 720
+#define UI_TOAST_ENTER_MS UI_D2_MS
+#define UI_TOAST_VISIBLE_MS 3000
+#define UI_TOAST_EXIT_MS UI_D2_MS
+/** Bytes kept of a toast's text (UTF-8). */
+#define UI_TOAST_TEXT_MAX 96
+
+/* ============================================================================
+ * Profile page (ui_profile.c, SPEC 3.7): the identity block under the group list
+ * ============================================================================ */
+
+#define UI_IDENT_Y 376
+#define UI_IDENT_H 48
+#define UI_IDENT_PAD UI_S2
+#define UI_IDENT_GAP UI_S2
+#define UI_IDENT_AVATAR 48
+#define UI_IDENT_RING UI_LW2
+#define UI_IDENT_ICON 28
+/** The icon inside the avatar is drawn at this opacity. */
+#define UI_IDENT_ICON_PCT 85
+/** Bytes kept of the PSN Account ID shown in the identity block and the Account ID row. */
+#define UI_IDENT_ID_MAX UI_SETTING_VALUE_MAX
 
 /* ============================================================================
  * C03 ConnectingRing (ui_connecting_ring.c)

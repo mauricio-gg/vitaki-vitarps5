@@ -25,6 +25,8 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_input.h"
 #include "ui/ui_focus.h"
+#include "ui/ui_home_detail.h"
+#include "ui/ui_profile.h"
 #include "ui/ui_text.h"
 #include "context.h"
 
@@ -755,6 +757,17 @@ UIScreenType ui_nav_screen_for_icon(int index) {
   }
 }
 
+/**
+ * enter_screen_for_icon() - The screen icon @index leads to, ready to be shown: the Profile page
+ * starts on its first group, as it does when opened from Home.
+ */
+static UIScreenType enter_screen_for_icon(int index) {
+  const UIScreenType screen = ui_nav_screen_for_icon(index);
+  if (screen == UI_SCREEN_TYPE_PROFILE)
+    ui_profile_open(UI_PROFILE_GROUP_ACCOUNT);
+  return screen;
+}
+
 int ui_nav_icon_for_screen(UIScreenType screen) {
   switch (screen) {
     case UI_SCREEN_TYPE_MAIN:
@@ -784,7 +797,7 @@ bool ui_nav_handle_touch(float touch_x, float touch_y, UIScreenType *out_screen)
       selected_nav_icon = i;
       ui_focus_set_zone(FOCUS_ZONE_NAV_BAR);
       if (out_screen)
-        *out_screen = ui_nav_screen_for_icon(i);
+        *out_screen = enter_screen_for_icon(i);
       return true;
     }
   }
@@ -878,14 +891,14 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
     if (btn_pressed(SCE_CTRL_UP)) {
       selected_nav_icon = (selected_nav_icon - 1 + 4) % 4;
       if (out_screen) {
-        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        *out_screen = enter_screen_for_icon(selected_nav_icon);
         // Page changes but focus stays on nav bar for continued D-pad navigation
       }
       return true;
     } else if (btn_pressed(SCE_CTRL_DOWN)) {
       selected_nav_icon = (selected_nav_icon + 1) % 4;
       if (out_screen) {
-        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        *out_screen = enter_screen_for_icon(selected_nav_icon);
         // Page changes but focus stays on nav bar for continued D-pad navigation
       }
       return true;
@@ -897,7 +910,7 @@ bool ui_nav_handle_shortcuts(UIScreenType current_screen, UIScreenType *out_scre
         ui_nav_request_collapse();
       }
       if (out_screen) {
-        *out_screen = ui_nav_screen_for_icon(selected_nav_icon);
+        *out_screen = enter_screen_for_icon(selected_nav_icon);
         // Reset focus to content area for the new screen
         ui_focus_set_zone(ui_focus_zone_for_screen(*out_screen));
       }
