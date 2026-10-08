@@ -348,9 +348,6 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->drift_resync_count = 0;
 	video_receiver->drift_prev_frame_index = 0;
 	video_receiver->drift_has_prev = false;
-	video_receiver->published_abs_ms = 0;
-	video_receiver->published_abs_first_ms = 0;
-	video_receiver->published_windows = 0;
 	video_receiver->sizegap_small_gap_total_ms = 0;
 	video_receiver->sizegap_large_gap_total_ms = 0;
 	video_receiver->frame_bytes_total = 0;
@@ -994,13 +991,6 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				- video_receiver->drift_win_base_scaled) / drift_div);
 			int32_t drift_end_ms = (int32_t)((video_receiver->drift_last_scaled
 				- video_receiver->drift_win_base_scaled) / drift_div);
-			int32_t drift_abs_ms = (int32_t)(video_receiver->drift_last_scaled / drift_div);
-			// GH #275: publish for the UI thread. Values first, window counter
-			// last, so a reader that sees the new counter sees the new values.
-			if(video_receiver->published_windows == 0)
-				video_receiver->published_abs_first_ms = drift_abs_ms;
-			video_receiver->published_abs_ms = drift_abs_ms;
-			video_receiver->published_windows++;
 			uint64_t gap_small_avg_ms = video_receiver->sizegap_small_count > 0
 				? video_receiver->sizegap_small_gap_total_ms / video_receiver->sizegap_small_count : 0;
 			uint64_t gap_large_avg_ms = video_receiver->sizegap_large_count > 0
@@ -1009,17 +999,16 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				? (uint32_t)(video_receiver->frame_bytes_total / video_receiver->frame_bytes_count) : 0;
 			// gaph = per-bucket gap counts (sum must equal cadence_count on the
 			// PIPE/STAGE line above -- a free integrity check); drift=min/max/end
-			// = ms relative to the window's starting drift; abs= = ms since last
-			// re-base; skip= = frame indices skipped this window; rsy= =
+			// = ms relative to the window's starting drift; skip= = frame indices skipped this window; rsy= =
 			// re-bases; thr= = the byte cut used; sm=/lg= = count/mean-gap for
 			// gaps following small/large frames; fsz= = min/avg/max completed
 			// frame bytes.
 			CHIAKI_LOGD(video_receiver->log,
-				"PIPE/DELIVERY gaph=%u,%u,%u,%u,%u,%u,%u,%u,%u drift=%d/%d/%d abs=%d skip=%u rsy=%u thr=%u sm=%u/%llu lg=%u/%llu fsz=%u/%u/%u",
+				"PIPE/DELIVERY gaph=%u,%u,%u,%u,%u,%u,%u,%u,%u drift=%d/%d/%d skip=%u rsy=%u thr=%u sm=%u/%llu lg=%u/%llu fsz=%u/%u/%u",
 				video_receiver->gap_hist[0], video_receiver->gap_hist[1], video_receiver->gap_hist[2],
 				video_receiver->gap_hist[3], video_receiver->gap_hist[4], video_receiver->gap_hist[5],
 				video_receiver->gap_hist[6], video_receiver->gap_hist[7], video_receiver->gap_hist[8],
-				drift_min_ms, drift_max_ms, drift_end_ms, drift_abs_ms,
+				drift_min_ms, drift_max_ms, drift_end_ms,
 				video_receiver->drift_skipped_frames, video_receiver->drift_resync_count,
 				video_receiver->sizegap_threshold_bytes,
 				video_receiver->sizegap_small_count, (unsigned long long)gap_small_avg_ms,

@@ -49,8 +49,6 @@ typedef struct vita_chiaki_stream_t {
   uint32_t negotiated_fps;                 // max_fps requested from the console
   uint32_t target_fps;                     // local clamp target (prep for pacer)
   uint32_t measured_incoming_fps;          // latest measured incoming fps window
-  uint64_t incoming_frame_last_us;         // GH #261: process-time stamp of the last incoming
-                                           // frame sample, for PIPE/FPS staleness detection
   uint32_t session_generation;    // increments for each successfully initialized stream session
   uint32_t reconnect_generation;  // non-zero when this session is a reconnect/re-entry
   bool reset_reconnect_gen;       // next session should start as fresh (gen 0)
@@ -234,10 +232,6 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t
       freeze_engaged_count;  // Corrupt frames suppressed (last-good presented in their place)
 
-  // --- GH #262: staleness-gated presentation hold (backlog-drain freeze-then-jump) ---
-  volatile uint32_t stale_hold_count;         // Number of times the hold engaged this stream
-  volatile uint32_t stale_hold_frames_total;  // Cumulative frames spent holding this stream
-
   // --- Diagnostic instrumentation (D6: Wi-Fi RSSI) ---
   volatile int32_t wifi_rssi;  // Latest Wi-Fi signal strength (-1 if unavailable)
 
@@ -245,8 +239,6 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t display_fps;         // Frames actually rendered to screen per second
   uint32_t display_frame_count;          // UI-thread-only counter within current window
   uint64_t display_fps_window_start_us;  // UI-thread-only window start timestamp
-  uint64_t display_frame_last_us;        // GH #261: process-time stamp of the last displayed
-                                         // frame, for PIPE/FPS staleness detection
 
   // --- Stuck bitrate detection ---
   bool stuck_bitrate_restart_used;        // Only allow one stuck-bitrate restart per session

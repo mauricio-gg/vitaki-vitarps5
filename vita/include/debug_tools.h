@@ -2,9 +2,9 @@
 
 /*
  * GH #275: debug-only stream tools. A small widget in the bottom-right corner of the stream
- * screen shows the live PIPE/DELIVERY "abs" delay figure; tapping it on the front touchscreen
- * ends the session cleanly and reconnects at once ("resync") so the felt delay before and
- * after can be compared in the log.
+ * screen reads "tap: resync"; tapping it on the front touchscreen ends the
+ * session cleanly and reconnects at once ("resync"), and the log records the time from the
+ * tap to the new session's first frame (PIPE/RESYNC_FIRST_FRAME).
  *
  * Everything here exists only when VITARPS5_DEBUG_TOOLS is 1 (tools/build.sh: --env testing,
  * or the "debug" command). tools/build.sh always passes an explicit -DVITARPS5_DEBUG_TOOLS=0|1;
@@ -19,8 +19,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include <chiaki/videoreceiver.h>
 
 /* Widget rectangle in screen pixels (960x544). */
 #define DEBUG_WIDGET_SCREEN_WIDTH 960
@@ -50,20 +48,8 @@ static inline bool debug_widget_contains_touch_point(int touch_x, int touch_y) {
 /* Draws the widget; called last in the stream overlay so it sits on top of the video. */
 void debug_tools_draw_widget(void);
 
-/* UI thread, once per main-loop pass: acts on a pending widget tap and reports the
- * post-resync figures once the new session has produced them. */
+/* UI thread, once per main-loop pass: acts on a pending widget tap. */
 void debug_tools_ui_tick(void);
-
-/* Video callback thread: mirrors the receiver's published abs figure (lib/videoreceiver.h)
- * into UI-safe storage. NULL receiver is ignored. */
-void debug_tools_publish_abs(const ChiakiVideoReceiver *receiver);
-
-/* Video callback thread: an inter-arrival gap at or above the stall threshold ended at
- * arrival_ms (lib monotonic ms clock). */
-void debug_tools_note_stall(uint64_t arrival_ms);
-
-/* Per-session reset of the stall and abs mirrors (called with the other per-stream resets). */
-void debug_tools_reset_session(void);
 
 /* Video callback thread: the first video frame of the session arrived. */
 void debug_tools_on_first_frame(void);
