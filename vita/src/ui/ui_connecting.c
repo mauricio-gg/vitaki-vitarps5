@@ -12,7 +12,9 @@
 
 #include "context.h"
 #include "host.h"
+#include "ui/ui_animation.h"
 #include "ui/ui_chrome_layout.h"
+#include "ui/ui_console_status.h"
 #include "ui/ui_connecting_flow.h"
 #include "ui/ui_connecting_ring.h"
 #include "ui/ui_hint_row.h"
@@ -165,6 +167,24 @@ static void draw_who(const VitaChiakiHost *host, UiConnectingFlow flow) {
                                ui_connecting_flow_route(flow));
 }
 
+/**
+ * ring_state() - The ring colour for the console being connected: WARN while a Retrying
+ * status message is live, ERR while an Error one is, OK otherwise.
+ */
+static UiRingState ring_state(const VitaChiakiHost *host) {
+  if (!host)
+    return UI_RING_STATE_OK;
+  switch (ui_console_message_class(host->status_hint, host->status_hint_is_error,
+                                   host->status_hint_expire_us, ui_anim_now_us())) {
+    case UI_CONSOLE_MESSAGE_RETRYING:
+      return UI_RING_STATE_WARN;
+    case UI_CONSOLE_MESSAGE_ERROR:
+      return UI_RING_STATE_ERR;
+    default:
+      return UI_RING_STATE_OK;
+  }
+}
+
 bool ui_connecting_frame(void) {
   /* A tapped hint acts as that button pressed and released in one frame. */
   UiInput in = *ui_input_snapshot();
@@ -190,7 +210,7 @@ bool ui_connecting_frame(void) {
                      ui_connecting_flow_title(flow, step));
   ui_top_bar_draw(NULL);
   ui_draw_connecting_ring(ART_CX - UI_RING_SIZE / 2, ART_CY - UI_RING_SIZE / 2, UI_RING_SIZE,
-                          s_room_icon, UI_RING_STATE_OK);
+                          s_room_icon, ring_state(host));
   ui_spinner_draw(UI_SPINNER_LARGE, ART_CX, ART_CY);
   draw_who(host, flow);
   ui_draw_steps(UI_STEPS_X, UI_STEPS_Y, steps, step_count, step);
