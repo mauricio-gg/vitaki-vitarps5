@@ -116,7 +116,7 @@ static void draw_title(const char *title, int y, float k) {
 static void draw_status_line(const UiDetailContent *c, int y, float k) {
   uint32_t color = ui_color_scale_alpha(c->status_color, k);
   vita2d_draw_fill_circle((float)(UI_DETAIL_X + UI_LIST_DOT_R), (float)(y + UI_T16_LINE / 2),
-                          (float)UI_LIST_DOT_R, color);
+                          (float)UI_LIST_DOT_R, ui_layer_color(color));
   ui_text_draw_face_centered_v(UI_FACE_T16, UI_DETAIL_X + UI_LIST_DOT_R * 2 + UI_LIST_DOT_GAP, y,
                                UI_T16_LINE, color, c->status ? c->status : "");
 }
@@ -151,7 +151,8 @@ static void draw_row(const UiDetailRow *row, int index, int y, float k) {
                                  y, UI_DETAIL_KV_H, ui_color_scale_alpha(color, k), value);
   }
   vita2d_draw_rectangle((float)UI_DETAIL_X, (float)(y + UI_DETAIL_KV_H - UI_LW1),
-                        (float)UI_DETAIL_W, (float)UI_LW1, ui_color_scale_alpha(UI_LINE_FAINT, k));
+                        (float)UI_DETAIL_W, (float)UI_LW1,
+                        ui_layer_color(ui_color_scale_alpha(UI_LINE_FAINT, k)));
 }
 
 /** Draw the kv rows from @y down. */

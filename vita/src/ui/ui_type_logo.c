@@ -5,6 +5,7 @@
 
 #include "ui/ui_type_logo.h"
 
+#include "ui/ui_component.h"
 #include "ui/ui_theme.h"
 
 /** Source crop of @kind's wordmark. */
@@ -31,5 +32,5 @@ void ui_type_logo_draw(vita2d_texture *logo, UiTypeLogo kind, int x, int y, int 
   const LogoCrop crop = crop_of(kind);
   const float scale = (float)h / (float)crop.h;
   vita2d_draw_texture_tint_part_scale(logo, (float)x, (float)y, 0.0f, (float)crop.y, (float)crop.w,
-                                      (float)crop.h, scale, scale, color);
+                                      (float)crop.h, scale, scale, ui_layer_color(color));
 }

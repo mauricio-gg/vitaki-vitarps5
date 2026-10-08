@@ -113,6 +113,7 @@ int ui_shape3_height(UiShape3 shape) {
 void ui_shape3_draw(UiShape3 shape, int x, int y, int w, uint32_t color) {
   if (shape < 0 || shape >= UI_SHAPE3_COUNT || !s_shape3[shape])
     return;
+  color = ui_layer_color(color);
   const vita2d_texture *tex = s_shape3[shape];
   const int cap = SHAPE3_SPECS[shape].cap;
   const int h = SHAPE3_SPECS[shape].height;
@@ -131,6 +132,7 @@ void ui_shape3_draw(UiShape3 shape, int x, int y, int w, uint32_t color) {
 void ui_shape9_draw(UiShape9 shape, UiRect r, uint32_t color) {
   if (shape < 0 || shape >= UI_SHAPE9_COUNT || !s_shape9[shape])
     return;
+  color = ui_layer_color(color);
   const vita2d_texture *tex = s_shape9[shape];
   const int cap = SHAPE9_SPECS[shape].cap;
   const bool skip_centre = SHAPE9_SPECS[shape].outline;

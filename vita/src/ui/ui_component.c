@@ -12,6 +12,17 @@
 /** Shared white glow texture; created once by ui_glow_init(). */
 static vita2d_texture *s_glow = NULL;
 
+/** Opacity multiplied into every layer colour; see ui_layer_set_alpha(). */
+static float s_layer_alpha = 1.0f;
+
+void ui_layer_set_alpha(float k) {
+  s_layer_alpha = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+}
+
+uint32_t ui_layer_color(uint32_t color) {
+  return ui_color_scale_alpha(color, s_layer_alpha);
+}
+
 /**
  * ui_glow_init() - Bake the shared glow: white, alpha falling off quadratically from
  * the centre to zero at the texture edge, so the glow never reaches the border and is
@@ -54,5 +65,5 @@ void ui_glow_draw_rect(UiRect around, int pad, uint32_t color) {
   const float scale_x = (float)(around.w + 2 * pad) / (float)UI_LIST_GLOW;
   const float scale_y = (float)(around.h + 2 * pad) / (float)UI_LIST_GLOW;
   vita2d_draw_texture_tint_scale(s_glow, (float)(around.x - pad), (float)(around.y - pad), scale_x,
-                                 scale_y, color);
+                                 scale_y, ui_layer_color(color));
 }

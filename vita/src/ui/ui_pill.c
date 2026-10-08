@@ -43,7 +43,7 @@ void ui_pill_draw(UiPillKind kind, int x, int y, const char *text) {
     ui_shape3_draw(UI_SHAPE3_PILL_32_OUTLINE, x, y, w, UI_WARN);
   } else {
     vita2d_draw_fill_circle((float)(text_x + UI_PILL_DOT_R), (float)(y + UI_PILL_H / 2),
-                            (float)UI_PILL_DOT_R, ui_color_scale_alpha(UI_ERR, k));
+                            (float)UI_PILL_DOT_R, ui_layer_color(ui_color_scale_alpha(UI_ERR, k)));
     text_x += DOT_SPACE;
   }
   ui_text_draw_face_centered_v(UI_FACE_T16, text_x, y, UI_PILL_H, ui_color_scale_alpha(UI_TEXT, k),
