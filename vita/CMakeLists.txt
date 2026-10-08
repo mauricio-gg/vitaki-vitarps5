@@ -92,6 +92,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_downsample.c
     src/ui/ui_freeze.c
     src/ui/ui_popup.c
+    src/ui/ui_pin_digits.c
     src/ui/ui_options_column.c
 
     third_party/tomlc99/toml.c

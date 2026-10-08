@@ -130,6 +130,19 @@ target_include_directories(pairing_result_tests PRIVATE
 
 add_test(NAME vitarps5_pairing_result_tests COMMAND pairing_result_tests)
 
+# pin_digits_tests.c checks the pure PIN rules (digit stepping, full check, value with leading
+# zeros). Standalone binary with its own main(); run natively (see the file header).
+add_executable(pin_digits_tests
+    pin_digits_tests.c
+    ../vita/src/ui/ui_pin_digits.c
+)
+
+target_include_directories(pin_digits_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_pin_digits_tests COMMAND pin_digits_tests)
+
 # ui_console_rows_tests.c checks the pure Consoles list rules (Filter row, row-to-console
 # mapping, focus, filter match). Standalone binary with its own main(); run natively (see the
 # file header).
