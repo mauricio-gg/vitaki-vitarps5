@@ -23,7 +23,6 @@ const KIND={
  retry:{t:'Retrying',col:'var(--warn)',dot:'yellow'},
  cool:{t:'Please wait...',col:'var(--warn)',dot:'yellow'}
 };
-const BADGE={ready:'check',standby:'moon',unpaired:'lock',psn:'globe',unavail:'',error:'warn',retry:'clock',cool:'clock'};
 const routeOf=c=>c.disc&&c.net?'Local Network + Internet':c.disc?'Local Network':c.net?'Internet':'Not reachable';
 const bothRoutes=c=>c.reg&&c.disc&&c.net;
 /* Console detail messages. Each has a status kind: error (red, needs the user) or retry (amber, the app is retrying or waiting). The row shows only the status label; the message shows in the info panel. */
@@ -49,6 +48,7 @@ const SETTINGS=[
  {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate in the stream overlay.'},
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},
+ {id:'hints',g:2,label:'Show Button Hints',type:'toggle',v:true,desc:'Show the button hints along the bottom of menus.'},
  {id:'blur',g:2,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:0,desc:'Blur the background waves behind menus. Strong and Dark are softer and calmer.'},
  {id:'cc',g:3,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},
  {id:'clamp',g:4,label:'Clamp Soft Restart Bitrate',type:'toggle',v:true,desc:'Limit the bitrate when the stream restarts after packet loss.'},

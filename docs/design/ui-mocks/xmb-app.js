@@ -42,7 +42,7 @@ function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexO
  $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
 }
 const unstExtra=()=>S.unst&&SET('net').v?unstPill():'';
-function paintHints(items){ $('#hintbar').innerHTML=hintRow(items,unstExtra()); fitHints(); }
+function paintHints(items){ $('#hintbar').innerHTML=hintRow(SET('hints').v?items:[],unstExtra()); fitHints(); }
 /* hint row collapse rule: a right slot of 200 px is reserved when the alert pill shows; if the hints no longer fit, items flagged low are dropped from the right until they do */
 function fitHints(){
  const hl=$('#hintbar .hl');if(!hl)return;
@@ -97,28 +97,34 @@ function kbKey(k){const o=S.kb;if(k==='ok'){S.kb=null;paintKb();o.done&&o.done()
 
 /* ---------------- HOME (C01 CategoryBar, C02 XmbList, C04 DetailPanel, C05 OptionsColumn) ---------------- */
 const CATS=[['Consoles','assets/icon_play.png'],['Settings','assets/icon_settings.png'],['Controller','icons/controller.svg'],['Profile','icons/profile.svg']];
+const hasFilterRow=()=>CONSOLES.length>4||!!S.flt;
+const firstSel=()=>hasFilterRow()&&visCons().length?1:0;
+const GICON=['video','network','display','controls','advanced'];
 function items(ci){
- if(ci===0){const v=visCons();return v.map(c=>({k:'console',c,t:c.name}));}
- if(ci===1)return GROUPS.map((n,gi)=>({k:'grp',gi,t:n,s:SETTINGS.filter(s=>s.g===gi).length+(SETTINGS.filter(s=>s.g===gi).length>1?' settings':' setting'),img:'assets/icon_settings.png'}));
- if(ci===2)return PNAME.map((p,i)=>({k:'preset',i,t:p,s:PDESC[i],img:'icons/controller.svg'}));
- return [{k:'pf',gi:0,t:'Account',s:'PSN Account ID',img:'icons/profile.svg'},{k:'pf',gi:1,t:'Connection',s:'Network, console and stream',img:'icons/profile.svg'},{k:'pf',gi:2,t:'PlayStation Network',s:PSN_STATES[psnState()],img:'icons/profile.svg'}];
+ if(ci===0){
+  const L=visCons().map(c=>({k:'console',c,t:c.name}));
+  return hasFilterRow()?[{k:'filter',t:S.flt?`Filter: &ldquo;${S.flt}&rdquo;`:'Filter&hellip;',s:S.flt?`${L.length} found &middot; ${inl('sq')} to clear`:''}].concat(L):L;
+ }
+ if(ci===1)return GROUPS.map((n,gi)=>({k:'grp',gi,t:n,s:SETTINGS.filter(s=>s.g===gi).length+(SETTINGS.filter(s=>s.g===gi).length>1?' settings':' setting'),img:`icons/${GICON[gi]}.svg`}));
+ if(ci===2)return PNAME.map((p,i)=>({k:'preset',i,t:p,s:PDESC[i],img:`icons/slot${i+1}.svg`}));
+ return [{k:'pf',gi:0,t:'Account',s:'PSN Account ID',img:'icons/account.svg'},{k:'pf',gi:1,t:'Connection',s:'Network, console and stream',img:'icons/connection.svg'},{k:'pf',gi:2,t:'PlayStation Network',s:PSN_STATES[psnState()],img:'icons/psn.svg'}];
 }
 let cache=[];
 const psnState=()=>SET('psnmode').v?S.psn:'disabled';
 const selItem=()=>cache[S.sel[S.cat]];
 function buildCats(){$('#cats').innerHTML=CATS.map((c,i)=>`<div class="cat" data-do="cat" data-arg="${i}" role="tab" aria-label="${c[0]}"><div class="ci"><img src="${c[1]}" alt=""></div><div class="cl">${c[0]}</div></div>`).join('');}
-function itemIcon(it){return it.k==='console'?ring(it.c,56):`<img class="nav" src="${it.img}" alt="">`;}
+function itemIcon(it){return it.k==='console'?`<img class="nav" src="icons/${it.c.room}.svg" alt="">`:it.k==='filter'?`<img class="nav" src="icons/search.svg" alt="">`:`<img class="nav" src="${it.img}" alt="">`;}
 function buildList(anim){
  cache=items(S.cat);
  S.sel[S.cat]=Math.max(0,Math.min(S.sel[S.cat],cache.length-1));
-  if(S.cat===0&&!cache.length){
-  $('#list').innerHTML='';
+  if(S.cat===0&&!cache.some(it=>it.k==='console')){
+  $('#empty').style.top=hasFilterRow()?'288px':'208px';
   $('#empty').innerHTML=(CONSOLES.length&&!S.noConsoles)?'No consoles match filter':`<span class="sp"></span>Searching for consoles...`;
  } else $('#empty').innerHTML='';
  $('#list').innerHTML=cache.map((it,i)=>{
   let sub=it.s||'';
   if(it.k==='console'){const k=kindOf(it.c),K=KIND[k];sub=`${sdot(k)}${K.t}${k==='psn'?' <span class="net">&middot; Internet</span>':''}`;}
-  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''}" data-do="item" data-arg="${i}">${it.c?`<span class="gl ${kindOf(it.c)}"></span>`:''}<div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div></div></div></div>`;
+  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''} ${it.c&&['cool','unpaired','unavail'].includes(kindOf(it.c))?'ico-dim':''}" data-do="item" data-arg="${i}"><span class="gl"></span><div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div></div></div></div>`;
  }).join('');
  layout();
 }
@@ -128,26 +134,25 @@ function layout(){
   slide(el,x,72,d<0?'scale(.75)':'');el.classList.toggle('on',d===0);
  });
  const sel=S.sel[S.cat],rows=$$('#list .xi');
- const hOf=(i,f)=>f?88:56;
+ const hOf=(i,f)=>64;
  let y=192;
  rows.forEach((el,i)=>{
   let top;
-  if(i<sel)top=192-80*(sel-i);
+  if(i<sel)top=192-64*(sel-i);
   else if(i===sel)top=192;
   else{top=y;}
-  if(i===sel)y=192+hOf(i,true)+24;else if(i>sel){y=top+hOf(i,false)+24;}
+  if(i===sel)y=192+hOf(i,true)+16;else if(i>sel){y=top+hOf(i,false);}
   slide(el,0,top);el.style.opacity=i<sel?0:'';el.style.pointerEvents=i<sel?'none':'auto';
   el.classList.toggle('sel',i===sel);
  });
- const showFlt=S.cat===0&&(CONSOLES.length>4||S.flt);
- $('#flt').innerHTML=showFlt?(S.flt?`<span data-do="kbflt">Filter: &ldquo;${S.flt}&rdquo; (${visCons().length} found)</span><span class="x" data-do="fltclr">${ico('close',16)}</span>`:`<span data-do="kbflt" style="display:flex;align-items:center;gap:8px">${gl('start')}Filter</span>`):'';
  paintDetail();refreshHints();
 }
 function kv(a,b,col=''){return `<div class="kv"><span>${a}</span><b ${col?`style="color:${col}"`:''}>${b}</b></div>`;}
 function paintDetail(){
  const it=selItem(),P=$('#detail');let h='';
  if(!it){P.innerHTML='';return;}
- if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
+ if(it.k==='filter'){const n=visCons().length,tot=CONSOLES.length;h=`<h4>Filter</h4><p class="st" style="height:auto;margin:0 0 16px">Find a console by name or IP address.</p><p class="st" style="height:auto">${S.flt?`&ldquo;${S.flt}&rdquo;: ${n} found of ${tot}`:`${tot} consoles`}</p>`;}
+ else if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
   const msg=c.hint?HINT[c.hint]:null;
   h=`${typeLogo(c)}<h4>${c.name}</h4><p class="st">${sdot(k)}${K.t}</p>${msg?`<p class="msg ${msg.k}">${msg.t}</p>`:''}${kv('Address',c.ip||'Unknown')}${kv('Route',routeOf(c))}${kv('Pairing',c.reg?'Paired':'Unpaired')}`;
  } else if(it.k==='grp'){const rs=SETTINGS.filter(s=>s.g===it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.map(s=>kv(s.label.replace(' (artifacts) (Experimental)',' (Experimental)'),setVal(s))).join('')}`;}
@@ -174,8 +179,8 @@ function homeHints(){
  if(S.opts)return [['confirm','Select',{key:'ok'}],['cancel','Back',{key:'back'}]];
  const it=selItem(),L=[];
  if(S.cat===0){
-  if(it&&it.k==='console')L.push(['confirm',consoleVerb(it.c),{key:'ok',dim:kindOf(it.c)==='cool'}],['tri','Options',{key:'tri'}]);
-  if(CONSOLES.length>4||S.flt)L.push(['start',S.flt?'Clear filter':'Filter',{key:'start'}]);
+  if(it&&it.k==='filter'){L.push(['confirm','Filter',{key:'ok'}]);if(S.flt)L.push(['sq','Clear',{key:'sq'}]);}
+  else if(it&&it.k==='console')L.push(['confirm',consoleVerb(it.c),{key:'ok',dim:kindOf(it.c)==='cool'}],['tri','Options',{key:'tri'}]);
  } else L.push(['confirm','Open',{key:'ok'}]);
  L.push(['LR','Category',{low:1}]);
  return L;
@@ -233,7 +238,7 @@ function rowVal(r,i){
 function paintPage(full){
  const P=S.pg,cfg=PG[P.kind],{rs,i:s,k}=curRow();P.row[k]=s;
  const login=P.kind==='profile'&&P.g===2&&psnState()==='await';
- $('#ly-page').innerHTML=`<div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>${P.kind==='profile'?`<div class="ident"><span class="av"><img src="icons/profile.svg" alt=""></span><span class="it"><b>${ACCT}</b><i>PlayStation Network</i></span></div>`:''}
+ $('#ly-page').innerHTML=`<span class="bk" data-do="pgback">${ico('back',24)}</span><div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>${P.kind==='profile'?`<div class="ident"><span class="av"><img src="icons/profile.svg" alt=""></span><span class="it"><b>${ACCT}</b><i>PlayStation Network</i></span></div>`:''}
  <div id="groups">${cfg.groups.map((n,i)=>`<div class="grp ${i===P.g?'on':''} ${i===P.g&&P.focus==='g'?'act':''}" data-do="pgg" data-arg="${i}">${n}</div>`).join('')}</div>
  ${login?loginHTML():`<div id="pane"><div id="rows" ${full?'':'style="animation:none"'}>${rs.map((r,i)=>srow({i,label:r.label,val:rowVal(r,i),sel:i===s,act:i===s&&P.focus==='r',dis:r.dis,tone:r.tone})).join('')}</div></div>
  <div id="pdesc">${rs[s].desc||''}</div>`}
@@ -256,7 +261,7 @@ function loginHTML(){
  const SHORT_URL='my.account.sony.com/sso/ca/authorize'; /* display only; the full authorize URL stays in memory for the QR and the browser */
  const qr=S.qr?`<div class="qr" data-do="qrtog"><svg viewBox="0 0 25 25" width="160" height="160" shape-rendering="crispEdges">${qrSvg()}</svg></div>`:`<div class="qr hid" data-do="qrtog">QR hidden</div>`;
  return `<div class="lgn"><h3>Phone Login Assist</h3><div class="cols">${qr}<div class="st"><div>1&nbsp; Press ${inl('start')} to show or hide the QR code</div><div>2&nbsp; Scan the QR code with your phone and sign in</div><div>3&nbsp; Press ${inl('confirm')} and paste the redirect URL or code</div><div>4&nbsp; ${inl('select')} opens the Vita browser instead</div></div></div>
- <div class="st" style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:0 16px"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div>`;
+ <div class="st" style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:0 16px"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div><div class="lbtns">${tbtn('Enter code',{do:'btn',arg:'ok'})}${tbtn('Open browser',{do:'btn',arg:'select'})}${tbtn('Cancel login',{do:'btn',arg:'sq'})}</div>`;
 }
 function qrSvg(){let s='';const f=(x,y)=>`<rect x="${x}" y="${y}" width="7" height="7" fill="#0a0a0a"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#0a0a0a"/>`;s+=f(0,0)+f(18,0)+f(0,18);let r=7;for(let y=0;y<25;y++)for(let x=0;x<25;x++){if((x<8&&y<8)||(x>16&&y<8)||(x<8&&y>16))continue;r=(r*9301+49297)%233280;if(r%3===0)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#0a0a0a"/>`;}return s;}
 function openPage(kind,g,focus='r'){
@@ -274,7 +279,7 @@ function pageAct(r){
  }
 }
 function pageChange(d){
- const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur')applyGlass();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc')refreshHints();}else return;
+ const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur')applyGlass();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
  paintPage(false);
 }
 
@@ -292,7 +297,7 @@ function zones(r,arr,mode){
 function paintCtrl(){
  const C=S.ct,m=MAPS[C.slot],v=C.view;
  const title=v==='summary'?'Controller':v==='front'?'Front Touch':'Rear Touch';
- let h=`<div class="ptitle"><img src="icons/controller.svg" alt=""><h1>${title}</h1>${v!=='summary'?`<span class="sub">${PNAME[C.slot]}</span>`:''}</div><div class="prule"></div>`;
+ let h=`<span class="bk" data-do="${v==='summary'?'pgback':'btn" data-arg="back'}">${ico('back',24)}</span><div class="ptitle"><img src="icons/controller.svg" alt=""><h1>${title}</h1>${v!=='summary'?`<span class="sub">${PNAME[C.slot]}</span>`:''}</div><div class="prule"></div>`;
  if(v==='summary')h+=`<div class="pright"><span class="chev" data-do="preset" data-arg="-1">${ico('back',16)}</span><span style="min-width:96px;text-align:center">${PNAME[C.slot]}</span><span class="chev" data-do="preset" data-arg="1">${ico('next',16)}</span></div>`;
  if(v==='summary'&&C.page===0){
   const H=FRONT.w*396/874;
@@ -303,11 +308,11 @@ function paintCtrl(){
    const x1=i?x+w*.5:x+w*.5,y1=168,dx=px-x1,dy=py-y1,len=Math.hypot(dx,dy),ang=Math.atan2(dy,dx);
    h+=`<div class="cl-line" style="left:${x1}px;top:${y1}px;width:${len}px;transform:rotate(${ang}rad)"></div><div class="cl-dot" style="left:${px-3}px;top:${py-3}px"></div>`;
   });
-  h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" style="right:48px">Page 1/2 &middot; Buttons</div>`;
+  h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" data-do="cpage" style="right:48px">Page 1/2 &middot; Buttons</div>`;
  } else if(v==='summary'){
   const H=BACK.w*327/720;
   h+=`<div class="dg back" data-do="dg" style="left:${BACK.x}px;top:${BACK.y}px;width:${BACK.w}px;height:${H}px"><img src="assets/controller_back_clean.png" alt="Vita back"></div>`+zones(backRect(BACK),m.back,false);
-  h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" style="right:48px">Page 2/2 &middot; Back Touch &middot; <b>${nz(m.back)}</b> zones</div>`;
+  h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" data-do="cpage" style="right:48px">Page 2/2 &middot; Back Touch &middot; <b>${nz(m.back)}</b> zones</div>`;
  } else if(v==='front'){
   const H=ZF.w*396/874;
   h+=`<div class="dg" style="left:${ZF.x}px;top:${ZF.y}px;width:${ZF.w}px;height:${H}px"><img src="assets/controller_front.png" alt=""></div>`+zones(frontRect(ZF),m.front,true);
@@ -317,6 +322,8 @@ function paintCtrl(){
   h+=`<div class="dg back" style="left:${ZB.x}px;top:${ZB.y}px;width:${ZB.w}px;height:${H}px"><img src="assets/controller_back_clean.png" alt=""></div>`+zones(backRect(ZB),m.back,true);
   h+=`<div class="cfoot" style="left:48px">${C.pick.length>1?C.pick.length+' Zones Selected':'Zone '+zoneName(C.cur)}</div>`;
  }
+ /* touch parity when button hints are hidden: Clear and Whole surface as small buttons (hit 48 high) */
+ h+=`<div class="fbtns">${v!=='summary'?tbtn('Whole surface',{do:'cwhole',sm:1}):''}${tbtn('Clear',{do:'cclear',sm:1})}</div>`;
  $('#ly-ctrl').innerHTML=h;refreshHints();
 }
 function ctrlHints(){
@@ -466,17 +473,19 @@ function homeKey(k){
   return paintOpts();}
  if(k==='up'&&S.sel[c]>0){S.sel[c]--;layout();}
  else if(k==='down'&&S.sel[c]<n-1){S.sel[c]++;layout();}
- else if((k==='left'||k==='L')&&c>0){S.cat--;buildList(true);}
+ else if((k==='left'||k==='L')&&c>0){S.cat--;if(S.cat===0)S.sel[0]=firstSel();buildList(true);}
  else if((k==='right'||k==='R')&&c<CATS.length-1){S.cat++;buildList(true);}
- else if(k==='start'&&c===0&&(CONSOLES.length>4||S.flt)){if(S.flt){S.flt='';buildList(true);}else openFilter();}
+ else if(k==='start'&&c===0&&hasFilterRow()){if(S.flt){S.flt='';S.sel[0]=firstSel();buildList(true);}else openFilter();}
+ else if(k==='sq'&&c===0&&S.flt&&selItem()&&selItem().k==='filter'){S.flt='';S.sel[0]=firstSel();buildList(true);}
  else if(k==='tri'&&c===0&&selItem()&&selItem().k==='console'){S.opts=true;S.os=0;paintOpts();}
  else if(k==='ok'){const it=selItem();if(!it)return;
-  if(it.k==='console')connect(it.c);
+  if(it.k==='filter')openFilter();
+  else if(it.k==='console')connect(it.c);
   else if(it.k==='grp')openPage('settings',it.gi,'r');
   else if(it.k==='pf')openPage('profile',it.gi,'r');
   else if(it.k==='preset'){S.ct.slot=it.i;openCtrl();}}
 }
-function openFilter(){keyboard({title:'Filter Consoles',text:'',done:()=>{S.flt='den';S.sel[0]=0;buildList(true);}});}
+function openFilter(){keyboard({title:'Filter Consoles',text:S.flt,done:()=>{S.flt=S.flt?'':'den';S.sel[0]=firstSel();buildList(true);}});} /* mock: Done with an active filter models deleting the text (clears); otherwise types "den" */
 function pageKey(k){
  const P=S.pg,cfg=PG[P.kind],{rs,i:s,k:kk}=curRow(),login=P.kind==='profile'&&P.g===2&&psnState()==='await';
  if(login){
@@ -545,11 +554,13 @@ addEventListener('keyup',e=>{
 function act(a,arg,el){
  const i=+arg;
  if(a==='btn')return key(arg);
- if(a==='cat'){S.cat=i;buildList(true);}
- else if(a==='item'){if(S.sel[S.cat]!==i){S.sel[S.cat]=i;layout();}else key('ok');}
+ if(a==='cat'){S.cat=i;if(i===0)S.sel[0]=firstSel();buildList(true);}
+ else if(a==='item'){if(cache[i]&&cache[i].k==='filter'){S.sel[S.cat]=i;layout();openFilter();}else if(S.sel[S.cat]!==i){S.sel[S.cat]=i;layout();}else key('ok');}
  else if(a==='oi'){S.os=i;key('ok');}
- else if(a==='kbflt')openFilter();
- else if(a==='fltclr'){S.flt='';buildList(true);}
+ else if(a==='pgback')returnHome();
+ else if(a==='cclear')key('sq');
+ else if(a==='cwhole')key('tri');
+ else if(a==='cpage'){S.ct.page=S.ct.page?0:1;paintCtrl();}
  else if(a==='pgg'){S.pg.g=i;S.pg.focus='g';paintPage(true);}
  else if(a==='row'){const {rs,k}=curRow();S.pg.focus='r';S.pg.row[k]=i;if(rs[i].type==='info')paintPage(false);else{paintPage(false);pageAct(rs[i]);}}
  else if(a==='dec'||a==='inc'){const {k}=curRow();S.pg.focus='r';S.pg.row[k]=i;pageChange(a==='inc'?1:-1);}
@@ -591,6 +602,15 @@ document.addEventListener('pointermove',e=>{
  while(steps<sw.done){key(sw.dir==='v'?'up':'left');sw.done--;}
 });
 document.addEventListener('pointerup',()=>{if(sw&&sw.moved)suppressUntil=Date.now()+80;sw=null;});
+/* long-press (0.5 s) on a console row opens its Options: the touch path for Triangle when button hints are hidden */
+let lp=null;
+document.addEventListener('pointerdown',e=>{
+ const r=e.target.closest&&e.target.closest('.xi');if(!r||S.screen!=='home'||S.opts||S.pop||S.kb)return;
+ const i=+r.dataset.arg;if(!cache[i]||cache[i].k!=='console')return;
+ lp={x:e.clientX,y:e.clientY,t:setTimeout(()=>{S.sel[0]=i;layout();S.opts=true;S.os=0;paintOpts();suppressUntil=Date.now()+400;lp=null;},500)};
+});
+document.addEventListener('pointermove',e=>{if(lp&&Math.hypot(e.clientX-lp.x,e.clientY-lp.y)>8){clearTimeout(lp.t);lp=null;}});
+document.addEventListener('pointerup',()=>{if(lp){clearTimeout(lp.t);lp=null;}});
 document.addEventListener('click',e=>{
  if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
@@ -609,7 +629,7 @@ document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint
 
 /* ---------------- mock chrome: deep links, toggles, device frame ---------------- */
 const JUMPS=[
- ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter','Filter active'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
+ ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter-item','Filter item focused'],['Home','filter','Filter active'],['Home','home-nohints','Button hints hidden'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
  ['XMB categories','xmb-settings','Settings category'],['XMB categories','xmb-controller','Controller category'],['XMB categories','xmb-profile','Profile category'],
  ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
@@ -619,7 +639,7 @@ const JUMPS=[
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
 const DL={};
-const C0=(c,i)=>{S.cat=c;S.sel[c]=i||0;openHome(false);};
+const C0=(c,i)=>{S.cat=c;S.sel[c]=(i||0)+(c===0&&hasFilterRow()?1:0);openHome(false);};
 const ORIG=CONSOLES.map(c=>Object.assign({},c));
 const mockConsole=()=>{CONSOLES.length=0;ORIG.forEach(o=>CONSOLES.push(Object.assign({},o)));S.flt='';S.noConsoles=false;};
 Object.assign(DL,{
@@ -633,8 +653,10 @@ Object.assign(DL,{
  'hints-retry':()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,0);},
  'home-unstable':()=>{mockConsole();S.unst=true;$('#bUn').classList.add('on');$('#bUn').textContent='Network unstable: on';C0(0,0);},
  'empty-searching':()=>{mockConsole();S.noConsoles=true;C0(0,0);},
- 'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);},
- filter:()=>{mockConsole();S.flt='den';C0(0,0);},
+ 'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);S.sel[0]=0;layout();},
+ filter:()=>{mockConsole();S.flt='den';C0(0,0);S.sel[0]=0;layout();},
+ 'filter-item':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();},
+ 'home-nohints':()=>{mockConsole();SET('hints').v=false;C0(0,0);},
  keyboard:()=>{mockConsole();C0(0,0);openFilter();},
  options:()=>{mockConsole();C0(0,0);S.opts=true;S.os=0;paintOpts();},
  'options-unpaired':()=>{mockConsole();C0(0,4);S.opts=true;S.os=0;paintOpts();},
@@ -693,14 +715,14 @@ Object.assign(DL,{
 DL['consoles-unregistered']=DL['consoles-unpaired'];DL.error=DL['result-connect-failed'];DL.register=DL.pin;DL.chooser=DL['connect-via'];
 function jump(id){
  closePop();S.kb=null;paintKb();S.toast=null;paintToast();clearTimeout(stageTimer);
- SET('cc').v=id==='settings-circle';$('#bCc').textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');
+ SET('cc').v=id==='settings-circle';SET('hints').v=id!=='home-nohints';$('#bCc').textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');
  if(id!=='home-unstable'&&id!=='unstable'){S.unst=false;$('#bUn').classList.remove('on');$('#bUn').textContent='Network unstable: off';}
  if(!id.startsWith('profile')&&!id.startsWith('toast')&&!id.startsWith('keyboard-paste')){S.logout=false;}
  const f=DL[id]||DL.home;f();$('#jump').value=DL[id]?id:'home';
 }
 function init(){
  const skel=`<canvas id="rib" width="960" height="544"></canvas><div class="vig"></div><div class="wash" style="opacity:0"></div><div class="glassveil"></div>
- <div class="layer" id="ly-home"><div id="catstrip" style="position:absolute;left:0;top:64px;width:960px;height:112px"></div><div id="cats"></div><div id="flt"></div><div id="listvp"><div id="list"></div></div><div id="empty" class="empty"></div><div id="detail"></div><div id="opts"></div></div>
+ <div class="layer" id="ly-home"><div id="catstrip" style="position:absolute;left:0;top:64px;width:960px;height:112px"></div><div id="cats"></div><div id="listvp"><div id="list"></div></div><div id="empty" class="empty"></div><div id="detail"></div><div id="opts"></div></div>
  <div class="layer" id="ly-page" style="display:none"></div><div class="layer" id="ly-ctrl" style="display:none"></div><div class="layer" id="ly-pin" style="display:none"></div><div class="layer" id="ly-conn" style="display:none"></div><div class="layer" id="ly-strm" style="display:none"></div>
  <div class="topbar" id="top"></div><div id="hintbar"></div><div id="popLayer" style="position:absolute;inset:0;pointer-events:none;z-index:30"></div><div id="toastLayer"></div><div id="kbLayer"></div>`;
  $('#screen').innerHTML=skel;$('#screen').style.cssText='position:absolute;inset:0';

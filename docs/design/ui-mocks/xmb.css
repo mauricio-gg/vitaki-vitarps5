@@ -103,8 +103,6 @@ img.g{height:24px}
 .empty{position:absolute;left:304px;top:208px;width:288px;font-size:var(--t20);font-weight:var(--w-light);color:var(--text-2);line-height:32px;display:flex;align-items:center;gap:var(--s2)}
 .empty .sp{width:16px;height:16px;border-radius:50%;border:var(--lw2) solid var(--text);border-top-color:transparent;animation:spin 800ms linear infinite;flex:none}
 /* C28 FilterLine: x608 y144 */
-#flt{position:absolute;left:608px;top:144px;height:32px;display:flex;align-items:center;gap:var(--s1);font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-2);cursor:pointer;white-space:nowrap}
-#flt .x{width:48px;height:48px;margin:-8px 0;display:flex;align-items:center;justify-content:center}
 
 /* C03 StatusRing: room icon in a 2 px ring + corner badge */
 .ring{position:relative;display:inline-flex;width:var(--sz);height:var(--sz);border-radius:50%;align-items:center;justify-content:center;border:var(--lw2) solid var(--rc);--rc:var(--idle);background:radial-gradient(circle at 50% 40%,var(--ring-fill),transparent 70%);box-shadow:0 0 12px color-mix(in srgb,var(--rc) 45%,transparent);text-shadow:none}
@@ -112,8 +110,6 @@ img.g{height:24px}
 .ring.unpaired{--rc:var(--idle);border-style:dashed;box-shadow:none}
 .ring.cool,.ring.unavail{box-shadow:none}
 .ring .rm{display:block;height:auto;filter:drop-shadow(0 1px 2px var(--shadow))}
-.ring .bdg{position:absolute;right:-4px;bottom:-4px;width:calc(var(--sz)*.4);height:calc(var(--sz)*.4);border-radius:50%;background:var(--badge-bg);border:var(--lw2) solid var(--rc);color:var(--rc);display:flex;align-items:center;justify-content:center;font-style:normal}
-.ring .bdg svg{width:70%;height:70%}
 
 /* C04 DetailPanel: x608 y192 w304, no card */
 #detail{position:absolute;left:608px;top:192px;width:304px;animation:rise var(--d2) var(--ease)}
@@ -133,8 +129,7 @@ img.g{height:24px}
 .oi.sel{color:var(--text);border-bottom:var(--lw2) solid var(--text);text-shadow:0 0 12px var(--glow),0 1px 4px var(--shadow)}
 .oi.dis{opacity:.45}
 /* Options open: every other Home layer dims; Options column and hint row stay bright */
-.opts-open #top,.opts-open #listvp,.opts-open #detail,.opts-open #flt,.opts-open #cats,.opts-open #empty{opacity:.25;transition:opacity var(--d2)}
-
+.opts-open #top,.opts-open #listvp,.opts-open #detail,.opts-open #cats,.opts-open #empty{opacity:.25;transition:opacity var(--d2)}
 /* C07 PageShell: title y64 h48, rule y120, groups x48 w256, pane x336 w576 */
 .ptitle{position:absolute;left:var(--mx);top:var(--title-y);height:48px;display:flex;align-items:center;gap:var(--s2)}
 .ptitle img,.ptitle svg{width:32px;height:32px;object-fit:contain}
@@ -306,8 +301,6 @@ img.g{height:24px}
 .lgn .qr{cursor:pointer}
 .stage img{-webkit-user-drag:none}
 
-#flt [data-do=kbflt]{position:relative;display:flex;align-items:center;height:32px}
-#flt [data-do=kbflt]::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}
 .toast-on #pdesc{visibility:hidden}
 
 /* ---- Background Blur setting: veil over the blurred wave (None draws no veil) ---- */
@@ -346,3 +339,24 @@ img.g{height:24px}
 /* Unavailable is neutral, not an error: grey dot, dimmed ring, no badge, no glow */
 .ring.unavail{--rc:var(--text-3);opacity:.55;box-shadow:none}
 .xi .gl.unavail{opacity:0}
+
+/* ---- round 8: item icons 38 px (UI_ITEM_ICON), smaller item titles, list without rings or badges, glow on every focused icon, touch-parity controls ---- */
+.xi .itc{align-items:center}
+.xi .ic,.xi.sel .ic{transform:none}
+.xi .ic img.nav{width:38px;height:38px;filter:drop-shadow(0 1px 3px var(--shadow))}
+.xi.sel .ic img.nav{filter:drop-shadow(0 1px 3px var(--shadow)) brightness(1.15)}
+.xi .n{font-size:var(--t16);font-weight:var(--w-reg);line-height:20px}
+.xi .s{font-size:var(--t14);line-height:20px}
+.xi.sel .n{font-size:var(--t20);font-weight:var(--w-light);line-height:24px}
+.xi.sel .s{font-size:var(--t16);line-height:24px}
+/* focus glow: own padded texture (112 square around the 64 box, 38 px art) drawn first, white, shown on the focused item only */
+.xi .gl{background:radial-gradient(closest-side,var(--glow),transparent);opacity:0}
+.xi.sel .gl{opacity:.5}
+.xi.ico-dim .ic img{opacity:.55}
+.bk{position:absolute;left:0;top:var(--title-y);width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--text-2);cursor:pointer;z-index:4}
+.fbtns{position:absolute;left:0;right:0;top:460px;display:flex;justify-content:center;gap:var(--s2)}
+.tb.sm{height:32px;min-width:96px;padding:0 var(--s2);font-size:var(--t16);font-weight:var(--w-reg);position:relative}
+.tb.sm::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}
+.lbtns{position:absolute;left:336px;top:432px;width:576px;display:flex;gap:var(--s2)}
+.cfoot[data-do]{cursor:pointer}
+.cfoot[data-do]::after{content:"";position:absolute;left:-8px;right:-8px;top:-12px;bottom:-12px}

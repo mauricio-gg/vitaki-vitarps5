@@ -1,4 +1,4 @@
-# XMB feasibility (issue #271, round 7)
+# XMB feasibility (issue #271, round 8)
 
 One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita2d. It replaces every earlier version. Nothing was built or measured on a Vita; all counts and sizes are paper estimates to be checked on hardware. Budgets: about 80 draw calls on Home, about 15 MB of textures.
 
@@ -8,8 +8,9 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 |---|---|---|---|
 | `icon_play.png`, `icon_settings.png` (48 px) | existing in the app | Consoles and Settings categories, setting-group rows | white, drawn tinted |
 | `icons/controller.svg`, `icons/profile.svg` | new, flat white | Controller and Profile categories, page titles | bake to 48 px PNG |
-| Room icons `tv, sofa, bed, bunk, desk, house` | new, flat white | status ring centre | one atlas, 6 x 48 px, under 0.05 MB; default tv |
-| Status ring, badge and glyph | baked once | console state | **one texture per state, ring + badge disc + badge glyph together** (Ready, Standby, Unpaired dashed, Internet, Error, Retrying, Cooldown, and Unavailable with no badge): 8 textures of about 64 x 64, so ring + badge is 1 draw; tinted at draw time |
+| Room icons `tv, sofa, bed, bunk, desk, house` | new, flat white | console list items (38 px, no ring), Connecting ring centre, icon picker | one atlas, 6 x 48 px, under 0.05 MB; default tv; dimmed to 55% for Unpaired, Unavailable and Cooldown |
+| Connecting ring | baked once | Connecting screen only | one 128 px ring texture tinted per state colour (list rings and badges were removed in round 8); with the halo, 2 draws |
+| Item icons | new, flat white SVG baked to 38 px | settings groups (video, network, display, controls, advanced), Profile groups (account, connection, psn), presets (slot1 to slot3), Filter (search) | 12 icons of 38 x 38 RGBA (about 5.8 KB each), about 0.07 MB as one atlas; same weight as the room icons |
 | Status dot | none | list rows | flat circle `vita2d_draw_fill_circle` in a token colour (the ellipse PNGs are no longer used) |
 | `PS5_logo.png` (132 x 49), `ps4.png` (100 x 100) | existing in the app | detail panel, Connecting | cropped to the wordmark, drawn large in white |
 | Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 20 in the hint row, 20 inline |
@@ -18,7 +19,7 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | Wi-Fi, battery, check, warning, lock, globe, moon, clock, chevrons, close | new, simple strokes | top bar, badges, rows, popups | one small glyph atlas |
 | `controller_front.png` (874 x 396), `controller_back.png` (720 x 327) | existing in the app | Controller screens | unchanged; the mock uses `controller_back_clean.png` (the tiny "Sony Computer Entertainment Inc" line erased), ship that copy |
 | `Vita_RPS5_Logo.png` | existing | top bar | scaled to 32 px high |
-| Glow | baked soft blob textures (white, and one per status colour) | focus glow behind icons, rings and text | each padded by its glow radius on all sides (art + 2 x radius, transparent border), drawn before the art, never clipped to the art or the row (SPEC 2.0 Glow rule) |
+| Glow | baked soft blob textures: one white 112 x 112 (focused list icon, same for every category), one state-tinted for the Connecting ring | focus glow behind icons and text | each padded by its glow radius on all sides (art + 2 x radius, transparent border), drawn before the art, never clipped to the art or the row (SPEC 2.0 Glow rule) |
 | Wave | no texture | background | ribbons are geometry (section 3) |
 
 Removed from the app by this design: the wave sidebar, particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations.
@@ -44,8 +45,9 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 
 | Screen | Draws | Breakdown |
 |---|---|---|
-| **Home (Consoles)** | **74** (76 with a status message, 77 with the cooldown banner) | wave 12 (5 fill strips + 5 line strips + gradient + dust), vignette 3 (gradient rects), top bar 5 (logo, Wi-Fi, battery icon, percent, clock), categories 6 (4 icons, glow, label), filter line 2, list 25 (4 rows x 6: glow, ring+badge, room icon, dot, name, status; +1 "Internet" label), detail 13 (logo, name, status dot + text, 3 kv rows x 3: label, value, hairline), hint row 8 (4 hints x glyph + text) |
-| Home with Options open | **80** as designed | the retained Home layers still drawn dimmed: wave 12, vignette 3, top bar 5, categories 6, filter 2, list 25, detail 13 = 66 (dimming is a tint on each draw, no extra call); hint row 4 (Select, Back); Options column 10 (edge gradient 1, name 1, "Options" 1, 4 row labels, focused 3-slice bar 3). At the 80 budget. Cheap saving if needed: do not draw the detail panel and filter line behind the column (they are at 25% and covered by the column), which saves 15 |
+| **Home (Consoles)** | **67** (69 with a status message, 70 with the cooldown banner) | wave 12 (5 fill strips + 5 line strips + gradient + dust), vignette 3 (gradient rects), top bar 5 (logo, Wi-Fi, battery icon, percent, clock), categories 6 (4 icons, glow, label), list 22 (5 rows visible including the faded one x 4 draws: icon, dot, name, status; +1 focus glow; +1 "Internet" label), detail 13 (logo, name, status dot + text, 3 kv rows x 3: label, value, hairline), hint row 6 (Connect, Options, L R Category: 3 x glyph + text) |
+| Home, Filter row focused | 55 | same frame 12 + 3 + 5 + 6, list 21 (Filter row: icon, name, status, glow = 4; 4 console rows x 4 + Internet label), detail 4 (title, two text lines, count), hint row 4 (Filter, L R Category; +2 with Clear) |
+| Home with Options open | **75** | the retained Home layers still drawn dimmed: wave 12, vignette 3, top bar 5, categories 6, list 22, detail 13 = 61 (dimming is a tint on each draw, no extra call); hint row 4 (Select, Back); Options column 10 (edge gradient 1, name 1, "Options" 1, 4 row labels, focused 3-slice bar 3). Cheap saving if needed: do not draw the detail panel behind the column (-13) |
 | Settings (Video group, worst case) | 62 | wave 12, wash 1, top bar 5, title 3, group list 6 (5 labels + current marker), rows 25 (5 rows x 5: label, divider, and a control of 3: toggle = track + knob + On/Off text, choice = 2 chevrons + value), focused 3-slice bar 3, description 1, hint row 6 |
 | Profile (Account or Connection) | about 55 | same frame as Settings with 3 to 5 info rows (3 draws each) and the identity block 4 |
 | Controller summary | 49 | wave 12, wash 1, top bar 5, title 3, preset switcher 3, diagram 1, 2 callouts x 4 (text, underline, leader, dot) = 8, footers 2, hint row 14 (7 hints) |
@@ -62,14 +64,14 @@ Status messages in the detail panel are laid out once when the selection or mess
 | Group | MB |
 |---|---|
 | Category and group icons, glyph atlas (hint glyphs, status icons) | 0.15 |
-| Room-icon atlas, status ring + badge textures, glow | 0.25 |
+| Item icons (12 x 38 px), room-icon atlas, glow textures, Connecting ring | 0.27 |
 | PS5 and PS4 logos | 0.05 |
 | Controller diagrams at source size (scale down for a saving) | 2.50 |
 | Font atlases (5 faces) | 1.40 |
 | Top-bar logo, misc | 0.10 |
 | Rounded shape textures (3-slice, 9-slice, knob, PIN box) | 0.05 |
 | Frozen half-resolution background copy for popups (480 x 272 RGBA) | 0.52 |
-| **Total** | **5.02, about 5.0** |
+| **Total** | **5.04, about 5.0** |
 
 Well under the 15 MB budget. The wave costs none.
 
@@ -89,7 +91,7 @@ Well under the 15 MB budget. The wave costs none.
 | Registration and connection outcomes (finished OK, PIN not accepted, unreachable, timeout) | medium, backend | the UI needs these four results from the registration code (SPEC 3.3), not UI work |
 | Wi-Fi, battery and clock reads for the top bar | low | poll about once per second (`sceNetCtl`, `scePower`, RTC) |
 | Glow looks right on the Vita OLED | low | the mock uses CSS drop-shadow; confirm the baked texture on hardware |
-| All numbers are estimates | n/a | measure Home and Home + Options first; they are at the 80-call budget (74 and 80) |
+| All numbers are estimates | n/a | measure Home and Home + Options first; they are under the 80-call budget (67 and 75; Home with Options is the heaviest Home state) |
 
 ## 8. Background Blur (user setting: None / Soft / Strong / Dark)
 

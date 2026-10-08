@@ -49,9 +49,9 @@ const pill=(html,cls='')=>`<span class="pill ${cls}">${html}</span>`;
 const unstPill=()=>pill('<i class="d"></i>Network Unstable','unst');
 
 /* C03 StatusRing */
-function ring(c,size){
+function ring(c,size){ /* Connecting art only: status ring around the room icon, no badge */
  const k=kindOf(c);
- return `<span class="ring ${k}" style="--sz:${size}px"><img class="rm" src="icons/${c.room}.svg" alt="" style="width:${Math.round(size*.5)}px;opacity:${c.reg&&k!=='cool'?1:.7}">${BADGE[k]?`<i class="bdg">${ico(BADGE[k],Math.round(size*.24))}</i>`:''}</span>`;
+ return `<span class="ring ${k}" style="--sz:${size}px"><img class="rm" src="icons/${c.room}.svg" alt="" style="width:${Math.round(size*.5)}px"></span>`;
 }
 /* console-type logo, bare and white (PS5_logo.png / ps4.png cropped to the wordmark), height h */
 function typeLogo(c,h=48){
@@ -66,7 +66,7 @@ const choice=(txt,i)=>`<span class="chc"><span class="ar" data-do="dec" data-arg
 const srow=(o)=>`<div class="srow ${o.sel?'sel':''} ${o.act?'act':''} ${o.dis?'dis':''} ${o.tone||''}" data-do="row" data-arg="${o.i}"><span>${o.label}</span><span class="val">${o.val||''}</span></div>`;
 
 /* C22 TextButton */
-const tbtn=(label,o={})=>`<button class="tb ${o.sel?'sel':''} ${o.dis?'dis':''}" ${o.do?`data-do="${o.do}" data-arg="${o.arg??''}"`:''}>${o.icon||''}${label}</button>`;
+const tbtn=(label,o={})=>`<button class="tb ${o.sm?'sm':''} ${o.sel?'sel':''} ${o.dis?'dis':''}" ${o.do?`data-do="${o.do}" data-arg="${o.arg??''}"`:''}>${o.icon||''}${label}</button>`;
 
 /* C11 PopupShell + C12 ListPopup + C13 Confirm + C14 Result. p: {size,tone,icon,title,sub,body,rows,grid,buttons,sel} */
 function popupHTML(p){
