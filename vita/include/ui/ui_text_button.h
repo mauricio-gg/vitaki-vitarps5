@@ -32,6 +32,12 @@ int ui_text_button_width(const char *label);
 /** ui_text_button_init() - Set @btn up with its top-left corner at (@x, @y); not focused. */
 void ui_text_button_init(UiTextButton *btn, const char *label, int x, int y);
 
+/**
+ * ui_text_button_set_width() - Make the pill @w wide (a popup's button bar shares its width
+ * between the buttons). The label stays centred; the hit rect is recomputed.
+ */
+void ui_text_button_set_width(UiTextButton *btn, int w);
+
 /** ui_text_button_draw() - Draw the button. No state change. */
 void ui_text_button_draw(const UiTextButton *btn);
 
