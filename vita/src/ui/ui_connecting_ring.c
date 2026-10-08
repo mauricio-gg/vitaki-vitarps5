@@ -54,6 +54,13 @@ void ui_connecting_ring_init(void) {
     s_halo = ui_bake_white(UI_RING_HALO, UI_RING_HALO, halo_alpha, NULL);
 }
 
+void ui_draw_halo(int cx, int cy) {
+  if (s_halo) {
+    vita2d_draw_texture_tint(s_halo, (float)(cx - UI_RING_HALO / 2), (float)(cy - UI_RING_HALO / 2),
+                             UI_HALO);
+  }
+}
+
 /** Colour of the ring and glow for @state. */
 static uint32_t state_color(UiRingState state) {
   switch (state) {
@@ -71,10 +78,7 @@ void ui_draw_connecting_ring(int x, int y, int size, vita2d_texture *room, UiRin
   const float centre_y = (float)y + (float)size / 2.0f;
   const float scale = (float)size / (float)UI_RING_SIZE;
 
-  if (s_halo) {
-    vita2d_draw_texture_tint(s_halo, centre_x - (float)UI_RING_HALO / 2.0f,
-                             centre_y - (float)UI_RING_HALO / 2.0f, UI_HALO);
-  }
+  ui_draw_halo(x + size / 2, y + size / 2);
   if (s_ring) {
     const float half = (float)RING_TEX * scale / 2.0f;
     vita2d_draw_texture_tint_scale(s_ring, centre_x - half, centre_y - half, scale, scale,

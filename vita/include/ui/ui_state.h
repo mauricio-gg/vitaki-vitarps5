@@ -211,31 +211,3 @@ uint64_t ui_state_get_waking_wait_for_stream_us(void);
  * @param time_us Microsecond timestamp
  */
 void ui_state_set_waking_wait_for_stream_us(uint64_t time_us);
-
-/**
- * Get reconnect start time
- *
- * @return Time when reconnect flow started (microseconds)
- */
-uint64_t ui_state_get_reconnect_start_time(void);
-
-/**
- * Set reconnect start time
- *
- * @param time Time value in microseconds (typically sceKernelGetProcessTimeWide())
- */
-void ui_state_set_reconnect_start_time(uint64_t time);
-
-/**
- * Get reconnect animation frame
- *
- * @return Current animation frame for reconnect spinner
- */
-int ui_state_get_reconnect_animation_frame(void);
-
-/**
- * Set reconnect animation frame
- *
- * @param frame Animation frame value
- */
-void ui_state_set_reconnect_animation_frame(int frame);

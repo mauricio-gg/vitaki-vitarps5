@@ -52,8 +52,6 @@ static bool connection_overlay_modal_pushed = false;
  * Note: Use uint64_t for microsecond timestamps to avoid overflow after ~71 minutes
  */
 static uint64_t waking_wait_for_stream_us = 0;
-static uint64_t reconnect_start_time = 0;
-static int reconnect_animation_frame = 0;
 
 /**
  * Text width cache
@@ -80,8 +78,6 @@ void ui_state_init(void) {
 
   // Reset timing state
   waking_wait_for_stream_us = 0;
-  reconnect_start_time = 0;
-  reconnect_animation_frame = 0;
 
   // Clear text cache
   ui_text_cache_clear();
@@ -284,22 +280,6 @@ uint64_t ui_state_get_waking_wait_for_stream_us(void) {
 
 void ui_state_set_waking_wait_for_stream_us(uint64_t time_us) {
   waking_wait_for_stream_us = time_us;
-}
-
-uint64_t ui_state_get_reconnect_start_time(void) {
-  return reconnect_start_time;
-}
-
-void ui_state_set_reconnect_start_time(uint64_t time) {
-  reconnect_start_time = time;
-}
-
-int ui_state_get_reconnect_animation_frame(void) {
-  return reconnect_animation_frame;
-}
-
-void ui_state_set_reconnect_animation_frame(int frame) {
-  reconnect_animation_frame = frame;
 }
 
 // ============================================================================

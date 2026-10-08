@@ -91,10 +91,6 @@ static bool *touch_block_pending_clear = NULL;
 // State management convenience macros (for legacy code compatibility)
 #define waking_wait_for_stream_us ui_state_get_waking_wait_for_stream_us()
 #define SET_waking_wait_for_stream_us(val) ui_state_set_waking_wait_for_stream_us(val)
-#define reconnect_start_time ui_state_get_reconnect_start_time()
-#define SET_reconnect_start_time(val) ui_state_set_reconnect_start_time(val)
-#define reconnect_animation_frame ui_state_get_reconnect_animation_frame()
-#define SET_reconnect_animation_frame(val) ui_state_set_reconnect_animation_frame(val)
 #define connection_overlay_active ui_connection_overlay_active()
 #define connection_overlay_stage ui_connection_stage()
 #define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
@@ -161,12 +157,14 @@ char *cancel_btn_str = "Circle";
 // Error popup and debug menu functions moved to ui_components.c
 
 /**
- * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting).
- * They draw their own top bar and hint row (with the Network Unstable pill), so the corner
+ * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
+ * Reconnecting). They draw their own top bar (and hint row with the Network Unstable pill, where
+ * they have one), so the corner
  * logo, the wave sidebar and the old loss indicator are not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
-  return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING;
+  return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
+         screen == UI_SCREEN_TYPE_RECONNECTING;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -178,6 +176,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "home";
     case UI_SCREEN_TYPE_WAKING:
       return "connecting";
+    case UI_SCREEN_TYPE_RECONNECTING:
+      return "reconnecting";
     default:
       return NULL;
   }
@@ -238,8 +238,7 @@ static void render_loss_indicator_preview(void) {
 // REUSABLE UI COMPONENTS
 // ============================================================================
 // Widget drawing functions (toggle, dropdown, tabs, status_dot, section_header) moved to
-// ui_components.c StatusType enum moved to ui_components.h as UIStatusType Spinner drawing moved to
-// ui_graphics.c (ui_draw_spinner)
+// ui_components.c StatusType enum moved to ui_components.h as UIStatusType
 
 // ============================================================================
 // CONSOLE CARDS

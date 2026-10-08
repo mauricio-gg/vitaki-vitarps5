@@ -112,25 +112,6 @@ void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t col
 void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_t top_color,
                                     uint32_t bottom_color, int radius);
 
-/**
- * Draw a rotating spinner arc
- *
- * Renders a 3/4 circle arc (270 degrees) used for loading indicators.
- * Arc rotates continuously based on rotation_deg parameter.
- *
- * @param cx Center X coordinate
- * @param cy Center Y coordinate
- * @param radius Outer radius of the arc
- * @param thickness Arc thickness in pixels
- * @param rotation_deg Current rotation angle in degrees
- * @param color ABGR color value
- *
- * @note Uses 32 segments for smooth arc rendering
- * @note Draws both inner and outer arcs with connecting lines for fill
- * @note Update rotation_deg each frame for animation effect
- */
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color);
-
 // ============================================================================
 // Overlay & Effect Drawing
 // ============================================================================

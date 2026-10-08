@@ -33,7 +33,6 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
-#include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui.h"
@@ -43,6 +42,7 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
 #include "ui/ui_connecting.h"
+#include "ui/ui_reconnecting.h"
 #include "ui/ui_input.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
@@ -3182,16 +3182,17 @@ UIScreenType ui_screen_draw_waking(void) {
         // fields and reads a timestamp -- no logging, so it can't spam -- and the
         // duration is recomputed from next_stream_allowed_us every call, so the
         // countdown stays accurate while this per-frame poll keeps re-entering.
+        // The screen is still drawn below, so Cancel works during the deferral.
         show_cooldown_hint(context.active_host);
-        return UI_SCREEN_TYPE_WAKING;
+      } else {
+        LOGD("Console awake, preparing stream startup");
+        ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+        if (!start_connection_thread(context.active_host)) {
+          ui_connection_cancel();
+          return UI_SCREEN_TYPE_MAIN;
+        }
+        ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
       }
-      LOGD("Console awake, preparing stream startup");
-      ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
-      if (!start_connection_thread(context.active_host)) {
-        ui_connection_cancel();
-        return UI_SCREEN_TYPE_MAIN;
-      }
-      ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
     }
   }
 
@@ -3205,94 +3206,15 @@ UIScreenType ui_screen_draw_waking(void) {
   return UI_SCREEN_TYPE_WAKING;  // Continue showing waking screen
 }
 
-/// Draw reconnecting screen with modern polished UI
-/// Shows during packet loss recovery with spinner animation
+/// Draw the Reconnecting screen ("Optimizing Stream")
+/// Shows during packet loss recovery; it has no input and cannot be cancelled
 /// @return the next screen type
 UIScreenType ui_screen_draw_reconnecting(void) {
   // Check if we should still be showing this screen
-  if (!context.stream.reconnect_overlay_active) {
-    ui_state_set_reconnect_start_time(0);
+  if (!context.stream.reconnect_overlay_active)
     return UI_SCREEN_TYPE_MAIN;
-  }
 
-  // Initialize timer on first call
-  if (ui_state_get_reconnect_start_time() == 0) {
-    ui_state_set_reconnect_start_time(sceKernelGetProcessTimeLow() / 1000);
-  }
-
-  // Get current time for animations
-  uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
-
-  // Draw modern reconnecting screen (consistent with Waking screen)
-  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
-
-  // Card dimensions (taller to accommodate all info + spinner)
-  int card_w = 640;
-  int card_h = 380;
-  int card_x = (VITA_WIDTH - card_w) / 2;
-  int card_y = (VITA_HEIGHT - card_h) / 2;
-
-  // Draw card with enhanced shadow (Phase 1 & 2 style)
-  ui_draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
-
-  // PlayStation Blue accent borders
-  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title (centered)
-  const char *title = "Optimizing Stream";
-  int title_size = FONT_SIZE_HEADER;
-  int title_w = ui_text_width(font, title_size, title);
-  int title_x = card_x + (card_w - title_w) / 2;
-  ui_text_draw(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
-
-  // Subtitle explaining what's happening (centered)
-  const char *subtitle = "Recovering from packet loss";
-  int subtitle_w = ui_text_width(font, FONT_SIZE_BODY, subtitle);
-  int subtitle_x = card_x + (card_w - subtitle_w) / 2;
-  ui_text_draw(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
-
-  // Retry bitrate info (centered)
-  float retry_mbps = context.stream.recovery_bitrate_kbps > 0
-                         ? (float)context.stream.recovery_bitrate_kbps / 1000.0f
-                         : 0.8f;
-  char detail[64];
-  snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);
-  int detail_w = ui_text_width(font, FONT_SIZE_BODY, detail);
-  int detail_x = card_x + (card_w - detail_w) / 2;
-  ui_text_draw(font, detail_x, card_y + 115, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, detail);
-
-  // Spinner animation (matching Waking screen style)
-  int spinner_cx = card_x + card_w / 2;
-  int spinner_cy = card_y + card_h / 2 + 20;
-  int spinner_radius = 32;
-  int spinner_thickness = 5;
-  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
-  ui_draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation,
-                  UI_COLOR_PRIMARY_BLUE);
-
-  // Attempt count below spinner (centered)
-  char attempt_text[64];
-  snprintf(attempt_text, sizeof(attempt_text), "Attempt %u", context.stream.loss_retry_attempts);
-  int attempt_w = ui_text_width(font, FONT_SIZE_SMALL, attempt_text);
-  int attempt_x = card_x + (card_w - attempt_w) / 2;
-  ui_text_draw(font, attempt_x, card_y + card_h - 60, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-               attempt_text);
-
-  // Status message at bottom (centered)
-  const char *status_msg = "Please wait...";
-  int status_w = ui_text_width(font, FONT_SIZE_SMALL, status_msg);
-  int status_x = card_x + (card_w - status_w) / 2;
-  ui_text_draw(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-               status_msg);
-
-  // Handle Circle button to cancel (mirrors the waking screen above)
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    host_recovery_cancel_by_user();
-    ui_state_set_reconnect_start_time(0);
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
+  ui_reconnecting_frame();
   return UI_SCREEN_TYPE_RECONNECTING;
 }
 

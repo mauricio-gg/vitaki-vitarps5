@@ -78,6 +78,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_text_button.c
     src/ui/ui_connecting_flow.c
     src/ui/ui_connecting.c
+    src/ui/ui_reconnecting.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c

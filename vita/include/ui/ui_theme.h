@@ -491,3 +491,17 @@ typedef enum ui_face_t {
 #define UI_CONN_LOGO_H 32
 #define UI_CONN_LOGO_Y 384
 #define UI_CONN_CANCEL_Y 440
+
+/* ============================================================================
+ * Reconnecting screen (ui_reconnecting.c, SPEC 3.4): the right column starts here, under the
+ * same art box as Connecting
+ * ============================================================================ */
+
+#define UI_RECON_X UI_STEPS_X
+#define UI_RECON_Y 168
+#define UI_RECON_LINE_H 32
+#define UI_RECON_BITRATE_H 40
+/** Gap above the "Attempt" and "Please wait..." lines. */
+#define UI_RECON_NOTE_GAP UI_S2
+/** Bitrate shown when no recovery bitrate is set yet (the old screen's fallback). */
+#define UI_RECON_DEFAULT_KBPS 800

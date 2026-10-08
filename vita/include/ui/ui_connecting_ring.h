@@ -22,6 +22,10 @@ typedef enum ui_ring_state_t {
 /** ui_connecting_ring_init() - Bake the ring and the halo. Call once at start-up. */
 void ui_connecting_ring_init(void);
 
+/** ui_draw_halo() - Draw the soft halo centred at (@cx, @cy): 1 draw. Drawn first by the ring;
+ * the Reconnecting screen draws it on its own. */
+void ui_draw_halo(int cx, int cy);
+
 /**
  * ui_draw_connecting_ring() - Draw the halo, the ring and the room icon.
  * @x, @y:  Top-left corner of the ring's @size x @size box. The halo and the glow reach past it.
