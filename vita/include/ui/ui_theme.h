@@ -309,6 +309,8 @@ typedef enum ui_face_t {
 #define UI_LIST_W 368
 #define UI_LIST_H 336
 #define UI_ITEM_ICON 38
+#define UI_ROOM_ICON_GRID 48 /* Room icon in the Change-icon picker grid (SPEC C12) */
+#define UI_ROOM_ICON_RING 64 /* Room icon in the Connecting ring centre (SPEC C03) */
 #define UI_LIST_ICON_BOX 64
 #define UI_LIST_ICON_CX 256
 #define UI_LIST_TEXT_X 304

@@ -68,6 +68,7 @@
 #include "ui/ui_component.h"
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
+#include "ui/ui_room_icons.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_shapes.h"
@@ -425,6 +426,7 @@ void init_ui() {
   ui_text_init(font, font_mono, font_light);
   ui_glow_init();
   ui_shapes_init();
+  ui_room_icons_init();
   ui_home_init();
   ui_connecting_init();
   ui_settings_init();
