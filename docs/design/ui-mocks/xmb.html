@@ -66,13 +66,6 @@ button{font-family:inherit}
 .hud .exit{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);font-size:var(--t-cap);color:var(--hud-fg,#fff);background:var(--hud-bg,rgba(4,7,14,.72));padding:8px 16px;border-radius:var(--r-pill)}
 .hud .exit kbd{font:inherit;font-weight:var(--w-heavy);color:var(--hud-accent,var(--accent))}
 body[data-dir] .hud.nostats .panel{display:none!important}
-/* covers */
-.cover{position:relative;overflow:hidden;border-radius:var(--r-sm);color:#fff;background:#222 center/cover no-repeat;box-shadow:0 10px 28px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.12)}
-.cover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.16) 0,transparent 22%,transparent 55%,rgba(0,0,0,.72) 100%)}
-.cover .ct{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:10px 12px;font-weight:var(--w-heavy);font-size:var(--t-cap);line-height:1.1;text-shadow:0 1px 6px rgba(0,0,0,.7)}
-.cover .ct small{font-size:var(--t-cap);display:block;font-weight:var(--w-strong);opacity:.85;margin-top:2px}
-.cover.proc .pat{position:absolute;inset:0}
-.cover.proc .mono{position:absolute;left:0;right:0;top:12%;text-align:center;font-weight:var(--w-heavy);font-size:48px;color:rgba(255,255,255,.9);text-shadow:0 4px 20px rgba(0,0,0,.35)}
 
 :root{--glow:0 0 12px rgba(255,255,255,.55)}
 #screen{background:#060b1c;font-weight:var(--w-light);text-shadow:0 1px 4px rgba(0,0,0,.55)}
@@ -111,26 +104,21 @@ body[data-dir] .hud.nostats .panel{display:none!important}
 .it.sel .ii{transform:scale(1.18);filter:drop-shadow(0 0 12px rgba(255,255,255,.7)) brightness(1.2)}
 .it.sel .t{font-size:var(--t-title)}
 .it.sel .s{color:var(--text)}
-/* the app's console card, scaled by --k (200x205 at k=1) */
-.ccard{position:relative;display:inline-block;flex:none;width:calc(200px*var(--k));height:calc(205px*var(--k));--rc:#c9d0df;border-radius:calc(12px*var(--k));text-shadow:none;margin:calc(3px*var(--k))}
-.ccard .face{position:absolute;inset:0;border-radius:calc(12px*var(--k));background:#2D3237;box-shadow:0 0 0 max(2px,calc(3px*var(--k))) var(--rc),calc(4px*var(--k)) calc(4px*var(--k)) 0 rgba(0,0,0,.24);overflow:hidden}
-.ccard.ready{--rc:var(--ok)}.ccard.standby{--rc:var(--warn)}.ccard.psn{--rc:var(--psn)}
-.ccard.unreg .face{background:#252528;box-shadow:calc(4px*var(--k)) calc(4px*var(--k)) 0 rgba(0,0,0,.24);outline:max(2px,calc(3px*var(--k))) dashed #8a8f99;outline-offset:max(1px,calc(1px*var(--k)))}
-.ccard.sel .face{background:#383D42}
-.ccard .lg{position:absolute;left:50%;transform:translateX(-50%);height:auto;display:block}
-.ccard .cdot{position:absolute;left:calc(165px*var(--k));top:calc(10px*var(--k))}
-.ccard .nb{position:absolute;left:calc(12px*var(--k));width:calc(176px*var(--k));top:calc(125px*var(--k));height:calc(40px*var(--k));border-radius:calc(8px*var(--k));background:#464B50;display:flex;align-items:center;justify-content:center}
-.ccard .nt{font-size:max(16px,calc(20px*var(--k)));font-weight:var(--w-regular);color:#FAFAFA;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(176px*var(--k) - 30px)}
-.ccard .bdg{position:absolute;right:calc(-8px*var(--k));bottom:calc(30px*var(--k));width:max(18px,calc(46px*var(--k)));height:max(18px,calc(46px*var(--k)));border-radius:50%;background:#071022;border:1.5px solid var(--rc);color:var(--rc);display:flex;align-items:center;justify-content:center;font-style:normal}
-.ccard .bdg svg{width:62%;height:62%}
+/* room icon in a thin status ring with a corner badge */
+.ringart{position:relative;display:inline-flex;width:var(--sz);height:var(--sz);border-radius:50%;align-items:center;justify-content:center;border:2px solid var(--rc);--rc:#c9d0df;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.1),transparent 70%);box-shadow:0 0 12px color-mix(in srgb,var(--rc) 45%,transparent);text-shadow:none}
+.ringart.ready{--rc:var(--ok)}.ringart.standby{--rc:var(--warn)}.ringart.psn{--rc:var(--psn)}
+.ringart.unreg{--rc:#c9d0df;border-style:dashed;box-shadow:none}
+.ringart .rm{display:block;height:auto;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.ringart .bdg{position:absolute;right:-5px;bottom:-4px;width:calc(var(--sz)*.44);height:calc(var(--sz)*.44);border-radius:50%;background:#071022;border:1.5px solid var(--rc);color:var(--rc);display:flex;align-items:center;justify-content:center;font-style:normal}
+.ringart .bdg svg{width:70%;height:70%}
+.tlogo{display:block;filter:drop-shadow(0 0 10px rgba(255,255,255,.35))}
 /* detail: plain text, hairlines, no box */
-#detail{position:absolute;left:596px;top:162px;width:324px;animation:rise var(--d-base) var(--ease);transition:opacity var(--d-base)}
+#detail{position:absolute;left:596px;top:156px;width:324px;animation:rise var(--d-base) var(--ease);transition:opacity var(--d-base)}
 #home.oo #detail{opacity:0}
 #detail h4{font-size:var(--t-title);font-weight:var(--w-light);line-height:1.15}
 #detail p{font-size:var(--t-cap);font-weight:var(--w-regular);color:#fff;line-height:1.45}
 #detail .row2{display:flex;gap:var(--s2);align-items:center;margin-bottom:var(--s3)}
 #detail .row3{display:flex;gap:var(--s2);align-items:flex-start}
-#detail .cover{border-radius:0;box-shadow:none;border:1px solid rgba(255,255,255,.4)}
 .kv{display:flex;justify-content:space-between;gap:8px;padding:5px 0;font-size:var(--t-cap);font-weight:var(--w-regular)}
 .kv span{color:#fff} .kv b{font-family:var(--font-mono);font-weight:400;text-align:right}
 .lines{flex:1;min-width:0}
@@ -221,6 +209,11 @@ body[data-dir] .hud.nostats .panel{display:none!important}
 .pop-btn small{margin-left:auto;font-weight:var(--w-regular);opacity:.9;white-space:nowrap;font-size:var(--t-cap)}
 .pop-btn.sel{background:none;color:#fff;border-color:transparent;border-bottom-color:#fff;font-size:var(--t-title);text-shadow:0 0 12px rgba(255,255,255,.5)}
 .pop-btn.sel:has(small){font-size:var(--t-body)}
+.pop .btns.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0 var(--s1);border-top:1px solid rgba(255,255,255,.25)}
+.pop-btn.gb{flex-direction:column;justify-content:center;gap:8px;min-height:104px;border-bottom:0;font-size:var(--t-cap);text-align:center;padding:var(--s1)}
+.pop-btn.gb img{opacity:.7;transition:all var(--d-base) var(--ease)}
+.pop-btn.gb.sel{font-size:var(--t-cap);color:#fff;background:radial-gradient(closest-side,rgba(255,255,255,.14),transparent);text-shadow:0 0 12px rgba(255,255,255,.7)}
+.pop-btn.gb.sel img{opacity:1;transform:scale(1.2);filter:drop-shadow(0 0 10px rgba(255,255,255,.85))}
 .pop .pin b{background:none;border:0;border-bottom:1px solid #fff;border-radius:0;font-weight:var(--w-light)}
 /* stream HUD: quiet text */
 .hud{font-weight:var(--w-regular);text-shadow:0 1px 4px rgba(0,0,0,.8)}
@@ -279,7 +272,7 @@ body[data-dir] .hud.nostats .panel{display:none!important}
     <span><kbd>Arrows</kbd>D-pad</span><span><kbd>Enter</kbd>Cross (confirm)</span><span><kbd>Esc</kbd>Circle (back)</span>
     <span><kbd>T</kbd>Triangle (options)</span><span><kbd>S</kbd>Square</span><span><kbd>Q</kbd>/<kbd>E</kbd>L / R shoulder</span><span><kbd>Space</kbd>Start</span><span><kbd>Click</kbd>front touch</span>
   </div>
-  <div class="note">Native 960&times;544. Game covers are fictional; console, logo and controller images are the app's own assets. Backdrop blur and glow here become pre-blurred textures and 9-slice panels on the Vita; see FEASIBILITY.md. The device frame is a generic handheld.</div>
+  <div class="note">Native 960&times;544. Console, logo and controller images are the app's own assets; the stream picture is fictional. Backdrop blur and glow here become pre-blurred textures and 9-slice panels on the Vita; see FEASIBILITY.md. The device frame is a generic handheld.</div>
 </div>
 
 <script>
@@ -313,15 +306,16 @@ const ICONS={
 const ico=(n,s=24)=>{const d=ICONS[n]||{f:'',s:''};return `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor" fill-opacity=".18" stroke="none">${d.f}</g><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.s}</g></svg>`;};
 
 const CONSOLES=[
- {name:'Living Room',model:'PS5',ip:'192.168.1.20',state:'ready',reg:true,lan:true,psn:true,game:'Astro Voyager',img:'img/cover-astro.jpg',tid:'PPSA01234',cover:true,hue:250,last:'Yesterday, 21:40 · 1 h 52 min'},
- {name:'Den',model:'PS4',ip:'192.168.1.31',state:'standby',reg:true,lan:true,psn:false,game:null,lastGame:'Tidepool',img:'img/cover-tide.jpg',tid:null,cover:true,hue:185,last:'3 days ago · 48 min'},
- {name:'Bedroom',model:'PS5',ip:'192.168.1.44',state:'ready',reg:false,lan:true,psn:false,game:'Neon Drift',img:null,tid:'PPSA05678',cover:false,hue:325,last:'Never'},
- {name:'Office',model:'PS5',ip:'Remote only',state:'standby',reg:true,lan:false,psn:true,game:null,lastGame:'Hollow Kingdoms',img:'img/cover-hollow.jpg',tid:null,cover:true,hue:105,last:'Last week · 2 h 05 min'}
+ {name:'Living Room',model:'PS5',ip:'192.168.1.20',state:'ready',reg:true,lan:true,psn:true,room:'sofa',last:'Yesterday, 21:40 · 1 h 52 min'},
+ {name:'Den',model:'PS4',ip:'192.168.1.31',state:'standby',reg:true,lan:true,psn:false,room:'tv',last:'3 days ago · 48 min'},
+ {name:'Bedroom',model:'PS5',ip:'192.168.1.44',state:'ready',reg:false,lan:true,psn:false,room:'bed',last:'Never'},
+ {name:'Office',model:'PS5',ip:'Remote only',state:'standby',reg:true,lan:false,psn:true,room:'desk',last:'Last week · 2 h 05 min'},
+ {name:'Dorm',model:'PS5',ip:'192.168.1.52',state:'standby',reg:true,lan:true,psn:false,room:'bunk',last:'2 weeks ago · 1 h 10 min'}
 ];
-/* the game to show for a console: running one, else last played */
-const gameOf=c=>c.game?{t:c.game,img:c.cover?c.img:null,running:true}:c.lastGame?{t:c.lastGame,img:c.img,running:false}:null;
+/* room icons: each console has one the user picked; TV is the default for a new console */
+const ROOMS=[['tv','TV'],['sofa','Living room'],['bed','Bedroom'],['bunk','Dorm'],['desk','Office'],['house','Another place']];
 const statusOf=c=>!c.reg?{k:'unreg',t:'Not registered',d:'Register to play',col:'var(--text-2)'}:
-  c.state==='ready'?{k:'ready',t:'Ready',d:c.game?('Playing '+c.game):'Ready to connect',col:'var(--ok)'}:
+  c.state==='ready'?{k:'ready',t:'Ready',d:'Ready to connect',col:'var(--ok)'}:
   {k:'standby',t:'Standby',d:'Rest mode · will wake',col:'var(--warn)'};
 const routeOf=c=>c.lan?(c.psn?'LAN + PSN':'LAN'):'PSN only';
 const STEPS=(c,route)=>[
@@ -342,8 +336,8 @@ const SETTINGS=[
  {id:'autoreconnect',label:'Auto Reconnect',grp:'Connection',type:'toggle',v:true,desc:'Try to rejoin the session if the connection drops.'},
  {id:'psnfallback',label:'PSN Fallback',grp:'Connection',type:'toggle',v:true,desc:'Switch to PSN remote play when the LAN route fails.'},
  {id:'fastrestart',label:'Fast Restart',grp:'Connection',type:'toggle',v:false,desc:'Restart the stream without a full handshake after a stall.'},
- {id:'rumble',label:'Rumble',grp:'Input',type:'toggle',v:true,desc:'Pass controller vibration from the game to the Vita.'},
- {id:'motion',label:'Motion Controls',grp:'Input',type:'toggle',v:false,desc:'Send Vita gyroscope data to games that support it.'},
+ {id:'rumble',label:'Rumble',grp:'Input',type:'toggle',v:true,desc:'Pass controller vibration from the console to the Vita.'},
+ {id:'motion',label:'Motion Controls',grp:'Input',type:'toggle',v:false,desc:'Send Vita gyroscope data to the console when an app supports it.'},
  {id:'touch',label:'Front Touch Input',grp:'Input',type:'toggle',v:true,desc:'Map the front touchscreen to the console touchpad.'},
  {id:'stats',label:'Stats Overlay',grp:'Display',type:'toggle',v:true,desc:'Show latency, FPS and bitrate while streaming.'},
  {id:'netwarn',label:'Network Warnings',grp:'Display',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
@@ -356,20 +350,20 @@ const GROUPS=['Stream','Connection','Input','Display','Advanced'];
 const valText=s=>s.type==='select'?s.opts[s.v]:(s.v?'On':'Off');
 const cycle=(s,d)=>{ if(s.type==='select') s.v=(s.v+d+s.opts.length)%s.opts.length; else s.v=!s.v; };
 const PRESETS=['Default','Shooter','Racing'];
-const LOGS=[['21:41:07','INFO','Discovery: 4 consoles found'],['21:41:09','INFO','Living Room: ready, Astro Voyager'],['21:41:12','WARN','Den: no response, assuming standby'],['21:42:01','INFO','Session opened over LAN'],['21:42:03','INFO','Decoder started 960x544 @ 60'],['21:48:55','WARN','Loss 3.1% over 200 ms'],['21:48:58','WARN','Bitrate lowered to 7.5 Mbps'],['21:49:30','INFO','Stream recovered']];
+const LOGS=[['21:41:07','INFO','Discovery: 4 consoles found'],['21:41:09','INFO','Living Room: ready'],['21:41:12','WARN','Den: no response, assuming standby'],['21:42:01','INFO','Session opened over LAN'],['21:42:03','INFO','Decoder started 960x544 @ 60'],['21:48:55','WARN','Loss 3.1% over 200 ms'],['21:48:58','WARN','Bitrate lowered to 7.5 Mbps'],['21:49:30','INFO','Stream recovered']];
 const ipText=c=>SETTINGS[12].v?'•••.•••.•.••':c.ip;
 
 const stateKind=c=>!c.reg?'unreg':(!c.lan&&c.psn)?'psn':c.state==='ready'?'ready':'standby';
-/* The app's console card (ui_console_cards.c ui_cards_render_single): 200x205, radius 12,
-   charcoal body, logo centred in the area above the name bar, name bar 176x40 at card_h-80,
-   status ellipse top-right. k = scale. Our state treatment (ring colour + corner badge) wraps it. */
-function cardArt(c,k,o={}){
- const kind=stateKind(c),ps5=c.model==='PS5',dim=!c.reg;
- const ic={unreg:'lock',psn:'globe',ready:'check',standby:'moon'}[kind];
- const lg=ps5?`<img class="lg" src="assets/PS5_logo.png" alt="PS5" style="width:calc(120px*var(--k));top:calc(50.2px*var(--k));opacity:${dim?.4:1}">`
-  :`<img class="lg" src="assets/ps4.png" alt="PS4" style="width:calc(120px*var(--k));top:calc(12.5px*var(--k));opacity:${dim?.47:1}">`;
- const dot=c.reg?`<img class="cdot" src="assets/ellipse_${c.state==='ready'?'green':'yellow'}.png" alt="" style="width:calc(16px*var(--k));height:calc(16px*var(--k))">`:'';
- return `<span class="ccard ${kind} ${o.big?'big':''} ${o.sel?'sel':''}" style="--k:${k}"><span class="face">${lg}${dot}<span class="nb"><span class="nt">${o.big?c.name:''}</span></span></span><i class="bdg">${ico(ic,Math.max(12,Math.round(200*k*.12)))}</i></span>`;
+/* Room icon in a thin status ring with a corner badge (LiveArea-style status). */
+function roomRing(c,size){
+ const k=stateKind(c),ic={unreg:'lock',psn:'globe',ready:'check',standby:'moon'}[k];
+ return `<span class="ringart ${k}" style="--sz:${size}px"><img class="rm" src="icons/${c.room}.svg" alt="" style="width:${Math.round(size*.5)}px;opacity:${c.reg?1:.65}"><i class="bdg">${ico(ic,Math.round(size*.24))}</i></span>`;
+}
+/* Console type as the logo itself (PS5_logo.png / ps4.png), cropped to the wordmark, bare and white. */
+function typeLogo(c,w=150){
+ const ps5=c.model==='PS5',h=36;
+ return ps5?`<span class="tlogo" style="width:${w}px;height:${h}px;background:url(assets/PS5_logo.png) 0 ${-(8*w/132).toFixed(1)}px/${w}px auto no-repeat" role="img" aria-label="PS5"></span>`
+  :`<span class="tlogo" style="width:${w}px;height:${h}px;background:url(assets/ps4.png) 0 ${-(38*w/100).toFixed(1)}px/${w}px ${w}px no-repeat" role="img" aria-label="PS4"></span>`;
 }
 /* Status dot: the app's own ellipse images, tinted for PSN / unregistered. */
 function statusDot(c,s=14){
@@ -378,13 +372,6 @@ function statusDot(c,s=14){
  return `<img class="sdot" src="assets/ellipse_${src}.png" width="${s}" height="${s}" alt="" style="filter:${f}">`;
 }
 const sym=(n,h=18)=>`<img class="sym" src="assets/symbol_${n}.png" height="${h}" alt="${n}">`;
-/* Cover: real-looking art if we have it, else a procedural fallback. */
-function coverArt(c,w,h,opt={}){
- const g=gameOf(c);
- if(g&&g.img) return `<div class="cover" style="width:${w}px;height:${h}px;background-image:url(${g.img})"><span class="ct">${g.t}${opt.nolabel?'':`<small>${g.running?'Running now':'Last played'}</small>`}</span></div>`;
- const a=c.hue,b=(c.hue+70)%360,t=g?g.t:'No game running',m=(t[0]||'?').toUpperCase();
- return `<div class="cover proc" style="width:${w}px;height:${h}px;background:linear-gradient(160deg,hsl(${a} 55% 30%),hsl(${b} 60% 12%))"><svg class="pat" viewBox="0 0 100 133" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g stroke="hsl(${a} 80% 70%)" stroke-opacity=".22" fill="none"><circle cx="50" cy="50" r="18"/><circle cx="50" cy="50" r="30"/><circle cx="50" cy="50" r="42"/><path d="M0 100L100 70M0 112L100 82"/></g></svg><span class="mono" style="font-size:${Math.round(w*.34)}px">${m}</span><span class="ct">${t}${opt.nolabel?'':'<small>No cover art</small>'}</span></div>`;
-}
 const App={
  S:{ci:0,route:'LAN',step:0,stream:{lat:38,fps:60,br:10.2,unst:false,hud:true},tod:'auto'},
  pop:null, timers:[], zoom:1,
@@ -465,16 +452,17 @@ const App={
   const L=$('#popLayer'); const p=this.pop;
   if(!p){L.style.pointerEvents='none';L.innerHTML='';return;}
   L.style.pointerEvents='auto';
-  L.innerHTML=`<div class="pop-scrim"><div class="pop ${p.cls||''}" role="dialog" aria-label="${p.title}"><div class="pi">${ico(p.icon||'warn',28)}</div><h3>${p.title}</h3><p>${p.body}</p>${p.extra||''}<div class="btns ${p.vertical?'v':''} ${p.buttons.length>5?'scroll':''}">${p.buttons.map((b,i)=>`<button class="pop-btn ${i===p.sel?'sel':''} ${b.dis?'dis':''}" data-pop="${i}">${b.icon?ico(b.icon,20):''}${b.label}${b.sub?` <small>${b.sub}</small>`:''}</button>`).join('')}</div>${p.buttons.length>5?`<div class="pop-more">${p.sel+1} of ${p.buttons.length}</div>`:''}</div></div>`;
+  L.innerHTML=`<div class="pop-scrim"><div class="pop ${p.cls||''}" role="dialog" aria-label="${p.title}"><div class="pi">${p.icon&&p.icon.includes('/')?`<img src="${p.icon}" width="28" height="28" alt="">`:ico(p.icon||'warn',28)}</div><h3>${p.title}</h3><p>${p.body}</p>${p.extra||''}<div class="btns ${p.vertical?'v':''} ${p.grid?'grid':''} ${!p.grid&&p.buttons.length>5?'scroll':''}">${p.buttons.map((b,i)=>`<button class="pop-btn ${p.grid?'gb':''} ${i===p.sel?'sel':''} ${b.dis?'dis':''}" data-pop="${i}">${b.img?`<img src="${b.img}" alt="" width="44" height="44">`:b.icon?ico(b.icon,20):''}${b.label}${b.sub?` <small>${b.sub}</small>`:''}</button>`).join('')}</div>${!p.grid&&p.buttons.length>5?`<div class="pop-more">${p.sel+1} of ${p.buttons.length}</div>`:''}</div></div>`;
   const bt=L.querySelector('.btns.scroll'),sb=L.querySelector('.pop-btn.sel');
   if(bt&&sb)bt.scrollTop=Math.max(0,sb.offsetTop-bt.offsetTop-52);
  },
  popKey(k){
   const p=this.pop,n=p.buttons.length;
-  if(k==='up'||k==='left') p.sel=(p.sel+n-1)%n;
+  if(k==='ok') return this.popPress(p.sel);
+  if(k==='back') return this.closePop();
+  if(p.grid){ if(k==='left'&&p.sel>0)p.sel--; else if(k==='right'&&p.sel<n-1)p.sel++; else if(k==='up'&&p.sel>=3)p.sel-=3; else if(k==='down'&&p.sel+3<n)p.sel+=3; }
+  else if(k==='up'||k==='left') p.sel=(p.sel+n-1)%n;
   else if(k==='down'||k==='right') p.sel=(p.sel+1)%n;
-  else if(k==='ok') return this.popPress(p.sel);
-  else if(k==='back') return this.closePop();
   this.paintPop();
  },
  popPress(i){ const b=this.pop.buttons[i]; if(b.dis) return; this.closePop(); b.fn&&b.fn(); },
@@ -549,7 +537,7 @@ function buildCats(){
  $('#cats').innerHTML=CATS.map((c,i)=>`<div class="cat" data-do="cat" data-arg="${i}" role="tab" aria-label="${c[0]}"><div class="ci">${catIcon(c,i)}</div><div class="cl">${c[0]}</div></div>`).join('');
 }
 function itemIcon(it){
- if(it.k==='console')return cardArt(it.c,.27);
+ if(it.k==='console')return roomRing(it.c,50);
  if(it.plus)return `<img class="nav" src="icons/add.svg" alt="">`;
  if(it.dot)return `<img src="assets/ellipse_${it.dot}.png" width="18" height="18" alt="">`;
  if(it.svg)return ico(it.svg,34);
@@ -587,8 +575,8 @@ function paintDetail(){
  const it=selItem(),P=$('#detail');let h='';
  const kv=(a,b)=>`<div class="kv"><span>${a}</span><b>${b}</b></div>`;
  if(!it){P.innerHTML='';return;}
- if(it.k==='console'){const c=it.c,st=statusOf(c),g=gameOf(c);
-  h=`<div class="row3" style="margin-bottom:12px">${cardArt(c,.78,{big:true,sel:true})}${coverArt(c,92,122,{nolabel:true})}</div><p>${statusDot(c,12)}${st.t} · ${c.model} · ${routeOf(c)}</p><p style="margin-bottom:8px">${g?(g.running?'Playing ':'Last played ')+g.t:'No game running'}</p>${kv('Address',ipText(c))}${kv('Last',c.last.split(' · ')[0])}`;
+ if(it.k==='console'){const c=it.c,st=statusOf(c);
+  h=`<div style="display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)">${roomRing(c,56)}${typeLogo(c,140)}</div><h4>${c.name}</h4><p style="margin:4px 0 12px">${statusDot(c,12)}${st.t}</p>${kv('Route',routeOf(c))}${kv('Address',ipText(c))}${kv('Last session',c.last.split(' · ')[0])}`;
  } else if(it.k==='add')h=`<h4>Add console</h4><p>Make sure your console is on the same network and Remote Play is enabled. Then enter the 8-digit code shown on the TV.</p>`;
  else if(it.k==='grp'){const rs=SETTINGS.filter(s=>s.grp===GROUPS[it.gi]);h=`<h4>${it.t}</h4><p style="margin-bottom:12px">Press <b>✕</b> to open this group.</p>${rs.map(s=>kv(s.label,valText(s))).join('')}`;}
  else if(it.k==='preset'||it.k==='ctrl'){const i=it.k==='preset'?it.i:X.ct.slot;h=`<h4>${PNAME[i]}</h4><p style="margin-bottom:12px">${PDESC[i]}${X.ct.slot===i?' · active':''}</p>${mapLines(MAPS[i]).map(a=>kv(a[0],a[1])).join('')}`;}
@@ -599,7 +587,7 @@ function paintDetail(){
 function qr(){let s='';const f=(x,y)=>`<rect x="${x}" y="${y}" width="7" height="7" fill="#000"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fff"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#000"/>`;s+=f(0,0)+f(14,0)+f(0,14);let r=7;for(let y=0;y<21;y++)for(let x=0;x<21;x++){if((x<8&&y<8)||(x>12&&y<8)||(x<8&&y>12))continue;r=(r*9301+49297)%233280;if(r%3===0)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#000"/>`;}return s;}
 function optsList(){
  const it=selItem();
- if(it.k==='console'){const c=it.c;return [[c.state==='ready'?'Connect':'Wake and connect',()=>App.connect(it.i)],['Connect via…',()=>App.popup(App.chooserPop(c))],['Wake only',()=>{}],['Forget console',()=>{}]].map(a=>({l:a[0],f:a[1]}));}
+ if(it.k==='console'){const c=it.c;return [[c.state==='ready'?'Connect':'Wake and connect',()=>App.connect(it.i)],['Connect via…',()=>App.popup(App.chooserPop(c))],['Change icon',()=>iconPicker(it.i)],['Wake only',()=>{}],['Forget console',()=>{}]].map(a=>({l:a[0],f:a[1]}));}
  if(it.k==='preset')return [{l:'Apply',f:()=>{X.ct.slot=it.i;buildList(false);}},{l:'Save mapping here',f:()=>{const m=MAPS[X.ct.slot];MAPS[it.i]=JSON.parse(JSON.stringify(m));buildList(false);App.popup({icon:'check',title:'Saved to '+PNAME[it.i],body:'The active mapping was copied into this preset.',buttons:[{label:'OK'}]});}},{l:'Clear mapping',f:()=>{MAPS[it.i]=mk({},{});buildList(false);}}];
  return [{l:'Close',f:()=>{}}];
 }
@@ -607,6 +595,11 @@ function paintOpts(){
  const L=optsList();
  $('#opts').innerHTML=`<h4>Options</h4>`+L.map((o,i)=>`<div class="oi ${i===X.os&&X.opts?'sel':''}" data-do="oi" data-arg="${i}">${o.l}</div>`).join('');
  $('#opts').classList.toggle('open',X.opts);$('#home').classList.toggle('oo',X.opts);
+}
+function iconPicker(i){
+ const c=CONSOLES[i],cur=ROOMS.findIndex(r=>r[0]===c.room);
+ App.popup({grid:true,sel:Math.max(0,cur),icon:'icons/'+c.room+'.svg',title:'Change icon',body:'Pick a room icon for '+c.name+'.',
+  buttons:ROOMS.map(r=>({img:'icons/'+r[0]+'.svg',label:r[1]+(r[0]===c.room?' ✓':''),fn:()=>{c.room=r[0];buildList(false);}}))});
 }
 const hint=(a,b)=>`<span>${a} ${b}</span>`;
 const H={ok:()=>sym('ex')+'Select',back:()=>sym('circle')+'Back',tri:()=>sym('triangle')+'Options',sq:()=>sym('square')+'Clear'};
@@ -677,7 +670,7 @@ function paintCtrl(){
 }
 function openCtrl(view='summary',page=0){X.ct.view=view;X.ct.page=page;X.ct.cur=0;X.screen='ctrl';showOnly('ctrl');paintCtrl();}
 function assignPopup(title,apply){
- App.popup({icon:'pad',title,body:'Choose which console output this triggers.',vertical:true,buttons:OUTS.map(o=>({label:o,fn:()=>{apply(o);paintCtrl();}}))});
+ App.popup({icon:'icons/controller.svg',title,body:'Choose which console output this triggers.',vertical:true,buttons:OUTS.map(o=>({label:o,fn:()=>{apply(o);paintCtrl();}}))});
 }
 function cellPopup(i){
  const v=X.ct.view,arr=v==='front'?MAPS[X.ct.slot].front:MAPS[X.ct.slot].back,rr=Math.floor(i/6)+1,cc=i%6+1;
@@ -690,7 +683,7 @@ function savePopup(){
 /* ---------- connecting ---------- */
 function paintWake(){
  const c=CONSOLES[App.S.ci],r=App.S.route,st=STEPS(c,r),cur=Math.min(App.S.step,7);
- $('#wake').innerHTML=`<div class="wk"><div class="l"><div class="art"><div class="halo"></div><div class="spin"></div>${cardArt(c,.62)}</div><h2>${c.name}</h2><p>${c.model} · ${r==='PSN'?'via PSN':'via LAN'}</p></div><div class="r"><h3>Connecting</h3>${st.map((s,i)=>`<div class="st ${i<App.S.step?'done':i===cur?'cur':''}"><span class="n">${i<App.S.step?'<img src="assets/ellipse_green.png" width="12" height="12" alt="">':i===cur?'':`<span class="num">${i+1}</span>`}</span><span>${s[0]}<small>${s[1]}</small></span></div>`).join('')}</div></div><div class="hints"><span>${sym('circle')}Cancel</span></div>`;
+ $('#wake').innerHTML=`<div class="wk"><div class="l"><div class="art"><div class="halo"></div><div class="spin"></div>${roomRing(c,120)}</div><div style="margin-top:var(--s2);display:flex;justify-content:center">${typeLogo(c,130)}</div><h2 style="margin-top:var(--s2)">${c.name}</h2><p>${r==='PSN'?'via PSN':'via LAN'}</p></div><div class="r"><h3>Connecting</h3>${st.map((s,i)=>`<div class="st ${i<App.S.step?'done':i===cur?'cur':''}"><span class="n">${i<App.S.step?'<img src="assets/ellipse_green.png" width="12" height="12" alt="">':i===cur?'':`<span class="num">${i+1}</span>`}</span><span>${s[0]}<small>${s[1]}</small></span></div>`).join('')}</div></div><div class="hints"><span>${sym('circle')}Cancel</span></div>`;
 }
 function showOnly(id){['home','page','ctrl','wake','strm'].forEach(n=>$('#'+n).style.display=n===id?'block':'none');$('#rib').style.opacity=id==='strm'?0:(id==='page'||id==='ctrl'?.55:1);$('.vig').style.opacity=id==='home'||id==='wake'?1:0;}
 const M={dir:'xmb',
@@ -816,7 +809,7 @@ App.mount(M);
   controller:()=>openCtrl(),'controller-back':()=>openCtrl('summary',1),'controller-front':()=>openCtrl('front'),'controller-rear':()=>openCtrl('back'),
   'mapping-popup':()=>{openCtrl('front');X.ct.cur=7;paintCtrl();cellPopup(7);},
   waking:()=>App.jump('waking'),stream:()=>App.go('stream'),unstable:()=>App.jump('unstable'),chooser:()=>App.jump('chooser'),register:()=>App.jump('register'),error:()=>App.jump('error'),
-  options:()=>{C(0,0);X.opts=true;paintOpts();},device:()=>$('#bDev').click()};
+  options:()=>{C(0,0);X.opts=true;paintOpts();},device:()=>$('#bDev').click(),'icon-picker':()=>{C(0,0);iconPicker(0);}};
  if(m[h])setTimeout(m[h],60);
 })();
 </script></body></html>

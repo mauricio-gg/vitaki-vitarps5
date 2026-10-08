@@ -34,11 +34,12 @@ kbd{font-family:var(--font-mono);color:#fff;border:1px solid var(--line);padding
 
 <h2>Home: the XMB bar</h2>
 <div class="grid">
-<a href="xmb.html#home"><img src="screens/home.jpg" alt="Consoles, Living Room ready" width="720" height="408"><span>Consoles: ready, with game and cover</span></a>
+<a href="xmb.html#home"><img src="screens/home.jpg" alt="Consoles, Living Room ready" width="720" height="408"><span>Consoles: ready, room icon in a status ring</span></a>
 <a href="xmb.html#consoles-standby"><img src="screens/consoles-standby.jpg" alt="Den on standby" width="720" height="408"><span>Console on standby (amber ring, moon badge)</span></a>
-<a href="xmb.html#consoles-unregistered"><img src="screens/consoles-unregistered.jpg" alt="Bedroom not registered" width="720" height="408"><span>Not registered (dashed ring, lock badge, no cover art)</span></a>
+<a href="xmb.html#consoles-unregistered"><img src="screens/consoles-unregistered.jpg" alt="Bedroom not registered" width="720" height="408"><span>Not registered (dashed ring, lock badge)</span></a>
 <a href="xmb.html#consoles-psn"><img src="screens/consoles-psn.jpg" alt="Office PSN only" width="720" height="408"><span>PSN-only route (purple ring, globe badge)</span></a>
-<a href="xmb.html#options"><img src="screens/options.jpg" alt="Options column" width="720" height="408"><span>Triangle options column</span></a>
+<a href="xmb.html#options"><img src="screens/options.jpg" alt="Options column" width="720" height="408"><span>Triangle options, now with Change icon</span></a>
+<a href="xmb.html#icon-picker"><img src="screens/icon-picker.jpg" alt="Room icon picker" width="720" height="408"><span>Change icon: pick a room icon</span></a>
 <a href="xmb.html#xmb-settings"><img src="screens/xmb-settings.jpg" alt="Settings category lists five groups" width="720" height="408"><span>Settings category: five groups</span></a>
 <a href="xmb.html#xmb-controller"><img src="screens/xmb-controller.jpg" alt="Controller category lists presets" width="720" height="408"><span>Controller category: three presets</span></a>
 <a href="xmb.html#xmb-logs"><img src="screens/xmb-logs.jpg" alt="Logs category" width="720" height="408"><span>Logs category</span></a>
@@ -70,7 +71,7 @@ kbd{font-family:var(--font-mono);color:#fff;border:1px solid var(--line);padding
 </div>
 
 <div class="cols">
-<div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): the PS5 logo and PS4 logo drawn on a console card built the way <code>ui_console_cards.c</code> draws it, the Vita RPS5 logo, nav icons, button symbols, status ellipses and the controller diagrams.</li><li>Flat white icons for Controller, Profile, Logs and Add (<code>icons/</code>).</li><li>Game covers and the stream scene are fictional generated art (<code>img/</code>).</li></ul></div>
-<div><h2>Notes</h2><ul><li>Glow and blur here become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>The state ring and corner badge are drawn around the app's card; the card itself (colours, size, name bar, status dot) follows today's code.</li><li>The device frame is a generic handheld.</li></ul></div>
+<div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): the PS5 and PS4 logos (shown large and white in the detail panel), the Vita RPS5 logo, nav icons, button symbols, status ellipses and the controller diagrams.</li><li>Flat white icons (<code>icons/</code>): Controller (original PlayStation pad), Profile, Logs, Add, and six room icons (TV, living room, bedroom, dorm, office, another place) that each console can use.</li><li>The app shows no game information. The one image in <code>img/</code> is a fictional generated scene standing in for the streamed video.</li></ul></div>
+<div><h2>Notes</h2><ul><li>Glow and blur here become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>Each console has a user-chosen room icon (new consoles default to TV), shown in a thin state ring with a corner badge. Change it from Triangle, Change icon.</li><li>The device frame is a generic handheld.</li></ul></div>
 </div>
 </main></body></html>
