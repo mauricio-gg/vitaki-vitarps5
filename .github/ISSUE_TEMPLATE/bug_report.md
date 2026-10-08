@@ -13,7 +13,7 @@ assignees: ''
 A clear and concise description of what the bug is.
 
 **Debug Log**
-Vitaki doesn't currently support saving logs. If it's possible for you to write down or photograph the relevant parts of the debug log within Vitaki, that would be helpful.
+Testing builds save a log to `ux0:data/vita-chiaki/<number>_vitarps5-testing.log` (release builds save `<number>_vitarps5.log`). Please attach it, after removing IP addresses and console names. See https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Logging for details.
 
 **To Reproduce**
 Steps to reproduce the behavior.

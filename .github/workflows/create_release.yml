@@ -130,7 +130,7 @@ jobs:
           fi
 
           # Create release name
-          RELEASE_NAME="VitakiFork-${NEW_TAG}.vpk"
+          RELEASE_NAME="VitaRPS5-${NEW_TAG}.vpk"
           cp "$VPK_FILE" "$RELEASE_NAME"
 
           echo "VPK_PATH=$RELEASE_NAME" >> $GITHUB_OUTPUT
@@ -151,7 +151,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vitaki-fork-vpk-${{ steps.new_version.outputs.NEW_TAG }}
+          name: vitarps5-vpk-${{ steps.new_version.outputs.NEW_TAG }}
           path: ${{ steps.find_vpk.outputs.VPK_PATH }}
           retention-days: 90
 
@@ -159,10 +159,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.new_version.outputs.NEW_TAG }}
-          name: VitakiFork ${{ steps.new_version.outputs.NEW_TAG }}
+          name: VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
           files: ${{ steps.find_vpk.outputs.VPK_PATH }}
           body: |
-            # VitakiFork ${{ steps.new_version.outputs.NEW_TAG }}
+            # VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
 
             **Enhanced PlayStation 5 Remote Play for PS Vita**
 
@@ -195,7 +195,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create stable-named VPK for latest release
-        run: cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitakiFork-latest.vpk
+        run: |
+          cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitaRPS5-latest.vpk
+          # Compatibility alias so download links to the old file name keep working
+          cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitakiFork-latest.vpk
 
       - name: Update 'latest' release tag
         run: |
@@ -208,15 +211,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: VitakiFork Latest (${{ steps.new_version.outputs.NEW_TAG }})
-          files: VitakiFork-latest.vpk
+          name: VitaRPS5 Latest (${{ steps.new_version.outputs.NEW_TAG }})
+          files: |
+            VitaRPS5-latest.vpk
+            VitakiFork-latest.vpk
           body: |
-            # VitakiFork Latest (currently ${{ steps.new_version.outputs.NEW_TAG }})
+            # VitaRPS5 Latest (currently ${{ steps.new_version.outputs.NEW_TAG }})
 
             **This release always points to the most recent stable build.**
 
             Stable download URL (never changes):
-            `https://github.com/${{ github.repository }}/releases/download/latest/VitakiFork-latest.vpk`
+            `https://github.com/${{ github.repository }}/releases/download/latest/VitaRPS5-latest.vpk`
+
+            (The old file name VitakiFork-latest.vpk is kept so existing links still work.)
 
             For version-specific release notes, see [${{ steps.new_version.outputs.NEW_TAG }}](https://github.com/${{ github.repository }}/releases/tag/${{ steps.new_version.outputs.NEW_TAG }}).
           draft: false
