@@ -5,7 +5,7 @@ What the code on `main` does today between "a UDP packet arrives from the consol
 ## 1. Pipeline at a glance
 
 ```
- PS5 --UDP--> [Takion recv thread, USER_0, prio 64]
+ PS5 --UDP--> [Takion recv thread, USER_0 then USER_2 after first audio frame, prio 64]
                  | control packets -> reorder queue (256) -> stream connection
                  | video packets -> chiaki_video_receiver_av_packet()
                  |       frame assembly + FEC + reference checks
@@ -19,7 +19,7 @@ What the code on `main` does today between "a UDP packet arrives from the consol
                  v
         [UI thread]  vita_video_render_latest_frame() -> vita2d draw + swap
 
- audio packets -> audio callback on [audio thread, USER_2, prio 64]
+ audio packets -> decoded inline on the recv thread (vita_audio_cb); no separate audio thread
  loss stats    -> [congestion control thread, every 200 ms] -> PS5
  input         -> [feedback sender thread, prio 65] -> PS5
 ```
@@ -28,7 +28,7 @@ The recv thread never waits on the decoder for a whole frame: it copies the comp
 
 ## 2. Receive (Takion)
 
-- **Thread.** `takion_thread_func` is created at `lib/src/takion.c:581` (`chiaki_thread_create`). On Vita it sets itself to priority `TAKION_RECV_THREAD_PRIORITY` = 64 and pins to CPU `USER_0` (`takion.c:59-65` define, `takion.c:1277-1278` apply). Decode runs on `USER_1`, audio on `USER_2`, so none of them share a core.
+- **Thread.** `takion_thread_func` is created at `lib/src/takion.c:581` (`chiaki_thread_create`). On Vita it sets itself to priority `TAKION_RECV_THREAD_PRIORITY` = 64 and pins to CPU `USER_0` (`takion.c:59-65` define, `takion.c:1277-1278` apply). Decode runs on `USER_1`. The audio callback also runs on this thread and pins it to `USER_2` on the first audio frame (section 6).
 - **Socket buffer.** On Vita the advertised window `TAKION_A_RWND` is `0x80000` (512 KB, `takion.c:51`), copied into `takion->a_rwnd` (`takion.c:330`) and applied with `setsockopt(SO_RCVBUF)` in both connect paths (`takion.c:370`, `takion.c:491`). The kernel's actual value is read back and logged as `Takion SO_RCVBUF requested=... actual=...` (`takion.c:380-381`, `501-502`). The same value is used for `SO_SNDBUF` (`takion.c:386`, `507`).
 - **Drain loop.** After the blocking `takion_recv` wakes the thread, it pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more packets with zero-timeout reads before blocking again (`takion.c:80`, loop at `takion.c:1432-1441`).
 - **Packet dispatch.** `takion_handle_packet` (`takion.c:1810`) sends control packets to the message path and video/audio packets straight to `takion_handle_packet_av` (`takion.c:1820-1828`). If encryption is on and the remote key is not ready yet, AV packets are parked in a postpone list instead (`takion.c:1825-1826`).
@@ -75,8 +75,8 @@ All in `vita/src/video.c`.
   - corrupt frame and a last-good texture exists and fewer than `FREEZE_MAX_STREAK` = 8 corrupt frames in a row (`video.c:179`): the last good picture is shown again instead (`video.c:1200-1208`);
   - corrupt for 8 in a row, or no last-good texture: the decoded (possibly broken) frame is shown, so the picture always resumes (`video.c:1219-1224`).
   It then draws (`draw_streaming`), calls `vita2d_wait_rendering_done()` and `vita2d_swap_buffers()` (`video.c:1246-1247`). The optional `force_30fps` pacing can skip frames before this point (`should_drop_frame_for_pacing`, `video.c:311`).
-- **Audio.** `vita/src/audio.c`: `vita_audio_cb` receives decoded Opus samples; on its first call it sets the audio thread to priority `VITA_AUDIO_THREAD_PRIORITY` = 64 (`vita/include/audio.h:5`) and pins it to `USER_2` (`audio.c:207-208`). Audio does not go through the video queue.
-- **Thread priorities in one place.** `host.c` logs `PIPE/PRIORITY decode=64 audio=64 recv=64 feedback=65 input=96` (`host.c:514`). Lower number means higher priority on Vita.
+- **Audio.** There is no separate audio thread. Audio packets take the same recv-thread path as video (`takion_handle_packet_av`, `takion.c:1828`, then `streamconnection.c:1280`, `audioreceiver.c:123`, `opusdecoder.c:95`) and `vita_audio_cb` (`vita/src/audio.c:204`) is called inline, with no hand-off and no video queue. On its first call it changes the CALLING thread, i.e. the recv thread, to priority `VITA_AUDIO_THREAD_PRIORITY` = 64 (`vita/include/audio.h:5`) and CPU `USER_2` (`audio.c:207-208`). So the recv thread starts on `USER_0` (`takion.c:1277-1278`) and, from what the code shows, is re-pinned to `USER_2` once the first audio frame arrives. This is unverified on hardware; the comments at `takion.c:1273-1276` and `video.c:1329` assume two threads. See [architecture.md](architecture.md).
+- **Thread priorities in one place.** `host.c` logs `PIPE/PRIORITY decode=64 audio=64 recv=64 feedback=65 input=96` (`host.c:514`). `audio=64` is the priority `vita_audio_cb` applies to the calling (recv) thread, not a separate thread. Lower number means higher priority on Vita.
 
 ## 7. Teardown order
 
