@@ -95,17 +95,17 @@ You can show or hide the exit shortcut hint and latency stats in **Settings**.
 
 - **Crash C2-12828-1** — May be caused by incompatible plugins (e.g., reRescaler). Try removing them.
 - **Config issues** — Delete `ux0:data/vita-chiaki/chiaki.toml` to reset all settings to defaults.
-- **Logs** — Testing builds write to `ux0:data/vita-chiaki/vitarps5-testing.log`. See [Building from Source](docs/BUILDING.md) for how to create a testing build.
+- **Logs** — Testing builds write to `ux0:data/vita-chiaki/vitarps5-testing.log`. See [Building from Source](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Build-and-deploy) for how to create a testing build.
 
 For more help, open an [issue](https://github.com/mauricio-gg/vitaki-vitarps5/issues).
 
 ## Documentation
 
-- [Configuration Guide](docs/CONFIGURATION.md) — All `chiaki.toml` settings
-- [Building from Source](docs/BUILDING.md) — Docker build system, debug builds, deployment
-- [Crash Dump Analysis](docs/CRASH_ANALYSIS.md) — Decoding `.psp2dmp` crash files
-- [Wi-Fi Optimization](docs/WIFI_OPTIMIZATION.md) — Network tips for best streaming performance
-- [PSN OAuth Credentials](docs/ai/PSN_OAUTH_CREDENTIALS.md) — Why the OAuth client ID/secret are committed (public PS-App values, not user secrets)
+- [Configuration Guide](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Configuration) — All `chiaki.toml` settings
+- [Building from Source](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Build-and-deploy) — Docker build system, debug builds, deployment
+- [Crash Dump Analysis](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Crash-dumps) — Decoding `.psp2dmp` crash files
+- [Wi-Fi Optimization](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Wi-Fi-tips) — Network tips for best streaming performance
+- [PSN OAuth Credentials](docs/design/psn.md) — Why the OAuth client ID/secret are committed (public PS-App values, not user secrets)
 
 ## Acknowledgements
 
