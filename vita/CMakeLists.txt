@@ -317,6 +317,9 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_moon.png assets/icons/page_moon.png
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
+        FILE assets/icons/page_lock.png assets/icons/page_lock.png
+        FILE assets/icons/popup_check.png assets/icons/popup_check.png
+        FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
         FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
         FILE assets/icons/room_tv_48.png assets/icons/room_tv_48.png
         FILE assets/icons/room_tv_64.png assets/icons/room_tv_64.png
