@@ -19,7 +19,7 @@ const ico=(n,s=24)=>`<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24
 /* button glyphs: the app's own four PNGs plus baked flat glyphs for D-pad, shoulders, Start, Select */
 const PNG={ex:'symbol_ex',circle:'symbol_circle',sq:'symbol_square',tri:'symbol_triangle'};
 const S1=(b)=>`<svg class="g" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">${b}</svg>`;
-const pillG=(t,w)=>`<svg class="g" viewBox="0 0 ${w} 24" width="${w}" height="24"><rect x="1" y="4" width="${w-2}" height="16" rx="${t.length>2?3:6}" fill="none" stroke="#fff" stroke-width="1.5"/><text x="${w/2}" y="16.5" text-anchor="middle" font-size="${t.length>2?9:12}" font-family="Roboto,sans-serif" font-weight="500" fill="#fff" stroke="none">${t}</text></svg>`;
+const pillG=(t,w)=>`<svg class="g" viewBox="0 0 ${w} 24" width="${w}" height="24"><rect x="1" y="4" width="${w-2}" height="16" rx="8" fill="none" stroke="#fff" stroke-width="1.5"/><text x="${w/2}" y="16.5" text-anchor="middle" font-size="${t.length>2?9:12}" font-family="Roboto,sans-serif" font-weight="500" fill="#fff" stroke="none">${t}</text></svg>`;
 const GLY={
  dpad:S1('<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>'),
  dpadh:S1('<path d="M9 7 3 12l6 5zM15 7l6 5-6 5z" fill="#fff"/>'),
@@ -58,7 +58,7 @@ function typeLogo(c,h=48){
  if(c.model==='PS5'){const w=Math.round(176*h/48),sc=w/132;return `<span class="tl" style="width:${w}px;height:${h}px;background:url(assets/PS5_logo.png) 0 ${-(8*sc).toFixed(1)}px/${w}px auto no-repeat" role="img" aria-label="PS5"></span>`;}
  const w=Math.round(200*h/48);return `<span class="tl" style="width:${w}px;height:${h}px;background:url(assets/ps4.png) 0 ${-(38*w/100).toFixed(1)}px/${w}px ${w}px no-repeat" role="img" aria-label="PS4"></span>`;
 }
-const sdot=(k)=>`<span class="sdot" style="--dc:${{ready:'var(--ok)',standby:'var(--warn)',psn:'var(--ok)',unpaired:'var(--idle)',unavail:'var(--err)',cool:'var(--err)'}[k]}"></span>`;
+const sdot=(k)=>`<span class="sdot" style="--dc:${{ready:'var(--ok)',standby:'var(--warn)',psn:'var(--ok)',unpaired:'var(--idle)',unavail:'var(--err)',error:'var(--err)',retry:'var(--warn)',cool:'var(--warn)'}[k]}"></span>`;
 
 /* C09 Toggle, C10 ChoiceValue, C08 SettingRow */
 const toggle=v=>`<span class="tgl"><span class="sw ${v?'on':''}"></span><span style="width:24px">${v?'On':'Off'}</span></span>`;

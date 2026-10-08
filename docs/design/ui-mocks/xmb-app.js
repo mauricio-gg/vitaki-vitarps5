@@ -8,7 +8,7 @@ const S={
  pin:{d:Array(8).fill(null),cur:0,ci:4},
  conn:{ci:0,flow:[0,4,7],cur:0,play:false,all:false},
  rec:{attempt:2},
- glass:'soft',pop:null,toast:null,kb:null,unst:false,
+ glass:'none',pop:null,toast:null,kb:null,unst:false,
  psn:'auth',pconn:'wifi',qr:true,logout:false,exitStart:0,zoom:1
 };
 let stageTimer=null,toastTimer=null,logoutTimer=null;
@@ -106,10 +106,6 @@ function items(ci){
 let cache=[];
 const psnState=()=>SET('psnmode').v?S.psn:'disabled';
 const selItem=()=>cache[S.sel[S.cat]];
-/* status hints wrap to at most 2 lines in the 288 px text column; every copy-deck hint fits (checked by measuring) */
-const mctx=document.createElement('canvas').getContext('2d');
-function hintLines(t){mctx.font='400 16px Roboto, sans-serif';return Math.min(3,Math.ceil(mctx.measureText(t).width/288));}
-const hintH=t=>24*hintLines(t);
 function buildCats(){$('#cats').innerHTML=CATS.map((c,i)=>`<div class="cat" data-do="cat" data-arg="${i}" role="tab" aria-label="${c[0]}"><div class="ci"><img src="${c[1]}" alt=""></div><div class="cl">${c[0]}</div></div>`).join('');}
 function itemIcon(it){return it.k==='console'?ring(it.c,56):`<img class="nav" src="${it.img}" alt="">`;}
 function buildList(anim){
@@ -120,10 +116,9 @@ function buildList(anim){
   $('#empty').innerHTML=(CONSOLES.length&&!S.noConsoles)?'No consoles match filter':`<span class="sp"></span>Searching for consoles...`;
  } else $('#empty').innerHTML='';
  $('#list').innerHTML=cache.map((it,i)=>{
-  let sub=it.s||'',hint='';
-  if(it.k==='console'){const k=kindOf(it.c),K=KIND[k];sub=`${sdot(k)}${K.t}${k==='psn'?' <span class="net">&middot; Internet</span>':''}`;
-   hint=it.c.hint?HINT[it.c.hint]:'';}
-  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''}" data-do="item" data-arg="${i}">${it.c?`<span class="gl ${kindOf(it.c)}"></span>`:''}<div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div>${hint?`<div class="h">${hint}</div>`:''}</div></div></div>`;
+  let sub=it.s||'';
+  if(it.k==='console'){const k=kindOf(it.c),K=KIND[k];sub=`${sdot(k)}${K.t}${k==='psn'?' <span class="net">&middot; Internet</span>':''}`;}
+  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''}" data-do="item" data-arg="${i}">${it.c?`<span class="gl ${kindOf(it.c)}"></span>`:''}<div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div></div></div></div>`;
  }).join('');
  layout();
 }
@@ -133,7 +128,7 @@ function layout(){
   slide(el,x,72,d<0?'scale(.75)':'');el.classList.toggle('on',d===0);
  });
  const sel=S.sel[S.cat],rows=$$('#list .xi');
- const hOf=(i,f)=>(f?88:56)+(cache[i]&&cache[i].c&&cache[i].c.hint?hintH(HINT[cache[i].c.hint]):0);
+ const hOf=(i,f)=>f?88:56;
  let y=192;
  rows.forEach((el,i)=>{
   let top;
@@ -153,7 +148,8 @@ function paintDetail(){
  const it=selItem(),P=$('#detail');let h='';
  if(!it){P.innerHTML='';return;}
  if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
-  h=`${typeLogo(c)}<h4>${c.name}</h4><p class="st">${K.t?sdot(k)+K.t:sdot(k)+'Not reachable'}</p>${kv('Address',c.ip||'Unknown')}${kv('Route',routeOf(c))}${kv('Pairing',c.reg?'Paired':'Unpaired')}`;
+  const msg=c.hint?HINT[c.hint]:null;
+  h=`${typeLogo(c)}<h4>${c.name}</h4><p class="st">${sdot(k)}${K.t}</p>${msg?`<p class="msg ${msg.k}">${msg.t}</p>`:''}${kv('Address',c.ip||'Unknown')}${kv('Route',routeOf(c))}${kv('Pairing',c.reg?'Paired':'Unpaired')}`;
  } else if(it.k==='grp'){const rs=SETTINGS.filter(s=>s.g===it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.map(s=>kv(s.label.replace(' (artifacts) (Experimental)',' (Experimental)'),setVal(s))).join('')}`;}
  else if(it.k==='preset'){const m=MAPS[it.i];h=`<h4>${it.t}</h4><p class="st">${PDESC[it.i]}</p>${kv('L1',m.L1)}${kv('R1',m.R1)}${kv('Front touch',nz(m.front)+' zones')}${kv('Rear touch',nz(m.back)+' zones')}`;}
  else {const rs=pageRows('profile',it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.slice(0,4).map(r=>kv(r.label,r.plain||'')).join('')}`;}
@@ -613,7 +609,7 @@ document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint
 
 /* ---------------- mock chrome: deep links, toggles, device frame ---------------- */
 const JUMPS=[
- ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Per-console status hints'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter','Filter active'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
+ ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter','Filter active'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
  ['XMB categories','xmb-settings','Settings category'],['XMB categories','xmb-controller','Controller category'],['XMB categories','xmb-profile','Profile category'],
  ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
@@ -633,7 +629,8 @@ Object.assign(DL,{
  'consoles-unavailable':()=>{mockConsole();C0(0,3);},
  'consoles-unpaired':()=>{mockConsole();C0(0,4);},
  'consoles-cooldown':()=>{mockConsole();CONSOLES[1].cool=true;C0(0,1);},
- hints:()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,0);},
+ hints:()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,1);},
+ 'hints-retry':()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,0);},
  'home-unstable':()=>{mockConsole();S.unst=true;$('#bUn').classList.add('on');$('#bUn').textContent='Network unstable: on';C0(0,0);},
  'empty-searching':()=>{mockConsole();S.noConsoles=true;C0(0,0);},
  'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);},

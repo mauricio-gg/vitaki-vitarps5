@@ -12,22 +12,25 @@ const CONSOLES=[
  {name:'Dorm',model:'PS5',ip:'',reg:true,disc:false,awake:false,net:false,room:'bunk'},
  {name:'Bedroom',model:'PS5',ip:'192.168.1.44',reg:false,disc:true,awake:true,net:false,room:'bed'}
 ];
-const kindOf=c=>c.cool?'cool':!c.reg?(c.disc?'unpaired':'unavail'):c.disc?(c.awake?'ready':'standby'):c.net?'psn':'unavail';
+const kindOf=c=>c.cool?'cool':c.hint?HINT[c.hint].k:!c.reg?(c.disc?'unpaired':'unavail'):c.disc?(c.awake?'ready':'standby'):c.net?'psn':'unavail';
 const KIND={
  ready:{t:'Ready',col:'var(--ok)',dot:'green'},
  standby:{t:'Standby',col:'var(--warn)',dot:'yellow'},
  unpaired:{t:'Unpaired',col:'var(--idle)',dot:'idle'},
  psn:{t:'Ready',col:'var(--ok)',dot:'green'},
- unavail:{t:'',col:'var(--err)',dot:'red'},
- cool:{t:'Please wait...',col:'var(--err)',dot:'red'}
+ unavail:{t:'Unavailable',col:'var(--err)',dot:'red'},
+ error:{t:'Error',col:'var(--err)',dot:'red'},
+ retry:{t:'Retrying',col:'var(--warn)',dot:'yellow'},
+ cool:{t:'Please wait...',col:'var(--warn)',dot:'yellow'}
 };
-const BADGE={ready:'check',standby:'moon',unpaired:'lock',psn:'globe',unavail:'warn',cool:'clock'};
+const BADGE={ready:'check',standby:'moon',unpaired:'lock',psn:'globe',unavail:'warn',error:'warn',retry:'clock',cool:'clock'};
 const routeOf=c=>c.disc&&c.net?'Local Network + Internet':c.disc?'Local Network':c.net?'Internet':'Not reachable';
 const bothRoutes=c=>c.reg&&c.disc&&c.net;
+/* Console detail messages. Each has a status kind: error (red, needs the user) or retry (amber, the app is retrying or waiting). The row shows only the status label; the message shows in the info panel. */
 const HINT={
- wake:'Wake signal failed. Check pairing and network.',
- busy:'Console busy - retrying in 3s...',
- psn:'PSN session expired. Re-authenticate in Profile.'
+ wake:{k:'error',t:'Wake signal failed. Check pairing and network.'},
+ busy:{k:'retry',t:'Console busy - retrying in 3s...'},
+ psn:{k:'error',t:'PSN session expired. Re-authenticate in Profile.'}
 };
 const bannerPill=r=>`<span class="pill warn ban"><span>Streaming stopped:</span><span class="rsn">${r}</span><span>- Please wait a few moments</span></span>`;
 
@@ -46,7 +49,7 @@ const SETTINGS=[
  {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate in the stream overlay.'},
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},
- {id:'blur',g:2,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:1,desc:'Blur the background waves behind menus. Strong and Dark are softer and calmer.'},
+ {id:'blur',g:2,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:0,desc:'Blur the background waves behind menus. Strong and Dark are softer and calmer.'},
  {id:'cc',g:3,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},
  {id:'clamp',g:4,label:'Clamp Soft Restart Bitrate',type:'toggle',v:true,desc:'Limit the bitrate when the stream restarts after packet loss.'},
  {id:'motion',g:4,label:'Motion during loss (artifacts) (Experimental)',type:'toggle',v:false,desc:'Keep motion going while packets are lost. May show visual artifacts.'},

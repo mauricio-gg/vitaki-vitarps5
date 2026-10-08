@@ -1,4 +1,4 @@
-# XMB feasibility (issue #271, round 6c)
+# XMB feasibility (issue #271, round 7)
 
 One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita2d. It replaces every earlier version. Nothing was built or measured on a Vita; all counts and sizes are paper estimates to be checked on hardware. Budgets: about 80 draw calls on Home, about 15 MB of textures.
 
@@ -12,8 +12,9 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | Status ring and badge | baked once | console state | one 2 px ring texture per state colour (OK, WARN, ERR) + one dashed IDLE ring + 6 badge glyphs; tinted at draw time |
 | Status dot | none | list rows | flat circle `vita2d_draw_fill_circle` in a token colour (the ellipse PNGs are no longer used) |
 | `PS5_logo.png` (132 x 49), `ps4.png` (100 x 100) | existing in the app | detail panel, Connecting | cropped to the wordmark, drawn large in white |
-| Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 24 |
-| Flat hint glyphs: D-pad (all, left-right, up-down), L, R, Start, Select | new, baked | hint row, login steps, stream exit pill | 24 px high, white |
+| Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 20 in the hint row, 20 inline |
+| Flat hint glyphs: D-pad (all, left-right, up-down), L, R, Start, Select | new, baked | hint row, login steps, stream exit pill | 20 px high in the hint row (the 4 existing symbol PNGs are scaled from 28 to 20); L, R, Start, Select are pill badges; white |
+| Rounded shape textures | new, baked once | selection bars, buttons, toggles, popups, toast, pills, PIN boxes, icon cells | `R_SM` 8: one 24 x 24 white 9-slice; `R_MD` 16: one 48 x 48 white 9-slice (popup also has a 1 px border variant); pill: one 48 x 48 3-slice (left cap, stretched middle, right cap) plus a bordered variant; toggle: track on/off 48 x 24 and a 16 px round knob; PIN box 56 x 72 (idle and focused). All white, tinted at draw time. About 0.05 MB in total |
 | Wi-Fi, battery, check, warning, lock, globe, moon, clock, chevrons, close | new, simple strokes | top bar, badges, rows, popups | one small glyph atlas |
 | `controller_front.png` (874 x 396), `controller_back.png` (720 x 327) | existing in the app | Controller screens | unchanged; the mock uses `controller_back_clean.png` (the tiny "Sony Computer Entertainment Inc" line erased), ship that copy |
 | `Vita_RPS5_Logo.png` | existing | top bar | scaled to 32 px high |
@@ -24,15 +25,14 @@ Removed from the app by this design: the wave sidebar, particles, rounded-rect a
 
 ## 2. Type
 
-4 sizes, 6 faces, pre-rendered into the existing FreeType atlas:
+**5 sizes, 5 faces, Roboto only; no mono face.** Pre-rendered into the existing FreeType atlas:
 
 | Face | Size | Use |
 |---|---|---|
-| Roboto Light | 20, 28 | rows, buttons, titles |
-| Roboto Regular | 16 | hints, captions, kv rows |
-| Roboto Mono Regular | 16, 28, 40 | IDs and values (16), Reconnecting bitrate (28), PIN digits (40) |
+| Roboto Light | 20, 28, 40 | rows and buttons (20), titles (28), PIN digits (40) |
+| Roboto Regular | 14, 16 | hint row (14), captions, kv rows and values such as IPs and stats (16) |
 
-Today the app loads Roboto Regular and Roboto Mono only (7 sizes). Roboto Light is **one new TTF (170 KB)**, decided. Atlas about 1.5 MB in total (about 0.3 MB more than today). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 faces instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today (about 1.4 MB). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
 
 ## 3. Background
 
@@ -42,15 +42,15 @@ Fixed palette (no time of day). 5 ribbons: one triangle strip per ribbon fill pl
 
 | Screen | Estimate | Breakdown |
 |---|---|---|
-| Home (Consoles) | about 75 | wave 12, categories 5, list 32 (4 rows x 8), detail 14, hint row 10, top bar 6, filter line 2 |
+| Home (Consoles) | about 75 (focus glow is one padded blob per row, 4 rows: +3 vs the earlier count, offset by dropping the red hint lines) | wave 12, categories 5, list 32 (4 rows x 8), detail 14, hint row 10, top bar 6, filter line 2 |
 | Home with Options open | about 55 | dimmed layers are still drawn; the column adds about 15; skip the list cascade |
-| Settings, Profile | about 40 | groups 6, rows 6 x 5, lines, identity block (Profile) 5, hint row 10 |
+| Settings, Profile | about 52 | groups 6, rows 5 x 5 (a focused row is a 3-slice rounded bar: 3 draws; each toggle is a track texture + a knob texture: 2 draws instead of 3 rectangles), lines, identity block (Profile) 5, hint row 10 |
 | Controller summary | about 30 | diagram 1, callouts 6, footers 4, preset switcher 4, hint row 12 |
 | Controller zone view | about 60 | diagram 1, 18 cells + 18 labels, hint row 10, borders for picked and cursor |
-| PIN | about 35 | 8 digit boxes, chevrons, 3 buttons, prompt, hint row |
+| PIN | about 38 | 8 digit boxes (one baked 56 x 72 rounded texture each), chevrons, 3 pill buttons (3-slice: 9 draws), prompt, hint row |
 | Connecting | about 30 | ring, spinner arc, halo, logo, steps text, button |
 | Stream overlay | about 8 | up to 3 pills or panels |
-| Popups | about 15 to 20 on top of the screen behind | the screen behind is drawn once, dimmed |
+| Popups | about 25 to 30 on top of the screen behind | a 9-slice popup body is 9 draws (was 4 rectangles), buttons are 3-slice pills, a focused list row is a 3-slice bar; the screen behind is drawn once, dimmed |
 
 Home is at the 80-call budget. Two savings if it goes over: skip the text shadow, and draw at most 3 full rows plus a faded fourth. Status hints are wrapped once when they change (word-by-word `ui_text_width`), never per frame.
 
@@ -64,7 +64,8 @@ Home is at the 80-call budget. Two savings if it goes over: skip the text shadow
 | Controller diagrams at source size (scale down for a saving) | 2.5 |
 | Font atlases (6 faces) | 1.5 |
 | Top-bar logo, misc | 0.1 |
-| **Total** | **about 4.6** |
+| Rounded shape textures (9-slice, 3-slice, toggle, PIN box) | 0.05 |
+| **Total** | **about 4.65** |
 
 Well under the 15 MB budget. The wave costs none.
 
@@ -88,7 +89,7 @@ Well under the 15 MB budget. The wave costs none.
 
 ## 8. Background Blur (user setting: None / Soft / Strong / Dark)
 
-Settings > Display > Background Blur, default **Soft** (PM call). It applies live and is stored as one integer in the config (SPEC flag 13).
+Settings > Display > Background Blur, default **None** (CEO decision, round 7). It applies live and is stored as one integer in the config (SPEC flag 13).
 
 | Mode | Method | Veil | Look |
 |---|---|---|---|
@@ -138,6 +139,6 @@ What the numbers say:
 - The veil, not the blur, lifts typical contrast. Blur alone only softens the brightest thin lines (Home brightest px 2.57 to 3.66, mean unchanged at 6.30); a 14% veil alone lifts the mean (Home 6.29 to 7.47).
 - **Soft** gains about 10 to 19% on mean and clears the worst spots, and keeps the XMB look.
 - **Strong** is no better than None on typical contrast (the white tint cancels the veil; Profile error gets worse, 5.09 to 4.54) and looks like a blurry wallpaper. **Dark** has the best numbers but is only about 1.5 to 6% above Soft on mean, and the flattest look.
-- Red hint text (`ERR`) is the weak spot in every mode (averages 4.2 to 5.1, worst spots 1.5 to 2.9). A lighter ERR hint colour or a text shadow would help more than any background mode.
+- Red error text (`ERR`) is the lowest-contrast text in every mode (averages 4.2 to 5.1, worst spots 1.5 to 2.9; measured when it was in the list, now it is in the info panel). The CEO says it reads fine, so there is no change.
 
-Decision: ship the setting with **Soft** as the default; None keeps today's look; Strong and Dark are there for people who want a calmer background.
+Decision: the setting ships with **None** as the default (today's look); Soft is the recommended choice if a legibility gain is wanted; Strong and Dark are there for people who want a calmer background.

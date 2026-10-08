@@ -64,18 +64,17 @@ Wave palette (one fixed set, no time of day): top #06204A, mid #0F4585, bottom #
 
 ### 1.2 Type
 
-Roboto and Roboto Mono, pre-rendered. **4 sizes, 6 faces** (today: 7 sizes, 2 families).
+Roboto only, pre-rendered. **5 sizes, 5 faces, no mono face** (today: 7 sizes in 2 families). Roboto's own digits are equal width, so IPs, countdowns and stats still line up without OpenType features (FreeType would not apply them anyway).
 
 | Face | Size / line | Weight | Used for | Replaces |
 |---|---|---|---|---|
-| `T28` | 28 / 32 | Light 300 | page titles, focused list row name, popup title, Connecting current stage, focused group | `FONT_SIZE_HEADER` 28, `HOME_HEADER` 24 |
+| `T40` | 40 / 48 | Light 300 | PIN digits | `PIN_DIGIT` 40 (was Roboto Mono) |
+| `T28` | 28 / 32 | Light 300 | page titles, focused list row name, popup title, Connecting current stage, focused group, Reconnecting retry bitrate | `FONT_SIZE_HEADER` 28, `HOME_HEADER` 24 |
 | `T20` | 20 / 24 | Light 300 | list row name, setting label and value, buttons, popup rows, callouts, prompts | `CARD_TITLE` 20, `SUBHEADER` 18 |
-| `T16` | 16 / 24 | Regular 400 | hints, captions, status lines, descriptions, kv rows, pills, toast sub | `BODY` 16, `SMALL` 14 |
-| `MONO16` | 16 / 24 | Regular | IDs, IP, codes, URL, kv values, stats values | Roboto Mono |
-| `MONO28` | 28 / 40 | Regular | Reconnecting retry bitrate | new |
-| `MONO40` | 40 | Regular | PIN digits | `PIN_DIGIT` 40 |
+| `T16` | 16 / 24 | Regular 400 | captions, status lines and messages, descriptions, kv rows and values (IDs, IPs, codes), stats values, pills, toast sub | `BODY` 16, `SMALL` 14, Roboto Mono 16 |
+| `T14` | 14 / 20 | Regular 400 | hint row labels only | `SMALL` 14 (already in today's atlas, no new size) |
 
-Roboto Light is not loaded by the app today (only Regular and Mono). Decision: load it (one TTF, 170 KB, about 0.3 MB of atlas).
+Roboto Light is not loaded by the app today (only Regular and Mono). Decision: load it (one TTF, 170 KB, about 0.3 MB of atlas for 3 sizes); Roboto Mono is dropped, which removes its atlas. Roboto Medium appears only inside the baked Start/Select glyphs, never as a text face.
 
 ### 1.3 Spacing, layout, lines, motion
 
@@ -87,11 +86,11 @@ Roboto Light is not loaded by the app today (only Regular and Mono). Decision: l
 | `TITLE_Y` | 64 (page title row, height 48) |
 | `RULE_Y` | 120 (page divider) |
 | `BODY_Y` | 136 (page content top) |
-| `HINT_Y` | 496 (hint row, height 48) |
+| `HINT_Y` | 496 (hint row, height 48; text T14, glyphs 20 px) |
 | `ROW_H` | 48 (setting row, popup list row); 56 for group, options and list-row base; 64 icon box |
 | `TAP_MIN` | 48 (every tap target is at least 48 x 48; chevrons are 48 x 48 boxes around 16 px art) |
 | `LW1`, `LW2` | 1 px (hairlines, borders), 2 px (ring, focus underline, toggle, spinner) |
-| Radius | 0 for every rectangle. Only rings, dots, spinners and the toggle-free badge are round |
+| Radius | three tokens: `R_SM` 8 (selection bars on rows, option and popup list rows, icon cells, QR plate, PIN boxes), `R_MD` 16 (popups, stats panel, keyboard stand-in box), `R_PILL` = half the height (buttons, toggles, toast, pills and badges, hint glyph badges). Zone cells, callout underlines, hairlines and the wave stay square. On the Vita these are baked 9-slice or 3-slice textures tinted at draw time, never per-pixel-radius fills (FEASIBILITY.md) |
 | `D1`, `D2`, `D3` | 150, 300, 600 ms. Easing `cubic-bezier(.22,.7,.2,1)` (ease-out), linear for spinners. Toggle knob keeps today's 180 ms. List cascade: row i starts after 45 ms x min(i,6). Spinner 1.8 s/turn (ring) and 0.8 s (inline 16 px). |
 | Overlay timers | exit hint 5.0 s visible + 0.5 s fade (today's values); unstable badge 5.0 s (today); toast 3.0 s + 0.3 s fade (today 2.0 s, see Flags); log out confirm window 3.0 s (today) |
 
@@ -143,8 +142,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 |---|---|
 | Purpose | Vertical item column under the focused category. |
 | Constants | `UI_LIST_X` 224, `UI_LIST_Y` 184, `UI_LIST_W` 368, `UI_LIST_H` 312 (bottom 48 fades), `UI_LIST_ICON` 64 (scale 0.8 / 1.1), `UI_LIST_TEXT_X` 304, `UI_LIST_TEXT_W` 288, `UI_LIST_FOCUS_Y` 192, `UI_LIST_ROW_H` 56, `UI_LIST_ROW_H_FOCUS` 88, `UI_LIST_GAP` 24, `UI_LIST_LINE_H` 24, `UI_LIST_SLIDE` 80 |
-| Anatomy | Row: icon box at x 224, text at x 304, max w 288. Focused row top y 192, height 88; unfocused 56. Name T28 focused / T20 unfocused, status line T16, then the hint block (below). Rows above the focus slide up 80 px per step and fade to 0. Cascade-in on category change. |
-| Hint block | A status hint (T16, `ERR`) wraps inside the 288 px column, **never truncated**, up to 2 lines; each line adds 24 px to that row's height, for focused and unfocused rows alike. All copy-deck hints fit in 2 lines at 288 px (longest: "Missing console credentials. Re-pair may be required.", 53 characters; measured). A hint longer than 2 lines is a copy bug, not a layout case. |
+| Anatomy | Row: icon box at x 224, text at x 304, max w 288. Focused row top y 192, height 88; unfocused 56. Name T28 focused / T20 unfocused, status line T16 (dot + status label only; no message lines in the list). Rows above the focus slide up 80 px per step and fade to 0. Cascade-in on category change. |
 | States | focused, unfocused, dimmed (opacity 55%, cooldown), hidden (above focus) |
 | Input | Up/Down moves (no wrap). Confirm or tap on the focused row activates. Tap on another row focuses it, second tap activates. Vertical swipe on the viewport: one row per 56 px, focus follows. Hit = the row, 56 high. |
 | Used by | Home (consoles, setting groups, presets, profile groups) |
@@ -156,7 +154,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Purpose | Console identity and state in one glyph: user room icon inside a status ring plus corner badge. `ui_draw_status_ring(x, y, size, room, state)`. |
 | Constants | `UI_RING_W` 2, `UI_RING_GLOW` 12, `UI_RING_ICON` 50% of size, `UI_RING_BADGE` 40% of size at (-4, -4), badge glyph 70% |
 | Anatomy | Sizes in use: 56 (rows), 128 (Connecting). Ring in the state colour. **Glow**: its own padded texture (art 64 + 2 x 24 radius = 112 square, fully transparent border), state colour at 55% fading radially to 0, centred on the ring, drawn before it, 45% strength on unfocused rows and 100% on the focused row; never part of the scaled icon box (Glow rule, 2.0). room icon (`icons/tv|sofa|bed|bunk|desk|house.svg`, default tv), badge disc `BADGE_BG` with a 2 px state-colour border. Unpaired ring is dashed with no glow. |
-| States | Ready (OK, check), Standby (WARN, moon), Unpaired (IDLE dashed, lock), Internet (OK, globe), Unavailable (ERR, warning), Cooldown (ERR, clock; row dimmed) |
+| States | Ready (OK, check), Standby (WARN, moon), Unpaired (IDLE dashed, lock), Internet (OK, globe), Unavailable (ERR, warning), **Error** (ERR, warning), **Retrying** (WARN, clock), Cooldown (WARN, clock; row dimmed) |
 | Used by | Home list, Connecting art |
 | Replaces | card status dot, "internet" badge, PS5/PS4 logo on card |
 | Cost | ring and badge are baked textures tinted per state, 3 draws per item |
@@ -166,7 +164,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 |---|---|
 | Purpose | Facts about the focused item, no card. |
 | Constants | `UI_DETAIL_X` 608, `UI_DETAIL_Y` 192, `UI_DETAIL_W` 304, `UI_DETAIL_LOGO_H` 48 (PS5 176 wide, PS4 200 wide), `UI_DETAIL_KV_H` 32 |
-| Anatomy | Console: type logo (`PS5_logo.png`, `ps4.png` crop) white, 16 below it the name T28, status line T16 (dot + text), 16 gap, kv rows (label T16 TEXT, value MONO16 right, `LINE_FAINT` hairline): Address, Route, Pairing. Settings group: the group's rows and values. Preset: description line, then L1, R1, Front touch, Rear touch. Profile group: its first 4 rows. |
+| Anatomy | Console: type logo (`PS5_logo.png`, `ps4.png` crop) white, 16 below it the name T28, status line T16 (dot + label), then, only when the console has one, the **status message** (T16, 24 line, wraps up to 3 lines in the 304 px panel; `ERR` colour for Error, `WARN` for Retrying, 16 gap below), then the kv rows (label T16 TEXT, value T16 right, `LINE_FAINT` hairline): Address, Route, Pairing. Settings group: the group's rows and values. Preset: description line, then L1, R1, Front touch, Rear touch. Profile group: its first 4 rows. |
 | States | per item kind; rises 300 ms when focus changes |
 | Replaces | the in-card IP/status text |
 
@@ -175,7 +173,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 |---|---|
 | Purpose | Triangle options for a console. |
 | Constants | `UI_OPTS_X` 608 (w 352 to the right edge), `UI_OPTS_PAD` 48, `UI_OPTS_ROW_H` 56, first row y 160 |
-| Anatomy | Slides in from the right 300 ms, left edge feathered into `PANEL_EDGE`. Console name T28 at y 88, "Options" T16 at y 120, rows T20 with 1 px `LINE_FAINT` divider. Focused row: TEXT, 2 px white underline, glow. Home dims behind it. |
+| Anatomy | Slides in from the right 300 ms, left edge feathered into `PANEL_EDGE`. Console name T28 at y 88, "Options" T16 at y 120, rows T20 with 1 px `LINE_FAINT` divider. Focused row: TEXT on an `R_SM` `FILL_FOCUS` bar, glow on the label. Home dims behind it. |
 | Items | Connect (Wake and connect on standby) / Connect via (only when Local and Internet both exist) / Re-pair / Change icon. Unpaired consoles get Pair / Change icon. Cooldown disables Connect and Connect via. |
 | Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); every tap outside the column, including the hint-row buttons, closes it and is consumed (nothing else runs). While open, the category bar, list, detail panel, filter line and top bar dim to 25%; the column and the hint row stay bright. |
 
@@ -183,8 +181,8 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | | |
 |---|---|
 | Purpose | Persistent bottom row. Replaces the Select toast. |
-| Constants | `UI_HINT_Y` 496, `UI_HINT_H` 48, gap 32, glyph h 24, glyph-label gap 8, `UI_HINT_ALERT_W` 200 (right slot) |
-| Anatomy | x 48..912. Each hint: glyph + label T16 TEXT_2. Glyphs: the 4 PNG symbols plus baked flat glyphs for D-pad (all, left-right, up-down), L, R, L+R, Start, Select (new assets, 24 px high). |
+| Constants | `UI_HINT_Y` 496, `UI_HINT_H` 48, gap 24, glyph h 20, glyph-label gap 8, `UI_HINT_ALERT_W` 200 (right slot) |
+| Anatomy | x 48..912. Hints are **centred horizontally** (on the screen when no alert pill shows; in the space left of the alert slot when it does), gap 24. Each hint: glyph (20 px high) + 8 + label T14 TEXT_2. Glyphs: the 4 PNG symbols (scaled from 28 to 20) plus baked flat glyphs for D-pad (all, left-right, up-down), L, R, L+R, Start, Select (new assets, 20 px high; L, R, Start, Select are `R_PILL` badges). The row keeps its 48 px height as the tap target; only the visible content shrank (from T16 and 24 px glyphs). |
 | Confirm swap | Hints are declared as `CONFIRM` / `CANCEL`; the row resolves them to Cross or Circle from the setting. |
 | Alert slot and collapse rule | When Network Unstable is active on a menu, the right 200 px (x 712..912) are reserved for the alert pill and never overlap hints. Hints use x 48..696. If they do not fit, items flagged **low priority** are dropped from the right until they do (low priority: L R Category on Home, Clear and Preset on the Controller summary, Clear digit on PIN). Confirm, Cancel and the main action are never dropped. |
 | Popups | While a popup is open the row shows the popup's hints. The Confirm hint carries the label of the **focused button** (for example "Re-pair", "Try again"); Cancel shows the popup's cancel label. A one-button popup shows Confirm only. If the focused button is the cancel button, only Confirm shows. |
@@ -205,7 +203,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 |---|---|
 | Purpose | One row: label left, control or value right. Kinds: toggle, choice, info, action. |
 | Constants | `UI_ROW_H` 48, `UI_ROW_PAD` 16, `UI_TOGGLE_W` 48, `UI_TOGGLE_H` 24, `UI_TOGGLE_KNOB` 16 (inset 2, travel 24, 180 ms), `UI_CHOICE_VALUE_W` 224, `UI_CHOICE_ARROW` 48 x 48 hit around a 16 px icon |
-| Anatomy | Label T20, `LINE_FAINT` divider. Focused: `FILL_FOCUS`, TEXT, white divider, glow on the label. Disabled: 50%. Armed (log out): label and value in `WARN`. Error status row: `ERR` value with a 20 px warning icon in front and a 2 px `ERR` rule at the row's left edge. Toggle: track with 2 px border (off TEXT_2; on white border + `FILL_ON`), square knob, "On"/"Off" T16 16 right of the track. Choice: chevrons around a 224 wide centred value T20. Info: value T20 or MONO16. Action: label, chevron-right when enabled. |
+| Anatomy | Label T20, `LINE_FAINT` divider. Focused: `R_SM` `FILL_FOCUS` bar (divider hidden), TEXT, glow on the label. Disabled: 50%. Armed (log out): label and value in `WARN`. Error status row: `ERR` value with a 20 px warning icon in front and a 2 px `ERR` rule at the row's left edge. Toggle: **pill** track (`R_PILL`, 48 x 24, 2 px border; off TEXT_2, on white border + `FILL_ON`) with a **round** 16 px knob, "On"/"Off" T16 16 right of the track. Choice: chevrons around a 224 wide centred value T20. Info: value T20 or T16. Action: label, chevron-right when enabled. |
 | States | normal, focused, pressed (FILL_ON 150 ms), disabled, armed |
 | Input | **First tap acts and takes focus**: toggle flips, choice cycles to the next value, action runs; info rows only take focus. Buttons: Confirm flips/cycles/runs; Left/Right changes a choice. Tap on a chevron steps that way. |
 | Replaces | settings list rows, `toggle_switch` (restyled), `dropdown`, Profile text rows |
@@ -216,12 +214,12 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Purpose | The only modal frame. 3 fixed sizes, all 480 wide, x 240. |
 | Sizes | **S** 480 x 256 at y 144 (confirm, result, 2-row list). **M** 480 x 352 at y 96 (icon picker grid). **L** 480 x 432 at y 56 (mapping list, 6 visible rows). |
 | Constants | `UI_POPUP_W` 480, `UI_POPUP_PAD` 32, `UI_POPUP_S_H` 256, `_M_H` 352, `_L_H` 432, button bar h 48 gap 16, max button w 208 |
-| Anatomy | `PANEL` fill, 1 px `LINE` border, padding 32. Title T28 (optional 32 px icon, gap 16), subtitle T16, body T16 (8 below). `SCRIM` behind. S popup with a list: the rows are vertically centred in the space under the subtitle. Enter: rise 16 px + fade, 300 ms. |
+| Anatomy | `PANEL` fill, 1 px `LINE` border, `R_MD` corners, padding 32. Title T28 (optional 32 px icon, gap 16), subtitle T16, body T16 (8 below). `SCRIM` behind. S popup with a list: the rows are vertically centred in the space under the subtitle. Enter: rise 16 px + fade, 300 ms. |
 | Input | Modal. Circle or tap on the scrim cancels. Hit for rows 48 high. |
 | Replaces | 6 modal sizes (520x280, 560x290, 400x160, 360x340, 700x450, 640x360/380) |
 
 ### C12 ListPopup (configuration of C11)
-Rows h 48 (T20, optional right label T16 TEXT_3, check icon for the current value), `LINE_FAINT` dividers, focused row `FILL_FOCUS` + 2 px underline. Scrolls when rows exceed the visible count (L shows 6), selected row kept near the middle, 2 px scroll indicator at the right edge. Vertical swipe on the list: one row per 48 px, focus follows. **Grid variant** (icon picker): 3 x 2 cells 128 x 104, gap 16, icon 48 (70% opacity), label T16. Focus and current are independent; matrix:
+Rows h 48 (T20, optional right label T16 TEXT_3, check icon for the current value), `LINE_FAINT` dividers, focused row an `R_SM` `FILL_FOCUS` bar. Scrolls when rows exceed the visible count (L shows 6), selected row kept near the middle, 2 px scroll indicator at the right edge. Vertical swipe on the list: one row per 48 px, focus follows. **Grid variant** (icon picker): 3 x 2 cells 128 x 104, gap 16, icon 48 (70% opacity), label T16. Focus and current are independent; matrix:
 
 | | Not current | Current |
 |---|---|---|
@@ -237,25 +235,25 @@ Size S, title with icon, 1 to 3 lines body, two TextButtons (Cancel left, action
 Size S, tone icon (OK check or ERR warning, 32), title, 1 to 3 lines body, one or two TextButtons. Default focus on the right-most (primary) button. One component for pairing success, pairing failure (three reasons, section 3.3) and connection failure. Used by: pairing result, connection failure. Replaces: the debug-only error popup.
 
 ### C15 Toast (display-only, one static timer)
-`UI_TOAST_Y` 432, h 48, centred, padding 24, optional 24 px icon + 16 gap, T20, `PANEL` fill, 1 px `LINE`, max w 720, single line. Rise 300 ms, 3.0 s, fade 300 ms. One at a time (a new one replaces). Used by: Profile messages. Replaces: 4 pill/toast implementations.
+`UI_TOAST_Y` 432, h 48, centred, `R_PILL` corners, padding 24, optional 24 px icon + 16 gap, T20, `PANEL` fill, 1 px `LINE`, max w 720, single line. Rise 300 ms, 3.0 s, fade 300 ms. One at a time (a new one replaces). Used by: Profile messages. Replaces: 4 pill/toast implementations.
 
 ### C16 Spinner and ProgressSteps (display-only)
-**Spinner**: 270 degree arc, 2 px, TEXT; sizes 176 (Connecting art) and 16 (inline). **ProgressSteps** `ui_draw_steps(x, y, steps[], count, current)`: x 464..912 from y 152. Row min h 40, padding 8, gap 16, T20. Done: 12 px `OK` dot. Current: T28 with detail T16 TEXT_2 under it, glow, 16 px spinner in the marker column. Pending: MONO16 number in TEXT_3. Only the stages of the current flow are listed. Used by: Connecting. Replaces: `ui_draw_spinner` card layout.
+**Spinner**: 270 degree arc, 2 px, TEXT; sizes 176 (Connecting art) and 16 (inline). **ProgressSteps** `ui_draw_steps(x, y, steps[], count, current)`: x 464..912 from y 152. Row min h 40, padding 8, gap 16, T20. Done: 12 px `OK` dot. Current: T28 with detail T16 TEXT_2 under it, glow, 16 px spinner in the marker column. Pending: T16 number in TEXT_3. Only the stages of the current flow are listed. Used by: Connecting. Replaces: `ui_draw_spinner` card layout.
 
 ### C17 PinField (interactive)
 | | |
 |---|---|
 | Constants | `UI_PIN_BOX_W` 56, `UI_PIN_BOX_H` 72, gap 8, `UI_PIN_CHEV_W` 56, `UI_PIN_CHEV_H` 48 (hit and visible box; art 20), row top y 224 (chevron top; digits y 272-344), `UI_PIN_BTN_Y` 424 |
-| Anatomy | Eight boxes, MONO40, 2 px underline (TEXT_3; focused white + `FILL_FOCUS` + glow). The focused box shows up/down chevron boxes above and below. Empty focused box: blinking 2 x 40 cursor (1 s). |
+| Anatomy | Eight boxes (56 x 72, 2 px `LINE` outline, `R_SM` corners), T40 Light digits (focused: white outline + `FILL_FOCUS` + glow). The focused box shows up/down chevron boxes above and below. Empty focused box: blinking 2 x 40 cursor (1 s). |
 | Focus | One focus only, in one of two zones: **digits** or **buttons** (Clear digit, Cancel, Register). Right on the last digit when all 8 are filled, or Down, moves to the buttons (Register when ready); Left/Right switch buttons; Up returns to the last digit. In the buttons zone no digit box shows focus. Confirm in the digits zone registers when all 8 are filled (today's behaviour). |
 | Input | Up/Down change the digit (empty: Up gives 0, Down gives 9; wraps), Square clears it. Touch: tap a box (focus moves to digits), tap its chevrons, tap the buttons. |
 | Used by | PIN screen. Replaces `pin_digit`. |
 
 ### C18 QrPanel (display-only)
-QR art 160 x 160 on a `QR_PLATE` square with 8 px quiet zone (176 x 176), modules from `ui_qr`, ink `QR_INK`. Hidden state: 176 box in `QR_HIDDEN` with "QR hidden" T16 TEXT_3. The login screen owns a 176 x 176 tap rect over it: **tap toggles show/hide**, same as Start, with the same feedback (toast "QR shown. Scan it with your phone." / "QR hidden. Press Start to show it again."). Next to it a text column. The URL line is a **deliberate short display form** `my.account.sony.com/sso/ca/authorize` (MONO16, one line, never clipped, never ellipsised); the full authorize URL stays in memory for the QR and the browser. Replaces: `draw_profile_login_assist_panel` (reuse the `ui_qr` encoder unchanged).
+QR art 160 x 160 on a `QR_PLATE` plate (`R_SM` corners) with 8 px quiet zone (176 x 176), modules from `ui_qr`, ink `QR_INK`. Hidden state: 176 box in `QR_HIDDEN` with "QR hidden" T16 TEXT_3. The login screen owns a 176 x 176 tap rect over it: **tap toggles show/hide**, same as Start, with the same feedback (toast "QR shown. Scan it with your phone." / "QR hidden. Press Start to show it again."). Next to it a text column. The URL line is a **deliberate short display form** `my.account.sony.com/sso/ca/authorize` (T16, one line, never clipped, never ellipsised); the full authorize URL stays in memory for the QR and the browser. Replaces: `draw_profile_login_assist_panel` (reuse the `ui_qr` encoder unchanged).
 
 ### C19 Pill (display-only)
-h 32, padding 0 16, `HUD` fill, T16 TEXT, square. Variants: **warn** (2 px `WARN` left rule: cooldown banner), **unstable** (12 px `ERR` dot, pulse 1.4 s), **plain** (exit hint). Used by: stream overlay (exit hint top-right, Network Unstable bottom-right at 16 px margins), hint-row alert slot, top-bar banner slot. Replaces: overlay `draw_pill`, `UI_LOSS_INDICATOR_*`.
+h 32, padding 0 16, `HUD` fill, T16 TEXT, `R_PILL` corners. Variants: **warn** (1 px `WARN` outline: cooldown banner), **unstable** (12 px `ERR` dot, pulse 1.4 s), **plain** (exit hint). Used by: stream overlay (exit hint top-right, Network Unstable bottom-right at 16 px margins), hint-row alert slot, top-bar banner slot. Replaces: overlay `draw_pill`, `UI_LOSS_INDICATOR_*`.
 
 ### C20 ControllerDiagram + Callout (display-only)
 | | |
@@ -278,7 +276,7 @@ h 32, padding 0 16, `HUD` fill, T16 TEXT, square. Variants: **warn** (2 px `WARN
 Input: D-pad moves; hold Confirm and move adds cells to the selection (popup on release; a plain tap assigns the one cell); touch (a single-cell gesture opens that cell's popup on release, and the click that follows is ignored): finger paint across cells, backtracking one cell removes the last, release opens the popup; tap = one cell. Used by: Front and Rear zone views; Summary page 2 shows the grid read-only (tap opens Rear zones).
 
 ### C22 TextButton (interactive)
-h 48, min w 128, padding 0 24, T20, 1 px `LINE` border, no fill. Focused: `FILL_FOCUS`, white border, glow. Disabled: 45%. Pressed: `FILL_ON`. Hit = visible (already above 48). Used by: popups, PIN, Connecting (Cancel). Replaces: `text_button`.
+h 48, min w 128, padding 0 24, T20, `R_PILL` corners, 1 px `LINE` border, no fill. Focused: `FILL_FOCUS`, white border, glow. Disabled: 45%. Pressed: `FILL_ON`. Hit = visible (already above 48). Used by: popups, PIN, Connecting (Cancel). Replaces: `text_button`.
 
 ### C23 TopBar (display-only)
 y 16, h 32, x 48..912. Three slots: logo (h 32, `Vita_RPS5_Logo.png`) left; centre slot (flex, 24 px padding each side) holds the cooldown banner on Home; right group: Wi-Fi icon 24, battery icon 24 + percent T16, clock T20 (gap 24). **Banner rule:** while the banner shows, the Wi-Fi and battery items are hidden (clock stays), which gives the centre slot about 700 px; the banner pill is at most the slot width on one line, and if the reason string is too long only the reason is shortened with an ellipsis ("Streaming stopped:" and "- Please wait a few moments" always show). Hidden in-stream. System reads needed: link state (`sceNetCtl`), battery percent (`scePower`), local time (RTC), polled about once per second.
@@ -287,18 +285,18 @@ y 16, h 32, x 48..912. Three slots: logo (h 32, `Vita_RPS5_Logo.png`) left; cent
 2 px track (`LINE_FAINT`), 2 px white thumb, at x 920 beside the pane or the right edge of a list popup. Shown only when rows exceed the viewport. Replaces: 2 scrollbar implementations.
 
 ### C25 StatsPanel (display-only)
-`PANEL` fill, padding 8 x 16, min w 176, right 16, top 64. Title "Stream Stats" T16 TEXT_2; rows label T16 TEXT_3, value MONO16 white right aligned. **Latency** = `measured_rtt_ms`, shown as "N ms"; "N/A" when there is no value or the metrics are older than 3.0 s (today's rule). **FPS** = incoming frames per second measured over the last metrics window, shown as "in / target" (target = `target_fps`, else the negotiated fps; "in" alone when no target; "N/A" when none). Unit is whole frames per second. Cadence: the panel text is rebuilt **once per second** (not per frame) so numbers do not flicker; stale detection runs per frame. Shown only when Show Latency is on. Replaces: `draw_stream_stats_panel`.
+`PANEL` fill, `R_MD` corners, padding 8 x 16, min w 176, right 16, top 64. Title "Stream Stats" T16 TEXT_2; rows label T16 TEXT_3, value T16 white right aligned. **Latency** = `measured_rtt_ms`, shown as "N ms"; "N/A" when there is no value or the metrics are older than 3.0 s (today's rule). **FPS** = incoming frames per second measured over the last metrics window, shown as "in / target" (target = `target_fps`, else the negotiated fps; "in" alone when no target; "N/A" when none). Unit is whole frames per second. Cadence: the panel text is rebuilt **once per second** (not per frame) so numbers do not flicker; stale detection runs per frame. Shown only when Show Latency is on. Replaces: `draw_stream_stats_panel`.
 
 ### C26 EmptyState (display-only)
 Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searching. Used by: Home consoles.
 
 ### C27 Background (display-only, one static ribbon state)
-5 ribbons, 36 dust points, one fixed palette (section 1.1). The user setting **Background Blur** (Settings > Display, choice, default Soft; applies live, saved immediately) picks one of four modes:
+5 ribbons, 36 dust points, one fixed palette (section 1.1). The user setting **Background Blur** (Settings > Display, choice, default None; applies live, saved immediately) picks one of four modes:
 
 | Mode | Method | Veil on top |
 |---|---|---|
-| None | today's full-resolution wave | none |
-| Soft (default) | wave rendered into a 240 x 136 render target (1/4), drawn upscaled to 960 x 544 with bilinear filtering; the upscale is the blur | `GLASS_VEIL`, 14% dark |
+| None (default) | today's full-resolution wave | none |
+| Soft | wave rendered into a 240 x 136 render target (1/4), drawn upscaled to 960 x 544 with bilinear filtering; the upscale is the blur | `GLASS_VEIL`, 14% dark |
 | Strong | wave rendered into a 60 x 34 target (1/16), bilinear upscale | `GLASS_FROST` 5% white, then `GLASS_VEIL` 14% dark |
 | Dark | same 60 x 34 target | `GLASS_VEIL_DARK`, 20% dark, no white |
 
@@ -331,10 +329,12 @@ Console states (rows and detail):
 | Standby | WARN / moon | Standby | Waking, auto-connects | `#consoles-standby` |
 | Unpaired | IDLE dashed / lock | Unpaired | PIN screen | `#consoles-unpaired` |
 | Internet only (PSN, valid token) | OK / globe | Ready, "Internet" in `INTERNET` | Connecting (internet) | `#consoles-psn` |
-| Unavailable (not discovered, no route) | ERR / warning | none | tries to connect, result popup on failure | `#consoles-unavailable` |
-| Cooldown | ERR / clock, row 55% | Please wait... | nothing; Connect hint dimmed; banner in the top bar | `#consoles-cooldown` |
+| Unavailable (not discovered, no route) | ERR / warning | Unavailable | tries to connect, result popup on failure | `#consoles-unavailable` |
+| **Error** (a failure the user must act on) | ERR / warning | Error, message in the info panel | tries to connect | `#hints` |
+| **Retrying** (the app is retrying or waiting) | WARN / clock | Retrying, message in the info panel | tries to connect | `#hints-retry` |
+| Cooldown | WARN / clock, row 55% | Please wait... | nothing; Connect hint dimmed; banner in the top bar | `#consoles-cooldown` |
 
-Per-console hint lines (T16 `ERR`, under the status line): the **full message is always shown**, wrapped to at most 2 lines in the 288 px text column (C02); the row grows by 24 px per line. `#hints` shows three (one wrapping to 2 lines). Full list in the copy deck. Network Unstable shows as a pill in the hint row's reserved right slot (200 px) on any menu, hints never run under it; collapse rule in C06 (`#home-unstable`). The cooldown banner uses the top bar's centre slot (C23): `Streaming stopped: <reason> - Please wait a few moments`, one line, only the reason is shortened if it does not fit, Wi-Fi and battery hidden while it shows (`#consoles-cooldown`). Empty: `#empty-searching`, `#empty-nomatch`. Filter: `#filter`; Start opens the system keyboard (`#keyboard`), or clears an active filter.
+**Status messages.** The list shows only the status label. The message for an Error or Retrying console appears **only in the info panel**, under the status line and above the Address / Route / Pairing table, in the status colour, wrapped up to 3 lines (all current messages fit in 2 lines at 304 px). Full classification in the copy deck; `#hints` selects an Error console, `#hints-retry` a Retrying one. Network Unstable shows as a pill in the hint row's reserved right slot (200 px) on any menu, hints never run under it; collapse rule in C06 (`#home-unstable`). The cooldown banner uses the top bar's centre slot (C23): `Streaming stopped: <reason> - Please wait a few moments`, one line, only the reason is shortened if it does not fit, Wi-Fi and battery hidden while it shows (`#consoles-cooldown`). Empty: `#empty-searching`, `#empty-nomatch`. Filter: `#filter`; Start opens the system keyboard (`#keyboard`), or clears an active filter.
 
 Button map: Up/Down item, L/R or Left/Right category, Confirm activate, Triangle options (consoles), Start filter (Consoles with more than 4 consoles or an active filter). Hints: `[Confirm verb] [Triangle Options] [Start Filter|Clear filter] [L R Category]`; verb = Connect, Wake, Pair, or "Please wait" (dim). Touch: tap category, tap row (focus then activate), swipe, tap hint, tap filter line.
 Transitions: category change slides the bar 300 ms and cascades the list; focus change slides rows 300 ms; detail rises 300 ms.
@@ -384,7 +384,7 @@ Page shell, no groups. Title is set **per flow**, not per stage: a local standby
 | 7 | Starting stream | Launching video pipeline | all |
 
 Flows: local ready [4, 7]; local standby [0, 4, 7]; internet [1, 2, 3, 4, 5, 6, 7]. Deep links: `#waking` (standby, stage 0), `#connecting` (local), `#connecting-internet`, `#waking-all` (reference ladder of all 8, not a real flow).
-**Reconnecting** (`#reconnecting`): same shell, title "Optimizing Stream"; spinner art only; right column: "Recovering from packet loss" T20, "Retrying at 1.80 Mbps" MONO28, "Attempt 2" and "Please wait..." T16 TEXT_3. No input, no hint row, not cancellable.
+**Reconnecting** (`#reconnecting`): same shell, title "Optimizing Stream"; spinner art only; right column: "Recovering from packet loss" T20, "Retrying at 1.80 Mbps" T28, "Attempt 2" and "Please wait..." T16 TEXT_3. No input, no hint row, not cancellable.
 
 ### 3.5 Stream overlay (no menu)
 Full-bleed video. Only three things draw, all C19/C25, all gated by settings:
@@ -413,7 +413,7 @@ Page shell, title "Settings". Left: groups. Pane: C08 rows; description line for
 | Display | Show Latency | toggle | off (shows the stats panel in the stream overlay only; default pending CEO, see Flags) |
 | Display | Show Network Alerts | toggle | on |
 | Display | Show Exit Shortcut Hint | toggle | on |
-| Display | Background Blur | choice | None, Soft, Strong, Dark (Soft; new) |
+| Display | Background Blur | choice | None, Soft, Strong, Dark (None; new) |
 | Controls | Circle Button Confirm | toggle | system default (Cross on a Western unit) |
 | Advanced | Clamp Soft Restart Bitrate | toggle | on |
 | Advanced | Motion during loss (artifacts) (Experimental) | toggle | off |
@@ -422,11 +422,11 @@ Page shell, title "Settings". Left: groups. Pane: C08 rows; description line for
 The mock starts with Enable PSN Internet Mode on so internet screens can be shown; the app default is off. Button map: Left/Right or Confirm change, Up/Down row, L/R group, Cancel (pane to groups, then Home). Hints: `[Confirm Toggle|Next] [D-pad Change (choice)] [L R Group] [Cancel Back]`. Touch: tap group, tap row, tap chevrons, swipe pane. `#settings-circle` turns Circle Button Confirm on: every glyph in the hint row swaps and Circle becomes confirm (use the toolbar toggle to try any screen).
 
 ### 3.7 Profile (`#profile`, `#profile-connection*`, `#profile-psn*`, ...)
-Page shell, title "Profile". Groups: Account, Connection, PlayStation Network. **Identity block** (compact, always visible under the group list at y 376, 48 high): avatar (48 px circle, 2 px `LINE`, profile icon 28), PSN Account ID (MONO16, ellipsis, "Not Set" when empty) with "PlayStation Network" T16 TEXT_3 under it.
+Page shell, title "Profile". Groups: Account, Connection, PlayStation Network. **Identity block** (compact, always visible under the group list at y 376, 48 high): avatar (48 px circle, 2 px `LINE`, profile icon 28), PSN Account ID (T16, ellipsis, "Not Set" when empty) with "PlayStation Network" T16 TEXT_3 under it.
 
 | Group | Rows |
 |---|---|
-| Account | Account ID (MONO16, full value), action **Refresh Account ID** (toast "Account ID refreshed from system profile" or "Could not refresh Account ID") |
+| Account | Account ID (T16, full value), action **Refresh Account ID** (toast "Account ID refreshed from system profile" or "Could not refresh Account ID") |
 | Connection | per the state table below |
 | PlayStation Network | PSN Auth status row, then actions by state |
 
@@ -506,12 +506,12 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 **Home / consoles**
 - Categories: Consoles, Settings, Controller, Profile
 - Verbs: Connect, Wake, Pair, Please wait, Options, Filter, Clear filter, Category
-- States: Ready, Standby, Unpaired, Please wait... ; route label: Internet
+- States: Ready, Standby, Unpaired, Unavailable (new label), Error (new), Retrying (new), Please wait... ; route label: Internet
 - Detail: Address, Route (Local Network, Internet, Local Network + Internet, Not reachable), Pairing (Paired, Unpaired), Unknown (new)
 - Filter: Filter: "<text>" (N found); Start Filter
 - Empty: Searching for consoles... ; No consoles match filter
 - Banner (one line, only the reason may be shortened): Streaming stopped: <reason> - Please wait a few moments ; reasons: Console entered sleep mode, Console disconnected, or the raw reason
-- Status hints: Wake signal failed; attempting connection anyway. / Wake signal failed. Check pairing and network. / Console releasing session... ready in Ns / Remote Play already active on console / Console Remote Play crashed - wait a moment / Console busy - retrying in Ns... / Missing console credentials. Re-pair may be required. / Enable PSN internet mode in settings. / PSN login required for internet remote play. / PSN session expired. Re-authenticate in Profile. / Could not determine host address. / Waiting for console network link... / Video references unstable - requesting keyframe / Rebuilding stream at safer bitrate / Persistent video desync - rebuilding session / Packet loss burst - requesting keyframe
+- Status messages (info panel only). **Error** (red): Wake signal failed. Check pairing and network. / Remote Play already active on console / Console Remote Play crashed - wait a moment / Missing console credentials. Re-pair may be required. / Enable PSN internet mode in settings. / PSN login required for internet remote play. / PSN session expired. Re-authenticate in Profile. / Could not determine host address. **Retrying** (amber): Wake signal failed; attempting connection anyway. / Console releasing session... ready in Ns / Console busy - retrying in Ns... / Waiting for console network link... / Video references unstable - requesting keyframe / Rebuilding stream at safer bitrate / Persistent video desync - rebuilding session / Packet loss burst - requesting keyframe
 - Network Unstable
 - Options: Connect, Wake and connect, Connect via, Re-pair, Pair, Change icon; header "Options"
 - Connect via: title Connect via; rows Local Network, Internet
@@ -543,7 +543,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 ## 6. Flags for CEO
 
-Decided (no action): Show Navigation Labels dropped; the third Profile card was dead code and is removed; Triangle / Cross on page 2 open the zone views; Roboto Light is loaded; top bar keeps Wi-Fi, battery and clock, with no time-of-day tint; the internet title no longer flips mid-flow; overlay deviations accepted (fixed stats slot, 16 px margin, square pills, 3.0 s toast); Profile streaming metrics removed; result popups kept.
+Decided (no action): red error text stays as is (CEO: reads fine); Background Blur defaults to None; Roboto Mono dropped; rounded shapes;  Show Navigation Labels dropped; the third Profile card was dead code and is removed; Triangle / Cross on page 2 open the zone views; Roboto Light is loaded; top bar keeps Wi-Fi, battery and clock, with no time-of-day tint; the internet title no longer flips mid-flow; overlay deviations accepted (fixed stats slot, 16 px margin, square pills, 3.0 s toast); Profile streaming metrics removed; result popups kept.
 
 Open:
 1. **Show Latency default and scope (CEO pending).** With Profile metrics gone, Show Latency only controls the stream overlay stats panel. Default stays off (today); say so if you want it on, or if it should be renamed (for example "Show Stream Stats").
@@ -557,6 +557,7 @@ Open:
 9. **Unpaired consoles** show Pair and Change icon in Options (Connect and Re-pair would both open the PIN screen). Cooldown disables Connect and Connect via.
 10. **Console type is only in the detail panel**, not on list rows (locked). The earlier "Last session" line is removed (the app has no such data).
 11. **System reads for the top bar**: Wi-Fi state, battery percent, local time, polled about once per second.
-12. **Status hints are never truncated**: they wrap to two lines and rows grow. All 16 current messages fit; a longer future message needs rewording.
-13. **Build note: one new config field.** Background Blur needs a small integer in the config TOML (for example `background_blur`, 0 None, 1 Soft, 2 Strong, 3 Dark; default 1), read at startup and written on change like every setting. Soft is the default by PM call (best legibility-for-look trade, see FEASIBILITY.md section 8); the CEO can change it.
-14. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the fictional stream picture; the illustrative QR; the stand-in for the system keyboard.
+12. **Errors left the list; transient states are not errors (my call, please confirm).** Rows show only a status label. New statuses: **Error** (red) for failures that need the user, **Retrying** (amber) for things the app is already retrying or waiting on. Classification: Error = wake failed (check pairing), Remote Play already active, Remote Play crashed, missing credentials, PSN mode off, PSN login required, PSN session expired, no host address. Retrying = wake failed but connecting anyway, console releasing session, console busy, waiting for network link, and the four stream-recovery messages. "Console releasing session... ready in Ns" could read as "Waiting"; I kept one amber label. Two related changes: **Cooldown (Please wait...) is now amber**, not red, because it is transient; **Unavailable** now has a label (it had none; Profile already used the word).
+13. **Build note: one new config field.** Background Blur needs a small integer in the config TOML (for example `background_blur`, 0 None, 1 Soft, 2 Strong, 3 Dark; default 0), read at startup and written on change like every setting. None is the default (CEO decision, round 7); Soft is the recommended trade if the CEO wants a legibility gain (FEASIBILITY.md section 8).
+14. **Type and shape changes (round 7).** Roboto Mono is gone (5 sizes, 5 faces; T14 for the hint row already exists in today's atlas; T40 Light is a new face for the PIN digits). Rounded shapes need baked 9-slice and 3-slice textures; see FEASIBILITY.md for the draw-call and texture cost.
+15. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the fictional stream picture; the illustrative QR; the stand-in for the system keyboard.

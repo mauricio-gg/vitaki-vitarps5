@@ -1,18 +1,15 @@
 /* VitaRPS5 UI mock - XMB tokens (issue #271, round 6). THE source of truth for the theme.
    SPEC.md section 1 documents every value here; engineers copy these into one theme header.
-   Native target 960x544. Fonts: the app's own Roboto and Roboto Mono (fonts/). */
-@font-face{font-family:"Roboto";font-weight:100;src:url(fonts/Roboto-Thin.ttf)}
+   Native target 960x544. Fonts: the app's own Roboto Light and Regular (fonts/); Roboto Medium only inside baked button glyphs. */
 @font-face{font-family:"Roboto";font-weight:300;src:url(fonts/Roboto-Light.ttf)}
 @font-face{font-family:"Roboto";font-weight:400;src:url(fonts/Roboto-Regular.ttf)}
 @font-face{font-family:"Roboto";font-weight:500;src:url(fonts/Roboto-Medium.ttf)}
-@font-face{font-family:"Roboto Mono";font-weight:400;src:url(fonts/RobotoMono-Regular.ttf)}
 :root {
   --font: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Roboto Mono", ui-monospace, monospace;
 
-  /* TYPE: 4 sizes, 6 pre-rendered faces in the app.
-     T16 Regular, T20 Light, T28 Light, Mono 16, Mono 28, Mono 40. */
-  --t16: 16px; --t20: 20px; --t28: 28px; --t40: 40px;
+  /* TYPE: 5 sizes, 5 faces, all Roboto. Digits are Roboto's own (equal width), no mono face.
+     T14 Regular (hint row), T16 Regular, T20 Light, T28 Light, T40 Light (PIN digits). */
+  --t14: 14px; --t16: 16px; --t20: 20px; --t28: 28px; --t40: 40px;
   --w-light: 300; --w-reg: 400;
 
   /* COLOUR ROLES (opaque unless noted) */
@@ -75,7 +72,8 @@
 
   /* LINES */
   --lw1: 1px; --lw2: 2px;   /* hairline / ring, focus underline, toggle */
-  --r0: 0px;                /* every rectangle is square; only rings, dots and spinners are round */
+  /* RADII: three tokens. R_SM selection bars and small chips, R_MD popups, toast and panels, R_PILL (half the height) buttons, toggles, badges, pills */
+  --r-sm: 8px; --r-md: 16px; --r-pill: 999px;
 
   /* MOTION */
   --ease: cubic-bezier(0.22, 0.7, 0.2, 1);
