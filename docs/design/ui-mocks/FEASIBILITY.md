@@ -41,3 +41,6 @@ Nav icons and symbols about 0.15 MB, icon atlas (controller, profile, logs, add,
 2. The stream overlay content and Esc/Circle to leave are assumed, as before.
 3. Controller (original PlayStation pad), Profile, Logs, Add and the six room icons use supplied flat SVGs (they are the only drawn icons; wifi, lock and QR on Profile rows are still simple glyphs).
 4. The ps5/ps4 `_rest`, `_off` and plain images are loaded in `ui.c` but never drawn by the card code, so the mock does not use them.
+
+## Round 6 update
+The Logs category, the Add item and `logs.svg` / `add.svg` are gone. Icons are now: `controller.svg`, `profile.svg` and six room icons, plus baked button glyphs (D-pad, L, R, Start, Select; 24 px, new). The theme is 4 type sizes / 6 faces and one token header; popups are 3 fixed sizes; status dots are flat circles (`vita2d_draw_fill_circle`) in token colours instead of the ellipse PNGs. The draw-call estimates above still hold. Full component and screen contract: `SPEC.md`.

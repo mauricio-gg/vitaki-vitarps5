@@ -26,52 +26,104 @@ h2{font-size:var(--t-title);font-weight:var(--w-light);margin:var(--s5) 0 var(--
 ul{padding-left:20px;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2)} li{margin-bottom:6px}
 p.note{font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-3);margin-top:var(--s2)}
 kbd{font-family:var(--font-mono);color:#fff;border:1px solid var(--line);padding:0 6px}
+code{font-family:var(--font-mono);color:var(--text-3);margin-left:8px;font-size:13px}
 </style></head><body><main>
 <header><img src="assets/Vita_RPS5_Logo.png" alt="Vita RPS5"><h1>XMB mock</h1></header>
-<p class="lede">The chosen direction for issue #271: a true XMB. Bare icons and thin type on a flowing wave, focus shown by brightness and glow, almost no rounded corners, hints in a quiet bottom row. Click any screen below to open it at that point. Everything is 960&times;544 and driven like the Vita: <kbd>arrows</kbd> D-pad, <kbd>Enter</kbd> Cross, <kbd>Esc</kbd> Circle, <kbd>T</kbd> Triangle, <kbd>S</kbd> Square, <kbd>Q</kbd>/<kbd>E</kbd> L/R, <kbd>Space</kbd> Start; clicks act as touch.</p>
-<a class="open" href="xmb.html">Open the mock</a><a class="open" href="xmb.html#device">Open on device</a>
+<p class="lede">Issue #271, round 6: the locked XMB direction, now the exact baseline engineers build from. Every screen, state and message of today's app is covered. Native 960&times;544, driven like the Vita: <kbd>arrows</kbd> D-pad, <kbd>Enter</kbd> Cross, <kbd>Esc</kbd> Circle, <kbd>T</kbd> Triangle, <kbd>S</kbd> Square, <kbd>Q</kbd>/<kbd>E</kbd> L/R, <kbd>Space</kbd> Start, <kbd>Z</kbd> Select; clicks act as touch. Every card below is a deep link.</p>
+<a class="open" href="SPEC.md">Build spec (SPEC.md)</a><a class="open" href="xmb.html">Open the mock</a><a class="open" href="xmb.html#settings-circle">Circle Button Confirm on</a><a class="open" href="FEASIBILITY.md">Feasibility</a>
 <div class="hero"><img src="screens/device.jpg" alt="XMB Home inside a generic handheld frame" width="1100" height="621"></div>
-
-<h2>Home: the XMB bar</h2>
+<h2>Home</h2>
 <div class="grid">
-<a href="xmb.html#home"><img src="screens/home.jpg" alt="Consoles, Living Room ready" width="720" height="408"><span>Consoles: ready, room icon in a status ring</span></a>
-<a href="xmb.html#consoles-standby"><img src="screens/consoles-standby.jpg" alt="Den on standby" width="720" height="408"><span>Console on standby (amber ring, moon badge)</span></a>
-<a href="xmb.html#consoles-unregistered"><img src="screens/consoles-unregistered.jpg" alt="Bedroom not registered" width="720" height="408"><span>Not registered (dashed ring, lock badge)</span></a>
-<a href="xmb.html#consoles-psn"><img src="screens/consoles-psn.jpg" alt="Office PSN only" width="720" height="408"><span>PSN-only route (purple ring, globe badge)</span></a>
-<a href="xmb.html#options"><img src="screens/options.jpg" alt="Options column" width="720" height="408"><span>Triangle options, now with Change icon</span></a>
-<a href="xmb.html#icon-picker"><img src="screens/icon-picker.jpg" alt="Room icon picker" width="720" height="408"><span>Change icon: pick a room icon</span></a>
-<a href="xmb.html#xmb-settings"><img src="screens/xmb-settings.jpg" alt="Settings category lists five groups" width="720" height="408"><span>Settings category: five groups</span></a>
-<a href="xmb.html#xmb-controller"><img src="screens/xmb-controller.jpg" alt="Controller category lists presets" width="720" height="408"><span>Controller category: three presets</span></a>
-<a href="xmb.html#xmb-logs"><img src="screens/xmb-logs.jpg" alt="Logs category" width="720" height="408"><span>Logs category</span></a>
+<a href="xmb.html#home"><img src="screens/home.jpg" alt="Consoles: Ready" width="720" height="408" loading="lazy"><span>Consoles: Ready<code>#home</code></span></a>
+<a href="xmb.html#consoles-standby"><img src="screens/consoles-standby.jpg" alt="Console on standby" width="720" height="408" loading="lazy"><span>Console on standby<code>#consoles-standby</code></span></a>
+<a href="xmb.html#consoles-psn"><img src="screens/consoles-psn.jpg" alt="Internet-only console" width="720" height="408" loading="lazy"><span>Internet-only console<code>#consoles-psn</code></span></a>
+<a href="xmb.html#consoles-unavailable"><img src="screens/consoles-unavailable.jpg" alt="Console not reachable" width="720" height="408" loading="lazy"><span>Console not reachable<code>#consoles-unavailable</code></span></a>
+<a href="xmb.html#consoles-unpaired"><img src="screens/consoles-unpaired.jpg" alt="Console unpaired" width="720" height="408" loading="lazy"><span>Console unpaired<code>#consoles-unpaired</code></span></a>
+<a href="xmb.html#consoles-cooldown"><img src="screens/consoles-cooldown.jpg" alt="Console in cooldown + banner" width="720" height="408" loading="lazy"><span>Console in cooldown + banner<code>#consoles-cooldown</code></span></a>
+<a href="xmb.html#hints"><img src="screens/hints.jpg" alt="Per-console status hints" width="720" height="408" loading="lazy"><span>Per-console status hints<code>#hints</code></span></a>
+<a href="xmb.html#home-unstable"><img src="screens/home-unstable.jpg" alt="Network Unstable on a menu" width="720" height="408" loading="lazy"><span>Network Unstable on a menu<code>#home-unstable</code></span></a>
+<a href="xmb.html#empty-searching"><img src="screens/empty-searching.jpg" alt="Empty: Searching" width="720" height="408" loading="lazy"><span>Empty: Searching<code>#empty-searching</code></span></a>
+<a href="xmb.html#empty-nomatch"><img src="screens/empty-nomatch.jpg" alt="Empty: No match" width="720" height="408" loading="lazy"><span>Empty: No match<code>#empty-nomatch</code></span></a>
+<a href="xmb.html#filter"><img src="screens/filter.jpg" alt="Filter active" width="720" height="408" loading="lazy"><span>Filter active<code>#filter</code></span></a>
+<a href="xmb.html#keyboard"><img src="screens/keyboard.jpg" alt="System keyboard (filter)" width="720" height="408" loading="lazy"><span>System keyboard (filter)<code>#keyboard</code></span></a>
+<a href="xmb.html#options"><img src="screens/options.jpg" alt="Options column" width="720" height="408" loading="lazy"><span>Options column<code>#options</code></span></a>
+<a href="xmb.html#options-unpaired"><img src="screens/options-unpaired.jpg" alt="Options, unpaired console" width="720" height="408" loading="lazy"><span>Options, unpaired console<code>#options-unpaired</code></span></a>
+<a href="xmb.html#icon-picker"><img src="screens/icon-picker.jpg" alt="Change icon" width="720" height="408" loading="lazy"><span>Change icon<code>#icon-picker</code></span></a>
+<a href="xmb.html#connect-via"><img src="screens/connect-via.jpg" alt="Connect via" width="720" height="408" loading="lazy"><span>Connect via<code>#connect-via</code></span></a>
+<a href="xmb.html#repair"><img src="screens/repair.jpg" alt="Re-pair confirm" width="720" height="408" loading="lazy"><span>Re-pair confirm<code>#repair</code></span></a>
 </div>
-
-<h2>Settings and Profile pages</h2>
+<h2>XMB categories</h2>
 <div class="grid">
-<a href="xmb.html#settings"><img src="screens/settings.jpg" alt="Settings page" width="720" height="408"><span>Settings: groups left, rows with values right</span></a>
-<a href="xmb.html#profile"><img src="screens/profile.jpg" alt="Profile page" width="720" height="408"><span>Profile: same page pattern</span></a>
+<a href="xmb.html#xmb-settings"><img src="screens/xmb-settings.jpg" alt="Settings category" width="720" height="408" loading="lazy"><span>Settings category<code>#xmb-settings</code></span></a>
+<a href="xmb.html#xmb-controller"><img src="screens/xmb-controller.jpg" alt="Controller category" width="720" height="408" loading="lazy"><span>Controller category<code>#xmb-controller</code></span></a>
+<a href="xmb.html#xmb-profile"><img src="screens/xmb-profile.jpg" alt="Profile category" width="720" height="408" loading="lazy"><span>Profile category<code>#xmb-profile</code></span></a>
 </div>
-
+<h2>Pairing</h2>
+<div class="grid">
+<a href="xmb.html#pin"><img src="screens/pin.jpg" alt="PIN entry (empty)" width="720" height="408" loading="lazy"><span>PIN entry (empty)<code>#pin</code></span></a>
+<a href="xmb.html#pin-partial"><img src="screens/pin-partial.jpg" alt="PIN entry (partly filled)" width="720" height="408" loading="lazy"><span>PIN entry (partly filled)<code>#pin-partial</code></span></a>
+<a href="xmb.html#pin-full"><img src="screens/pin-full.jpg" alt="PIN entry (ready to register)" width="720" height="408" loading="lazy"><span>PIN entry (ready to register)<code>#pin-full</code></span></a>
+<a href="xmb.html#result-paired"><img src="screens/result-paired.jpg" alt="Result: paired" width="720" height="408" loading="lazy"><span>Result: paired<code>#result-paired</code></span></a>
+<a href="xmb.html#result-pair-failed"><img src="screens/result-pair-failed.jpg" alt="Result: pairing failed" width="720" height="408" loading="lazy"><span>Result: pairing failed<code>#result-pair-failed</code></span></a>
+<a href="xmb.html#result-connect-failed"><img src="screens/result-connect-failed.jpg" alt="Result: could not connect" width="720" height="408" loading="lazy"><span>Result: could not connect<code>#result-connect-failed</code></span></a>
+</div>
+<h2>Connecting</h2>
+<div class="grid">
+<a href="xmb.html#waking"><img src="screens/waking.jpg" alt="Waking Console" width="720" height="408" loading="lazy"><span>Waking Console<code>#waking</code></span></a>
+<a href="xmb.html#connecting"><img src="screens/connecting.jpg" alt="Starting Remote Play" width="720" height="408" loading="lazy"><span>Starting Remote Play<code>#connecting</code></span></a>
+<a href="xmb.html#connecting-internet"><img src="screens/connecting-internet.jpg" alt="Starting Internet Remote Play" width="720" height="408" loading="lazy"><span>Starting Internet Remote Play<code>#connecting-internet</code></span></a>
+<a href="xmb.html#waking-all"><img src="screens/waking-all.jpg" alt="All 8 stages (reference)" width="720" height="408" loading="lazy"><span>All 8 stages (reference)<code>#waking-all</code></span></a>
+<a href="xmb.html#reconnecting"><img src="screens/reconnecting.jpg" alt="Reconnecting" width="720" height="408" loading="lazy"><span>Reconnecting<code>#reconnecting</code></span></a>
+</div>
+<h2>Stream</h2>
+<div class="grid">
+<a href="xmb.html#stream"><img src="screens/stream.jpg" alt="Stream overlay" width="720" height="408" loading="lazy"><span>Stream overlay<code>#stream</code></span></a>
+<a href="xmb.html#stream-stats"><img src="screens/stream-stats.jpg" alt="Stream with stats" width="720" height="408" loading="lazy"><span>Stream with stats<code>#stream-stats</code></span></a>
+<a href="xmb.html#unstable"><img src="screens/unstable.jpg" alt="Network unstable" width="720" height="408" loading="lazy"><span>Network unstable<code>#unstable</code></span></a>
+<a href="xmb.html#stream-quiet"><img src="screens/stream-quiet.jpg" alt="Overlay after hint faded" width="720" height="408" loading="lazy"><span>Overlay after hint faded<code>#stream-quiet</code></span></a>
+</div>
+<h2>Settings</h2>
+<div class="grid">
+<a href="xmb.html#settings"><img src="screens/settings.jpg" alt="Video" width="720" height="408" loading="lazy"><span>Video<code>#settings</code></span></a>
+<a href="xmb.html#settings-network"><img src="screens/settings-network.jpg" alt="Network" width="720" height="408" loading="lazy"><span>Network<code>#settings-network</code></span></a>
+<a href="xmb.html#settings-display"><img src="screens/settings-display.jpg" alt="Display" width="720" height="408" loading="lazy"><span>Display<code>#settings-display</code></span></a>
+<a href="xmb.html#settings-controls"><img src="screens/settings-controls.jpg" alt="Controls" width="720" height="408" loading="lazy"><span>Controls<code>#settings-controls</code></span></a>
+<a href="xmb.html#settings-advanced"><img src="screens/settings-advanced.jpg" alt="Advanced" width="720" height="408" loading="lazy"><span>Advanced<code>#settings-advanced</code></span></a>
+<a href="xmb.html#settings-circle"><img src="screens/settings-circle.jpg" alt="Circle confirm on (glyphs swap)" width="720" height="408" loading="lazy"><span>Circle confirm on (glyphs swap)<code>#settings-circle</code></span></a>
+</div>
+<h2>Profile</h2>
+<div class="grid">
+<a href="xmb.html#profile"><img src="screens/profile.jpg" alt="Account" width="720" height="408" loading="lazy"><span>Account<code>#profile</code></span></a>
+<a href="xmb.html#profile-connection"><img src="screens/profile-connection.jpg" alt="Connection (idle)" width="720" height="408" loading="lazy"><span>Connection (idle)<code>#profile-connection</code></span></a>
+<a href="xmb.html#profile-streaming"><img src="screens/profile-streaming.jpg" alt="Connection (streaming)" width="720" height="408" loading="lazy"><span>Connection (streaming)<code>#profile-streaming</code></span></a>
+<a href="xmb.html#profile-psn"><img src="screens/profile-psn.jpg" alt="PlayStation Network (signed in)" width="720" height="408" loading="lazy"><span>PlayStation Network (signed in)<code>#profile-psn</code></span></a>
+<a href="xmb.html#profile-psn-disabled"><img src="screens/profile-psn-disabled.jpg" alt="PSN: Disabled" width="720" height="408" loading="lazy"><span>PSN: Disabled<code>#profile-psn-disabled</code></span></a>
+<a href="xmb.html#profile-psn-none"><img src="screens/profile-psn-none.jpg" alt="PSN: Not authenticated" width="720" height="408" loading="lazy"><span>PSN: Not authenticated<code>#profile-psn-none</code></span></a>
+<a href="xmb.html#profile-psn-expired"><img src="screens/profile-psn-expired.jpg" alt="PSN: Token expired" width="720" height="408" loading="lazy"><span>PSN: Token expired<code>#profile-psn-expired</code></span></a>
+<a href="xmb.html#profile-psn-refresh"><img src="screens/profile-psn-refresh.jpg" alt="PSN: Refreshing token" width="720" height="408" loading="lazy"><span>PSN: Refreshing token<code>#profile-psn-refresh</code></span></a>
+<a href="xmb.html#profile-psn-error"><img src="screens/profile-psn-error.jpg" alt="PSN: error text" width="720" height="408" loading="lazy"><span>PSN: error text<code>#profile-psn-error</code></span></a>
+<a href="xmb.html#profile-login"><img src="screens/profile-login.jpg" alt="Phone login assist" width="720" height="408" loading="lazy"><span>Phone login assist<code>#profile-login</code></span></a>
+<a href="xmb.html#profile-login-hidden"><img src="screens/profile-login-hidden.jpg" alt="Phone login, QR hidden" width="720" height="408" loading="lazy"><span>Phone login, QR hidden<code>#profile-login-hidden</code></span></a>
+<a href="xmb.html#profile-logout"><img src="screens/profile-logout.jpg" alt="Log out, second press" width="720" height="408" loading="lazy"><span>Log out, second press<code>#profile-logout</code></span></a>
+<a href="xmb.html#toast-account"><img src="screens/toast-account.jpg" alt="Toast: Account ID refreshed" width="720" height="408" loading="lazy"><span>Toast: Account ID refreshed<code>#toast-account</code></span></a>
+<a href="xmb.html#toast-login-complete"><img src="screens/toast-login-complete.jpg" alt="Toast: PSN login complete" width="720" height="408" loading="lazy"><span>Toast: PSN login complete<code>#toast-login-complete</code></span></a>
+<a href="xmb.html#keyboard-paste"><img src="screens/keyboard-paste.jpg" alt="System keyboard (paste URL)" width="720" height="408" loading="lazy"><span>System keyboard (paste URL)<code>#keyboard-paste</code></span></a>
+</div>
 <h2>Controller</h2>
 <div class="grid">
-<a href="xmb.html#controller"><img src="screens/controller.jpg" alt="Controller summary" width="720" height="408"><span>Summary: Vita diagram with L1 / R1 callouts</span></a>
-<a href="xmb.html#controller-back"><img src="screens/controller-back.jpg" alt="Controller summary page 2" width="720" height="408"><span>Summary page 2: rear touch zones</span></a>
-<a href="xmb.html#controller-front"><img src="screens/controller-front.jpg" alt="Front touch mapping" width="720" height="408"><span>Front touch mapping (3&times;6 zones)</span></a>
-<a href="xmb.html#controller-rear"><img src="screens/controller-rear.jpg" alt="Rear touch mapping" width="720" height="408"><span>Rear touch mapping</span></a>
-<a href="xmb.html#mapping-popup"><img src="screens/mapping-popup.jpg" alt="Assign output popup" width="720" height="408"><span>Assign an output to a zone</span></a>
-</div>
-
-<h2>Connecting, streaming and popups</h2>
-<div class="grid">
-<a href="xmb.html#waking"><img src="screens/waking.jpg" alt="Connecting, 8 steps" width="720" height="408"><span>Connecting: 8 steps</span></a>
-<a href="xmb.html#stream"><img src="screens/stream.jpg" alt="In-stream overlay" width="720" height="408"><span>In-stream overlay</span></a>
-<a href="xmb.html#unstable"><img src="screens/unstable.jpg" alt="Network unstable" width="720" height="408"><span>Network unstable</span></a>
-<a href="xmb.html#chooser"><img src="screens/chooser.jpg" alt="Connect via" width="720" height="408"><span>Connect via LAN or PSN</span></a>
-<a href="xmb.html#register"><img src="screens/register.jpg" alt="Register PIN" width="720" height="408"><span>Register with an 8-digit PIN</span></a>
-<a href="xmb.html#error"><img src="screens/error.jpg" alt="Error popup" width="720" height="408"><span>Error popup</span></a>
+<a href="xmb.html#controller"><img src="screens/controller.jpg" alt="Summary page 1" width="720" height="408" loading="lazy"><span>Summary page 1<code>#controller</code></span></a>
+<a href="xmb.html#controller-back"><img src="screens/controller-back.jpg" alt="Summary page 2" width="720" height="408" loading="lazy"><span>Summary page 2<code>#controller-back</code></span></a>
+<a href="xmb.html#controller-front"><img src="screens/controller-front.jpg" alt="Front touch zones" width="720" height="408" loading="lazy"><span>Front touch zones<code>#controller-front</code></span></a>
+<a href="xmb.html#controller-rear"><img src="screens/controller-rear.jpg" alt="Rear touch zones" width="720" height="408" loading="lazy"><span>Rear touch zones<code>#controller-rear</code></span></a>
+<a href="xmb.html#controller-multi"><img src="screens/controller-multi.jpg" alt="Multi-select zones" width="720" height="408" loading="lazy"><span>Multi-select zones<code>#controller-multi</code></span></a>
+<a href="xmb.html#controller-full"><img src="screens/controller-full.jpg" alt="Whole front surface" width="720" height="408" loading="lazy"><span>Whole front surface<code>#controller-full</code></span></a>
+<a href="xmb.html#mapping-popup"><img src="screens/mapping-popup.jpg" alt="Mapping popup, one zone" width="720" height="408" loading="lazy"><span>Mapping popup, one zone<code>#mapping-popup</code></span></a>
+<a href="xmb.html#mapping-multi"><img src="screens/mapping-multi.jpg" alt="Mapping popup, several zones" width="720" height="408" loading="lazy"><span>Mapping popup, several zones<code>#mapping-multi</code></span></a>
+<a href="xmb.html#mapping-shoulder"><img src="screens/mapping-shoulder.jpg" alt="Mapping popup, L1" width="720" height="408" loading="lazy"><span>Mapping popup, L1<code>#mapping-shoulder</code></span></a>
 </div>
 
 <div class="cols">
-<div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): the PS5 and PS4 logos (shown large and white in the detail panel), the Vita RPS5 logo, nav icons, button symbols, status ellipses and the controller diagrams.</li><li>Flat white icons (<code>icons/</code>): Controller (original PlayStation pad), Profile, Logs, Add, and six room icons (TV, living room, bedroom, dorm, office, another place) that each console can use.</li><li>The app shows no game information. The one image in <code>img/</code> is a fictional generated scene standing in for the streamed video.</li></ul></div>
-<div><h2>Notes</h2><ul><li>Glow and blur here become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>Each console has a user-chosen room icon (new consoles default to TV), shown in a thin state ring with a corner badge. Change it from Triangle, Change icon.</li><li>The device frame is a generic handheld.</li></ul></div>
+<div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): PS5 and PS4 logos, Vita RPS5 logo, category icons, button symbols, controller diagrams.</li><li>Flat white icons (<code>icons/</code>): Controller pad, Profile and six room icons.</li><li>All labels, values, defaults and messages come from the app inventory; wording changes are listed in SPEC.md.</li><li>The app shows no game information. The one image in <code>img/</code> is a fictional generated scene standing in for the video.</li></ul></div>
+<div><h2>Notes</h2><ul><li>Theme tokens live in <code>tokens-xmb.css</code> (one source of truth, documented in SPEC.md section 1).</li><li>Glow and blur become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>The QR code is illustrative and not scannable. The device frame is a generic handheld.</li></ul></div>
 </div>
 </main></body></html>
