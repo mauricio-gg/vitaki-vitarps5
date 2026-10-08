@@ -163,6 +163,110 @@ typedef enum ui_face_t {
 #define UI_TOUCH_DRAG_PX 8
 
 /* ============================================================================
+ * C27 Background (ui_background.c). Constants are the formulas of paintRibbons in
+ * docs/design/ui-mocks/xmb-wave.js; times there are milliseconds.
+ * ============================================================================ */
+
+/** Alpha of a colour with its alpha byte cleared: the same colour, fully transparent. */
+#define UI_COLOR_CLEAR(c) ((c) & 0x00FFFFFFu)
+
+/* Vertex update rate: 30 Hz, halved to 15 Hz on the Connecting and Reconnecting screens.
+ * The slack lets a 60 Hz frame that lands just short of the interval still update. */
+#define UI_BG_UPDATE_US 33333
+#define UI_BG_UPDATE_SLOW_US 66666
+#define UI_BG_UPDATE_SLACK_US 8000
+#define UI_BG_MS_PER_US 0.001f
+
+/* Vertical gradient: top, mid at 55% of the screen height, bottom. */
+#define UI_BG_MID_STOP_PCT 55
+
+/* Horizon glow: a radial gradient centred low on the screen, drawn as a triangle fan. */
+#define UI_BG_HORIZON_X 560
+#define UI_BG_HORIZON_Y 520
+#define UI_BG_HORIZON_R 520
+#define UI_BG_HORIZON_SEGMENTS 32
+
+/* Ribbons: ribbon i has k = i / (count - 1); colours cycle through the three ribbon tokens. */
+#define UI_BG_RIBBON_COUNT 5
+#define UI_BG_RIBBON_COLOURS 3
+#define UI_BG_COL_X0 (-30)
+#define UI_BG_COL_X1 990
+#define UI_BG_COL_STEP 15
+#define UI_BG_COLS (((UI_BG_COL_X1 - UI_BG_COL_X0) / UI_BG_COL_STEP) + 1)
+#define UI_BG_AMP_BASE 40.0f
+#define UI_BG_AMP_PER_K 60.0f
+#define UI_BG_SPEED_BASE 0.00014f
+#define UI_BG_SPEED_PER_K 0.00022f
+#define UI_BG_Y_BASE 310.0f
+#define UI_BG_Y_PER_RIBBON 28.0f
+#define UI_BG_Y_PER_K (-20.0f)
+#define UI_BG_ALPHA_BASE 0.07f
+#define UI_BG_ALPHA_PER_K 0.15f
+/** Waves 1 and 2 of the centre line: spatial frequency, phase offset per ribbon, and the
+ * second wave's share of the amplitude. */
+#define UI_BG_WAVE1_FREQ 0.0048f
+#define UI_BG_WAVE1_TIME_MUL 1.3f
+#define UI_BG_WAVE1_PHASE 1.7f
+#define UI_BG_WAVE2_FREQ 0.011f
+#define UI_BG_WAVE2_AMP 0.28f
+/** Band thickness: base + per k, modulated by a slow sine. */
+#define UI_BG_THICK_BASE 34.0f
+#define UI_BG_THICK_PER_K 34.0f
+#define UI_BG_THICK_FREQ 0.0038f
+#define UI_BG_THICK_TIME 0.0002f
+#define UI_BG_THICK_MOD_BASE 16.0f
+#define UI_BG_THICK_MOD_PER_K 20.0f
+/** Highlight line: wobble around the band centre, width and alpha. */
+#define UI_BG_LINE_FREQ 0.02f
+#define UI_BG_LINE_TIME 0.0005f
+#define UI_BG_LINE_WOBBLE 0.1f
+#define UI_BG_LINE_W_BASE 1.0f
+#define UI_BG_LINE_W_PER_K 1.0f
+#define UI_BG_LINE_ALPHA_BASE 0.05f
+#define UI_BG_LINE_ALPHA_PER_K 0.16f
+/** Horizontal fade of a band: transparent at both screen edges, full alpha between 30% and
+ * 70% of the width (0.9 of it at the 70% stop). */
+#define UI_BG_FADE_IN_PCT 30
+#define UI_BG_FADE_OUT_PCT 70
+#define UI_BG_FADE_OUT_GAIN 0.9f
+/** The mock adds the ribbons to the wave (additive blending); vita2d blends with normal alpha,
+ * which is darker. The band alpha is multiplied by this to keep the ribbons as bright. */
+#define UI_BG_BLEND_GAIN 1.4f
+
+/* Dust: points placed once from a small linear generator, then twinkling and drifting. */
+#define UI_BG_DUST_COUNT 36
+#define UI_BG_DUST_X_MUL 9301
+#define UI_BG_DUST_X_ADD 49297
+#define UI_BG_DUST_Y_MUL 7919
+#define UI_BG_DUST_Y_ADD 1013
+#define UI_BG_DUST_MOD 233280
+#define UI_BG_DUST_SIZE_MUL 37
+#define UI_BG_DUST_SIZE_STEPS 10
+#define UI_BG_DUST_SIZE_BASE 0.5f
+#define UI_BG_DUST_SIZE_DIV 12.0f
+#define UI_BG_DUST_PHASE_STEP 1.3f
+#define UI_BG_DUST_TWINKLE_BASE 0.3f
+#define UI_BG_DUST_TWINKLE_AMP 0.3f
+#define UI_BG_DUST_TWINKLE_TIME 0.0012f
+#define UI_BG_DUST_ALPHA 0.5f
+#define UI_BG_DUST_DRIFT 0.004f
+#define UI_BG_DUST_BOB_TIME 0.0004f
+#define UI_BG_DUST_BOB_AMP 6.0f
+
+/** Depth of every background vertex (vita2d draws 2D shapes at z = 0.5). */
+#define UI_BG_Z 0.5f
+
+/* Home vignette: three gradient layers (xmb.css .vig), stops as a percentage along each axis.
+ * Right edge: VIG_1 to VIG_2 at 38% to clear at 62%. Left edge: VIG_STRONG to VIG_3 at 50% to
+ * clear at 70%. Vertical: VIG_TOP to clear at 20%, clear until 82%, then VIG_BOTTOM. */
+#define UI_VIG_RIGHT_MID_PCT 38
+#define UI_VIG_RIGHT_END_PCT 62
+#define UI_VIG_LEFT_MID_PCT 50
+#define UI_VIG_LEFT_END_PCT 70
+#define UI_VIG_TOP_END_PCT 20
+#define UI_VIG_BOTTOM_START_PCT 82
+
+/* ============================================================================
  * C01 CategoryBar
  * ============================================================================ */
 

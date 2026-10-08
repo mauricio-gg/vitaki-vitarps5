@@ -18,6 +18,7 @@
 #include "psn_auth.h"
 #include "ui/ui_home.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_background.h"
 #include "ui/ui_category_bar.h"
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
@@ -446,6 +447,7 @@ UIScreenType ui_home_frame(void) {
       trigger_hints_popup(SELECT_HINT);
   }
 
+  ui_background_draw_home_vignette();
   ui_category_bar_draw(&s_bar);
   ui_xmb_list_draw(&s_list);
   if (s_bar.focus == HOME_CAT_CONSOLES)

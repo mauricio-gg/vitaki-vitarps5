@@ -51,7 +51,7 @@ void ui_screens_init(void);
 // ============================================================================
 
 /**
- * Render the main menu (Home) screen: background particles plus the XMB Home (ui_home.c)
+ * Render the main menu (Home) screen: the XMB Home (ui_home.c)
  * @return next screen to display
  */
 UIScreenType ui_screen_draw_main(void);

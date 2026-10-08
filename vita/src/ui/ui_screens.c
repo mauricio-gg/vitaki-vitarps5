@@ -598,8 +598,6 @@ UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
 }
 
 UIScreenType ui_screen_draw_main(void) {
-  ui_particles_update();
-  ui_particles_render();
   return ui_home_frame();
 }
 
@@ -957,10 +955,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
 /// Main Settings screen rendering function
 /// @return next screen to display
 UIScreenType ui_screen_draw_settings(void) {
-  // Render particle background
-  ui_particles_update();
-  ui_particles_render();
-
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_SETTINGS, &nav_screen, true))
     return nav_screen;
@@ -1443,10 +1437,6 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 /// Main Profile & Registration screen
 /// @return next screen type to display
 UIScreenType ui_screen_draw_profile(void) {
-  // Render particle background
-  ui_particles_update();
-  ui_particles_render();
-
   /* Reset focus and confirm state on screen-enter so a previous visit cannot
    * leave CONN_FOCUS_LOGOUT_BTN or an armed confirm window across Circle-back
    * + re-entry.  The flag is cleared whenever the screen returns a non-PROFILE
@@ -2776,8 +2766,6 @@ UIScreenType ui_screen_draw_controller(void) {
     controller_summary_sync_selection();
   }
 
-  ui_particles_update();
-  ui_particles_render();
   ui_nav_render();
 
   UIScreenType nav_screen;

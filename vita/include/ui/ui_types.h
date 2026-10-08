@@ -167,27 +167,6 @@ typedef struct console_card_cache_t {
 } ConsoleCardCache;
 
 // ============================================================================
-// Particle System Types
-// ============================================================================
-
-/**
- * Background particle structure
- */
-typedef struct particle_t {
-  float x, y;
-  float vx, vy;
-  float scale;
-  float rotation;
-  float rotation_speed;
-  int symbol_type;  // 0=triangle, 1=circle, 2=x, 3=square
-  uint32_t color;
-  bool active;
-  int layer;         // 0=background (0.7x speed), 1=foreground (1.0x speed)
-  float sway_phase;  // for horizontal sway animation
-  float sway_speed;  // radians per second
-} Particle;
-
-// ============================================================================
 // PIN Entry Types
 // ============================================================================
 

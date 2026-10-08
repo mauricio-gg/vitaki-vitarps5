@@ -8,7 +8,7 @@
  *
  * Architecture:
  * - ui_graphics.c: Low-level drawing primitives and shapes
- * - ui_animation.c: Particle effects and animation timing
+ * - ui_animation.c: Animation timing utilities
  * - ui_input.c: Button/touch input handling and gesture detection
  * - ui_state.c: UI state management and transitions
  * - ui_components.c: Reusable UI widgets (toggles, dropdowns, popups)
@@ -55,6 +55,7 @@
 #include "psn_remote.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
+#include "ui/ui_background.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -76,7 +77,7 @@ vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
 vita2d_texture *icon_button_triangle;
-vita2d_texture *background_gradient, *vita_rps5_logo;
+vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
 
 // Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
@@ -257,7 +258,6 @@ void load_textures() {
   icon_button_triangle = ui_load_png_linear("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
-  background_gradient = ui_load_png_linear("app0:/assets/background.png");
   vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
   ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
@@ -376,7 +376,7 @@ bool ui_reload_psn_account_id(void) {
  * 2. Loads all textures and fonts
  * 3. Initializes touch screen input
  * 4. Configures confirm/cancel button layout
- * 5. Initializes all UI modules (input, screens, state, particles, cards)
+ * 5. Initializes all UI modules (input, screens, state, background, cards)
  *
  * Must be called before draw_ui() main loop.
  */
@@ -390,8 +390,8 @@ void init_ui() {
   }
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
   load_textures();
-  ui_particles_init();  // Initialize VitaRPS5 particle background
-  ui_cards_init();      // Initialize console card system
+  ui_background_init();  // Build the wave background geometry
+  ui_cards_init();       // Initialize console card system
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
 
@@ -661,12 +661,8 @@ void draw_ui() {
         LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
       }
 
-      // Draw full-screen background - nav is a pure overlay
-      if (background_gradient) {
-        vita2d_draw_texture_part(background_gradient, 0, 0, 0, 0, VITA_WIDTH, VITA_HEIGHT);
-      } else {
-        vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
-      }
+      // Wave background under every screen; it updates at half rate while connecting
+      ui_background_draw(screen == UI_SCREEN_TYPE_WAKING || screen == UI_SCREEN_TYPE_RECONNECTING);
 
       // Wave navigation area removed - nav is a pure overlay with no background
 

@@ -47,14 +47,6 @@
 #define UI_COLOR_SHADOW 0x3C000000              // Semi-transparent black for shadows
 
 // ============================================================================
-// Particle Colors (ABGR with alpha - 0xCC = 80% opaque / 20% transparent)
-// ============================================================================
-#define PARTICLE_COLOR_RED 0xCCFF5555     // 80% opaque red
-#define PARTICLE_COLOR_GREEN 0xCC55FF55   // 80% opaque green
-#define PARTICLE_COLOR_BLUE 0xCC5555FF    // 80% opaque blue
-#define PARTICLE_COLOR_ORANGE 0xCC55AAFF  // 80% opaque orange
-
-// ============================================================================
 // Typography
 // ============================================================================
 #define FONT_SIZE_HEADER 28     // Screen titles, primary headers (increased for clarity)
@@ -101,16 +93,6 @@
 #define WAVE_NAV_SELECTION_COLOR_R 0x34     // PlayStation blue selection color
 #define WAVE_NAV_SELECTION_COLOR_G 0x90
 #define WAVE_NAV_SELECTION_COLOR_B 0xFF
-
-// ============================================================================
-// Particle Animation (Batch 3: Particle Background Enhancements)
-// ============================================================================
-#define PARTICLE_COUNT 8  // Optimized from 12 for performance
-#define PARTICLE_LAYER_BG_SPEED 0.7f
-#define PARTICLE_LAYER_FG_SPEED 1.0f
-#define PARTICLE_SWAY_AMPLITUDE 2.0f
-#define PARTICLE_SWAY_SPEED_MIN 0.5f
-#define PARTICLE_SWAY_SPEED_MAX 1.5f
 
 // ============================================================================
 // Wave Animation (per SCOPING_UI_POLISH.md)
