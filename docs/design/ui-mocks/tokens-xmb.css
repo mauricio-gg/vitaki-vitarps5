@@ -49,7 +49,7 @@
   --edge-0: rgba(4,8,20,0); --panel-edge: rgba(4,8,20,0.92); /* options column ramp */
   --vig-1: rgba(2,5,14,0.50); --vig-2: rgba(2,5,14,0.34); --vig-3: rgba(2,5,14,0.38);
   --vig-strong: rgba(2,5,14,0.55); --vig-top: rgba(0,0,0,0.32); --vig-bottom: rgba(0,0,0,0.40); /* Home vignette */
-  --stage-bg: #060B1C; --scene-bg: #10102A;
+  --stage-bg: #060B1C;
 
   /* BACKGROUND BLUR setting: veils over the blurred wave */
   --glass-veil: rgba(2,5,14,0.14);        /* Soft: 14% dark; also the dark part of Strong */
