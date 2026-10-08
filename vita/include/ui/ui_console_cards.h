@@ -11,6 +11,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "ui_console_status.h"
 #include "ui_types.h"
 
 // ============================================================================
@@ -101,6 +102,14 @@ ConsoleCardInfo *ui_cards_get_card(int index);
  * Returns: Pointer to the selected card, or NULL if no cards
  */
 ConsoleCardInfo *ui_cards_get_selected_card(void);
+
+/**
+ * ui_cards_classify() - Decide what status a cached console shows (see ui_console_classify()).
+ * @card:     The console.
+ * @token_ok: The PSN token is valid, so a PSN route counts as reachable.
+ * @cooldown: The post-stream cooldown is active for this console.
+ */
+UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown);
 
 // ============================================================================
 // Filter

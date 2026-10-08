@@ -151,6 +151,12 @@ void ui_cards_init(void) {
 // Host Mapping
 // ============================================================================
 
+UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown) {
+  return ui_console_classify(card->is_registered, card->is_discovered,
+                             card->state == CONSOLE_CARD_STATE_STANDBY,
+                             card->has_internet && token_ok, cooldown);
+}
+
 void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   if (!host || !card)
     return;
@@ -176,19 +182,19 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   // Map host state to console state
   if (psn_remote && registered) {
     card->status = 0;  // Available
-    card->state = 1;   // Ready
+    card->state = CONSOLE_CARD_STATE_READY;
   } else if (psn_remote) {
     card->status = 1;  // Unavailable (not registered)
-    card->state = 0;   // Unknown
+    card->state = CONSOLE_CARD_STATE_UNKNOWN;
   } else if (discovered && !at_rest) {
     card->status = 0;  // Available
-    card->state = 1;   // Ready
+    card->state = CONSOLE_CARD_STATE_READY;
   } else if (at_rest) {
     card->status = 2;  // Connecting/Standby
-    card->state = 2;   // Standby
+    card->state = CONSOLE_CARD_STATE_STANDBY;
   } else {
     card->status = 1;  // Unavailable
-    card->state = 0;   // Unknown
+    card->state = CONSOLE_CARD_STATE_UNKNOWN;
   }
 
   card->is_registered = registered;

@@ -24,6 +24,8 @@
 #include "ui/ui_component.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
+#include "ui/ui_detail_panel.h"
+#include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -90,6 +92,20 @@ static const HomeEntry PROFILE_ENTRIES[] = {
     {"PlayStation Network", NULL, HOME_ICON_PSN},
 };
 
+/* The detail panel reads the list rows in this order (ui_home_detail.h). */
+_Static_assert(HOME_CAT_CONSOLES == (int)UI_HOME_DETAIL_CONSOLES &&
+                   HOME_CAT_SETTINGS == (int)UI_HOME_DETAIL_SETTINGS &&
+                   HOME_CAT_CONTROLLER == (int)UI_HOME_DETAIL_CONTROLLER &&
+                   HOME_CAT_PROFILE == (int)UI_HOME_DETAIL_PROFILE,
+               "Home categories and detail sources must share one order");
+_Static_assert(sizeof(SETTINGS_ENTRIES) / sizeof(SETTINGS_ENTRIES[0]) == UI_SETTINGS_GROUP_COUNT,
+               "Settings list and detail groups must match");
+_Static_assert(sizeof(CONTROLLER_ENTRIES) / sizeof(CONTROLLER_ENTRIES[0]) ==
+                   UI_CONTROLLER_PRESET_COUNT,
+               "Controller list and detail presets must match");
+_Static_assert(sizeof(PROFILE_ENTRIES) / sizeof(PROFILE_ENTRIES[0]) == UI_PROFILE_GROUP_COUNT,
+               "Profile list and detail groups must match");
+
 static const char *const CATEGORY_LABELS[UI_CAT_COUNT] = {"Consoles", "Settings", "Controller",
                                                           "Profile"};
 
@@ -99,11 +115,6 @@ static const UIScreenType CATEGORY_SCREENS[UI_CAT_COUNT] = {
     UI_SCREEN_TYPE_PROFILE};
 
 /* Copy */
-static const char STATUS_READY[] = "Ready";
-static const char STATUS_STANDBY[] = "Standby";
-static const char STATUS_UNPAIRED[] = "Unpaired";
-static const char STATUS_UNAVAILABLE[] = "Unavailable";
-static const char STATUS_COOLDOWN[] = "Please wait...";
 static const char ROUTE_INTERNET[] = "\xC2\xB7 Internet";
 static const char EMPTY_SEARCHING[] = "Searching for consoles...";
 static const char EMPTY_NO_MATCH[] = "No consoles match filter";
@@ -173,6 +184,8 @@ void ui_home_on_enter(void) {
   ui_nav_reset_collapsed();
   s_confirm_tracking = false;
   s_hints.count = 0;
+  ui_xmb_list_cascade_in(&s_list);
+  ui_detail_panel_restart_rise();
 }
 
 /* ============================================================================
@@ -197,31 +210,27 @@ static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state)
   UiXmbItem item = {
       .icon = s_item_icons[HOME_ICON_TV],
       .name = card->name,
+      .status = ui_console_status_label(state.status),
       .status_dot = true,
       .route = state.internet_route ? ROUTE_INTERNET : NULL,
   };
 
   switch (state.status) {
     case UI_CONSOLE_READY:
-      item.status = STATUS_READY;
       item.status_color = UI_OK;
       break;
     case UI_CONSOLE_STANDBY:
-      item.status = STATUS_STANDBY;
       item.status_color = UI_WARN;
       break;
     case UI_CONSOLE_UNPAIRED:
-      item.status = STATUS_UNPAIRED;
       item.status_color = UI_IDLE;
       item.dim_icon = true;
       break;
     case UI_CONSOLE_UNAVAILABLE:
-      item.status = STATUS_UNAVAILABLE;
       item.status_color = UI_TEXT_3;
       item.dim_icon = true;
       break;
     case UI_CONSOLE_COOLDOWN:
-      item.status = STATUS_COOLDOWN;
       item.status_color = UI_WARN;
       item.dim_row = true;
       break;
@@ -237,9 +246,8 @@ static int fill_console_items(const VitaChiakiHost *cooldown_host) {
 
   for (int i = 0; i < count; i++) {
     const ConsoleCardInfo *card = ui_cards_get_card(i);
-    UiConsoleState state = ui_console_classify(
-        card->is_registered, card->is_discovered, card->state == 2 /* Standby */,
-        card->has_internet && token_ok, cooldown_host && card->host == cooldown_host);
+    UiConsoleState state =
+        ui_cards_classify(card, token_ok, cooldown_host && card->host == cooldown_host);
     s_items[i] = console_item(card, state);
     s_console_status[i] = state.status;
   }
@@ -496,6 +504,7 @@ UIScreenType ui_home_frame(void) {
   } else {
     if (ui_category_bar_input(&s_bar, &in) == UI_EVENT_MOVED) {
       ui_xmb_list_set_focus(&s_list, 0);
+      ui_xmb_list_cascade_in(&s_list);
       s_confirm_tracking = false;
       refresh_items(cooldown);
       if (s_bar.focus == HOME_CAT_CONSOLES)
@@ -513,6 +522,7 @@ UIScreenType ui_home_frame(void) {
   ui_top_bar_draw(consoles ? banner_reason : NULL);
   ui_category_bar_draw(&s_bar);
   ui_xmb_list_draw(&s_list);
+  ui_home_detail_draw((UiHomeDetailSource)s_bar.focus, &s_list);
   if (consoles)
     draw_console_status_text();
 

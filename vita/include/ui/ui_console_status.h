@@ -40,6 +40,9 @@ typedef struct ui_console_state_t {
 UiConsoleState ui_console_classify(bool registered, bool discovered, bool standby, bool internet_ok,
                                    bool cooldown);
 
+/** ui_console_status_label() - The word a status goes by on Home: "Ready", "Standby", ... */
+const char *ui_console_status_label(UiConsoleStatus status);
+
 /**
  * ui_console_order_before() - List order: paired consoles first, then by name.
  * @a_registered: First console is paired.
@@ -52,3 +55,12 @@ UiConsoleState ui_console_classify(bool registered, bool discovered, bool standb
  */
 bool ui_console_order_before(bool a_registered, const char *a_name, bool b_registered,
                              const char *b_name);
+
+/**
+ * ui_console_route_label() - The "Route" the detail panel shows for a console.
+ * @discovered:  The console answered local discovery right now.
+ * @internet_ok: A PSN route exists and the PSN token is valid (the same input as classify).
+ *
+ * "Local Network + Internet", "Local Network", "Internet" or "Not reachable".
+ */
+const char *ui_console_route_label(bool discovered, bool internet_ok);

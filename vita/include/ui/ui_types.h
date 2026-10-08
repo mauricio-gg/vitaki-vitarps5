@@ -139,22 +139,29 @@ typedef struct hints_popup_state_t {
 // Console Card Types
 // ============================================================================
 
+/** Power state a console card reports (ConsoleCardInfo.state). */
+typedef enum console_card_state_t {
+  CONSOLE_CARD_STATE_UNKNOWN = 0,
+  CONSOLE_CARD_STATE_READY,
+  CONSOLE_CARD_STATE_STANDBY,
+} ConsoleCardState;
+
 /**
  * Console card information
  */
 typedef struct console_card_info_t {
-  char name[32];         // "PS5 - 024"
-  char ip_address[16];   // "192.168.1.100"
-  int status;            // 0=Available, 1=Unavailable, 2=Connecting
-  int state;             // 0=Unknown, 1=Ready, 2=Standby
-  bool is_registered;    // Has valid credentials
-  bool is_discovered;    // From network discovery
-  bool has_internet;     // Host is reachable over the internet via PSN remote play (mirrors
-                         // VitaChiakiHost.psn_remote_available). True for both a LAN host with a
-                         // merged PSN_REMOTE entry AND a standalone PSN_REMOTE card with no LAN
-                         // route -- callers that need "has both a LAN and an internet route" must
-                         // additionally check host->source != VITA_HOST_SOURCE_PSN_REMOTE.
-  VitaChiakiHost *host;  // Original vitaki host reference
+  char name[32];           // "PS5 - 024"
+  char ip_address[16];     // "192.168.1.100"
+  int status;              // 0=Available, 1=Unavailable, 2=Connecting
+  ConsoleCardState state;  // Power state: unknown, ready or standby
+  bool is_registered;      // Has valid credentials
+  bool is_discovered;      // From network discovery
+  bool has_internet;       // Host is reachable over the internet via PSN remote play (mirrors
+                           // VitaChiakiHost.psn_remote_available). True for both a LAN host with a
+                           // merged PSN_REMOTE entry AND a standalone PSN_REMOTE card with no LAN
+                           // route -- callers that need "has both a LAN and an internet route" must
+                           // additionally check host->source != VITA_HOST_SOURCE_PSN_REMOTE.
+  VitaChiakiHost *host;    // Original vitaki host reference
 } ConsoleCardInfo;
 
 /**

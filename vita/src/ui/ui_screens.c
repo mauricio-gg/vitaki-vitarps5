@@ -48,6 +48,7 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_qr.h"
 #include "ui/ui_text.h"
+#include "ui/ui_value_labels.h"
 #include "ui/ui_home.h"
 
 // ============================================================================
@@ -662,50 +663,6 @@ static void settings_update_scroll_for_selection(void) {
   }
 }
 
-/// Get resolution string from ChiakiVideoResolutionPreset
-static const char *get_resolution_string(ChiakiVideoResolutionPreset preset) {
-  switch (preset) {
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-      return "360p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-      return "540p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-      // Legacy/unsupported values are shown as their effective Vita preset.
-      return "540p";
-    default:
-      return "540p";
-  }
-}
-
-/// Get FPS string from ChiakiVideoFPSPreset
-static const char *get_fps_string(ChiakiVideoFPSPreset preset) {
-  switch (preset) {
-    case CHIAKI_VIDEO_FPS_PRESET_30:
-      return "30 FPS";
-    case CHIAKI_VIDEO_FPS_PRESET_60:
-      return "60 FPS";
-    default:
-      return "60 FPS";
-  }
-}
-
-static const char *get_latency_mode_string(VitaChiakiLatencyMode mode) {
-  switch (mode) {
-    case VITA_LATENCY_MODE_ULTRA_LOW:
-      return "Ultra Low (≈1.2 Mbps)";
-    case VITA_LATENCY_MODE_LOW:
-      return "Low (≈1.8 Mbps)";
-    case VITA_LATENCY_MODE_HIGH:
-      return "High (≈3.2 Mbps)";
-    case VITA_LATENCY_MODE_MAX:
-      return "Max (≈3.8 Mbps)";
-    case VITA_LATENCY_MODE_BALANCED:
-    default:
-      return "Balanced (≈2.6 Mbps)";
-  }
-}
-
 static void apply_force_30fps_runtime(void) {
   if (!context.stream.session_init)
     return;
@@ -840,15 +797,15 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
     switch (i) {
       case UI_SETTINGS_ITEM_QUALITY_PRESET:
         draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
-                      get_resolution_string(context.config.resolution), false, selected);
+                      ui_label_resolution(context.config.resolution), false, selected);
         break;
       case UI_SETTINGS_ITEM_LATENCY_MODE:
         draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
-                      get_latency_mode_string(context.config.latency_mode), false, selected);
+                      ui_label_latency_mode(context.config.latency_mode), false, selected);
         break;
       case UI_SETTINGS_ITEM_FPS_TARGET:
         draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
-                      get_fps_string(context.config.fps), false, selected);
+                      ui_label_fps(context.config.fps), false, selected);
         break;
       case UI_SETTINGS_ITEM_FORCE_30_FPS:
         draw_settings_toggle_item(content_x, y, content_w, item_h, "Force 30 FPS Output",
@@ -1058,31 +1015,6 @@ static void execute_psn_logout(void) {
   profile_state.connection_focus = CONN_FOCUS_CARD;
 }
 
-static VitaChiakiHost *profile_get_reference_host(void) {
-  if (context.active_host) {
-    return context.active_host;
-  }
-
-  int selected = ui_cards_get_selected_index();
-  int host_idx = 0;
-  VitaChiakiHost *first_host = NULL;
-  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-    VitaChiakiHost *host = context.hosts[i];
-    if (!host) {
-      continue;
-    }
-    if (!first_host) {
-      first_host = host;
-    }
-    if (host_idx == selected) {
-      return host;
-    }
-    host_idx++;
-  }
-
-  return first_host;
-}
-
 /// Draw profile card (left side)
 static void draw_profile_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
@@ -1170,9 +1102,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
    * consistent and the syscall is issued only once per draw call. */
   uint64_t now_us = (uint64_t)sceKernelGetProcessTimeWide();
 
-  VitaChiakiHost *host = profile_get_reference_host();
+  VitaChiakiHost *host = ui_profile_reference_host();
   bool has_host = (host != NULL);
-  bool has_discovery = has_host && host->discovery_state;
   bool has_registered = has_host && host->registered_state;
   bool is_streaming = context.stream.is_streaming && context.stream.session_init;
 
@@ -1180,37 +1111,18 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
   cy += sec_line_h; /* cy ≈ y+73 */
 
-  const char *network_text = "Unavailable";
-  if (has_discovery) {
-    network_text = "Local Wi-Fi";
-  } else if (has_host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) {
-    network_text = "PSN Internet";
-  } else if (has_host && (host->type & MANUALLY_ADDED)) {
-    network_text = "Manual Host";
-  }
+  const char *network_text = ui_connection_network_type(host);
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Network Type");
   ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
   cy += body_line_h; /* cy ≈ y+91 */
 
-  /* Render only host's inline snapshot fields (display_name/hostname) -- never
-   * discovery_state->host_name/host_addr or registered_state->server_nickname, which are
-   * upstream heap structs the discovery thread may free/re-strdup concurrently. display_name
-   * already encodes the discovery-name > registered-nickname > hostname precedence. */
-  const char *console_name = "Not selected";
-  if (has_host && host->display_name[0]) {
-    console_name = host->display_name;
-  } else if (has_host && host->hostname[0]) {
-    console_name = host->hostname;
-  }
+  const char *console_name = ui_connection_console_name(host);
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
   ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
   cy += body_line_h; /* cy ≈ y+109 */
 
   /* Console IP — only when a meaningful address is available */
-  const char *console_ip = NULL;
-  if (has_host && host->hostname[0]) {
-    console_ip = host->hostname;
-  }
+  const char *console_ip = ui_connection_console_ip(host);
   if (console_ip) {
     ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console IP");
     ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
