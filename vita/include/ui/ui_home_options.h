@@ -1,10 +1,10 @@
 /**
  * @file ui_home_options.h
  * @brief Home's Options column and the popups its rows open: Re-pair, Connect via, Change icon
- *        (SPEC.md C05, C12, C13, section 3.1)
+ *        (SPEC.md C05, C12, C13, section 3.1), and the "Could not connect" result popup (C14)
  *
  * Home hands this module the console the Options were opened for and the input of the frames in
- * which it is open; the module owns the C05 column and the three popups, decides what each row
+ * which it is open; the module owns the C05 column and the four popups, decides what each row
  * does, and tells Home which screen to show next. It never reads Home's list: the console comes in
  * as a UiHomeOptionsTarget.
  *
@@ -19,6 +19,7 @@
 #include <stdbool.h>
 
 #include "ui/ui_component.h"
+#include "ui/ui_connect_failure.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_types.h"
@@ -29,8 +30,8 @@ typedef struct ui_home_options_target_t {
   UiConsoleStatus status;       ///< the card's status
 } UiHomeOptionsTarget;
 
-/** Connects the focused console, over the PSN route when @force_psn; returns the screen to show. */
-typedef UIScreenType (*UiHomeConnectFn)(bool force_psn);
+/** Connects @host, over the PSN route when @force_psn; returns the screen to show. */
+typedef UIScreenType (*UiHomeConnectFn)(VitaChiakiHost *host, bool force_psn);
 
 /** ui_home_options_init() - Close the column and every popup. @connect is what a Connect row
  * and the Connect via popup run. */
@@ -44,6 +45,16 @@ bool ui_home_options_column_open(void);
 
 /** ui_home_options_popup_open() - True while any of the popups is open. */
 bool ui_home_options_popup_open(void);
+
+/**
+ * ui_home_options_open_failure() - Open the "Could not connect" popup (C14) for @failure.
+ * @failure:   The failed connection (ui_connect_failure_take()).
+ * @can_retry: The console is still in Home's list. When false the popup offers only Close.
+ *
+ * Call only while no popup is open. Try again connects the console as Confirm on its row would.
+ * Logs the console and the reason once.
+ */
+void ui_home_options_open_failure(const UiConnectFailure *failure, bool can_retry);
 
 /** ui_home_options_open() - Open the column on @target's first row (Triangle). */
 void ui_home_options_open(const UiHomeOptionsTarget *target);

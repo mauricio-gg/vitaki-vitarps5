@@ -59,6 +59,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_component.c
     src/ui/ui_console_status.c
     src/ui/ui_result_copy.c
+    src/ui/ui_connect_failure.c
     src/ui/ui_console_rows.c
     src/ui/ui_category_bar.c
     src/ui/ui_xmb_list.c

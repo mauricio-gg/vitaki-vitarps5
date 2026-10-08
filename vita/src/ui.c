@@ -488,7 +488,6 @@ void draw_ui() {
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
-  context.ui_state.error_popup_modal_pushed = false;
 
   load_psn_id_if_needed();
   time_t startup_t = time(NULL);
@@ -631,8 +630,6 @@ void draw_ui() {
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
 
-    // Allow popup dismissal to capture inputs before we process other widgets
-    handle_error_popup_input();
     handle_debug_menu_input();
 
     if (debug_menu_enabled && !context.stream.is_streaming && !context.ui_state.debug_menu_active) {
@@ -796,7 +793,6 @@ void draw_ui() {
       if (!screen_has_xmb_chrome(screen))
         render_loss_indicator_preview();
       render_debug_menu();
-      render_error_popup();
       /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */
       if (next_screen != prev_screen)
         ui_freeze_release();

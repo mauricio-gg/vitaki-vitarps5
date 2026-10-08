@@ -18,6 +18,7 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
+#include "host_feedback.h"
 #include "video.h"
 
 #include <math.h>
@@ -145,105 +146,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
 }
 
 // ============================================================================
-// Error Popup Dialog
-// ============================================================================
-
-/**
- * Show error popup with specified message
- */
-void ui_error_show(const char *message) {
-  context.ui_state.error_popup_active = true;
-  if (message) {
-    sceClibSnprintf(context.ui_state.error_popup_text, sizeof(context.ui_state.error_popup_text),
-                    "%s", message);
-  } else {
-    context.ui_state.error_popup_text[0] = '\0';
-  }
-
-  // Push modal focus once per popup activation.
-  if (!context.ui_state.error_popup_modal_pushed) {
-    ui_focus_push_modal();
-    context.ui_state.error_popup_modal_pushed = true;
-  }
-}
-
-/**
- * Hide the error popup
- */
-void ui_error_hide(void) {
-  context.ui_state.error_popup_active = false;
-  context.ui_state.error_popup_text[0] = '\0';
-
-  // Pop only if this popup owns a modal push.
-  if (context.ui_state.error_popup_modal_pushed) {
-    ui_focus_pop_modal();
-    context.ui_state.error_popup_modal_pushed = false;
-  }
-}
-
-/**
- * Render the error popup
- */
-void ui_error_render(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
-
-  // Popup card
-  const int popup_w = 520;
-  const int popup_h = 280;
-  int popup_x = (VITA_WIDTH - popup_w) / 2;
-  int popup_y = (VITA_HEIGHT - popup_h) / 2;
-  ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16, RGBA8(0x14, 0x16, 0x1C, 240));
-
-  // Error message text — centered horizontally and vertically in the popup box.
-  const char *message =
-      context.ui_state.error_popup_text[0] ? context.ui_state.error_popup_text : "Connection error";
-  int message_w = ui_text_width(font, FONT_SIZE_HEADER, message);
-  int message_x = popup_x + (popup_w - message_w) / 2;
-  ui_text_draw_centered_v(font, message_x, popup_y, popup_h, UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_HEADER, message);
-
-  // Hint text — baseline sits 40 px above popup bottom (below the message, near the edge).
-  const char *hint = "Tap anywhere to dismiss";
-  int hint_w = ui_text_width(font, FONT_SIZE_BODY, hint);
-  int hint_x = popup_x + (popup_w - hint_w) / 2;
-  ui_text_draw(font, hint_x, popup_y + popup_h - 40, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
-}
-
-/**
- * Handle input for error popup
- */
-void ui_error_handle_input(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Get button block mask and touch block pointers
-  uint32_t *button_block_mask = ui_input_get_button_block_mask_ptr();
-  bool *touch_block_active = ui_input_get_touch_block_active_ptr();
-
-  uint32_t dismiss_mask = SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT;
-  bool button_dismiss = (context.ui_state.button_state & dismiss_mask) &&
-                        !(context.ui_state.old_button_state & dismiss_mask);
-  bool touch_dismiss = context.ui_state.touch_state_front.reportNum > 0;
-
-  if (button_dismiss || touch_dismiss) {
-    ui_error_hide();
-    *button_block_mask |= context.ui_state.button_state;
-    *touch_block_active = true;
-  }
-}
-
-/**
- * Check if error popup is currently active
- */
-bool ui_error_is_active(void) {
-  return context.ui_state.error_popup_active;
-}
-
-// ============================================================================
 // Hints Popup System
 // ============================================================================
 
@@ -317,6 +219,9 @@ void ui_hints_render_indicator(void) {
 // Forward declare helper function
 static void ensure_active_host_for_debug(void);
 
+/** How long the debug menu's forced failure stays as the console's status message. */
+#define DEBUG_FAILURE_HINT_DURATION_US (7 * 1000 * 1000ULL)
+
 /**
  * Ensure there's an active host for debug actions
  */
@@ -342,9 +247,16 @@ static void debug_menu_apply_action(int action_index) {
 
   switch (action_index) {
     case 0: {
-      // Show Remote Play error popup
-      ui_error_show("Remote Play already active on console");
-      LOGD("Debug menu: forced Remote Play error popup");
+      // Post a Remote Play failure through the real path: the hint opens the Could not connect
+      // popup on Home.
+      ensure_active_host_for_debug();
+      if (context.active_host) {
+        host_set_hint(context.active_host, "Remote Play already active on console", true,
+                      DEBUG_FAILURE_HINT_DURATION_US);
+        LOGD("Debug menu: forced Remote Play connection failure");
+      } else {
+        LOGE("Debug menu: no console to post a connection failure for");
+      }
       break;
     }
     case 1: {
@@ -633,14 +545,6 @@ void draw_status_dot(int x, int y, int radius, int status) {
 
 void draw_section_header(int x, int y, int width, const char *title) {
   ui_draw_section_header(x, y, width, title);
-}
-
-void render_error_popup(void) {
-  ui_error_render();
-}
-
-void handle_error_popup_input(void) {
-  ui_error_handle_input();
 }
 
 void trigger_hints_popup(const char *hint_text) {

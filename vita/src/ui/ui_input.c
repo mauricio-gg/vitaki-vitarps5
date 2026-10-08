@@ -67,8 +67,8 @@ bool ui_input_btn_pressed(SceCtrlButtons btn) {
   if (button_block_mask & btn)
     return false;
 
-  // Block all input when error popup or debug menu is active
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+  // Block all input when the debug menu is active
+  if (context.ui_state.debug_menu_active)
     return false;
 
   // Edge detection: button is down now but wasn't down last frame
@@ -247,7 +247,7 @@ void ui_input_update_snapshot(void) {
   const int map_count = (int)(sizeof(map) / sizeof(map[0]));
 
   memset(out, 0, sizeof(*out));
-  const bool suppressed = context.ui_state.error_popup_active || context.ui_state.debug_menu_active;
+  const bool suppressed = context.ui_state.debug_menu_active;
 
   if (!suppressed) {
     const uint32_t state = context.ui_state.button_state;
@@ -297,7 +297,7 @@ bool btn_pressed(SceCtrlButtons btn) {
 bool btn_down(SceCtrlButtons btn) {
   if (button_block_mask & btn)
     return false;
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+  if (context.ui_state.debug_menu_active)
     return false;
   return (context.ui_state.button_state & btn) != 0;
 }
@@ -305,7 +305,7 @@ bool btn_down(SceCtrlButtons btn) {
 bool btn_released(SceCtrlButtons btn) {
   if (button_block_mask & btn)
     return false;
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active)
+  if (context.ui_state.debug_menu_active)
     return false;
   return !(context.ui_state.button_state & btn) && (context.ui_state.old_button_state & btn);
 }

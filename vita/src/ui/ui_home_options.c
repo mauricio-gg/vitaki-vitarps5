@@ -13,6 +13,8 @@
 #include "ui/ui_options_column.h"
 #include "ui/ui_page_frame.h"
 #include "ui/ui_popup.h"
+#include "ui/ui_result_copy.h"
+#include "ui/ui_result_popup.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_screens.h"
 #include "ui/ui_theme.h"
@@ -42,6 +44,12 @@ static const char ICON_CANCEL[] = "Cancel";
 /** Buttons of the Re-pair confirm popup, left to right; Cancel is the default focus. */
 enum { REPAIR_CANCEL = 0, REPAIR_CONFIRM = 1 };
 
+/** Room for the failure popup's body: console name, ": " and the longest reason. */
+#define FAILURE_BODY_MAX (VITA_HOST_DISPLAY_NAME_LEN + UI_CONNECT_FAILURE_REASON_LEN + 8)
+
+/** Index of Try again in the Could not connect popup, after Close (button 0). */
+enum { FAILED_RETRY = 1 };
+
 /** Rows of the Connect via popup, in order. */
 enum { VIA_ROW_LOCAL = 0, VIA_ROW_INTERNET = 1, VIA_ROW_COUNT };
 
@@ -51,15 +59,19 @@ typedef enum active_popup_t {
   POPUP_REPAIR,
   POPUP_VIA,
   POPUP_ICON,
+  POPUP_CONNECT_FAILED,
 } ActivePopup;
 
 static UiOptionsColumn s_col;
 static UiPopup s_repair;
 static UiListPopup s_via;
 static UiListPopup s_icon;
+static UiPopup s_failed;
 static ActivePopup s_active = POPUP_NONE;
 /** The console the open popup is about. */
 static VitaChiakiHost *s_host = NULL;
+/** The Could not connect popup offers Try again (the console is still in the list). */
+static bool s_failed_can_retry = false;
 static UiHomeConnectFn s_connect = NULL;
 
 /** The words on an Options row, indexed by UiConsoleOption. */
@@ -80,6 +92,7 @@ static void close_popups(void) {
   ui_popup_close(&s_repair);
   ui_list_popup_close(&s_via);
   ui_list_popup_close(&s_icon);
+  ui_popup_close(&s_failed);
   s_active = POPUP_NONE;
   s_host = NULL;
 }
@@ -219,6 +232,23 @@ static void open_icon_popup(const ConsoleCardInfo *card) {
                               });
 }
 
+void ui_home_options_open_failure(const UiConnectFailure *failure, bool can_retry) {
+  char body[FAILURE_BODY_MAX];
+  UiResultCopy copy;
+  if (!ui_result_copy_connect_failed(failure->name, failure->reason, can_retry, body, sizeof(body),
+                                     &copy)) {
+    LOGE("Could not connect popup: no copy for \"%s\"", failure->name);
+    return;
+  }
+
+  LOGD("Could not connect popup: console=\"%s\" reason=\"%s\" retry=%s", failure->name,
+       failure->reason, can_retry ? "yes" : "no");
+  s_host = failure->host;
+  s_failed_can_retry = can_retry;
+  s_active = POPUP_CONNECT_FAILED;
+  ui_result_popup_open(&s_failed, &copy, body);
+}
+
 /**
  * Drive the Re-pair popup. Re-pair closes it and the column and goes to the PIN screen; Cancel,
  * the Cancel button and a tap outside close the popup and leave the Options column open.
@@ -245,11 +275,30 @@ static UIScreenType update_via_popup(const UiInput *in) {
 
   const bool internet = ev == UI_EVENT_ACTIVATED && s_via.activated == VIA_ROW_INTERNET;
   const bool connect = ev == UI_EVENT_ACTIVATED;
+  VitaChiakiHost *host = s_host;
   close_popups();
   if (!connect)
     return UI_SCREEN_TYPE_MAIN;
   ui_options_column_close_now(&s_col);
-  return s_connect(internet);
+  return s_connect(host, internet);
+}
+
+/**
+ * Drive the Could not connect popup. Try again connects the console as Confirm on its row would;
+ * Close, Cancel and a tap outside only close the popup.
+ */
+static UIScreenType update_failed_popup(const UiInput *in) {
+  const int choice = ui_result_popup_choice(&s_failed, ui_popup_input(&s_failed, in));
+  if (choice < 0)
+    return UI_SCREEN_TYPE_MAIN;
+
+  VitaChiakiHost *host = s_host;
+  const bool retry = s_failed_can_retry && choice == FAILED_RETRY;
+  close_popups();
+  if (!retry)
+    return UI_SCREEN_TYPE_MAIN;
+  ui_options_column_close_now(&s_col);
+  return s_connect(host, false);
 }
 
 /** Drive the Change icon popup. Choose saves the icon and closes the popup; the column stays. */
@@ -287,7 +336,7 @@ static UIScreenType run_option(int id, const UiHomeOptionsTarget *target) {
       return UI_SCREEN_TYPE_MAIN;
     default:
       ui_options_column_close_now(&s_col);
-      return s_connect(false);
+      return s_connect(target->card->host, false);
   }
 }
 
@@ -299,6 +348,8 @@ UIScreenType ui_home_options_input(const UiInput *in, const UiHomeOptionsTarget 
       return update_via_popup(in);
     case POPUP_ICON:
       return update_icon_popup(in);
+    case POPUP_CONNECT_FAILED:
+      return update_failed_popup(in);
     case POPUP_NONE:
       break;
   }
@@ -330,6 +381,9 @@ void ui_home_options_draw_popup(void) {
     case POPUP_ICON:
       ui_list_popup_draw(&s_icon);
       break;
+    case POPUP_CONNECT_FAILED:
+      ui_popup_draw(&s_failed);
+      break;
     case POPUP_NONE:
       break;
   }
@@ -343,6 +397,8 @@ int ui_home_options_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
       return ui_list_popup_hints(&s_via, out);
     case POPUP_ICON:
       return ui_list_popup_hints(&s_icon, out);
+    case POPUP_CONNECT_FAILED:
+      return ui_popup_hints(&s_failed, out);
     case POPUP_NONE:
       break;
   }

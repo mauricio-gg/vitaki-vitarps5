@@ -83,37 +83,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
                          bool enabled);
 
 // ============================================================================
-// Error Popup Dialog
-// ============================================================================
-
-/**
- * Show error popup with specified message
- * @param message Error message to display (copied internally)
- */
-void ui_error_show(const char *message);
-
-/**
- * Hide the error popup
- */
-void ui_error_hide(void);
-
-/**
- * Render the error popup (call during draw loop)
- */
-void ui_error_render(void);
-
-/**
- * Handle input for error popup (call during input loop)
- */
-void ui_error_handle_input(void);
-
-/**
- * Check if error popup is currently active
- * @return true if popup is visible
- */
-bool ui_error_is_active(void);
-
-// ============================================================================
 // Hints Popup System
 // ============================================================================
 

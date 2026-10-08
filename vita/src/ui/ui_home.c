@@ -28,6 +28,7 @@
 #include "ui/ui_chrome_layout.h"
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
+#include "ui/ui_connect_failure.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
@@ -179,7 +180,7 @@ static UiHintLayout s_hints;
 /** The console Home should focus on its next live frame (ui_home_focus_console), or NULL. */
 static const VitaChiakiHost *s_focus_host = NULL;
 
-static UIScreenType connect_focused_console(bool force_psn);
+static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn);
 
 /* ============================================================================
  * Setup
@@ -205,7 +206,8 @@ void ui_home_init(void) {
   s_last_category = -1;
   s_filter_cached_found = -1;
   s_hints.count = 0;
-  ui_home_options_init(connect_focused_console);
+  ui_connect_failure_init();
+  ui_home_options_init(connect_console);
   s_focus_host = NULL;
 }
 
@@ -461,14 +463,24 @@ static bool filter_row_focused(void) {
   return s_bar.focus == HOME_CAT_CONSOLES && s_filter_row && s_list.focus == 0;
 }
 
-/** Connect to the focused console; @force_psn routes it through the PSN holepunch. */
-static UIScreenType connect_focused_console(bool force_psn) {
-  ConsoleCardInfo *card = focused_card();
-  if (!card)
+/** Index of @host in the console cache, or -1 when it is not listed (gone, or filtered out). */
+static int listed_console_index(const VitaChiakiHost *host) {
+  for (int i = 0; i < ui_cards_get_count(); i++) {
+    if (ui_cards_get_card(i)->host == host)
+      return i;
+  }
+  return -1;
+}
+
+/** Connect to @host as Confirm on its row does; @force_psn routes it through the PSN
+ * holepunch. */
+static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn) {
+  const int index = listed_console_index(host);
+  if (index < 0)
     return UI_SCREEN_TYPE_MAIN;
-  ui_cards_set_selected_index(focused_console_index());
+  ui_cards_set_selected_index(index);
   context.stream.force_psn_holepunch = force_psn;
-  return ui_screens_connect_host(card->host);
+  return ui_screens_connect_host(host);
 }
 
 /** Open the screen for the focused Settings, Controller or Profile item. */
@@ -493,11 +505,13 @@ static UIScreenType update_list(const UiInput *in) {
 
   UIScreenType next = UI_SCREEN_TYPE_MAIN;
   if (ui_xmb_list_input(&s_list, in) == UI_EVENT_ACTIVATED) {
-    if (filter_row_focused())
+    if (filter_row_focused()) {
       ui_cards_edit_filter();
-    else
-      next = s_bar.focus == HOME_CAT_CONSOLES ? connect_focused_console(false)
-                                              : open_category_screen();
+    } else if (s_bar.focus != HOME_CAT_CONSOLES) {
+      next = open_category_screen();
+    } else if (focused_card()) {
+      next = connect_console(focused_card()->host, false);
+    }
   }
   if (focused_console_index() >= 0)
     ui_cards_set_selected_index(focused_console_index());
@@ -627,6 +641,21 @@ static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldo
   return next;
 }
 
+/**
+ * Open the "Could not connect" popup for a connection failure waiting in the hand-off, unless a
+ * popup is already open (the failure then waits). It opens after this frame's input, so a press
+ * made for something else cannot answer it. Try again is offered only while the console is in
+ * the list (listed_console_index()): a console that is gone, or filtered out, cannot be
+ * connected to from here.
+ */
+static void open_pending_failure(void) {
+  if (ui_home_options_popup_open())
+    return;
+  UiConnectFailure failure;
+  if (ui_connect_failure_take(&failure))
+    ui_home_options_open_failure(&failure, listed_console_index(failure.host) >= 0);
+}
+
 /** Draw the live Home layers. The ones behind the Options column are tinted down to its dim. */
 static void draw_live_layers(const char *banner_reason) {
   const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
@@ -681,6 +710,8 @@ UIScreenType ui_home_frame(void) {
   }
 
   const UIScreenType next = update_input(&in, cooldown);
+  if (next == UI_SCREEN_TYPE_MAIN)
+    open_pending_failure();
 
   /* True when a popup was opened this frame: the frame becomes the popup's background copy, so
    * it is drawn without the popup and without the hint row. Read after input, which is what
