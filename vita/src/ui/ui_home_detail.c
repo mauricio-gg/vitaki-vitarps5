@@ -226,32 +226,21 @@ static void build_preset_rows(int slot) {
  * Profile
  * ============================================================================ */
 
-/** The status word of the reference console, on Home's words (SPEC 3.7), or "None". */
-static const char *connection_status(const VitaChiakiHost *host) {
-  if (!host)
-    return "None";
-  ConsoleCardInfo card;
-  ui_cards_map_host((VitaChiakiHost *)host, &card);
-  UiConsoleState state = ui_cards_classify(&card, psn_auth_token_is_valid((uint64_t)time(NULL)),
-                                           false, UI_CONSOLE_MESSAGE_NONE);
-  return ui_console_status_label(state.status);
-}
-
-/** Rows of the Connection group: the first four of SPEC 3.7's table. */
+/** Rows of the Connection group (SPEC 3.7's table). */
 static void build_connection_rows(void) {
   const VitaChiakiHost *host = ui_profile_reference_host();
+  const UiConnectionWords words = ui_connection_words(host);
   const char *ip = ui_connection_console_ip(host);
 
-  add_row("Network Type", ui_connection_network_type(host), 0);
+  add_row("Network Type", words.network_type, 0);
   add_row("Console", ui_connection_console_name(host), 0);
   if (ip)
     add_row("Console IP", ip, 0);
-  add_row("Status", connection_status(host), 0);
+  add_row("Status", words.status, 0);
   add_row("Quality", ui_label_resolution(context.config.resolution), 0);
 }
 
-/** Colour of the PSN Auth value: green when signed in, red for the states that need action. */
-static uint32_t psn_auth_color(PsnAuthState state) {
+uint32_t ui_psn_auth_color(PsnAuthState state) {
   switch (state) {
     case PSN_AUTH_STATE_TOKEN_VALID:
       return UI_OK;
@@ -270,7 +259,7 @@ static void build_psn_rows(void) {
   const uint64_t now_unix = (uint64_t)time(NULL);
   const PsnAuthState state = psn_auth_state(now_unix);
 
-  add_row("PSN Auth", psn_auth_state_label_for(state, now_unix), psn_auth_color(state));
+  add_row("PSN Auth", psn_auth_state_label_for(state, now_unix), ui_psn_auth_color(state));
   switch (state) {
     case PSN_AUTH_STATE_TOKEN_VALID:
       add_row("Refresh hosts", NULL, 0);

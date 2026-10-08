@@ -458,6 +458,14 @@ PSN Auth states (`#profile-psn-<state>`): Disabled (`profile-psn-disabled`, Log 
 **Phone login** (`#profile-login`, `#profile-login-hidden`): the pane is replaced by "Phone Login Assist": C18 and four steps, a Code line ("Paste redirect URL/code" until a code exists) and the short sign-in URL (C18). Buttons: Start show/hide QR, Select open the Vita browser, Confirm opens the system keyboard "Paste full redirect URL" (`#keyboard-paste`; the field shows the **tail** of long text, clipped inside the field), Square cancels. Touch: tap the QR to toggle (toast feedback, C18); the four hints are tappable. Hints: `[Confirm Enter code] [Start QR] [Select Browser] [Square Cancel login]`.
 Toasts: representative `#toast-account` and `#toast-login-complete`; full list in the copy deck.
 
+**As built (#304).**
+- Status for a manually added console that is not discovered reads "Unavailable", not the table's "Ready". Profile and Home share one rule (`ui_console_connection_words()`), and Home's list classifies such a console as Unavailable. A PSN console without a valid token also reads Unavailable.
+- The login pane's three buttons (Enter code, Open browser, Cancel login) are touch targets only; the face buttons do the work. While the login pane shows, Cancel goes back to Home and the login keeps running.
+- The toast "Scan QR on phone, then press [Confirm] ..." names the button in words (Cross, or Circle with Circle Button Confirm), because the toast draws no glyphs.
+- New toast copy, for sign-off: "Could not draw the QR code. Use Open browser." It shows when the code cannot be encoded or does not fit the 160 px art.
+- The armed Log out label and its glyph are drawn in WARN.
+- The toast stays fully visible for 3.0 s, then fades over 300 ms.
+
 ### 3.8 Controller
 Page shell, title "Controller" (zone views: "Front Touch" / "Rear Touch" with the preset as T16 sub).
 

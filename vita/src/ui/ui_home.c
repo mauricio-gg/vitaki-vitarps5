@@ -39,6 +39,7 @@
 #include "ui/ui_home_options.h"
 #include "ui/ui_page_frame.h"
 #include "ui/ui_room_icons.h"
+#include "ui/ui_profile.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -122,8 +123,8 @@ _Static_assert(sizeof(PROFILE_ENTRIES) / sizeof(PROFILE_ENTRIES[0]) == UI_PROFIL
 static const char *const CATEGORY_LABELS[UI_CAT_COUNT] = {"Consoles", "Settings", "Controller",
                                                           "Profile"};
 
-/** The screen that Confirm opens for each category's items (Settings opens the XMB page, the rest
- * the old screens). */
+/** The screen that Confirm opens for each category's items (Settings and Profile open XMB pages,
+ * Controller the old screen). */
 static const UIScreenType CATEGORY_SCREENS[UI_CAT_COUNT] = {
     UI_SCREEN_TYPE_MAIN, UI_SCREEN_TYPE_SETTINGS, UI_SCREEN_TYPE_CONTROLLER,
     UI_SCREEN_TYPE_PROFILE};
@@ -379,10 +380,19 @@ static void refresh_items(const VitaChiakiHost *cooldown_host) {
   s_last_category = s_bar.focus;
 }
 
-void ui_home_select_settings_group(int group) {
-  ui_category_bar_set_focus(&s_bar, HOME_CAT_SETTINGS);
+/** Put Home on @category with item @index focused. */
+static void select_category_item(int category, int index) {
+  ui_category_bar_set_focus(&s_bar, category);
   refresh_items(NULL);
-  ui_xmb_list_set_focus(&s_list, group);
+  ui_xmb_list_set_focus(&s_list, index);
+}
+
+void ui_home_select_settings_group(int group) {
+  select_category_item(HOME_CAT_SETTINGS, group);
+}
+
+void ui_home_select_profile_group(int group) {
+  select_category_item(HOME_CAT_PROFILE, group);
 }
 
 void ui_home_focus_console(const VitaChiakiHost *host) {
@@ -488,6 +498,8 @@ static UIScreenType open_category_screen(void) {
   UIScreenType target = CATEGORY_SCREENS[s_bar.focus];
   if (s_bar.focus == HOME_CAT_SETTINGS)
     ui_settings_open(s_list.focus);
+  else if (s_bar.focus == HOME_CAT_PROFILE)
+    ui_profile_open(s_list.focus);
   ui_focus_move_to_content(target);
   ui_nav_set_selected_icon(s_bar.focus);
   ui_nav_reset_collapsed();

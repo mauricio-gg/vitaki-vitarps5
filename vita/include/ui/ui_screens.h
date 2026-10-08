@@ -47,13 +47,6 @@ UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
 UIScreenType ui_screens_repair_host(VitaChiakiHost *host);
 
 /**
- * Render the profile screen with PSN account info and registration controls
- * Shows three-column layout: profile card, connection info, registration
- * @return next screen to display
- */
-UIScreenType ui_screen_draw_profile(void);
-
-/**
  * Render the controller configuration screen with mapping and settings
  * Two-tab layout: controller mappings and controller settings
  * @return next screen to display

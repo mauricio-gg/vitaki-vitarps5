@@ -10,7 +10,9 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
+#include "psn_auth.h"
 #include "ui/ui_xmb_list.h"
 
 /** Which Home category the list shows. The values equal the CategoryBar order. */
@@ -56,3 +58,10 @@ typedef enum ui_profile_group_t {
  * changes none.
  */
 void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list, bool filter_row);
+
+/**
+ * ui_psn_auth_color() - Colour of the PSN Auth value, shared by Home's info panel and the Profile
+ * page: OK when signed in, WARN while refreshing, ERR for the states that need action (not
+ * authenticated, token expired, error text); 0 for the rest (the row's own colour).
+ */
+uint32_t ui_psn_auth_color(PsnAuthState state);

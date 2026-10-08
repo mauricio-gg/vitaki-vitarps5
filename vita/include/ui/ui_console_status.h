@@ -100,3 +100,33 @@ bool ui_console_order_before(bool a_registered, const char *a_name, bool b_regis
  * "Local Network + Internet", "Local Network", "Internet" or "Not reachable".
  */
 const char *ui_console_route_label(bool discovered, bool internet_ok);
+
+/** Plain facts about the console the Profile Connection rows and Home's Connection panel describe.
+ */
+typedef struct ui_connection_facts_t {
+  bool selected;     ///< a console exists to describe; false is "no console selected"
+  bool registered;   ///< the console has pairing credentials
+  bool discovered;   ///< it answered local discovery right now
+  bool standby;      ///< discovery reports it in rest mode (only meaningful when @discovered)
+  bool psn_source;   ///< it came from the PSN console list
+  bool manual;       ///< it was added by hand
+  bool internet_ok;  ///< a PSN route exists and the PSN token is valid
+} UiConnectionFacts;
+
+/** The two words the Connection rows show for one console. */
+typedef struct ui_connection_words_t {
+  const char *network_type;
+  const char *status;
+} UiConnectionWords;
+
+/**
+ * ui_console_connection_words() - The Network Type and Status words for the Connection rows
+ * (SPEC.md section 3.7), so Profile and Home's info panel can never disagree.
+ * @facts: What is known about the console.
+ *
+ * Network Type: "Local Wi-Fi" when discovered, else "PSN Internet" for a PSN console, else
+ * "Manual Host" for a hand-added one, else "Unavailable". Status is the console's real state in
+ * the Home list's words (ui_console_classify() without cooldown or message), and "None" only when
+ * no console is selected.
+ */
+UiConnectionWords ui_console_connection_words(const UiConnectionFacts *facts);

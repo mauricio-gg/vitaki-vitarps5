@@ -20,6 +20,7 @@
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_text.h"
+#include "ui/ui_utf16.h"
 #include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
@@ -69,40 +70,7 @@ static char ime_title_buf[64];
 // ============================================================================
 
 /**
- * utf16_to_utf8() - Convert UTF-16 to UTF-8
- * @src: Source UTF-16 string (SceWChar16)
- * @src_max: Maximum number of UTF-16 characters to read from source
- * @dst: Destination UTF-8 buffer
- * @dst_size: Size of destination buffer
- *
- * Simple converter for IME dialog output. Handles BMP (Basic Multilingual Plane)
- * characters only, which covers most common use cases on Vita.
- */
-static void utf16_to_utf8(const SceWChar16 *src, size_t src_max, char *dst, size_t dst_size) {
-  size_t i = 0;
-  size_t o = 0;
-  while (i < src_max && src[i] && o < dst_size - 1) {
-    if (src[i] < 0x80) {
-      dst[o++] = (char)src[i];
-    } else if (src[i] < 0x800) {
-      if (o + 1 >= dst_size - 1)
-        break;
-      dst[o++] = (char)(0xC0 | (src[i] >> 6));
-      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
-    } else {
-      if (o + 2 >= dst_size - 1)
-        break;
-      dst[o++] = (char)(0xE0 | (src[i] >> 12));
-      dst[o++] = (char)(0x80 | ((src[i] >> 6) & 0x3F));
-      dst[o++] = (char)(0x80 | (src[i] & 0x3F));
-    }
-    i++;
-  }
-  dst[o] = '\0';
-}
-
-/**
- * utf8_to_utf16() - Convert UTF-8 to UTF-16 (BMP only, the inverse of utf16_to_utf8)
+ * utf8_to_utf16() - Convert UTF-8 to UTF-16 (BMP only, the inverse of ui_utf16_to_utf8)
  * @src: Source UTF-8 string
  * @dst: Destination buffer, always NUL-terminated
  * @dst_len: Capacity of @dst in SceWChar16 units
@@ -377,7 +345,7 @@ void ui_cards_poll_filter_ime(void) {
 
     /* Done applies the typed text (empty clears the filter); Cancel keeps the filter as it was. */
     if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
-      utf16_to_utf8(ime_input_buf, FILTER_MAX_LEN + 1, filter_text, sizeof(filter_text));
+      ui_utf16_to_utf8(ime_input_buf, FILTER_MAX_LEN + 1, filter_text, sizeof(filter_text));
       filter_len = (int)strlen(filter_text);
       filter_active = (filter_len > 0);
     }

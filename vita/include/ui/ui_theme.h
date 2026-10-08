@@ -577,6 +577,19 @@ typedef enum ui_face_t {
 #define UI_TOGGLE_TEXT_GAP UI_S2
 #define UI_TOGGLE_TEXT_W 24
 
+/* Info: the value is right-aligned at the row padding, at least UI_INFO_VALUE_GAP after the label.
+ */
+#define UI_INFO_VALUE_GAP UI_S2
+/* Error status row (SPEC C08): a warning icon before the value and a rule at the row's left edge.
+ */
+#define UI_SETTING_ERR_ICON 20
+#define UI_SETTING_ERR_ICON_GAP UI_S1
+#define UI_SETTING_ERR_RULE_W UI_LW2
+/* A glyph inside a row label (the armed log out): this far from the words on either side. */
+#define UI_SETTING_GLYPH_GAP UI_S1
+/** A disabled row is drawn at this opacity. */
+#define UI_ROW_DISABLED_PCT 50
+
 /* Choice: a chevron box, the centred value, a chevron box. */
 #define UI_CHOICE_VALUE_W 224
 #define UI_CHOICE_ARROW 48
@@ -591,6 +604,40 @@ typedef enum ui_face_t {
  * ============================================================================ */
 
 #define UI_SCROLL_W UI_LW2
+
+/* ============================================================================
+ * C15 Toast (ui_toast.c): a pill centred at the bottom of the screen, one at a time. It rises
+ * UI_RISE_PX and fades in over UI_TOAST_ENTER_MS, stays until UI_TOAST_VISIBLE_MS after it was
+ * shown, then fades out over UI_TOAST_EXIT_MS.
+ * ============================================================================ */
+
+#define UI_TOAST_Y 432
+#define UI_TOAST_H UI_SHAPE_H_BUTTON
+#define UI_TOAST_PAD UI_S3
+#define UI_TOAST_ICON 24
+#define UI_TOAST_ICON_GAP UI_S2
+#define UI_TOAST_MAX_W 720
+#define UI_TOAST_ENTER_MS UI_D2_MS
+#define UI_TOAST_VISIBLE_MS 3000
+#define UI_TOAST_EXIT_MS UI_D2_MS
+/** Bytes kept of a toast's text (UTF-8). */
+#define UI_TOAST_TEXT_MAX 96
+
+/* ============================================================================
+ * Profile page (ui_profile.c, SPEC 3.7): the identity block under the group list
+ * ============================================================================ */
+
+#define UI_IDENT_Y 376
+#define UI_IDENT_H 48
+#define UI_IDENT_PAD UI_S2
+#define UI_IDENT_GAP UI_S2
+#define UI_IDENT_AVATAR 48
+#define UI_IDENT_RING UI_LW2
+#define UI_IDENT_ICON 28
+/** The icon inside the avatar is drawn at this opacity. */
+#define UI_IDENT_ICON_PCT 85
+/** Bytes kept of the PSN Account ID shown in the identity block and the Account ID row. */
+#define UI_IDENT_ID_MAX UI_SETTING_VALUE_MAX
 
 /* ============================================================================
  * C03 ConnectingRing (ui_connecting_ring.c)
@@ -680,6 +727,32 @@ typedef enum ui_face_t {
 #define UI_PIN_SUB_GAP UI_S1
 /** Bytes kept of the console name and address line and of the prompt. */
 #define UI_PIN_TEXT_MAX 160
+
+/* ============================================================================
+ * C18 QrPanel (ui_qr_panel.c): the QR art sits on a plate with UI_QR_QUIET around it
+ * ============================================================================ */
+
+#define UI_QR_BOX 176
+#define UI_QR_ART 160
+#define UI_QR_QUIET ((UI_QR_BOX - UI_QR_ART) / 2)
+
+/* ============================================================================
+ * Phone login (ui_profile_login.c, SPEC 3.7): the pane the PlayStation Network group shows while
+ * a login runs. The title is one line, the QR panel and the steps share the next band, then the
+ * Code and URL lines, then the three buttons.
+ * ============================================================================ */
+
+#define UI_LOGIN_TITLE_H 32
+#define UI_LOGIN_QR_Y (UI_BODY_Y + UI_LOGIN_TITLE_H + UI_S1)
+#define UI_LOGIN_STEPS_X (UI_PAGE_PANE_X + UI_QR_BOX + UI_S3)
+#define UI_LOGIN_STEP_PITCH (UI_T16_LINE + UI_S1)
+/** Width of the step number column, and the gap around a glyph drawn inside a step. */
+#define UI_LOGIN_STEP_NUM_W 18
+#define UI_LOGIN_GLYPH_GAP 4
+#define UI_LOGIN_INFO_Y (UI_LOGIN_QR_Y + UI_QR_BOX + UI_S2)
+#define UI_LOGIN_INFO_GAP UI_S2
+#define UI_LOGIN_BUTTONS_Y 432
+#define UI_LOGIN_BUTTON_GAP UI_S2
 
 /* ============================================================================
  * Connecting screen (ui_connecting.c, SPEC 3.4)

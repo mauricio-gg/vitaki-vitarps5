@@ -105,3 +105,22 @@ const char *ui_console_route_label(bool discovered, bool internet_ok) {
     return "Local Network";
   return internet_ok ? "Internet" : "Not reachable";
 }
+
+UiConnectionWords ui_console_connection_words(const UiConnectionFacts *facts) {
+  UiConnectionWords words = {"Unavailable", "None"};
+  if (!facts || !facts->selected)
+    return words;
+
+  if (facts->discovered)
+    words.network_type = "Local Wi-Fi";
+  else if (facts->psn_source)
+    words.network_type = "PSN Internet";
+  else if (facts->manual)
+    words.network_type = "Manual Host";
+
+  words.status = ui_console_status_label(ui_console_classify(facts->registered, facts->discovered,
+                                                             facts->standby, facts->internet_ok,
+                                                             false, UI_CONSOLE_MESSAGE_NONE)
+                                             .status);
+  return words;
+}

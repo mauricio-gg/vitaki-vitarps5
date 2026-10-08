@@ -88,6 +88,11 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_scroll_indicator.c
     src/ui/ui_settings_actions.c
     src/ui/ui_settings.c
+    src/ui/ui_profile.c
+    src/ui/ui_profile_login.c
+    src/ui/ui_qr_panel.c
+    src/ui/ui_utf16.c
+    src/ui/ui_toast.c
     src/ui/ui_reconnecting.c
     src/ui/ui_gradient.c
     src/ui/ui_downsample.c
@@ -325,6 +330,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
         FILE assets/icons/page_lock.png assets/icons/page_lock.png
+        FILE assets/icons/page_profile.png assets/icons/page_profile.png
         FILE assets/icons/popup_check.png assets/icons/popup_check.png
         FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
         FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
@@ -347,6 +353,8 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
+        FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
+        FILE assets/glyphs/hint_select.png assets/glyphs/hint_select.png
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png

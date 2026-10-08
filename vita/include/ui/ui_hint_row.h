@@ -25,7 +25,8 @@
  * UI_BTN_LEFT | UI_BTN_RIGHT for the D-pad left-right hint, UI_BTN_UP | UI_BTN_DOWN for the
  * up-down hint. CONFIRM and CANCEL resolve to Cross or
  * Circle from the setting. Only the glyphs a screen uses are baked: Confirm, Cancel, Options,
- * Clear, L, R, D-pad left-right and up-down; an action without a glyph draws its label alone.
+ * Clear (Square), Start (UI_BTN_FILTER), Select (UI_BTN_BROWSER), L, R, D-pad left-right and
+ * up-down; an action without a glyph draws its label alone.
  */
 typedef struct ui_hint_item_t {
   uint32_t action;
@@ -66,3 +67,15 @@ void ui_hint_row_draw(const UiHintLayout *layout);
  * its right half.
  */
 uint32_t ui_hint_row_tap(const UiHintLayout *layout, const UiInput *in);
+
+/**
+ * ui_hint_row_glyph_width() - Drawn width of the glyph of @action (UI_BTN_CONFIRM and UI_BTN_CANCEL
+ * honour the Circle Button Confirm setting), UI_HINT_GLYPH_H high; 0 when it has none.
+ */
+int ui_hint_row_glyph_width(uint32_t action);
+
+/**
+ * ui_hint_row_glyph_draw() - Draw the glyph of @action at @x, vertically centred in the band
+ * (@y, @h), in @tint. For a screen that needs the same glyph inside a label. Paper cost 1.
+ */
+void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint);
