@@ -56,6 +56,12 @@ const char *room_icon_label(int icon);
 int room_icons_get(const RoomIconTable *table, const uint8_t mac[6]);
 
 /**
+ * room_icons_can_store() - Whether a console with this MAC has an identity to store a choice under.
+ * @mac: Console MAC; a NULL or all-zero MAC has none.
+ */
+bool room_icons_can_store(const uint8_t mac[6]);
+
+/**
  * room_icons_set() - Remember an icon for the console with this MAC (in memory only).
  * Choosing ROOM_ICON_TV frees the console's entry.
  * @table: The table to change.

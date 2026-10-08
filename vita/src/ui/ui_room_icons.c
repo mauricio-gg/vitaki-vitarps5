@@ -49,11 +49,20 @@ int ui_room_icon_for_host(const VitaChiakiHost *host) {
   return room_icons_get(&context.config.room_icons, host->server_mac);
 }
 
+bool ui_room_icon_can_change(const VitaChiakiHost *host) {
+  return host && room_icons_can_store(host->server_mac);
+}
+
 bool ui_room_icon_set_for_host(const VitaChiakiHost *host, int icon) {
-  if (!host || !room_icons_set(&context.config.room_icons, host->server_mac, icon))
+  if (!host)
+    return false;
+  RoomIconTable *table = &context.config.room_icons;
+  const int previous = room_icons_get(table, host->server_mac);
+  if (!room_icons_set(table, host->server_mac, icon))
     return false;
   if (!config_serialize(&context.config)) {
-    LOGE("Failed to save room icon choice for console");
+    LOGE("Failed to save room icon choice for console; keeping icon %d", previous);
+    room_icons_set(table, host->server_mac, previous);
     return false;
   }
   return true;

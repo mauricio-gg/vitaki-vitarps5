@@ -57,6 +57,7 @@ typedef enum ui_console_option_t {
   UI_CONSOLE_OPTION_CONNECT_VIA,
   UI_CONSOLE_OPTION_REPAIR,
   UI_CONSOLE_OPTION_PAIR,
+  UI_CONSOLE_OPTION_CHANGE_ICON,
 } UiConsoleOption;
 
 /** One row of the Options column. */
@@ -65,21 +66,23 @@ typedef struct ui_console_option_row_t {
   bool disabled;
 } UiConsoleOptionRow;
 
-/** Most rows ui_console_option_rows() returns (room for the Change icon row to come). */
+/** Most rows ui_console_option_rows() returns (Connect, Connect via, Re-pair, Change icon). */
 #define UI_CONSOLE_OPTION_ROWS_MAX 4
 
 /**
  * ui_console_option_rows() - The Options rows for a console, in order.
  * @status:      The console's status.
  * @both_routes: It has a local and an Internet route to choose between.
+ * @can_change_icon: Its icon can be stored (it has a MAC); only then is Change icon offered.
  * @out:         Receives the rows.
  *
- * Unpaired: Pair only. Otherwise Connect (Wake and connect for Standby), Connect via only with
- * both routes, then Re-pair. Cooldown disables Connect and Connect via.
+ * Unpaired: Pair. Otherwise Connect (Wake and connect for Standby), Connect via only with both
+ * routes, then Re-pair. Change icon comes last for either, when it can be stored. Cooldown
+ * disables Connect and Connect via.
  *
  * @return the number of rows
  */
-int ui_console_option_rows(UiConsoleStatus status, bool both_routes,
+int ui_console_option_rows(UiConsoleStatus status, bool both_routes, bool can_change_icon,
                            UiConsoleOptionRow out[UI_CONSOLE_OPTION_ROWS_MAX]);
 
 /**

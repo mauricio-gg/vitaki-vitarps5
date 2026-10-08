@@ -64,25 +64,44 @@ static void test_filter_matches_name_and_ip(void) {
   assert(ui_console_matches_filter("PS5", "10.0.0.5", ""));
 }
 
-/** Unpaired offers Pair only; Standby wakes; Connect via needs both routes; Cooldown disables
- * Connect and Connect via but never Re-pair. */
+/** Unpaired offers Pair; Standby wakes; Connect via needs both routes; Cooldown disables Connect
+ * and Connect via but never Re-pair. */
 static void test_option_rows_follow_status_and_routes(void) {
   UiConsoleOptionRow rows[UI_CONSOLE_OPTION_ROWS_MAX];
 
-  assert(ui_console_option_rows(UI_CONSOLE_UNPAIRED, true, rows) == 1);
+  assert(ui_console_option_rows(UI_CONSOLE_UNPAIRED, true, false, rows) == 1);
   assert(rows[0].option == UI_CONSOLE_OPTION_PAIR && !rows[0].disabled);
 
-  assert(ui_console_option_rows(UI_CONSOLE_READY, false, rows) == 2);
+  assert(ui_console_option_rows(UI_CONSOLE_READY, false, false, rows) == 2);
   assert(rows[0].option == UI_CONSOLE_OPTION_CONNECT && !rows[0].disabled);
   assert(rows[1].option == UI_CONSOLE_OPTION_REPAIR);
 
-  assert(ui_console_option_rows(UI_CONSOLE_STANDBY, true, rows) == 3);
+  assert(ui_console_option_rows(UI_CONSOLE_STANDBY, true, false, rows) == 3);
   assert(rows[0].option == UI_CONSOLE_OPTION_WAKE_CONNECT);
   assert(rows[1].option == UI_CONSOLE_OPTION_CONNECT_VIA && !rows[1].disabled);
   assert(rows[2].option == UI_CONSOLE_OPTION_REPAIR);
 
-  assert(ui_console_option_rows(UI_CONSOLE_COOLDOWN, true, rows) == 3);
+  assert(ui_console_option_rows(UI_CONSOLE_COOLDOWN, true, false, rows) == 3);
   assert(rows[0].disabled && rows[1].disabled && !rows[2].disabled);
+}
+
+/** Change icon is the last row of a Paired and of an Unpaired console, offered only when the
+ * icon can be stored; the longest list still fits the Options column's rows. */
+static void test_change_icon_row_needs_a_storable_icon(void) {
+  UiConsoleOptionRow rows[UI_CONSOLE_OPTION_ROWS_MAX];
+
+  assert(ui_console_option_rows(UI_CONSOLE_UNPAIRED, false, true, rows) == 2);
+  assert(rows[0].option == UI_CONSOLE_OPTION_PAIR);
+  assert(rows[1].option == UI_CONSOLE_OPTION_CHANGE_ICON && !rows[1].disabled);
+
+  assert(ui_console_option_rows(UI_CONSOLE_READY, true, true, rows) == UI_CONSOLE_OPTION_ROWS_MAX);
+  assert(rows[3].option == UI_CONSOLE_OPTION_CHANGE_ICON);
+
+  assert(ui_console_option_rows(UI_CONSOLE_COOLDOWN, false, true, rows) == 3);
+  assert(rows[2].option == UI_CONSOLE_OPTION_CHANGE_ICON && !rows[2].disabled);
+
+  assert(ui_console_option_rows(UI_CONSOLE_READY, true, false, rows) == 3);
+  assert(ui_console_option_rows(UI_CONSOLE_UNPAIRED, false, false, rows) == 1);
 }
 
 int main(void) {
@@ -92,6 +111,7 @@ int main(void) {
   test_focus_follows_console_when_row_changes();
   test_filter_matches_name_and_ip();
   test_option_rows_follow_status_and_routes();
+  test_change_icon_row_needs_a_storable_icon();
   printf("ui_console_rows_tests: all passed\n");
   return 0;
 }

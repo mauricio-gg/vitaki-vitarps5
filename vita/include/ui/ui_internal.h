@@ -244,7 +244,6 @@ void draw_status_dot(int x, int y, int radius, int status);
 void draw_section_header(int x, int y, int width, const char *title);
 void render_error_popup(void);
 void handle_error_popup_input(void);
-void render_connect_popup(void);
 void trigger_hints_popup(const char *hint_text);
 void render_hints_popup(void);
 void render_hints_indicator(void);

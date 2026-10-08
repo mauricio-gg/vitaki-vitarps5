@@ -60,6 +60,10 @@ const char *room_icon_label(int icon) {
   return ROOM_ICON_LABELS[icon];
 }
 
+bool room_icons_can_store(const uint8_t mac[MAC_BYTES]) {
+  return mac && !mac_is_zero(mac);
+}
+
 int room_icons_get(const RoomIconTable *table, const uint8_t mac[MAC_BYTES]) {
   if (!table || !mac || mac_is_zero(mac))
     return ROOM_ICON_TV;

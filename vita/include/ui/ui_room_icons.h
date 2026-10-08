@@ -37,10 +37,14 @@ vita2d_texture *ui_room_icons_get(int icon, RoomIconSize size);
  */
 int ui_room_icon_for_host(const VitaChiakiHost *host);
 
+/** ui_room_icon_can_change() - True when the console's icon can be stored (it has a MAC). */
+bool ui_room_icon_can_change(const VitaChiakiHost *host);
+
 /**
  * ui_room_icon_set_for_host() - Choose an icon for a console and save the config.
  * @host: The console. One without a MAC cannot be changed.
  * @icon: A RoomIcon value.
- * Return: true when the choice was stored and written to the config file.
+ * Return: true when the choice was stored and written to the config file. On false the console
+ *         keeps the icon it had.
  */
 bool ui_room_icon_set_for_host(const VitaChiakiHost *host, int icon);

@@ -795,7 +795,6 @@ void draw_ui() {
       // Home and Connecting show Network Unstable as a pill in their hint row (C06) instead
       if (!screen_has_xmb_chrome(screen))
         render_loss_indicator_preview();
-      render_connect_popup();
       render_debug_menu();
       render_error_popup();
       /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */

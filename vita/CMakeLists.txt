@@ -98,6 +98,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_pin_field.c
     src/ui/ui_pin_digits.c
     src/ui/ui_options_column.c
+    src/ui/ui_home_options.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c

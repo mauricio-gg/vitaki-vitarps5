@@ -229,6 +229,8 @@ Rows h 48 (T20, optional right label T16 TEXT_3, check icon for the current valu
 
 Input: Up/Down (grid: all four), Confirm, tap a row (selects and activates). Used by: Mapping popup (L), Connect via (S, 2 rows), Change icon (M grid).
 
+**As built (#303).** The focused grid cell is a baked `R_SM` rounded rect in `FILL_FOCUS` (one draw), as the mock's final CSS draws it (`.lg.sel` under `r-sm`), not the radial fill the matrix text names. The check is the 32 px popup check art scaled to 20 px (list) and 16 px (grid cell). The scroll indicator sits on the list's right edge inside the popup padding, as in the mock. The M grid is 8 px taller than the space under the subtitle (as in the mock) and uses the popup's bottom padding. A swipe applies to lists only. The list keeps the focused row at the middle of the viewport as `focus - visible / 2 + 1`, clamped, without the mock's slide.
+
 ### C13 ConfirmPopup (configuration of C11)
 Size S, title with icon, 1 to 3 lines body, two TextButtons (Cancel left, action right). Default focus Cancel. Left/Right switches, Confirm presses the focused button, Circle cancels. Used by: Re-pair.
 
