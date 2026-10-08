@@ -9,12 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void persist_config_or_warn(void) {
-  if (!config_serialize(&context.config)) {
-    LOGE("Failed to persist config changes");
-  }
-}
-
 static ChiakiRegist regist = {};
 
 /* Attempt phases. Only the UI thread starts, stops, reaps and fini()s the attempt; the lib
@@ -77,38 +71,46 @@ static bool host_update_registered_state_from_event(VitaChiakiHost *host,
 }
 
 /* Stores a successful registration on the active host and persists the config.
- * Returns false when it could not be stored (the caller reports FAILED, not PAIRED). */
+ * Returns true only when the host is in the registered-host table and the config file was
+ * written, because only then does the pairing survive a restart. The host is marked REGISTERED
+ * only on that path. On false the caller reports FAILED, never PAIRED. */
 static bool store_registration(const ChiakiRegistEvent *event) {
-  if (!context.active_host) {
+  VitaChiakiHost *host = context.active_host;
+  if (!host) {
     LOGE("Registration callback missing active host");
     return false;
   }
-  context.active_host->type |= REGISTERED;
+  const char *name = host->display_name[0] ? host->display_name : host->hostname;
 
-  if (!host_update_registered_state_from_event(context.active_host, event->registered_host))
+  if (!host_update_registered_state_from_event(host, event->registered_host))
     return false;
 
-  bool updated_existing_host = false;
+  bool in_table = false;
   for (int rhost_idx = 0; rhost_idx < context.config.num_registered_hosts; rhost_idx++) {
     VitaChiakiHost *rhost = context.config.registered_hosts[rhost_idx];
     if (!rhost)
       continue;
-    if (mac_addrs_match(&(rhost->server_mac), &(context.active_host->server_mac))) {
-      context.config.registered_hosts[rhost_idx] = context.active_host;
-      updated_existing_host = true;
+    if (mac_addrs_match(&(rhost->server_mac), &(host->server_mac))) {
+      context.config.registered_hosts[rhost_idx] = host;
+      in_table = true;
       break;
     }
   }
 
-  if (!updated_existing_host) {
+  if (!in_table) {
     if (context.config.num_registered_hosts >= MAX_REGISTERED_HOSTS) {
-      LOGE("Max registered hosts reached; could not persist new registration.");
-    } else {
-      context.config.registered_hosts[context.config.num_registered_hosts++] = context.active_host;
+      LOGE("Max registered hosts reached; could not store the registration of \"%s\".", name);
+      return false;
     }
+    context.config.registered_hosts[context.config.num_registered_hosts++] = host;
   }
 
-  persist_config_or_warn();
+  if (!config_serialize(&context.config)) {
+    LOGE("Failed to write the config; the registration of \"%s\" would be lost at restart.", name);
+    return false;
+  }
+
+  host->type |= REGISTERED;
   return true;
 }
 
