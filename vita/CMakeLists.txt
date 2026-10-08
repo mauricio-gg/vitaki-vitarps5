@@ -69,6 +69,15 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_top_bar.c
     src/ui/ui_hint_row.c
     src/ui/ui_chrome_layout.c
+    src/ui/ui_bake.c
+    src/ui/ui_type_logo.c
+    src/ui/ui_page_frame.c
+    src/ui/ui_spinner.c
+    src/ui/ui_connecting_ring.c
+    src/ui/ui_steps.c
+    src/ui/ui_text_button.c
+    src/ui/ui_connecting_flow.c
+    src/ui/ui_connecting.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -288,6 +297,12 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/search.png assets/icons/search.png
         FILE assets/icons/wifi.png assets/icons/wifi.png
         FILE assets/icons/battery.png assets/icons/battery.png
+        # Connecting screen: 32 px page-title icons and the 64 px room icon inside the ring
+        FILE assets/icons/page_lan.png assets/icons/page_lan.png
+        FILE assets/icons/page_globe.png assets/icons/page_globe.png
+        FILE assets/icons/page_moon.png assets/icons/page_moon.png
+        FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
+        FILE assets/icons/tv_64.png assets/icons/tv_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         # Professional UI assets (gradient background, logo, controller diagrams)

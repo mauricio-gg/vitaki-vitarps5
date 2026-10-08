@@ -24,6 +24,7 @@ typedef struct {
 static uint32_t s_raw_total = 0;
 static FrameCounts s_frame;
 static FrameCounts s_peak;
+static const char *s_peak_screen = "";
 static uint32_t s_peak_frames = 0;
 static uint64_t s_window_start_us = 0;
 
@@ -53,21 +54,23 @@ static uint32_t logical_of(const FrameCounts *f) {
   return f->raw - f->glyphs + f->runs;
 }
 
-void ui_draw_stats_frame_end(bool log_this_frame) {
-  if (!log_this_frame)
+void ui_draw_stats_frame_end(const char *screen) {
+  if (!screen)
     return;
 
   s_frame.raw = s_raw_total - s_frame.raw;
   s_peak_frames++;
-  if (logical_of(&s_frame) >= logical_of(&s_peak))
+  if (logical_of(&s_frame) >= logical_of(&s_peak)) {
     s_peak = s_frame;
+    s_peak_screen = screen;
+  }
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
   if (now_us - s_window_start_us < DRAW_STATS_LOG_INTERVAL_US)
     return;
 
-  LOGD("UI/DRAWS screen=home raw=%u logical=%u runs=%u glyphs=%u frames=%u", s_peak.raw,
-       logical_of(&s_peak), s_peak.runs, s_peak.glyphs, s_peak_frames);
+  LOGD("UI/DRAWS screen=%s raw=%u logical=%u runs=%u glyphs=%u frames=%u", s_peak_screen,
+       s_peak.raw, logical_of(&s_peak), s_peak.runs, s_peak.glyphs, s_peak_frames);
   s_window_start_us = now_us;
   s_peak_frames = 0;
   s_peak = (FrameCounts){0, 0, 0};

@@ -66,6 +66,7 @@
 #include "ui/ui_controller_diagram.h"
 #include "ui/ui_text.h"
 #include "ui/ui_component.h"
+#include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
 #include "ui/ui_shapes.h"
 
@@ -88,8 +89,6 @@ static bool *touch_block_active = NULL;
 static bool *touch_block_pending_clear = NULL;
 
 // State management convenience macros (for legacy code compatibility)
-#define waking_start_time ui_state_get_waking_start_time_us()
-#define SET_waking_start_time(val) ui_state_set_waking_start_time_us(val)
 #define waking_wait_for_stream_us ui_state_get_waking_wait_for_stream_us()
 #define SET_waking_wait_for_stream_us(val) ui_state_set_waking_wait_for_stream_us(val)
 #define reconnect_start_time ui_state_get_reconnect_start_time()
@@ -160,6 +159,30 @@ char *cancel_btn_str = "Circle";
 // Pill rendering, overlay, and touch functions moved to ui_navigation.c
 
 // Error popup and debug menu functions moved to ui_components.c
+
+/**
+ * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting).
+ * They draw their own top bar and hint row (with the Network Unstable pill), so the corner
+ * logo, the wave sidebar and the old loss indicator are not drawn over them.
+ */
+static bool screen_has_xmb_chrome(UIScreenType screen) {
+  return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING;
+}
+
+#if VITARPS5_DEBUG_TOOLS
+/** draw_stats_screen_name() - Name logged with the draw counts of @screen, or NULL for a screen
+ * that is not counted. */
+static const char *draw_stats_screen_name(UIScreenType screen) {
+  switch (screen) {
+    case UI_SCREEN_TYPE_MAIN:
+      return "home";
+    case UI_SCREEN_TYPE_WAKING:
+      return "connecting";
+    default:
+      return NULL;
+  }
+}
+#endif
 
 static void render_loss_indicator_preview(void) {
   if (context.stream.is_streaming)
@@ -404,6 +427,7 @@ void init_ui() {
   ui_glow_init();
   ui_shapes_init();
   ui_home_init();
+  ui_connecting_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -673,8 +697,8 @@ void draw_ui() {
 
       // Focus overlay moved to after screen rendering for correct z-order
 
-      // Old screens only: Home draws the logo in its own top bar (C23)
-      if (vita_rps5_logo && screen != UI_SCREEN_TYPE_MAIN) {
+      // Old screens only: Home and Connecting draw the logo in their own top bar (C23)
+      if (vita_rps5_logo && !screen_has_xmb_chrome(screen)) {
         int logo_w = vita2d_texture_get_width(vita_rps5_logo);
         int logo_h = vita2d_texture_get_height(vita_rps5_logo);
         float logo_scale = 0.1f;  // 10% of original size
@@ -754,7 +778,7 @@ void draw_ui() {
       screen = next_screen;
 
       // The wave sidebar belongs to the old screens only; Home has its own category bar.
-      if (screen != UI_SCREEN_TYPE_MAIN) {
+      if (!screen_has_xmb_chrome(screen)) {
         // Render focus overlay after all screen content (correct z-order)
         ui_nav_render_content_overlay();
 
@@ -766,13 +790,13 @@ void draw_ui() {
       render_hints_indicator();
       render_hints_popup();
 
-      // Home shows Network Unstable as a pill in its hint row (C06) instead
-      if (screen != UI_SCREEN_TYPE_MAIN)
+      // Home and Connecting show Network Unstable as a pill in their hint row (C06) instead
+      if (!screen_has_xmb_chrome(screen))
         render_loss_indicator_preview();
       render_connect_popup();
       render_debug_menu();
       render_error_popup();
-      UI_DRAW_STATS_FRAME_END(prev_screen == UI_SCREEN_TYPE_MAIN);
+      UI_DRAW_STATS_FRAME_END(draw_stats_screen_name(prev_screen));
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();

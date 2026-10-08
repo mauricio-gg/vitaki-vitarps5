@@ -394,17 +394,6 @@ typedef enum ui_face_t {
 #define UI_DETAIL_Y 192
 #define UI_DETAIL_W 304
 #define UI_DETAIL_LOGO_H 48
-#define UI_DETAIL_LOGO_PS5_W 176
-#define UI_DETAIL_LOGO_PS4_W 200
-/** Source rows cropped to the wordmark: PS5_logo.png (132 x 49) keeps 36 rows from row 8; ps4.png
- * (100 x 100) keeps 24 rows from row 38. The crop is scaled so the visible height is
- * UI_DETAIL_LOGO_H. */
-#define UI_DETAIL_PS5_SRC_W 132
-#define UI_DETAIL_PS5_SRC_Y 8
-#define UI_DETAIL_PS5_SRC_H 36
-#define UI_DETAIL_PS4_SRC_W 100
-#define UI_DETAIL_PS4_SRC_Y 38
-#define UI_DETAIL_PS4_SRC_H 24
 #define UI_DETAIL_KV_H 32
 /** Gap between a kv label and its value; the value is clipped to what is left. */
 #define UI_DETAIL_KV_GAP UI_S1
@@ -414,3 +403,91 @@ typedef enum ui_face_t {
 #define UI_DETAIL_MESSAGE_GAP UI_S1
 /** A list-kind panel without a description keeps this much blank under the title. */
 #define UI_DETAIL_BLANK_H UI_S2
+
+/* ============================================================================
+ * Type logo (ui_type_logo.c): the wordmark cropped from PS5_logo.png (132 x 49) and ps4.png
+ * (100 x 100), drawn white at any height. PS5 keeps 36 rows from row 8; PS4 keeps 24 rows from
+ * row 38. The crop is scaled so the visible height is the wanted height (48 gives 176 and 200
+ * wide).
+ * ============================================================================ */
+
+#define UI_LOGO_PS5_SRC_W 132
+#define UI_LOGO_PS5_SRC_Y 8
+#define UI_LOGO_PS5_SRC_H 36
+#define UI_LOGO_PS4_SRC_W 100
+#define UI_LOGO_PS4_SRC_Y 38
+#define UI_LOGO_PS4_SRC_H 24
+
+/* ============================================================================
+ * C07 PageShell frame (ui_page_frame.c)
+ * ============================================================================ */
+
+#define UI_PAGE_ICON 32
+#define UI_PAGE_TITLE_X 96
+#define UI_PAGE_TITLE_H 48
+
+/* ============================================================================
+ * C03 ConnectingRing (ui_connecting_ring.c)
+ * ============================================================================ */
+
+#define UI_RING_SIZE 128
+#define UI_RING_W UI_LW2
+/** The glow is baked into the ring texture, which is padded by this much on every side. */
+#define UI_RING_GLOW 12
+#define UI_RING_GLOW_PCT 45
+/** The room icon is half the ring. */
+#define UI_RING_ICON_PCT 50
+#define UI_RING_HALO 280
+/** The halo fades linearly from its centre to nothing at this radius (68% of the 280 box's
+ * corner distance in the mock). */
+#define UI_RING_HALO_FADE_R 135
+
+/* ============================================================================
+ * C16 Spinner and ProgressSteps (ui_spinner.c, ui_steps.c)
+ * ============================================================================ */
+
+#define UI_SPINNER_ARC_DEG 270
+#define UI_SPINNER_BIG 176
+#define UI_SPINNER_BIG_MS 1800
+#define UI_SPINNER_SMALL 16
+#define UI_SPINNER_SMALL_MS 800
+
+#define UI_STEPS_X 464
+#define UI_STEPS_Y 152
+#define UI_STEP_PAD UI_S1
+/** Marker column (dot, spinner or number), then UI_S2 before the text. */
+#define UI_STEP_MARKER_W 16
+#define UI_STEP_DOT 12
+#define UI_STEP_LINE UI_T20_LINE
+#define UI_STEP_CUR_LINE UI_T28_LINE
+#define UI_STEP_DETAIL_LINE UI_T16_LINE
+/** A glow behind the current step's title, reaching this far past the text. */
+#define UI_STEP_GLOW 12
+#define UI_STEP_GLOW_PCT 20
+/** Most steps ui_draw_steps() takes (the longest flow, ui_connecting_flow.h). */
+#define UI_STEPS_MAX 7
+
+/* ============================================================================
+ * C22 TextButton (ui_text_button.c)
+ * ============================================================================ */
+
+#define UI_BUTTON_H UI_SHAPE_H_BUTTON
+#define UI_BUTTON_MIN_W 128
+#define UI_BUTTON_PAD UI_S3
+#define UI_BUTTON_PRESS_MS UI_D1_MS
+#define UI_BUTTON_DISABLED_PCT 45
+#define UI_BUTTON_GLOW 12
+#define UI_BUTTON_GLOW_PCT 20
+
+/* ============================================================================
+ * Connecting screen (ui_connecting.c, SPEC 3.4)
+ * ============================================================================ */
+
+/** The art box: halo, spinner and ring are centred in it. */
+#define UI_CONN_ART_X 68
+#define UI_CONN_ART_Y 168
+#define UI_CONN_ART_W 320
+#define UI_CONN_ART_H 200
+#define UI_CONN_LOGO_H 32
+#define UI_CONN_LOGO_Y 384
+#define UI_CONN_CANCEL_Y 440

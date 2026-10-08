@@ -48,20 +48,7 @@ void draw_ui();
 void ui_clear_waking_wait(void);
 bool ui_reload_psn_account_id(void);
 
-#ifndef UI_CONNECTION_STAGE_DEFINED
-#define UI_CONNECTION_STAGE_DEFINED
-typedef enum {
-  UI_CONNECTION_STAGE_NONE = 0,
-  UI_CONNECTION_STAGE_WAKING,
-  UI_CONNECTION_STAGE_PSN_AUTH,
-  UI_CONNECTION_STAGE_PSN_FETCH_DEVICES,
-  UI_CONNECTION_STAGE_PSN_CREATE_SESSION,
-  UI_CONNECTION_STAGE_CONNECTING,
-  UI_CONNECTION_STAGE_PSN_PUNCH_CTRL,
-  UI_CONNECTION_STAGE_PSN_PUNCH_DATA,
-  UI_CONNECTION_STAGE_STARTING_STREAM,
-} UIConnectionStage;
-#endif
+#include "ui/ui_connection_stage.h"
 
 void ui_connection_begin(UIConnectionStage stage);
 void ui_connection_set_stage(UIConnectionStage stage);

@@ -51,7 +51,6 @@ static bool connection_overlay_modal_pushed = false;
  * Used for timeout tracking and animation
  * Note: Use uint64_t for microsecond timestamps to avoid overflow after ~71 minutes
  */
-static uint64_t waking_start_time = 0;
 static uint64_t waking_wait_for_stream_us = 0;
 static uint64_t reconnect_start_time = 0;
 static int reconnect_animation_frame = 0;
@@ -80,7 +79,6 @@ void ui_state_init(void) {
   connection_overlay_modal_pushed = false;
 
   // Reset timing state
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
   reconnect_start_time = 0;
   reconnect_animation_frame = 0;
@@ -94,10 +92,16 @@ void ui_state_init(void) {
 // ============================================================================
 
 void ui_connection_begin(UIConnectionStage stage) {
+  /* The same route rule host_stream() applies: the host is a PSN remote one, or the user chose
+   * Internet (both callers that begin a connect restore that one-shot flag first). */
+  const bool internet =
+      (context.active_host && context.active_host->source == VITA_HOST_SOURCE_PSN_REMOTE) ||
+      context.stream.force_psn_holepunch;
   connection_overlay.active = true;
   connection_overlay.stage = stage;
+  connection_overlay.flow = ui_connecting_flow_decide(stage, internet);
+  connection_overlay.serial++;
   connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
 
   // Push modal focus when connection overlay activates
@@ -116,7 +120,6 @@ void ui_connection_set_stage(UIConnectionStage stage) {
 
 void ui_connection_complete(void) {
   connection_overlay.active = false;
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
 
   // Pop modal focus only if this overlay owns a modal push.
@@ -128,7 +131,6 @@ void ui_connection_complete(void) {
 
 void ui_connection_cancel(void) {
   connection_overlay.active = false;
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
   connection_thread_host = NULL;
 
@@ -152,6 +154,14 @@ bool ui_connection_is_active(void) {
 
 UIConnectionStage ui_connection_get_stage(void) {
   return connection_overlay.stage;
+}
+
+UiConnectingFlow ui_connection_get_flow(void) {
+  return connection_overlay.flow;
+}
+
+uint32_t ui_connection_get_serial(void) {
+  return connection_overlay.serial;
 }
 
 void ui_connection_clear_waking_wait(void) {
@@ -267,14 +277,6 @@ void ui_text_cache_clear(void) {
 // ============================================================================
 // Waking & Reconnect State Accessors
 // ============================================================================
-
-uint64_t ui_state_get_waking_start_time_us(void) {
-  return waking_start_time;
-}
-
-void ui_state_set_waking_start_time_us(uint64_t time_us) {
-  waking_start_time = time_us;
-}
 
 uint64_t ui_state_get_waking_wait_for_stream_us(void) {
   return waking_wait_for_stream_us;

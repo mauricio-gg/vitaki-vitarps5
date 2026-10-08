@@ -95,10 +95,10 @@ static void build_console(const UiXmbItem *item, const ConsoleCardInfo *card) {
   s_content.status_color = item->status_color;
   if (card->host && chiaki_target_is_ps5(card->host->target)) {
     s_content.logo = ps5_logo;
-    s_content.logo_kind = UI_DETAIL_LOGO_PS5;
+    s_content.logo_kind = UI_TYPE_LOGO_PS5;
   } else {
     s_content.logo = img_ps4;
-    s_content.logo_kind = UI_DETAIL_LOGO_PS4;
+    s_content.logo_kind = UI_TYPE_LOGO_PS4;
   }
   set_console_message(card->host);
 

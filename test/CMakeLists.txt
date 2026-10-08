@@ -87,3 +87,17 @@ target_include_directories(ui_detail_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_detail_tests COMMAND ui_detail_tests)
+
+# ui_connecting_flow_tests.c has its own main() and tests the pure Connecting screen rules (flow,
+# steps, title). Cross-compiled but never run by ./tools/build.sh test; the native command is at
+# the top of the file.
+add_executable(ui_connecting_flow_tests
+    ui_connecting_flow_tests.c
+    ../vita/src/ui/ui_connecting_flow.c
+)
+
+target_include_directories(ui_connecting_flow_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_connecting_flow_tests COMMAND ui_connecting_flow_tests)

@@ -20,6 +20,7 @@ typedef enum ui_shape3_t {
   UI_SHAPE3_BAR_48 = 0,      /**< focus bar, R_SM caps */
   UI_SHAPE3_BAR_56,          /**< large focus bar, R_SM caps */
   UI_SHAPE3_PILL_48,         /**< button and toast, pill caps */
+  UI_SHAPE3_PILL_48_OUTLINE, /**< 1 px outline of the 48 px pill (text button border) */
   UI_SHAPE3_PILL_32,         /**< pill, pill caps */
   UI_SHAPE3_PILL_32_OUTLINE, /**< 1 px outline of the 32 px pill (warn pill) */
   UI_SHAPE3_PILL_24,         /**< toggle track, pill caps */
