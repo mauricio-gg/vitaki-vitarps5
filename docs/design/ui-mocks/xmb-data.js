@@ -18,12 +18,12 @@ const KIND={
  standby:{t:'Standby',col:'var(--warn)',dot:'yellow'},
  unpaired:{t:'Unpaired',col:'var(--idle)',dot:'idle'},
  psn:{t:'Ready',col:'var(--ok)',dot:'green'},
- unavail:{t:'Unavailable',col:'var(--err)',dot:'red'},
+ unavail:{t:'Unavailable',col:'var(--text-3)',dot:'grey'},
  error:{t:'Error',col:'var(--err)',dot:'red'},
  retry:{t:'Retrying',col:'var(--warn)',dot:'yellow'},
  cool:{t:'Please wait...',col:'var(--warn)',dot:'yellow'}
 };
-const BADGE={ready:'check',standby:'moon',unpaired:'lock',psn:'globe',unavail:'warn',error:'warn',retry:'clock',cool:'clock'};
+const BADGE={ready:'check',standby:'moon',unpaired:'lock',psn:'globe',unavail:'',error:'warn',retry:'clock',cool:'clock'};
 const routeOf=c=>c.disc&&c.net?'Local Network + Internet':c.disc?'Local Network':c.net?'Internet':'Not reachable';
 const bothRoutes=c=>c.reg&&c.disc&&c.net;
 /* Console detail messages. Each has a status kind: error (red, needs the user) or retry (amber, the app is retrying or waiting). The row shows only the status label; the message shows in the info panel. */

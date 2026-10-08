@@ -51,14 +51,14 @@ const unstPill=()=>pill('<i class="d"></i>Network Unstable','unst');
 /* C03 StatusRing */
 function ring(c,size){
  const k=kindOf(c);
- return `<span class="ring ${k}" style="--sz:${size}px"><img class="rm" src="icons/${c.room}.svg" alt="" style="width:${Math.round(size*.5)}px;opacity:${c.reg&&k!=='cool'?1:.7}"><i class="bdg">${ico(BADGE[k],Math.round(size*.24))}</i></span>`;
+ return `<span class="ring ${k}" style="--sz:${size}px"><img class="rm" src="icons/${c.room}.svg" alt="" style="width:${Math.round(size*.5)}px;opacity:${c.reg&&k!=='cool'?1:.7}">${BADGE[k]?`<i class="bdg">${ico(BADGE[k],Math.round(size*.24))}</i>`:''}</span>`;
 }
 /* console-type logo, bare and white (PS5_logo.png / ps4.png cropped to the wordmark), height h */
 function typeLogo(c,h=48){
  if(c.model==='PS5'){const w=Math.round(176*h/48),sc=w/132;return `<span class="tl" style="width:${w}px;height:${h}px;background:url(assets/PS5_logo.png) 0 ${-(8*sc).toFixed(1)}px/${w}px auto no-repeat" role="img" aria-label="PS5"></span>`;}
  const w=Math.round(200*h/48);return `<span class="tl" style="width:${w}px;height:${h}px;background:url(assets/ps4.png) 0 ${-(38*w/100).toFixed(1)}px/${w}px ${w}px no-repeat" role="img" aria-label="PS4"></span>`;
 }
-const sdot=(k)=>`<span class="sdot" style="--dc:${{ready:'var(--ok)',standby:'var(--warn)',psn:'var(--ok)',unpaired:'var(--idle)',unavail:'var(--err)',error:'var(--err)',retry:'var(--warn)',cool:'var(--warn)'}[k]}"></span>`;
+const sdot=(k)=>`<span class="sdot" style="--dc:${{ready:'var(--ok)',standby:'var(--warn)',psn:'var(--ok)',unpaired:'var(--idle)',unavail:'var(--text-3)',error:'var(--err)',retry:'var(--warn)',cool:'var(--warn)'}[k]}"></span>`;
 
 /* C09 Toggle, C10 ChoiceValue, C08 SettingRow */
 const toggle=v=>`<span class="tgl"><span class="sw ${v?'on':''}"></span><span style="width:24px">${v?'On':'Off'}</span></span>`;

@@ -9,12 +9,12 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | `icon_play.png`, `icon_settings.png` (48 px) | existing in the app | Consoles and Settings categories, setting-group rows | white, drawn tinted |
 | `icons/controller.svg`, `icons/profile.svg` | new, flat white | Controller and Profile categories, page titles | bake to 48 px PNG |
 | Room icons `tv, sofa, bed, bunk, desk, house` | new, flat white | status ring centre | one atlas, 6 x 48 px, under 0.05 MB; default tv |
-| Status ring and badge | baked once | console state | one 2 px ring texture per state colour (OK, WARN, ERR) + one dashed IDLE ring + 6 badge glyphs; tinted at draw time |
+| Status ring, badge and glyph | baked once | console state | **one texture per state, ring + badge disc + badge glyph together** (Ready, Standby, Unpaired dashed, Internet, Error, Retrying, Cooldown, and Unavailable with no badge): 8 textures of about 64 x 64, so ring + badge is 1 draw; tinted at draw time |
 | Status dot | none | list rows | flat circle `vita2d_draw_fill_circle` in a token colour (the ellipse PNGs are no longer used) |
 | `PS5_logo.png` (132 x 49), `ps4.png` (100 x 100) | existing in the app | detail panel, Connecting | cropped to the wordmark, drawn large in white |
 | Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 20 in the hint row, 20 inline |
 | Flat hint glyphs: D-pad (all, left-right, up-down), L, R, Start, Select | new, baked | hint row, login steps, stream exit pill | 20 px high in the hint row (the 4 existing symbol PNGs are scaled from 28 to 20); L, R, Start, Select are pill badges; white |
-| Rounded shape textures | new, baked once | selection bars, buttons, toggles, popups, toast, pills, PIN boxes, icon cells | `R_SM` 8: one 24 x 24 white 9-slice; `R_MD` 16: one 48 x 48 white 9-slice (popup also has a 1 px border variant); pill: one 48 x 48 3-slice (left cap, stretched middle, right cap) plus a bordered variant; toggle: track on/off 48 x 24 and a 16 px round knob; PIN box 56 x 72 (idle and focused). All white, tinted at draw time. About 0.05 MB in total |
+| Rounded shape textures | new, baked once | focus bars, buttons, toggles, popups, toast, pills, PIN boxes, icon cells | **One rule (SPEC 1.3):** fixed-height shapes are a 3-slice baked at their own height: focus bars 48 and 56 high, buttons and toast 48, pills 32, toggle track 24 (caps 8 px or half the height, stretched middle; 3 draws). Large or variable shapes are a 9-slice: popups (`R_MD` 16, with a 1 px border variant), icon cells and the QR plate (`R_SM` 8; 9 draws). Plus a 16 px round knob and the 56 x 72 PIN box (idle and focused, 1 draw each). All white, tinted at draw time. About 0.05 MB in total |
 | Wi-Fi, battery, check, warning, lock, globe, moon, clock, chevrons, close | new, simple strokes | top bar, badges, rows, popups | one small glyph atlas |
 | `controller_front.png` (874 x 396), `controller_back.png` (720 x 327) | existing in the app | Controller screens | unchanged; the mock uses `controller_back_clean.png` (the tiny "Sony Computer Entertainment Inc" line erased), ship that copy |
 | `Vita_RPS5_Logo.png` | existing | top bar | scaled to 32 px high |
@@ -32,7 +32,7 @@ Removed from the app by this design: the wave sidebar, particles, rounded-rect a
 | Roboto Light | 20, 28, 40 | rows and buttons (20), titles (28), PIN digits (40) |
 | Roboto Regular | 14, 16 | hint row (14), captions, kv rows and values such as IPs and stats (16) |
 
-Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 faces instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today (about 1.4 MB). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 faces instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
 
 ## 3. Background
 
@@ -40,32 +40,36 @@ Fixed palette (no time of day). 5 ribbons: one triangle strip per ribbon fill pl
 
 ## 4. Draw-call budget per screen (paper)
 
-| Screen | Estimate | Breakdown |
-|---|---|---|
-| Home (Consoles) | about 75 (focus glow is one padded blob per row, 4 rows: +3 vs the earlier count, offset by dropping the red hint lines) | wave 12, categories 5, list 32 (4 rows x 8), detail 14, hint row 10, top bar 6, filter line 2 |
-| Home with Options open | about 55 | dimmed layers are still drawn; the column adds about 15; skip the list cascade |
-| Settings, Profile | about 52 | groups 6, rows 5 x 5 (a focused row is a 3-slice rounded bar: 3 draws; each toggle is a track texture + a knob texture: 2 draws instead of 3 rectangles), lines, identity block (Profile) 5, hint row 10 |
-| Controller summary | about 30 | diagram 1, callouts 6, footers 4, preset switcher 4, hint row 12 |
-| Controller zone view | about 60 | diagram 1, 18 cells + 18 labels, hint row 10, borders for picked and cursor |
-| PIN | about 38 | 8 digit boxes (one baked 56 x 72 rounded texture each), chevrons, 3 pill buttons (3-slice: 9 draws), prompt, hint row |
-| Connecting | about 30 | ring, spinner arc, halo, logo, steps text, button |
-| Stream overlay | about 8 | up to 3 pills or panels |
-| Popups | about 25 to 30 on top of the screen behind | a 9-slice popup body is 9 draws (was 4 rectangles), buttons are 3-slice pills, a focused list row is a 3-slice bar; the screen behind is drawn once, dimmed |
+Recounted bottom-up in round 7b from the real primitives (one draw per texture quad, text run, strip or rectangle). Earlier round estimates undercounted. Default settings (Background Blur None).
 
-Home is at the 80-call budget. Two savings if it goes over: skip the text shadow, and draw at most 3 full rows plus a faded fourth. Status hints are wrapped once when they change (word-by-word `ui_text_width`), never per frame.
+| Screen | Draws | Breakdown |
+|---|---|---|
+| **Home (Consoles)** | **74** (76 with a status message, 77 with the cooldown banner) | wave 12 (5 fill strips + 5 line strips + gradient + dust), vignette 3 (gradient rects), top bar 5 (logo, Wi-Fi, battery icon, percent, clock), categories 6 (4 icons, glow, label), filter line 2, list 25 (4 rows x 6: glow, ring+badge, room icon, dot, name, status; +1 "Internet" label), detail 13 (logo, name, status dot + text, 3 kv rows x 3: label, value, hairline), hint row 8 (4 hints x glyph + text) |
+| Home with Options open | **80** as designed | the retained Home layers still drawn dimmed: wave 12, vignette 3, top bar 5, categories 6, filter 2, list 25, detail 13 = 66 (dimming is a tint on each draw, no extra call); hint row 4 (Select, Back); Options column 10 (edge gradient 1, name 1, "Options" 1, 4 row labels, focused 3-slice bar 3). At the 80 budget. Cheap saving if needed: do not draw the detail panel and filter line behind the column (they are at 25% and covered by the column), which saves 15 |
+| Settings (Video group, worst case) | 62 | wave 12, wash 1, top bar 5, title 3, group list 6 (5 labels + current marker), rows 25 (5 rows x 5: label, divider, and a control of 3: toggle = track + knob + On/Off text, choice = 2 chevrons + value), focused 3-slice bar 3, description 1, hint row 6 |
+| Profile (Account or Connection) | about 55 | same frame as Settings with 3 to 5 info rows (3 draws each) and the identity block 4 |
+| Controller summary | 49 | wave 12, wash 1, top bar 5, title 3, preset switcher 3, diagram 1, 2 callouts x 4 (text, underline, leader, dot) = 8, footers 2, hint row 14 (7 hints) |
+| Controller zone view | 70 | wave 12, wash 1, top bar 5, title 3, diagram 1, grid as **one baked grid texture** 1, 18 mapped fills 18, 18 labels 18, footer 1, hint row 10. Drawn naively (a fill and an outline per cell) it would be 87 and over budget, so the grid is baked |
+| PIN | 62 | wave 12, wash 1, top bar 5, title 3, prompt 1, 8 boxes x 2 (baked box + digit) 16, chevrons 2, 3 pill buttons x 4 (3-slice + label) 12, hint row 10 |
+| Connecting | 51 | wave 12, wash 1, top bar 5, title 3, ring + glow + spinner arc + room icon + logo + name + route 7, steps up to 17, Cancel button 4, hint row 2 |
+| Stream overlay | 26 worst case | exit pill 7 (3-slice, 3 glyphs, text), stats panel 14 (9-slice 9, title, 2 rows x 2), unstable badge 5 |
+| Any popup | about 36 | **the screen behind is frozen into one half-resolution copy when the popup opens (1 draw)**, scrim 1, popup body 9-slice 9, title and text 3 to 4, buttons 2 x 4 or list rows (6 x 2 + focused 3-slice bar 3 + scroll 2), hint row 4. Popups are not drawn over the live screen because that would exceed the budget (Home 74 + a 31-draw list popup) |
+
+Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.
 
 ## 5. Texture budget (paper)
 
 | Group | MB |
 |---|---|
 | Category and group icons, glyph atlas (hint glyphs, status icons) | 0.15 |
-| Room-icon atlas, badges, rings, glow | 0.25 |
+| Room-icon atlas, status ring + badge textures, glow | 0.25 |
 | PS5 and PS4 logos | 0.05 |
-| Controller diagrams at source size (scale down for a saving) | 2.5 |
-| Font atlases (6 faces) | 1.5 |
-| Top-bar logo, misc | 0.1 |
-| Rounded shape textures (9-slice, 3-slice, toggle, PIN box) | 0.05 |
-| **Total** | **about 4.65** |
+| Controller diagrams at source size (scale down for a saving) | 2.50 |
+| Font atlases (5 faces) | 1.40 |
+| Top-bar logo, misc | 0.10 |
+| Rounded shape textures (3-slice, 9-slice, knob, PIN box) | 0.05 |
+| Frozen half-resolution background copy for popups (480 x 272 RGBA) | 0.52 |
+| **Total** | **5.02, about 5.0** |
 
 Well under the 15 MB budget. The wave costs none.
 
@@ -80,12 +84,12 @@ Well under the 15 MB budget. The wave costs none.
 | Risk | Level | Mitigation |
 |---|---|---|
 | Static screens, popups, pages, overlay | low | plain rectangles and text |
-| Home list with variable row heights (wrapped hint lines) and slide animation | medium | one layout function; compute heights once per data change; hints wrap at most 2 lines (copy rule) |
+| Detail-panel status message wrapping (up to 3 lines, so the kv table below shifts 0 to 48 px) | medium-low | wrap once when the selection or message changes (`ui_text_width` per word), never per frame; all current messages fit in 2 lines at 304 px; the Home list itself now has fixed row heights |
 | Touch swipe and paint gestures (list, categories, pane, popup list, zone paint) | medium | thresholds in SPEC section 4; a touch over 8 px is never also a tap |
 | Registration and connection outcomes (finished OK, PIN not accepted, unreachable, timeout) | medium, backend | the UI needs these four results from the registration code (SPEC 3.3), not UI work |
 | Wi-Fi, battery and clock reads for the top bar | low | poll about once per second (`sceNetCtl`, `scePower`, RTC) |
 | Glow looks right on the Vita OLED | low | the mock uses CSS drop-shadow; confirm the baked texture on hardware |
-| All numbers are estimates | n/a | measure Home first; it is the screen at the budget |
+| All numbers are estimates | n/a | measure Home and Home + Options first; they are at the 80-call budget (74 and 80) |
 
 ## 8. Background Blur (user setting: None / Soft / Strong / Dark)
 

@@ -343,3 +343,6 @@ img.g{height:24px}
 #detail .st+.msg{margin-top:-8px}
 #detail .msg{font-size:var(--t16);font-weight:var(--w-reg);line-height:24px;margin-bottom:var(--s2)}
 #detail .msg.error{color:var(--err)}#detail .msg.retry{color:var(--warn)}
+/* Unavailable is neutral, not an error: grey dot, dimmed ring, no badge, no glow */
+.ring.unavail{--rc:var(--text-3);opacity:.55;box-shadow:none}
+.xi .gl.unavail{opacity:0}

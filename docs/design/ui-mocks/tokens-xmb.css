@@ -1,4 +1,4 @@
-/* VitaRPS5 UI mock - XMB tokens (issue #271, round 6). THE source of truth for the theme.
+/* VitaRPS5 UI mock - XMB tokens (issue #271, round 7). THE source of truth for the theme.
    SPEC.md section 1 documents every value here; engineers copy these into one theme header.
    Native target 960x544. Fonts: the app's own Roboto Light and Regular (fonts/); Roboto Medium only inside baked button glyphs. */
 @font-face{font-family:"Roboto";font-weight:300;src:url(fonts/Roboto-Light.ttf)}

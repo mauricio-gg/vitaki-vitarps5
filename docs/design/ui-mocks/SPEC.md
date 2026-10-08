@@ -1,4 +1,4 @@
-# VitaRPS5 XMB build spec (issue #271, round 6b)
+# VitaRPS5 XMB build spec (issue #271, round 7)
 
 Baseline for engineers. The HTML mock in this folder is the visual reference (`xmb.html`, deep links in section 3); this file is the contract. Where they disagree, fix the mock. Native 960x544, one 8 px grid. Nothing here is built yet.
 
@@ -18,10 +18,10 @@ One header (`ui_theme.h`). **Rule:** tokens cover colours (alpha included), type
 |---|---|---|---|
 | `TEXT` | #FFFFFF | focused text, values, titles, glyph tint | `UI_COLOR_TEXT_PRIMARY` |
 | `TEXT_2` | #DDE3F0 | labels, unfocused rows, hint row labels, body copy | `UI_COLOR_TEXT_SECONDARY` |
-| `TEXT_3` | #B3BDD2 | captions, disabled labels, empty text, mono hints | `UI_COLOR_TEXT_TERTIARY` |
+| `TEXT_3` | #B3BDD2 | captions, disabled labels, empty text, **Unavailable status** (dot and label) | `UI_COLOR_TEXT_TERTIARY` |
 | `OK` | #4EE09A | Ready dot and ring, success icon, authenticated, loss "Stable" | `UI_STATUS_ACTIVE`, green literals |
 | `WARN` | #FFBE4D | Standby, cooldown banner rule, armed log out, loss amber | amber literals |
-| `ERR` | #FF8080 | errors, unavailable, red hint lines, Network Unstable dot, loss red | `UI_STATUS_ERROR`, `RGBA8(0xF4,0x43,0x36)` |
+| `ERR` | #FF8080 | Error status, error text, Network Unstable dot | `UI_STATUS_ERROR`, `RGBA8(0xF4,0x43,0x36)` |
 | `INTERNET` | #A9B2FF | "Internet" route label | new |
 | `IDLE` | #C9D0DF | Unpaired ring and dot | grey literals |
 | `ACCENT` | #6DB4FF | mapped touch zones only (fill at 28%, border at 60%) | `UI_COLOR_PRIMARY_BLUE` (#3490FF), removed everywhere else |
@@ -90,7 +90,7 @@ Roboto Light is not loaded by the app today (only Regular and Mono). Decision: l
 | `ROW_H` | 48 (setting row, popup list row); 56 for group, options and list-row base; 64 icon box |
 | `TAP_MIN` | 48 (every tap target is at least 48 x 48; chevrons are 48 x 48 boxes around 16 px art) |
 | `LW1`, `LW2` | 1 px (hairlines, borders), 2 px (ring, focus underline, toggle, spinner) |
-| Radius | three tokens: `R_SM` 8 (selection bars on rows, option and popup list rows, icon cells, QR plate, PIN boxes), `R_MD` 16 (popups, stats panel, keyboard stand-in box), `R_PILL` = half the height (buttons, toggles, toast, pills and badges, hint glyph badges). Zone cells, callout underlines, hairlines and the wave stay square. On the Vita these are baked 9-slice or 3-slice textures tinted at draw time, never per-pixel-radius fills (FEASIBILITY.md) |
+| Radius | three tokens: `R_SM` 8 (selection bars on rows, option and popup list rows, icon cells, QR plate, PIN boxes), `R_MD` 16 (popups, stats panel, keyboard stand-in box), `R_PILL` = half the height (buttons, toggles, toast, pills and badges, hint glyph badges). Zone cells, callout underlines, hairlines and the wave stay square. On the Vita every rounded shape is a baked white texture tinted at draw time, never a per-pixel-radius fill. **One rule:** a shape of fixed height (focus bars 48 and 56, buttons 48, toast 48, pills 32, toggle track 24) is a **3-slice** baked at its own height (8 or half-height caps, stretched middle: 3 draws); a shape with a large or variable height (popups, icon cells, QR plate) is a **9-slice** (9 draws). FEASIBILITY.md budgets both |
 | `D1`, `D2`, `D3` | 150, 300, 600 ms. Easing `cubic-bezier(.22,.7,.2,1)` (ease-out), linear for spinners. Toggle knob keeps today's 180 ms. List cascade: row i starts after 45 ms x min(i,6). Spinner 1.8 s/turn (ring) and 0.8 s (inline 16 px). |
 | Overlay timers | exit hint 5.0 s visible + 0.5 s fade (today's values); unstable badge 5.0 s (today); toast 3.0 s + 0.3 s fade (today 2.0 s, see Flags); log out confirm window 3.0 s (today) |
 
@@ -122,7 +122,7 @@ UiEvent ui_thing_input(UiThing*, const UiInput*);        // NONE / MOVED / ACTIV
 
 **Visible rect vs hit rect.** Interactive components store both at init. The hit rect is the visible rect grown to at least 48 x 48 (centred); drawing uses `visible`, hit tests use `hit`. Constants live in the component's section (`UI_<COMPONENT>_HIT_*`). Hit rects may overlap neighbouring visuals. **Overlap priority**, first match wins: popup, then Options column, then hint row, then the screen's small controls (buttons, chevrons, callouts, filter clear, chips), then rows and cells, then big backgrounds (diagram, list viewport, pane). Swipes start only on a list viewport, the category strip, a pane or a list popup. A touch that moves more than 8 px is a swipe or a paint and never also a tap.
 
-Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked textures tinted at draw time (FEASIBILITY.md).
+Text is drawn from the 5 pre-rendered faces; focus glow and rings are baked textures tinted at draw time (FEASIBILITY.md).
 
 **Glow rule.** Every baked glow texture is padded by at least its glow radius on all sides (texture size = art size + 2 x radius, with a fully transparent border). A glow is its own padded texture, centred on the art, drawn **before** the art, and never clipped to the art's box or to the row's rect. Scaling or animating the art must not scale or clip the glow's texture. List viewports and scissor rects leave room for the glow of the focused item (the Home list viewport starts 24 px above the focus row and 32 px left of the icon column for exactly this reason). The mock's earlier square cut-off came from putting the ring's `box-shadow` inside the scaled icon box, where the compositor clipped it to that box.
 
@@ -140,7 +140,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 ### C02 XmbList + ListRow (interactive)
 | | |
 |---|---|
-| Purpose | Vertical item column under the focused category. |
+| Purpose | Vertical item column under the focused category. Row status colours: Ready OK, Standby and Retrying and Please wait WARN, Error ERR, Unpaired IDLE, **Unavailable neutral TEXT_3 (no badge, no glow)**. |
 | Constants | `UI_LIST_X` 224, `UI_LIST_Y` 184, `UI_LIST_W` 368, `UI_LIST_H` 312 (bottom 48 fades), `UI_LIST_ICON` 64 (scale 0.8 / 1.1), `UI_LIST_TEXT_X` 304, `UI_LIST_TEXT_W` 288, `UI_LIST_FOCUS_Y` 192, `UI_LIST_ROW_H` 56, `UI_LIST_ROW_H_FOCUS` 88, `UI_LIST_GAP` 24, `UI_LIST_LINE_H` 24, `UI_LIST_SLIDE` 80 |
 | Anatomy | Row: icon box at x 224, text at x 304, max w 288. Focused row top y 192, height 88; unfocused 56. Name T28 focused / T20 unfocused, status line T16 (dot + status label only; no message lines in the list). Rows above the focus slide up 80 px per step and fade to 0. Cascade-in on category change. |
 | States | focused, unfocused, dimmed (opacity 55%, cooldown), hidden (above focus) |
@@ -154,10 +154,10 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Purpose | Console identity and state in one glyph: user room icon inside a status ring plus corner badge. `ui_draw_status_ring(x, y, size, room, state)`. |
 | Constants | `UI_RING_W` 2, `UI_RING_GLOW` 12, `UI_RING_ICON` 50% of size, `UI_RING_BADGE` 40% of size at (-4, -4), badge glyph 70% |
 | Anatomy | Sizes in use: 56 (rows), 128 (Connecting). Ring in the state colour. **Glow**: its own padded texture (art 64 + 2 x 24 radius = 112 square, fully transparent border), state colour at 55% fading radially to 0, centred on the ring, drawn before it, 45% strength on unfocused rows and 100% on the focused row; never part of the scaled icon box (Glow rule, 2.0). room icon (`icons/tv|sofa|bed|bunk|desk|house.svg`, default tv), badge disc `BADGE_BG` with a 2 px state-colour border. Unpaired ring is dashed with no glow. |
-| States | Ready (OK, check), Standby (WARN, moon), Unpaired (IDLE dashed, lock), Internet (OK, globe), Unavailable (ERR, warning), **Error** (ERR, warning), **Retrying** (WARN, clock), Cooldown (WARN, clock; row dimmed) |
+| States | Ready (OK, check), Standby (WARN, moon), Unpaired (IDLE dashed, lock), Internet (OK, globe), Unavailable (**neutral**: TEXT_3 dot and label, ring at 55% opacity, no badge, no glow), **Error** (ERR, warning), **Retrying** (WARN, clock), Cooldown (WARN, clock; row dimmed) |
 | Used by | Home list, Connecting art |
 | Replaces | card status dot, "internet" badge, PS5/PS4 logo on card |
-| Cost | ring and badge are baked textures tinted per state, 3 draws per item |
+| Cost | ring, badge disc and badge glyph are baked into one texture per state (8 textures), so ring + badge is 1 draw; with the glow and the room icon, 3 draws per item |
 
 ### C04 DetailPanel (display-only)
 | | |
@@ -214,7 +214,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Purpose | The only modal frame. 3 fixed sizes, all 480 wide, x 240. |
 | Sizes | **S** 480 x 256 at y 144 (confirm, result, 2-row list). **M** 480 x 352 at y 96 (icon picker grid). **L** 480 x 432 at y 56 (mapping list, 6 visible rows). |
 | Constants | `UI_POPUP_W` 480, `UI_POPUP_PAD` 32, `UI_POPUP_S_H` 256, `_M_H` 352, `_L_H` 432, button bar h 48 gap 16, max button w 208 |
-| Anatomy | `PANEL` fill, 1 px `LINE` border, `R_MD` corners, padding 32. Title T28 (optional 32 px icon, gap 16), subtitle T16, body T16 (8 below). `SCRIM` behind. S popup with a list: the rows are vertically centred in the space under the subtitle. Enter: rise 16 px + fade, 300 ms. |
+| Anatomy | `PANEL` fill, 1 px `LINE` border, `R_MD` corners, padding 32. Title T28 (optional 32 px icon, gap 16), subtitle T16, body T16 (8 below). `SCRIM` behind; the screen behind the popup is frozen into one half-resolution copy when it opens (1 draw, FEASIBILITY.md 4), so it no longer animates while a popup is open. S popup with a list: the rows are vertically centred in the space under the subtitle. Enter: rise 16 px + fade, 300 ms. |
 | Input | Modal. Circle or tap on the scrim cancels. Hit for rows 48 high. |
 | Replaces | 6 modal sizes (520x280, 560x290, 400x160, 360x340, 700x450, 640x360/380) |
 
@@ -329,7 +329,7 @@ Console states (rows and detail):
 | Standby | WARN / moon | Standby | Waking, auto-connects | `#consoles-standby` |
 | Unpaired | IDLE dashed / lock | Unpaired | PIN screen | `#consoles-unpaired` |
 | Internet only (PSN, valid token) | OK / globe | Ready, "Internet" in `INTERNET` | Connecting (internet) | `#consoles-psn` |
-| Unavailable (not discovered, no route) | ERR / warning | Unavailable | tries to connect, result popup on failure | `#consoles-unavailable` |
+| Unavailable (not discovered, no route; not a failure, the console is just not reachable now) | neutral: TEXT_3 dot, ring at 55%, no badge, no glow | Unavailable (TEXT_3) | tries to connect, result popup on failure | `#consoles-unavailable` |
 | **Error** (a failure the user must act on) | ERR / warning | Error, message in the info panel | tries to connect | `#hints` |
 | **Retrying** (the app is retrying or waiting) | WARN / clock | Retrying, message in the info panel | tries to connect | `#hints-retry` |
 | Cooldown | WARN / clock, row 55% | Please wait... | nothing; Connect hint dimmed; banner in the top bar | `#consoles-cooldown` |
@@ -543,7 +543,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 ## 6. Flags for CEO
 
-Decided (no action): red error text stays as is (CEO: reads fine); Background Blur defaults to None; Roboto Mono dropped; rounded shapes;  Show Navigation Labels dropped; the third Profile card was dead code and is removed; Triangle / Cross on page 2 open the zone views; Roboto Light is loaded; top bar keeps Wi-Fi, battery and clock, with no time-of-day tint; the internet title no longer flips mid-flow; overlay deviations accepted (fixed stats slot, 16 px margin, square pills, 3.0 s toast); Profile streaming metrics removed; result popups kept.
+Decided (no action): red error text stays as is (CEO: reads fine); Background Blur defaults to None; Roboto Mono dropped; rounded shapes;  Show Navigation Labels dropped; the third Profile card was dead code and is removed; Triangle / Cross on page 2 open the zone views; Roboto Light is loaded; top bar keeps Wi-Fi, battery and clock, with no time-of-day tint; the internet title no longer flips mid-flow; overlay deviations accepted (fixed stats slot, 16 px margin, 3.0 s toast); Profile streaming metrics removed; result popups kept.
 
 Open:
 1. **Show Latency default and scope (CEO pending).** With Profile metrics gone, Show Latency only controls the stream overlay stats panel. Default stays off (today); say so if you want it on, or if it should be renamed (for example "Show Stream Stats").
@@ -557,7 +557,7 @@ Open:
 9. **Unpaired consoles** show Pair and Change icon in Options (Connect and Re-pair would both open the PIN screen). Cooldown disables Connect and Connect via.
 10. **Console type is only in the detail panel**, not on list rows (locked). The earlier "Last session" line is removed (the app has no such data).
 11. **System reads for the top bar**: Wi-Fi state, battery percent, local time, polled about once per second.
-12. **Errors left the list; transient states are not errors (my call, please confirm).** Rows show only a status label. New statuses: **Error** (red) for failures that need the user, **Retrying** (amber) for things the app is already retrying or waiting on. Classification: Error = wake failed (check pairing), Remote Play already active, Remote Play crashed, missing credentials, PSN mode off, PSN login required, PSN session expired, no host address. Retrying = wake failed but connecting anyway, console releasing session, console busy, waiting for network link, and the four stream-recovery messages. "Console releasing session... ready in Ns" could read as "Waiting"; I kept one amber label. Two related changes: **Cooldown (Please wait...) is now amber**, not red, because it is transient; **Unavailable** now has a label (it had none; Profile already used the word).
+12. **Errors left the list; transient states are not errors (my call, please confirm).** Rows show only a status label. New statuses: **Error** (red) for failures that need the user, **Retrying** (amber) for things the app is already retrying or waiting on. Classification: Error = wake failed (check pairing), Remote Play already active, Remote Play crashed, missing credentials, PSN mode off, PSN login required, PSN session expired, no host address. Retrying = wake failed but connecting anyway, console releasing session, console busy, waiting for network link, and the four stream-recovery messages. "Console releasing session... ready in Ns" could read as "Waiting"; I kept one amber label. Two related changes: **Cooldown (Please wait...) is now amber**, not red, because it is transient; **Unavailable** now has a label (it had none; Profile already used the word) and is deliberately neutral (grey dot, dimmed ring, no badge, no glow) so it cannot be confused with Error.
 13. **Build note: one new config field.** Background Blur needs a small integer in the config TOML (for example `background_blur`, 0 None, 1 Soft, 2 Strong, 3 Dark; default 0), read at startup and written on change like every setting. None is the default (CEO decision, round 7); Soft is the recommended trade if the CEO wants a legibility gain (FEASIBILITY.md section 8).
 14. **Type and shape changes (round 7).** Roboto Mono is gone (5 sizes, 5 faces; T14 for the hint row already exists in today's atlas; T40 Light is a new face for the PIN digits). Rounded shapes need baked 9-slice and 3-slice textures; see FEASIBILITY.md for the draw-call and texture cost.
 15. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the fictional stream picture; the illustrative QR; the stand-in for the system keyboard.
