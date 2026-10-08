@@ -310,6 +310,24 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
         FILE assets/icons/tv_64.png assets/icons/tv_64.png
+        FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
+        FILE assets/icons/room_tv_48.png assets/icons/room_tv_48.png
+        FILE assets/icons/room_tv_64.png assets/icons/room_tv_64.png
+        FILE assets/icons/room_sofa_38.png assets/icons/room_sofa_38.png
+        FILE assets/icons/room_sofa_48.png assets/icons/room_sofa_48.png
+        FILE assets/icons/room_sofa_64.png assets/icons/room_sofa_64.png
+        FILE assets/icons/room_bed_38.png assets/icons/room_bed_38.png
+        FILE assets/icons/room_bed_48.png assets/icons/room_bed_48.png
+        FILE assets/icons/room_bed_64.png assets/icons/room_bed_64.png
+        FILE assets/icons/room_bunk_38.png assets/icons/room_bunk_38.png
+        FILE assets/icons/room_bunk_48.png assets/icons/room_bunk_48.png
+        FILE assets/icons/room_bunk_64.png assets/icons/room_bunk_64.png
+        FILE assets/icons/room_desk_38.png assets/icons/room_desk_38.png
+        FILE assets/icons/room_desk_48.png assets/icons/room_desk_48.png
+        FILE assets/icons/room_desk_64.png assets/icons/room_desk_64.png
+        FILE assets/icons/room_house_38.png assets/icons/room_house_38.png
+        FILE assets/icons/room_house_48.png assets/icons/room_house_48.png
+        FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         # Professional UI assets (gradient background, logo, controller diagrams)
