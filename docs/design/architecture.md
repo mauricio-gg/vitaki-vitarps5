@@ -60,7 +60,7 @@ Vita rule: a lower number is a higher priority. "Default" is the literal `0x1000
 | Thread | Created by | Priority / core |
 |---|---|---|
 | UI / main | the process; runs `main()` then `draw_ui()` | not set by the app; owns all vita2d drawing |
-| VitaConnWorker | `ui_connection_start_thread()`, `vita/src/ui/ui_state.c:187`; runs `host_stream()` (L173) | `0x40` (64), 64 KiB stack |
+| VitaConnWorker | `ui_connection_start_thread()`, `vita/src/ui/ui_state.c:180-187`; runs `host_stream()` (L173) | `0x40` (64), 64 KiB stack |
 | VitaLogThread | `vita_log_worker_init()`, `vita/src/logging.c:354` | `0x40` (64) |
 | Session | `chiaki_session_start()`, `lib/src/session.c:322` | default |
 | Ctrl | `chiaki_ctrl_start()` (called at `session.c:603`), `lib/src/ctrl.c:162` | default |
@@ -80,14 +80,14 @@ Notes:
 
 ## Session flow
 
-1. **Launch.** `main()` initialises the system, builds `context` (loads config and saved hosts), starts discovery if `config.auto_discovery` is set, and enters `draw_ui()`.
-2. **Hosts appear.** Discovery results arrive through `discovery_cb()` (`discovery.c:277`) and are merged into `context.hosts` (`save_discovered_host()`, `discovery.c:116`). Saved and manual hosts come from config (`host_storage.c`). A console that is not yet registered is registered with `host_register()` (`host_registration.c:83`), which calls `chiaki_regist_start()`. PSN remote hosts come from `psn_remote_refresh_hosts()`.
-3. **User picks a console.** The UI thread starts the connect through `ui_connection_start()` (`ui_state.c:340`), which creates the VitaConnWorker thread; that thread calls `host_stream(host)` (`ui_state.c:173`). The UI thread keeps drawing the connect overlay.
-4. **`host_stream()`** (`host.c:213`): chooses LAN or PSN (`host.c:218`), stops discovery (L456-460), marks `session_init` under `finalization_mutex` (L463-466), builds the connect profile, calls `chiaki_session_init()` (L429), wires the Opus audio sink (L482-486), the event callback (`host_event_cb`, L489) and the video callback (`host_video_cb`), starts the decoder with `vita_h264_start()`, then `chiaki_session_start()` (L531) and finally creates the input thread (L536).
+1. **Launch.** `main()` initialises the system, builds `context` (`vita_chiaki_init_context()` parses the config, `context.c:27-28`), starts discovery if `config.auto_discovery` is set, and enters `draw_ui()`.
+2. **Hosts appear.** Discovery results arrive through `discovery_cb()` (`discovery.c:277`) and are merged into `context.hosts` (`save_discovered_host()`, `discovery.c:116`). Saved and manual hosts come from config (`host_storage.c`). A console that is not yet registered is registered with `host_register()` (`host_registration.c:83`), which calls `chiaki_regist_start()`. PSN remote hosts come from `psn_remote_refresh_hosts()` (called at `ui.c:475`).
+3. **User picks a console.** The UI thread starts the connect through `start_connection_thread()` (`ui_state.c:339`, a wrapper for `ui_connection_start_thread()`), which creates the VitaConnWorker thread; that thread calls `host_stream(host)` (`ui_state.c:173`). The UI thread keeps drawing the connect overlay.
+4. **`host_stream()`** (`host.c:213`): chooses LAN or PSN (`host.c:218`), stops discovery (L456-460), marks `session_init` under `finalization_mutex` (L463-466), builds the connect profile, calls `chiaki_session_init()` (L429), wires the Opus audio sink (L482-486), the event callback (`host_event_cb`, L489) and the video callback (`host_video_cb`), starts the decoder with `vita_h264_start()`, then `chiaki_session_start()` (L529) and finally creates the input thread (L536).
 5. **Session thread** (`session_thread_func`, `lib/src/session.c:516`): starts the ctrl connection (`chiaki_ctrl_start`, L603), waits for it, runs Senkusha, which measures MTU and RTT (L702-708), then `chiaki_stream_connection_run()` (L761), which opens the Takion connection and starts congestion control and the feedback sender. This call blocks for the life of the stream.
-6. **Events reach the Vita.** lib calls `host_event_cb()` (`host_callbacks.c:17`) on the session thread. `CHIAKI_EVENT_CONNECTED` resets the stream timers and flags. Video frames arrive on the Takion thread through `host_video_cb()`, which queues them for the VitaDecode thread; the UI thread draws the latest decoded frame with `vita_video_render_latest_frame()` (`ui.c:777`).
+6. **Events reach the Vita.** lib calls `host_event_cb()` (`host_callbacks.c:17`) on the session thread. `CHIAKI_EVENT_CONNECTED` resets the stream timers and flags. Video frames arrive on the Takion thread through `host_video_cb()`, which hands them to `vita_h264_decode_frame()` (`host_callbacks.c:146`), the producer side of the queue read by the VitaDecode thread; the UI thread draws the latest decoded frame with `vita_video_render_latest_frame()` (`ui.c:777`).
 7. **Quit.** `CHIAKI_EVENT_QUIT` calls `host_handle_quit_event()` (`host_quit.c:42`) on the session thread. It snapshots state, decides whether to schedule recovery, then runs `host_shutdown_media_pipeline()` (`host_quit.c:125`), clears `session_init` and sets `session_finalize_pending` (L139-143).
-8. **Teardown.** The session thread cannot join itself, so the UI thread does the join: `host_finalize_deferred_session()` (`ui.c:499-500`, `host_lifecycle.c`) joins the session thread and the input thread, then calls `chiaki_session_fini()`. If recovery was scheduled, the UI thread then starts the fallback connect (`ui.c:550-561`). Details are in [streaming.md](streaming.md).
+8. **Teardown.** The session thread cannot join itself, so the UI thread does the join: `host_finalize_deferred_session()` (`ui.c:499-500`, `host_lifecycle.c`) joins the session thread and the input thread, then calls `chiaki_session_fini()`. If recovery was scheduled, the UI thread then starts the fallback connect (`ui.c:548-561`). Details are in [streaming.md](streaming.md).
 
 ### Media pipeline shutdown order
 
