@@ -348,6 +348,9 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->drift_resync_count = 0;
 	video_receiver->drift_prev_frame_index = 0;
 	video_receiver->drift_has_prev = false;
+	video_receiver->published_abs_ms = 0;
+	video_receiver->published_abs_first_ms = 0;
+	video_receiver->published_windows = 0;
 	video_receiver->sizegap_small_gap_total_ms = 0;
 	video_receiver->sizegap_large_gap_total_ms = 0;
 	video_receiver->frame_bytes_total = 0;
@@ -992,6 +995,12 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 			int32_t drift_end_ms = (int32_t)((video_receiver->drift_last_scaled
 				- video_receiver->drift_win_base_scaled) / drift_div);
 			int32_t drift_abs_ms = (int32_t)(video_receiver->drift_last_scaled / drift_div);
+			// GH #275: publish for the UI thread. Values first, window counter
+			// last, so a reader that sees the new counter sees the new values.
+			if(video_receiver->published_windows == 0)
+				video_receiver->published_abs_first_ms = drift_abs_ms;
+			video_receiver->published_abs_ms = drift_abs_ms;
+			video_receiver->published_windows++;
 			uint64_t gap_small_avg_ms = video_receiver->sizegap_small_count > 0
 				? video_receiver->sizegap_small_gap_total_ms / video_receiver->sizegap_small_count : 0;
 			uint64_t gap_large_avg_ms = video_receiver->sizegap_large_count > 0

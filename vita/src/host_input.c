@@ -1,4 +1,5 @@
 #include "context.h"
+#include "debug_tools.h"
 #include "host_input.h"
 
 #include <psp2/ctrl.h>
@@ -19,6 +20,21 @@ typedef struct mapped_touch_slot_t {
   uint16_t start_y;
   bool moved;
 } MappedTouchSlot;
+
+#if VITARPS5_DEBUG_TOOLS
+/* GH #275: one front touch the debug-widget filter has seen. A touch is judged once, on the
+ * frame its id first appears: swallowed if it started inside the widget rect, and then for its
+ * whole life (sliding out does not hand it to the game); a touch that started outside stays the
+ * game's even if it slides into the rect. Sized for the Vita's front-panel report limit. */
+typedef struct debug_widget_touch_t {
+  bool active;
+  bool seen;
+  bool swallowed;
+  uint8_t vita_touch_id;
+} DebugWidgetTouch;
+
+#define DEBUG_WIDGET_TOUCH_SLOTS SCE_TOUCH_MAX_REPORT
+#endif
 
 #define CHIAKI_TOUCHPAD_WIDTH 1920
 #define CHIAKI_TOUCHPAD_HEIGHT 942
@@ -212,6 +228,35 @@ static uint16_t map_touchpad_y(int y, int max_y) {
   return (uint16_t)((y * (CHIAKI_TOUCHPAD_HEIGHT - 1)) / max_y);
 }
 
+#if VITARPS5_DEBUG_TOOLS
+/* Judges one front-touch report against the debug widget. Returns true when the touch belongs
+ * to the widget and must be hidden from the game (no touchpad event, no button mapping). The
+ * touch-down of a new swallowed touch raises the one resync request; a held finger never
+ * repeats it because the touch is already known on later frames. */
+static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_touch_id, int x,
+                                      int y) {
+  DebugWidgetTouch *free_slot = NULL;
+  for (int i = 0; i < DEBUG_WIDGET_TOUCH_SLOTS; i++) {
+    if (touches[i].active && touches[i].vita_touch_id == vita_touch_id) {
+      touches[i].seen = true;
+      return touches[i].swallowed;
+    }
+    if (!touches[i].active && !free_slot)
+      free_slot = &touches[i];
+  }
+  bool swallowed = debug_widget_contains_touch_point(x, y);
+  if (free_slot) {
+    free_slot->active = true;
+    free_slot->seen = true;
+    free_slot->swallowed = swallowed;
+    free_slot->vita_touch_id = vita_touch_id;
+  }
+  if (swallowed)
+    context.stream.resync_tap_requested = true;
+  return swallowed;
+}
+#endif
+
 void *host_input_thread_func(void *user) {
   sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_INPUT_THREAD_PRIORITY);
   sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
@@ -235,6 +280,9 @@ void *host_input_thread_func(void *user) {
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_BACK);
   SceTouchData touch[SCE_TOUCH_PORT_MAX_NUM];
   MappedTouchSlot mapped_touch_slots[CHIAKI_CONTROLLER_TOUCHES_MAX] = {0};
+#if VITARPS5_DEBUG_TOOLS
+  DebugWidgetTouch widget_touches[DEBUG_WIDGET_TOUCH_SLOTS] = {0};
+#endif
   int TOUCH_MAX_WIDTH = 1919;
   int TOUCH_MAX_HEIGHT = 1087;
   int TOUCH_MAX_WIDTH_BY_2 = TOUCH_MAX_WIDTH / 2;
@@ -388,10 +436,19 @@ void *host_input_thread_func(void *user) {
         }
       }
 
+#if VITARPS5_DEBUG_TOOLS
+      for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++)
+        widget_touches[w_i].seen = false;
+#endif
+
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].x;
         int y = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].y;
         uint8_t vita_touch_id = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].id;
+#if VITARPS5_DEBUG_TOOLS
+        if (debug_widget_filter_touch(widget_touches, vita_touch_id, x, y))
+          continue;
+#endif
         bool mapped_to_touchpad = false;
         if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] == VITAKI_CTRL_OUT_TOUCHPAD) {
           mapped_to_touchpad = true;
@@ -495,6 +552,13 @@ void *host_input_thread_func(void *user) {
             mapped_touch_seen[slot_index] = true;
         }
       }
+
+#if VITARPS5_DEBUG_TOOLS
+      for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++) {
+        if (!widget_touches[w_i].seen)
+          widget_touches[w_i].active = false;
+      }
+#endif
 
       for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
         if (mapped_touch_slots[slot_i].active && !mapped_touch_seen[slot_i]) {

@@ -117,6 +117,15 @@ typedef struct chiaki_video_receiver_t
 	uint16_t drift_prev_frame_index;
 	bool drift_has_prev;
 
+	// Live view of the PIPE/DELIVERY abs= figure for the UI thread (GH #275).
+	// Single writer: the receive thread, once per 1 s stage window. Readers do
+	// one aligned 32-bit read per field; no locks. published_windows == 0 means
+	// nothing has been published yet this session; abs_first_ms is the value
+	// of the first window after init.
+	volatile int32_t published_abs_ms;
+	volatile int32_t published_abs_first_ms;
+	volatile uint32_t published_windows;
+
 	// D5-C: gap attributed to the PREVIOUS completed frame's encoded byte size.
 	// Direct test for console-side byte pacing: if a VBR encoder's output is
 	// pushed through a constant-byte-rate pacer, a big frame delays the NEXT

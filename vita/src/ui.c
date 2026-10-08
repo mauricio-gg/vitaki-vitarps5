@@ -43,6 +43,7 @@
 #include <chiaki/base64.h>
 
 #include "context.h"
+#include "debug_tools.h"
 #include "host.h"
 #include "ui.h"
 #include "util.h"
@@ -498,6 +499,11 @@ void draw_ui() {
     if (context.stream.session_finalize_pending) {
       host_finalize_deferred_session();
     }
+
+#if VITARPS5_DEBUG_TOOLS
+    // GH #275: widget tap -> resync, and the post-resync abs report.
+    debug_tools_ui_tick();
+#endif
 
     // --- RP_IN_USE single auto-retry (armed by host_handle_quit_event in
     // host_quit.c) --- Must run on this UI main-loop thread, never on the

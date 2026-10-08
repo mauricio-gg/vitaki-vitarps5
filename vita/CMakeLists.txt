@@ -136,6 +136,14 @@ if(DEFINED VITARPS5_DEBUG_MENU)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_MENU=${VITARPS5_DEBUG_MENU})
 endif()
 
+# GH #275: debug-only stream tools (resync widget). tools/build.sh always passes an explicit 0/1.
+if(DEFINED VITARPS5_DEBUG_TOOLS)
+    target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_TOOLS=${VITARPS5_DEBUG_TOOLS})
+    if(VITARPS5_DEBUG_TOOLS)
+        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c)
+    endif()
+endif()
+
 # Security: Gate plaintext PSN OAuth token persistence. Default OFF so production builds
 # never silently write tokens to disk. Enable only for local/QA debugging until encrypted
 # storage lands (see GitHub issue #81).

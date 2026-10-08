@@ -175,6 +175,21 @@ void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
 }
 
+#if VITARPS5_DEBUG_TOOLS
+bool host_request_stream_resync(void) {
+  if (!context.stream.session_init || context.stream.stop_requested)
+    return false;
+  // Marker first: the quit handler must see it by the time the stop it triggers is handled.
+  context.stream.resync_requested = true;
+  request_stream_stop("resync");
+  if (!context.stream.stop_requested) {
+    context.stream.resync_requested = false;
+    return false;
+  }
+  return true;
+}
+#endif
+
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
   ChiakiVideoResolutionPreset resolution = context.config.resolution;
   // Defensive guardrail: config/UI path should already normalize unsupported values,
@@ -264,6 +279,9 @@ int host_stream(VitaChiakiHost *host) {
   bool recovery_connect = context.stream.recovery_active;
   context.stream.stop_requested = false;
   context.stream.stop_requested_by_user = false;
+#if VITARPS5_DEBUG_TOOLS
+  context.stream.resync_requested = false;
+#endif
   context.stream.teardown_in_progress = false;
   context.stream.inputs_ready = false;
   context.stream.is_streaming = false;
