@@ -13,6 +13,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /** What a toast is about; it picks the optional icon and its colour. */
 typedef enum ui_toast_tone_t {
@@ -39,3 +40,10 @@ bool ui_toast_active(void);
 
 /** ui_toast_draw() - Draw the live toast at its place in the motion; nothing when there is none. */
 void ui_toast_draw(void);
+
+/**
+ * ui_toast_draw_icon() - Draw the icon of @tone scaled to @size at (@x, @y) in @color, for a
+ * screen that shows the same warning or check mark beside a value. Nothing for UI_TOAST_PLAIN.
+ * Paper cost 1.
+ */
+void ui_toast_draw_icon(UiToastTone tone, int x, int y, int size, uint32_t color);

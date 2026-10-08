@@ -66,3 +66,15 @@ void ui_hint_row_draw(const UiHintLayout *layout);
  * its right half.
  */
 uint32_t ui_hint_row_tap(const UiHintLayout *layout, const UiInput *in);
+
+/**
+ * ui_hint_row_glyph_width() - Drawn width of the glyph of @action (UI_BTN_CONFIRM and UI_BTN_CANCEL
+ * honour the Circle Button Confirm setting), UI_HINT_GLYPH_H high; 0 when it has none.
+ */
+int ui_hint_row_glyph_width(uint32_t action);
+
+/**
+ * ui_hint_row_glyph_draw() - Draw the glyph of @action at @x, vertically centred in the band
+ * (@y, @h), in @tint. For a screen that needs the same glyph inside a label. Paper cost 1.
+ */
+void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint);

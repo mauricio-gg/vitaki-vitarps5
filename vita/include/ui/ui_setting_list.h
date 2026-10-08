@@ -19,8 +19,8 @@
  *
  * Paper cost, per row: label 1; unfocused rows add a divider 1, the focused row a bar 3 and, while
  * the pane has focus, a glow 1. A toggle adds track 1 (2 when on), knob 1, text 1; a choice adds
- * 2 chevrons and the value text; an info row adds its value text; an enabled action adds 1
- * chevron.
+ * 2 chevrons and the value text; an info row adds its value text (an error row 2 more: icon and
+ * rule); an enabled action adds 1 chevron; a label glyph and its tail add 2.
  */
 
 #pragma once
@@ -45,7 +45,12 @@ typedef struct ui_setting_item_t {
   bool on;                 ///< toggle: the current value
   const char *value_text;  ///< choice and info: the current value's words
   bool small_value;        ///< info: draw the value in T16 instead of T20
-  bool disabled;           ///< action: drawn at UI_ROW_DISABLED_PCT, no chevron, does not run
+  bool disabled;   ///< action: drawn at UI_ROW_DISABLED_PCT, no chevron; still reports a press
+  uint32_t color;  ///< 0: the row's own. info: the value's colour; action: the label's
+  bool error;      ///< info: UI_ERR rule at the row's left edge and a warning icon before the
+                   ///< value (the value's @color should be UI_ERR)
+  uint32_t label_glyph;    ///< action: a UiButton action whose glyph follows @label ...
+  const char *label_tail;  ///< ... and then these words ("Press [X] again"); both or neither
 } UiSettingItem;
 
 typedef struct ui_setting_list_t {
@@ -62,7 +67,10 @@ typedef struct ui_setting_list_t {
   UiRect arrow_right[UI_PAGE_PANE_ROWS];
 
   /* Per-row caches, rewritten by ui_setting_list_sync() */
-  int label_w[UI_SETTING_MAX_ROWS];
+  const char *label_seen[UI_SETTING_MAX_ROWS];  ///< label and tail as last measured
+  const char *tail_seen[UI_SETTING_MAX_ROWS];
+  int label_w[UI_SETTING_MAX_ROWS];       ///< whole label: words, glyph and tail
+  int label_head_w[UI_SETTING_MAX_ROWS];  ///< the words before the glyph
   char value_raw[UI_SETTING_MAX_ROWS][UI_SETTING_VALUE_MAX];  ///< value_text as last seen
   char value_fit[UI_SETTING_MAX_ROWS][UI_SETTING_VALUE_MAX];  ///< shortened to fit its place
   int value_w[UI_SETTING_MAX_ROWS];
@@ -96,9 +104,10 @@ void ui_setting_list_draw(const UiSettingList *list);
 /**
  * ui_setting_list_input() - Up/Down move the focus (no wrap), Confirm and Right step the value
  * forward, Left steps a choice back, taps and swipes act on the pane.
- * @return UI_EVENT_MOVED when the focus moved (D-pad or swipe, or a tap on an info row or a
- * disabled action, which only focus), UI_EVENT_ACTIVATED when the focused row should change or run
- *         (the row is @focus, the way is @step; a tap on another row focuses it first),
+ * @return UI_EVENT_MOVED when the focus moved (D-pad or swipe, or a tap on an info row, which only
+ * focuses), UI_EVENT_ACTIVATED when the focused row should change or run
+ *         (the row is @focus, the way is @step; a tap on another row focuses it first). A disabled
+ *         action reports it too, without the pressed look: the screen decides what that means,
  *         UI_EVENT_CANCELLED on Cancel or on Left over a toggle, info or action (the screen goes
  *         back to the groups), otherwise UI_EVENT_NONE. A chevron tap steps that way; a row tap
  *         steps forward. Confirm on an info row does nothing; Right acts only on a toggle or a

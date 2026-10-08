@@ -580,6 +580,13 @@ typedef enum ui_face_t {
 /* Info: the value is right-aligned at the row padding, at least UI_INFO_VALUE_GAP after the label.
  */
 #define UI_INFO_VALUE_GAP UI_S2
+/* Error status row (SPEC C08): a warning icon before the value and a rule at the row's left edge.
+ */
+#define UI_SETTING_ERR_ICON 20
+#define UI_SETTING_ERR_ICON_GAP UI_S1
+#define UI_SETTING_ERR_RULE_W UI_LW2
+/* A glyph inside a row label (the armed log out): this far from the words on either side. */
+#define UI_SETTING_GLYPH_GAP UI_S1
 /** A disabled row is drawn at this opacity. */
 #define UI_ROW_DISABLED_PCT 50
 

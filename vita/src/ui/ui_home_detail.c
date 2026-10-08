@@ -240,8 +240,7 @@ static void build_connection_rows(void) {
   add_row("Quality", ui_label_resolution(context.config.resolution), 0);
 }
 
-/** Colour of the PSN Auth value: green when signed in, red for the states that need action. */
-static uint32_t psn_auth_color(PsnAuthState state) {
+uint32_t ui_psn_auth_color(PsnAuthState state) {
   switch (state) {
     case PSN_AUTH_STATE_TOKEN_VALID:
       return UI_OK;
@@ -260,7 +259,7 @@ static void build_psn_rows(void) {
   const uint64_t now_unix = (uint64_t)time(NULL);
   const PsnAuthState state = psn_auth_state(now_unix);
 
-  add_row("PSN Auth", psn_auth_state_label_for(state, now_unix), psn_auth_color(state));
+  add_row("PSN Auth", psn_auth_state_label_for(state, now_unix), ui_psn_auth_color(state));
   switch (state) {
     case PSN_AUTH_STATE_TOKEN_VALID:
       add_row("Refresh hosts", NULL, 0);

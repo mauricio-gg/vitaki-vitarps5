@@ -3,8 +3,9 @@
  * @brief The XMB Profile page (SPEC.md section 3.7)
  *
  * Rows are data: ProfileRowDef says what a row is called, what kind it is, its description, how to
- * read its value and what it does. A group is a table of rows. The PlayStation Network group has
- * no rows yet.
+ * read its value and what it does. A group is a table of rows. The PlayStation Network group lists
+ * every row it can ever show and each row says when it is visible, so the PSN state alone decides
+ * which ones are on the page.
  */
 
 #include "ui/ui_profile.h"
@@ -12,14 +13,19 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include <vita2d.h>
 
 #include "context.h"
 #include "logging.h"
+#include "psn_auth.h"
+#include "psn_remote.h"
 #include "ui.h"
+#include "ui/ui_animation.h"
 #include "ui/ui_bake.h"
 #include "ui/ui_chrome_layout.h"
+#include "ui/ui_console_cards.h"
 #include "ui/ui_group_list.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_home.h"
@@ -40,6 +46,14 @@
  * Row definitions
  * ============================================================================ */
 
+/** The words of an action that needs a second press: its label while armed, with the Confirm glyph
+ * between @head and @tail, and the Confirm hint's verb. */
+typedef struct profile_arm_t {
+  const char *head;
+  const char *tail;
+  const char *hint;
+} ProfileArm;
+
 /**
  * One row. An info row fills @value_text; an action runs @run and names itself in the hint row
  * with @hint.
@@ -51,7 +65,10 @@ typedef struct profile_row_def_t {
   const char *hint;  ///< action: the Confirm hint's verb
   bool small_value;  ///< info: the value is drawn in T16
   const char *(*value_text)(void);
-  bool (*visible)(void);  ///< NULL: always shown
+  uint32_t (*value_color)(void);  ///< info: NULL or 0 for the row's own; UI_ERR styles an error
+  const char *disabled_toast;     ///< action: set when it cannot run; pressing it toasts this
+  const ProfileArm *arm;          ///< action: NULL, or runs only on a second press in the window
+  bool (*visible)(void);          ///< NULL: always shown
   void (*run)(void);
 } ProfileRowDef;
 
@@ -70,6 +87,17 @@ static const char HINT_OPEN[] = "Open";
 static const char HINT_REFRESH[] = "Refresh";
 static const char HINT_GROUP[] = "Group";
 static const char HINT_BACK[] = "Back";
+static const char PSN_LOGIN_FAILED[] = "PSN login could not start";
+static const char PSN_LOGIN_STARTED[] =
+    "Scan QR on phone, then press %s to paste the full redirect URL";
+static const char PSN_HOSTS_REFRESHED[] = "PSN internet host list refreshed";
+static const char PSN_HOSTS_FAILED[] = "PSN internet host refresh failed";
+static const char PSN_LOGGED_OUT[] = "PSN login removed";
+static const char PSN_DISABLED_HELP[] = "Enable PSN internet mode in Settings";
+static const char PSN_DISABLED_TOAST[] = "PSN internet mode is disabled in Settings";
+
+/** How long the first press of Log out stays armed (SPEC 1.3). */
+#define PSN_ARM_WINDOW_MS 3000.0f
 
 /* Account */
 
@@ -140,13 +168,124 @@ static const ProfileRowDef ACCOUNT_ROWS[] = {
      .run = refresh_account_id},
 };
 
+/* PlayStation Network (SPEC 3.7). The state is read once per frame by fill_items(), so every
+ * callback below sees the same one. */
+
+static PsnAuthState s_psn_state;
+static uint64_t s_psn_now;
+
+static const char *psn_status_text(void) {
+  return psn_auth_state_label_for(s_psn_state, s_psn_now);
+}
+
+static uint32_t psn_status_color(void) {
+  return ui_psn_auth_color(s_psn_state);
+}
+
+static bool psn_is_disabled(void) {
+  return s_psn_state == PSN_AUTH_STATE_DISABLED;
+}
+
+static bool psn_is_enabled(void) {
+  return s_psn_state != PSN_AUTH_STATE_DISABLED;
+}
+
+static bool psn_is_authenticated(void) {
+  return s_psn_state == PSN_AUTH_STATE_TOKEN_VALID;
+}
+
+/** Log in is offered when the Vita is signed out or the last attempt failed. */
+static bool psn_offers_login(void) {
+  return s_psn_state == PSN_AUTH_STATE_LOGGED_OUT || s_psn_state == PSN_AUTH_STATE_ERROR;
+}
+
+/** The Confirm button's name for a toast, which cannot draw the glyph. */
+static const char *confirm_button_name(void) {
+  return context.config.circle_btn_confirm ? "Circle" : "Cross";
+}
+
+/** Sign in: a saved token that refreshes needs nothing more; otherwise start the phone login. */
+static void psn_log_in(void) {
+  const uint64_t now = (uint64_t)time(NULL);
+  if (psn_auth_refresh_token_if_needed(now, false))
+    return;
+  if (psn_auth_begin_device_login(now)) {
+    char text[UI_TOAST_TEXT_MAX];
+    snprintf(text, sizeof(text), PSN_LOGIN_STARTED, confirm_button_name());
+    ui_toast_show(text, UI_TOAST_PLAIN);
+    return;
+  }
+  const char *error = psn_auth_last_error();
+  ui_toast_show(error && error[0] ? error : PSN_LOGIN_FAILED, UI_TOAST_ERR);
+}
+
+static void psn_refresh_hosts(void) {
+  if (psn_remote_refresh_hosts() == 0) {
+    ui_cards_update_cache(true);
+    ui_toast_show(PSN_HOSTS_REFRESHED, UI_TOAST_OK);
+  } else {
+    ui_toast_show(PSN_HOSTS_FAILED, UI_TOAST_ERR);
+  }
+}
+
+/** Remove the saved PSN login: tokens, cached internet consoles, then save and refresh the cards.
+ */
+static void psn_log_out(void) {
+  psn_auth_clear_tokens();
+  psn_remote_clear_cached_hosts();
+  ui_settings_persist_config();
+  ui_cards_update_cache(true);
+  ui_toast_show(PSN_LOGGED_OUT, UI_TOAST_OK);
+}
+
+static const ProfileArm LOGOUT_ARM = {
+    .head = "Press", .tail = "again to confirm log out", .hint = "Confirm log out"};
+
+static const ProfileRowDef PSN_ROWS[] = {
+    {.label = "PSN Auth",
+     .kind = UI_SETTING_INFO,
+     .description = PSN_DISABLED_HELP,
+     .value_text = psn_status_text,
+     .visible = psn_is_disabled},
+    {.label = "PSN Auth",
+     .kind = UI_SETTING_INFO,
+     .value_text = psn_status_text,
+     .value_color = psn_status_color,
+     .visible = psn_is_enabled},
+    {.label = "Log in",
+     .kind = UI_SETTING_ACTION,
+     .description = PSN_DISABLED_HELP,
+     .hint = "Log in",
+     .disabled_toast = PSN_DISABLED_TOAST,
+     .visible = psn_is_disabled},
+    {.label = "Log in",
+     .kind = UI_SETTING_ACTION,
+     .description = "Sign in with your phone. Needed for internet Remote Play.",
+     .hint = "Log in",
+     .visible = psn_offers_login,
+     .run = psn_log_in},
+    {.label = "Refresh hosts",
+     .kind = UI_SETTING_ACTION,
+     .description = "Reload your internet-capable consoles.",
+     .hint = HINT_REFRESH,
+     .visible = psn_is_authenticated,
+     .run = psn_refresh_hosts},
+    {.label = "Log out",
+     .kind = UI_SETTING_ACTION,
+     .description = "Remove the saved PSN login from this Vita.",
+     .hint = "Log out",
+     .arm = &LOGOUT_ARM,
+     .visible = psn_is_authenticated,
+     .run = psn_log_out},
+};
+
 /** Groups, in the order of Home's Profile list. */
 static const ProfileGroup GROUPS[UI_PROFILE_GROUP_COUNT] = {
     [UI_PROFILE_GROUP_ACCOUNT] = {ACCOUNT_ROWS,
                                   (int)(sizeof(ACCOUNT_ROWS) / sizeof(ACCOUNT_ROWS[0]))},
     [UI_PROFILE_GROUP_CONNECTION] = {CONNECTION_ROWS,
                                      (int)(sizeof(CONNECTION_ROWS) / sizeof(CONNECTION_ROWS[0]))},
-    [UI_PROFILE_GROUP_PSN] = {NULL, 0},
+    [UI_PROFILE_GROUP_PSN] = {PSN_ROWS, (int)(sizeof(PSN_ROWS) / sizeof(PSN_ROWS[0]))},
 };
 
 static const char *const GROUP_NAMES[UI_PROFILE_GROUP_COUNT] = {"Account", "Connection", PSN_NAME};
@@ -165,10 +304,13 @@ static const ProfileRowDef *s_defs[UI_SETTING_MAX_ROWS];
 static int s_group = 0;
 /** The pane has focus; otherwise the group list has. */
 static bool s_pane_focus = false;
-/** Description of the focused row, wrapped once when the focus changes. */
+/** Description of the focused row, wrapped once when the row shown there changes. */
 static UiWrapped s_desc;
-static int s_desc_group = -1;
-static int s_desc_row = -1;
+static const ProfileRowDef *s_desc_def = NULL;
+static bool s_desc_stale = true;
+/** The action armed by its first press, and when; NULL when none is. */
+static const ProfileRowDef *s_armed_def = NULL;
+static uint64_t s_armed_start_us = 0;
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
 
@@ -240,6 +382,22 @@ static void draw_identity(void) {
  * Rows and description
  * ============================================================================ */
 
+/** True while @def's first press is still inside its window. */
+static bool row_is_armed(const ProfileRowDef *def) {
+  return def && def == s_armed_def && ui_anim_elapsed_ms(s_armed_start_us) < PSN_ARM_WINDOW_MS;
+}
+
+static void disarm(void) {
+  s_armed_def = NULL;
+}
+
+/** Drop the arm when its window passed or its row is no longer the focused one. */
+static void update_arm(void) {
+  const bool on_row = s_pane_focus && s_pane.count > 0 && s_defs[s_pane.focus] == s_armed_def;
+  if (!on_row || !row_is_armed(s_armed_def))
+    disarm();
+}
+
 /**
  * fill_items() - Rewrite the items' values from the config and the console, skipping rows that
  * are hidden right now.
@@ -247,6 +405,8 @@ static void draw_identity(void) {
  */
 static int fill_items(void) {
   const ProfileGroup *group = &GROUPS[s_group];
+  s_psn_now = (uint64_t)time(NULL);
+  s_psn_state = psn_auth_state(s_psn_now);
   int shown = 0;
   for (int i = 0; i < group->count && shown < UI_SETTING_MAX_ROWS; i++) {
     const ProfileRowDef *def = &group->rows[i];
@@ -258,7 +418,16 @@ static int fill_items(void) {
         .kind = def->kind,
         .value_text = def->value_text ? def->value_text() : NULL,
         .small_value = def->small_value,
+        .disabled = def->disabled_toast != NULL,
+        .color = def->value_color ? def->value_color() : 0,
     };
+    s_items[shown].error = s_items[shown].color == UI_ERR;
+    if (row_is_armed(def)) {
+      s_items[shown].label = def->arm->head;
+      s_items[shown].label_glyph = UI_BTN_CONFIRM;
+      s_items[shown].label_tail = def->arm->tail;
+      s_items[shown].color = UI_WARN;
+    }
     shown++;
   }
   return shown;
@@ -268,8 +437,9 @@ static int fill_items(void) {
 static void load_group(int index) {
   s_group = index;
   ui_group_list_set_current(&s_groups, index);
+  disarm();
   ui_setting_list_load(&s_pane, s_items, fill_items());
-  s_desc_group = -1;
+  s_desc_stale = true;
 }
 
 /**
@@ -285,7 +455,6 @@ static void refresh_items(void) {
       if (s_defs[i] == focused)
         s_pane.focus = i;
     }
-    s_desc_group = -1;
   }
   ui_setting_list_sync(&s_pane);
 }
@@ -296,13 +465,14 @@ static int measure_description(const char *text, void *ctx) {
   return ui_text_face_width(UI_FACE_T16, text);
 }
 
-/** Wrap the focused row's description when the group or the focused row changed. */
+/** Wrap the description of the row now in the focus when it is not the one wrapped last. */
 static void update_description(void) {
-  if (s_desc_group == s_group && s_desc_row == s_pane.focus)
+  const ProfileRowDef *def = s_pane.count > 0 ? s_defs[s_pane.focus] : NULL;
+  if (!s_desc_stale && def == s_desc_def)
     return;
-  s_desc_group = s_group;
-  s_desc_row = s_pane.focus;
-  const char *text = s_pane.count > 0 ? s_defs[s_pane.focus]->description : NULL;
+  s_desc_stale = false;
+  s_desc_def = def;
+  const char *text = def ? def->description : NULL;
   ui_text_wrap(text ? text : "", UI_PAGE_PANE_W, measure_description, NULL, &s_desc);
 }
 
@@ -330,9 +500,22 @@ void ui_profile_open(int group) {
  * Input
  * ============================================================================ */
 
-/** Run the focused action row. */
+/**
+ * run_focused_row() - Act on the focused action row. A disabled one says why it cannot run; one
+ * that needs a second press arms on the first and runs on the next inside its window.
+ */
 static void run_focused_row(void) {
   const ProfileRowDef *def = s_defs[s_pane.focus];
+  if (def->disabled_toast) {
+    ui_toast_show(def->disabled_toast, UI_TOAST_ERR);
+    return;
+  }
+  if (def->arm && !row_is_armed(def)) {
+    s_armed_def = def;
+    s_armed_start_us = ui_anim_now_us();
+    return;
+  }
+  disarm();
   if (def->run)
     def->run();
 }
@@ -393,8 +576,11 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_OPEN, .dim = s_pane.count == 0};
   } else {
     const ProfileRowDef *def = s_defs[s_pane.focus];
-    if (def->kind == UI_SETTING_ACTION)
-      out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = def->hint};
+    if (def->kind == UI_SETTING_ACTION) {
+      out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM,
+                              .label = row_is_armed(def) ? def->arm->hint : def->hint,
+                              .dim = def->disabled_toast != NULL};
+    }
     out[n++] = (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_GROUP};
   }
   out[n++] = (UiHintItem){.action = UI_BTN_CANCEL, .label = HINT_BACK};
@@ -441,6 +627,7 @@ UIScreenType ui_profile_frame(void) {
       handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
 
   refresh_items();
+  update_arm();
   update_description();
   update_identity();
   s_groups.focused = !s_pane_focus;
@@ -464,6 +651,7 @@ UIScreenType ui_profile_frame(void) {
 
   if (!back)
     return UI_SCREEN_TYPE_PROFILE;
+  disarm();
   ui_home_select_profile_group(s_group);
   return UI_SCREEN_TYPE_MAIN;
 }

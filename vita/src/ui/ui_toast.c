@@ -64,6 +64,14 @@ void ui_toast_show(const char *text, UiToastTone tone) {
   s_toast.start_us = ui_anim_now_us();
 }
 
+void ui_toast_draw_icon(UiToastTone tone, int x, int y, int size, uint32_t color) {
+  vita2d_texture *icon = tone_icon(tone);
+  if (!icon)
+    return;
+  const float scale = (float)size / (float)vita2d_texture_get_height(icon);
+  vita2d_draw_texture_tint_scale(icon, (float)x, (float)y, scale, scale, color);
+}
+
 /** How far into its life the toast is, in ms. */
 static float toast_age_ms(void) {
   return ui_anim_elapsed_ms(s_toast.start_us);
