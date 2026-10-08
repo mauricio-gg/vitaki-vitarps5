@@ -15,9 +15,12 @@
 #include <psp2/kernel/processmgr.h>
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
-#define LOSS_RETRY_DELAY_US (2 * 1000 * 1000ULL)
-#define LOSS_RETRY_MAX_ATTEMPTS 2
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
+// GH #272: how long after a session ends the console is assumed to still hold it. RP_IN_USE
+// holdoff already encodes the measured release time, so recovery waits the same 9 s before
+// every hard-fallback connect (a 3 s wait raced the console and drew RP_IN_USE).
+#define RECOVERY_CONSOLE_RELEASE_DELAY_US ((uint64_t)RETRY_HOLDOFF_RP_IN_USE_MS * 1000ULL)
+#define RECOVERY_FAILED_MESSAGE "Could not reconnect to console"
 #define POST_STOP_GUARD_DISCONNECT_ACKED_US (2 * 1000 * 1000ULL)
 #define POST_STOP_GUARD_DISCONNECT_UNACKED_US (8 * 1000 * 1000ULL)
 #define RP_IN_USE_AUTO_RETRY_DELAY_US (6 * 1000 * 1000ULL)
@@ -41,11 +44,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
        event->quit.reason_str ? event->quit.reason_str : "unknown", event->quit.reason,
        reason_label);
   LOGD(
-      "Quit classification: user_stop=%d, fast_restart=%d, retry_pending=%d, retry_active=%d, "
+      "Quit classification: user_stop=%d, fast_restart=%d, recovery_active=%d, "
       "teardown_in_progress=%d",
       user_stop_requested ? 1 : 0, context.stream.fast_restart_active ? 1 : 0,
-      context.stream.loss_retry_pending ? 1 : 0, context.stream.loss_retry_active ? 1 : 0,
-      context.stream.teardown_in_progress ? 1 : 0);
+      context.stream.recovery_active ? 1 : 0, context.stream.teardown_in_progress ? 1 : 0);
   LOGD("PIPE/SESSION quit gen=%u reconnect_gen=%u fps_low_windows=%u post_reconnect_low=%u",
        context.stream.session_generation, context.stream.reconnect_generation,
        context.stream.fps_under_target_windows, context.stream.post_reconnect_low_fps_windows);
@@ -58,38 +60,62 @@ void host_handle_quit_event(ChiakiEvent *event) {
     context.stream.session_generation--;
   }
   ui_connection_cancel();
+  // Every snapshot that decides finalize/recovery is taken BEFORE
+  // host_shutdown_media_pipeline() below: it clears fast_restart_active and
+  // reconnect_overlay_active, so reading them afterwards gives the wrong answer (GH #272).
   bool restart_failed = context.stream.fast_restart_active;
-  bool retry_pending = context.stream.loss_retry_pending;
-  bool fallback_active = context.stream.loss_retry_active || retry_pending;
-  bool restart_context = context.stream.fast_restart_active || fallback_active;
-  uint64_t retry_ready = context.stream.loss_retry_ready_us;
-  uint32_t retry_attempts = context.stream.loss_retry_attempts;
-  uint32_t retry_bitrate = context.stream.loss_retry_bitrate_kbps;
+  bool recovery_was_active = context.stream.recovery_active;
+  bool restart_context = restart_failed || recovery_was_active;
+  // The budget and bitrate are only meaningful inside one recovery episode; a drop after a
+  // successful recovery starts a fresh episode with the full budget.
+  uint32_t retry_attempts = recovery_was_active ? context.stream.loss_retry_attempts : 0;
+  // The reconnect always starts at the normal connect bitrate (host_default_video_profile), never
+  // the dying session's: after a vita-initiated soft restart that session carries the lowered
+  // restart profile, and a lowered renegotiation preceded a console wedging into repeated
+  // "Remote Play crashed" refusals on hardware.
   uint32_t retry_holdoff_ms = context.stream.retry_holdoff_ms;
   uint64_t retry_holdoff_until = context.stream.retry_holdoff_until_us;
   bool retry_holdoff_active = context.stream.retry_holdoff_active;
-  if (retry_pending && !context.active_host)
-    retry_pending = false;
+  bool remote_in_use = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
+  bool remote_crash = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH;
+  bool retry_allowed_reason = host_quit_reason_requires_retry(event->quit.reason);
+  bool transport_death =
+      event->quit.reason == CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED;
+  // Recovery (a full teardown + fresh connect, run from the UI thread) starts or continues when
+  // transport died, a vita-initiated soft restart failed, or a fallback connect itself failed.
+  bool recovery_trigger = !user_stop_requested && context.active_host &&
+                          (transport_death || (restart_failed && retry_allowed_reason) ||
+                           (recovery_was_active && (remote_in_use || retry_allowed_reason)));
+  bool schedule_recovery = recovery_trigger && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
+  bool recovery_exhausted = recovery_trigger && !schedule_recovery;
+  if (recovery_was_active && user_stop_requested) {
+    LOGD("Recovery cancelled by user (attempt %u/%u)", retry_attempts, LOSS_RETRY_MAX_ATTEMPTS);
+  } else if (recovery_was_active && !schedule_recovery) {
+    LOGD("Recovery ended without another attempt (reason=%d attempts=%u/%u)", event->quit.reason,
+         retry_attempts, LOSS_RETRY_MAX_ATTEMPTS);
+  }
+  // Publishing recovery_active before session_init is cleared keeps host_in_active_use() true
+  // for the whole hand-off from the dying session to the pending fallback connect.
+  context.stream.recovery_active = schedule_recovery;
   host_shutdown_media_pipeline();
-  context.stream.inputs_resume_pending = fallback_active;
+  context.stream.inputs_resume_pending = schedule_recovery;
+  if (schedule_recovery) {
+    // The shutdown above cleared the overlay; put it back at once so the UI thread never
+    // draws the main menu between teardown and the scheduling below (GH #272).
+    context.stream.reconnect_overlay_active = true;
+    if (!recovery_was_active)
+      context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
+  }
   ui_clear_waking_wait();
 
-  // Only finalize if not retrying/restarting
-  bool should_finalize = !fallback_active && !context.stream.fast_restart_active;
-  if (should_finalize) {
-    context.stream.input_thread_should_exit = true;
-    // Clear session_init so host_stream() doesn't block on the stale flag.
-    // The actual join+fini is deferred to the UI thread.
-    chiaki_mutex_lock(&context.stream.finalization_mutex);
-    context.stream.session_init = false;
-    chiaki_mutex_unlock(&context.stream.finalization_mutex);
-    context.stream.session_finalize_pending = true;
-  } else {
-    // Manually clear flag when skipping finalization - MUST use mutex
-    chiaki_mutex_lock(&context.stream.finalization_mutex);
-    context.stream.session_init = false;
-    chiaki_mutex_unlock(&context.stream.finalization_mutex);
-  }
+  // Always hand the dying session to the UI thread for join + fini. This callback runs on that
+  // very session thread, so it can neither join nor reuse it; the UI thread joins only after
+  // we return, and starts a fallback connect only after the finalize is done.
+  context.stream.input_thread_should_exit = true;
+  chiaki_mutex_lock(&context.stream.finalization_mutex);
+  context.stream.session_init = false;
+  chiaki_mutex_unlock(&context.stream.finalization_mutex);
+  context.stream.session_finalize_pending = true;
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint32_t restart_handshake_failures = context.stream.restart_handshake_failures;
   uint64_t last_restart_handshake_fail_us = context.stream.last_restart_handshake_fail_us;
@@ -98,8 +124,6 @@ void host_handle_quit_event(ChiakiEvent *event) {
   sceClibSnprintf(restart_source_snapshot, sizeof(restart_source_snapshot), "%s",
                   context.stream.last_restart_source);
   uint32_t restart_source_attempts = context.stream.restart_source_attempts;
-  bool remote_in_use = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
-  bool remote_crash = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH;
   bool restart_handshake_failure =
       !user_stop_requested && restart_failed && event->quit.reason == CHIAKI_QUIT_REASON_STOPPED;
   if (restart_handshake_failure) {
@@ -132,7 +156,11 @@ void host_handle_quit_event(ChiakiEvent *event) {
   // cooldown is still active -- see the "take the later of" comment below), so
   // the countdown text always matches the real wait. The remote_in_use/remote_crash
   // error hint has no such dependency and stays here.
-  if (context.active_host && (remote_in_use || remote_crash) && !arm_rp_in_use_auto_retry) {
+  // During recovery an RP_IN_USE is an expected step (the console has not released the old
+  // session yet): the Reconnecting overlay stays up and the next attempt is already scheduled,
+  // so the "already active" error hint is only for a quit that really ends the attempt.
+  if (context.active_host && (remote_in_use || remote_crash) && !arm_rp_in_use_auto_retry &&
+      !schedule_recovery) {
     const char *hint = remote_in_use ? "Remote Play already active on console"
                                      : "Console Remote Play crashed - wait a moment";
     host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
@@ -224,7 +252,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
     LOGD("RP_IN_USE auto-retry armed: retrying in %llu ms",
          (unsigned long long)((retry_at - now_us) / 1000ULL));
   }
-  if (!user_stop_requested) {
+  if (!user_stop_requested && !schedule_recovery) {
     bool is_error = chiaki_quit_reason_is_error(event->quit.reason);
 
     const char *banner_reason;
@@ -241,10 +269,16 @@ void host_handle_quit_event(ChiakiEvent *event) {
                                                                             : reason_label;
     }
 
+    if (recovery_exhausted)
+      banner_reason = RECOVERY_FAILED_MESSAGE;
     host_update_disconnect_banner(banner_reason);
   }
+  if (recovery_exhausted && context.active_host) {
+    LOGE("Recovery exhausted after %u/%u attempts; giving up (last quit reason=%d)", retry_attempts,
+         LOSS_RETRY_MAX_ATTEMPTS, event->quit.reason);
+    host_set_hint(context.active_host, RECOVERY_FAILED_MESSAGE, true, HINT_DURATION_ERROR_US);
+  }
   context.stream.stop_requested = false;
-  bool should_resume_discovery = !retry_pending;
   host_metrics_reset_stream(true);
   if (last_restart_handshake_fail_us &&
       now_us - last_restart_handshake_fail_us > RESTART_HANDSHAKE_REPEAT_WINDOW_US) {
@@ -261,9 +295,6 @@ void host_handle_quit_event(ChiakiEvent *event) {
   sceClibSnprintf(context.stream.last_restart_source, sizeof(context.stream.last_restart_source),
                   "%s", restart_source_snapshot);
   context.stream.restart_source_attempts = restart_source_attempts;
-  context.stream.loss_retry_attempts = retry_attempts;
-  context.stream.loss_retry_bitrate_kbps = retry_bitrate;
-  context.stream.loss_retry_ready_us = retry_ready;
   context.stream.retry_holdoff_ms = retry_holdoff_ms;
   context.stream.retry_holdoff_until_us = retry_holdoff_until;
   context.stream.retry_holdoff_active = retry_holdoff_active && retry_holdoff_until > now_us;
@@ -272,73 +303,71 @@ void host_handle_quit_event(ChiakiEvent *event) {
     context.stream.retry_holdoff_until_us = 0;
   }
   context.stream.loss_retry_pending = false;
-  context.stream.loss_retry_active = false;
-  context.stream.reconnect_overlay_active = false;
 
-  bool retry_allowed_reason = host_quit_reason_requires_retry(event->quit.reason);
-  bool schedule_retry = restart_failed && context.active_host && retry_allowed_reason &&
-                        retry_bitrate > 0 && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
-
-  if (schedule_retry) {
+  if (schedule_recovery) {
+    // Nothing connects from this (dying) session thread: the UI thread starts the next attempt
+    // (ui.c) once it has joined and finalized this session and loss_retry_ready_us has passed.
+    uint64_t ready_us = now_us + RECOVERY_CONSOLE_RELEASE_DELAY_US;
+    if (context.stream.next_stream_allowed_us > ready_us)
+      ready_us = context.stream.next_stream_allowed_us;
     context.stream.loss_retry_attempts = retry_attempts + 1;
-    context.stream.loss_retry_pending = true;
-    uint64_t retry_delay_target = now_us + LOSS_RETRY_DELAY_US;
-    uint64_t cooldown_target = context.stream.next_stream_allowed_us;
-    uint64_t effective_retry_us = retry_delay_target;
-    if (cooldown_target > effective_retry_us)
-      effective_retry_us = cooldown_target;
-    context.stream.loss_retry_ready_us = effective_retry_us;
-    should_resume_discovery = false;
+    ChiakiConnectVideoProfile reconnect_profile = {};
+    host_default_video_profile(&reconnect_profile, context.stream.last_connect_used_psn_holepunch);
+    context.stream.recovery_bitrate_kbps = reconnect_profile.bitrate;
+    context.stream.recovery_cause = recovery_was_active ? "follow-up after failed reconnect"
+                                    : transport_death   ? "transport death"
+                                                        : "failed packet-loss soft restart";
+    context.stream.loss_retry_ready_us = ready_us;
     LOGD(
-        "Soft restart failed — scheduling hard fallback retry #%u in %llu ms (cooldown=%llu ms, "
-        "base_delay=%llu ms)",
-        retry_attempts + 1, (effective_retry_us - now_us) / 1000ULL,
-        cooldown_target > now_us ? (cooldown_target - now_us) / 1000ULL : 0ULL,
-        LOSS_RETRY_DELAY_US / 1000ULL);
-  }
-
-  if (should_resume_discovery)
+        "Recovery attempt %u/%u scheduled in %llu ms at %u kbps (reason=%d fast_restart=%d "
+        "continuing=%d)",
+        retry_attempts + 1, LOSS_RETRY_MAX_ATTEMPTS,
+        (unsigned long long)((ready_us - now_us) / 1000ULL), context.stream.recovery_bitrate_kbps,
+        event->quit.reason, restart_failed ? 1 : 0, recovery_was_active ? 1 : 0);
+    // Compiler/CPU barrier: session_finalize_pending (set above) must be visible to the UI
+    // thread before loss_retry_pending, so it can never start the connect before the old
+    // session has been finalized.
+    __sync_synchronize();
+    context.stream.loss_retry_pending = true;
+  } else {
+    context.stream.reconnect_overlay_active = false;
     host_resume_discovery_if_needed();
-
-  if (schedule_retry && context.active_host) {
-    uint64_t now_retry = sceKernelGetProcessTimeWide();
-    uint64_t desired =
-        context.stream.loss_retry_ready_us ? context.stream.loss_retry_ready_us : now_retry;
-    if (desired < now_retry)
-      desired = now_retry;
-    if (desired > now_retry) {
-      uint64_t wait = desired - now_retry;
-      sceKernelDelayThread((unsigned int)wait);
-    }
-    context.stream.loss_retry_active = true;
-    context.stream.loss_retry_pending = false;
-    context.stream.loss_retry_ready_us = 0;
-    context.stream.reconnect_overlay_active = true;
-    context.stream.reconnect_overlay_start_us = sceKernelGetProcessTimeWide();
-    LOGD("Restarting stream after packet loss fallback (%u kbps)",
-         context.stream.loss_retry_bitrate_kbps ? context.stream.loss_retry_bitrate_kbps
-                                                : LOSS_RETRY_BITRATE_KBPS);
-    int restart_result = host_stream(context.active_host);
-    if (restart_result != 0) {
-      LOGE("Fallback restart failed (%d)", restart_result);
-      context.stream.loss_retry_active = false;
-      context.stream.reconnect_overlay_active = false;
-      context.stream.last_restart_failure_us = sceKernelGetProcessTimeWide();
-      context.stream.restart_failure_active = true;
-      // Defer finalization — UI thread will join + fini
-      context.stream.input_thread_should_exit = true;
-      chiaki_mutex_lock(&context.stream.finalization_mutex);
-      context.stream.session_init = false;
-      chiaki_mutex_unlock(&context.stream.finalization_mutex);
-      context.stream.session_finalize_pending = true;
-    } else {
-      context.stream.loss_retry_active = false;
-      context.stream.reconnect_overlay_active = false;
-      host_resume_discovery_if_needed();
-    }
-  } else if (restart_failed && !retry_allowed_reason) {
-    LOGD("Skipping hard fallback retry for quit reason %d (%s)", event->quit.reason, reason_label);
+    if (restart_failed && !retry_allowed_reason)
+      LOGD("Skipping hard fallback retry for quit reason %d (%s)", event->quit.reason,
+           reason_label);
   }
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
+}
+
+/* Clears all hard-fallback recovery state (GH #272): the in-progress marker, the scheduled and
+ * in-flight connect flags, the attempt budget and the Reconnecting overlay. */
+static void recovery_clear_state(void) {
+  context.stream.recovery_active = false;
+  context.stream.loss_retry_pending = false;
+  context.stream.loss_retry_attempts = 0;
+  context.stream.recovery_bitrate_kbps = 0;
+  context.stream.recovery_cause = NULL;
+  context.stream.loss_retry_ready_us = 0;
+  context.stream.reconnect_overlay_active = false;
+}
+
+void host_recovery_abort(const char *why) {
+  LOGE("Recovery aborted: %s", why);
+  recovery_clear_state();
+  host_update_disconnect_banner(RECOVERY_FAILED_MESSAGE);
+  if (context.active_host)
+    host_set_hint(context.active_host, RECOVERY_FAILED_MESSAGE, true, HINT_DURATION_ERROR_US);
+}
+
+void host_recovery_cancel_by_user(void) {
+  LOGD("Reconnecting cancelled by user (recovery_active=%d)",
+       context.stream.recovery_active ? 1 : 0);
+  recovery_clear_state();
+  // Pairs with the barrier + recovery_active check in host_stream() before session start: a
+  // connect that has not reached session_init yet is cancelled there, not by the stop below.
+  __sync_synchronize();
+  // No-op when no session exists (the wait phase); during a fallback connect this stops it and
+  // the resulting user-stop quit never schedules another attempt.
+  host_cancel_stream_request();
 }

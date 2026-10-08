@@ -74,6 +74,13 @@ void host_free(VitaChiakiHost *host);
  * (only the free paths that call this helper do, and only once the host is no longer in use),
  * so identity alone would make a guard permanent instead of transient. */
 bool host_in_active_use(const VitaChiakiHost *host);
+
+/* Fills *profile with the video profile a normal connect starts with: the resolution/fps preset
+ * (unsupported 720p/1080p forced to 540p), with the start bitrate capped for the PSN/internet
+ * path when psn_remote is true. host_stream() and the hard-fallback recovery state both use it,
+ * so a recovery reconnect is by construction the same as a fresh connect. Returns the bitrate
+ * the PSN cap replaced, or 0 when no cap applied. */
+uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote);
 int host_register(VitaChiakiHost *host, int pin);
 int host_wakeup(VitaChiakiHost *host);
 int host_stream(VitaChiakiHost *host);

@@ -7,6 +7,7 @@
 #include "host_metrics.h"
 #include "host_lifecycle.h"
 #include "host_callbacks.h"
+#include "host_quit.h"
 #include "host_constants.h"
 #include "discovery.h"
 #include "audio.h"
@@ -98,29 +99,23 @@ static bool host_try_hydrate_registered_state_from_config(VitaChiakiHost *host) 
 }
 
 /* True while a connect/stream is actively using this host's memory (connection worker alive,
- * session initialized, connect overlay up, or a packet-loss auto-retry is scheduled/in
- * flight). Free-guards must use this, not bare pointer identity against context.active_host:
- * nothing clears context.active_host once a host is selected (see assignments in
- * ui_screens.c/ui_components.c), so identity alone would make a guard permanent -- e.g. a
- * once-selected host would survive every subsequent refresh/dedup pass forever, even long
- * after the connect/stream that justified protecting it has ended.
+ * session initialized, connect overlay up, or hard-fallback recovery in progress). Free-guards
+ * must use this, not bare pointer identity against context.active_host: nothing clears
+ * context.active_host once a host is selected (see assignments in ui_screens.c/ui_components.c),
+ * so identity alone would make a guard permanent -- e.g. a once-selected host would survive every
+ * subsequent refresh/dedup pass forever, even long after the connect/stream that justified
+ * protecting it has ended.
  *
- * loss_retry_pending/loss_retry_active close a real gap that the first three predicates alone
- * miss: host_quit.c's auto-retry path runs on the Chiaki session's event-callback thread, not
- * the UI's connection worker thread, so ui_state_connection_thread_active() is already false by
- * the time it starts (ui_connection_cancel() tore that thread down first). It also clears
- * session_init before the retry's sleep-then-host_stream() sequence and only sets it again deep
- * inside that host_stream() call (host.c, well past the hydrate/PSN-auth/holepunch work an
- * in-flight retry can spend real time in). Without these two flags, a UI-thread refresh/dedup
- * pass could free and memset the very struct that retry call is reading from mid-flight.
- * loss_retry_pending covers the pre-retry delay (host_quit.c: set true right after scheduling,
- * false right before the retry's host_stream() call); loss_retry_active covers that
- * host_stream() call itself (set true immediately before it, false on either outcome) --
- * together they span the gap with no seam between them. */
+ * recovery_active closes a real gap that the other predicates miss (GH #272): after a transport
+ * death the old session is finalized (session_init false, no overlay, no connection worker) and
+ * the fallback connect only starts ~9 s later from the UI thread. Throughout that wait, and the
+ * connect itself (including the window before host_stream() sets session_init again), the
+ * fallback reads this host, so a UI-thread refresh/dedup pass must not free and memset it.
+ * loss_retry_pending is kept as belt and braces for the scheduled step within that window. */
 bool host_in_active_use(const VitaChiakiHost *host) {
   return host && host == context.active_host &&
          (ui_state_connection_thread_active() || context.stream.session_init ||
-          context.stream.loss_retry_pending || context.stream.loss_retry_active ||
+          context.stream.recovery_active || context.stream.loss_retry_pending ||
           ui_connection_overlay_active());
 }
 
@@ -178,6 +173,26 @@ void host_cancel_stream_request(void) {
 
 void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
+}
+
+uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
+  ChiakiVideoResolutionPreset resolution = context.config.resolution;
+  // Defensive guardrail: config/UI path should already normalize unsupported values,
+  // but force a safe profile here to preserve stream startup reliability.
+  if (resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
+      resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
+    resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
+  chiaki_connect_video_profile_preset(profile, resolution, context.config.fps);
+  /* PSN/internet path: cap the start bitrate at PSN_REMOTE_BITRATE_CAP_KBPS
+   * (3.5 Mbps). The 540p preset default of 6 Mbps saturates Vita 802.11g
+   * Wi-Fi combined with a typical home upstream, and PS5 does not support
+   * mid-session bitrate renegotiation, so the start value is final. */
+  if (psn_remote && profile->bitrate > PSN_REMOTE_BITRATE_CAP_KBPS) {
+    uint32_t uncapped = profile->bitrate;
+    profile->bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
+    return uncapped;
+  }
+  return 0;
 }
 
 int host_stream(VitaChiakiHost *host) {
@@ -245,6 +260,8 @@ int host_stream(VitaChiakiHost *host) {
 
   int result = 1;
   bool resume_inputs = context.stream.inputs_resume_pending;
+  // GH #272: a hard-fallback connect. Cancelling it clears recovery_active (see below).
+  bool recovery_connect = context.stream.recovery_active;
   context.stream.stop_requested = false;
   context.stream.stop_requested_by_user = false;
   context.stream.teardown_in_progress = false;
@@ -271,24 +288,16 @@ int host_stream(VitaChiakiHost *host) {
     goto cleanup;
   }
 
-  ChiakiVideoResolutionPreset requested_resolution = context.config.resolution;
-  // Defensive guardrail: config/UI path should already normalize unsupported values,
-  // but force a safe profile here to preserve stream startup reliability.
-  if (requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
-      requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p) {
-    LOGD("Requested legacy unsupported %s profile; forcing 540p fallback",
-         requested_resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ? "1080p" : "720p");
-    requested_resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-  }
-
   ChiakiConnectVideoProfile profile = {};
-  chiaki_connect_video_profile_preset(&profile, requested_resolution, context.config.fps);
-  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)", profile.bitrate, profile.width,
-       profile.height);
-  if (context.stream.loss_retry_active && context.stream.loss_retry_bitrate_kbps > 0) {
-    profile.bitrate = context.stream.loss_retry_bitrate_kbps;
-    LOGD("Applying packet-loss fallback bitrate: %u kbps", profile.bitrate);
-    context.stream.loss_retry_active = false;
+  uint32_t uncapped_kbps = host_default_video_profile(&profile, psn_remote);
+  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)",
+       uncapped_kbps ? uncapped_kbps : profile.bitrate, profile.width, profile.height);
+  if (uncapped_kbps)
+    LOGD("PSN path: clamped bitrate %u -> %u kbps", uncapped_kbps, profile.bitrate);
+  if (context.stream.recovery_active) {
+    LOGD("Recovery reconnect attempt %u/%u (cause: %s): preset bitrate, no recovery override",
+         context.stream.loss_retry_attempts, LOSS_RETRY_MAX_ATTEMPTS,
+         context.stream.recovery_cause ? context.stream.recovery_cause : "unknown");
   }
 #if CHIAKI_CAN_USE_HOLEPUNCH
   ChiakiHolepunchSession holepunch_session = NULL;
@@ -328,15 +337,6 @@ int host_stream(VitaChiakiHost *host) {
     ui_connection_set_stage(UI_CONNECTION_STAGE_PSN_PUNCH_CTRL);
   } else {
     ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
-  }
-
-  /* PSN/internet path: cap the start bitrate at PSN_REMOTE_BITRATE_CAP_KBPS
-   * (3.5 Mbps). The 540p preset default of 6 Mbps saturates Vita 802.11g
-   * Wi-Fi combined with a typical home upstream, and PS5 does not support
-   * mid-session bitrate renegotiation, so the start value is final. */
-  if (psn_remote && profile.bitrate > PSN_REMOTE_BITRATE_CAP_KBPS) {
-    LOGD("PSN path: clamping bitrate %u -> %u kbps", profile.bitrate, PSN_REMOTE_BITRATE_CAP_KBPS);
-    profile.bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
   }
 
   /* Local copy of the connect address: host->hostname is a snapshot the discovery thread may
@@ -497,6 +497,17 @@ int host_stream(VitaChiakiHost *host) {
        VITA_AUDIO_THREAD_PRIORITY, HOST_LOG_TAKION_RECV_THREAD_PRIORITY,
        HOST_LOG_FEEDBACK_SENDER_THREAD_PRIORITY, VITA_INPUT_THREAD_PRIORITY);
 
+  // GH #272: Circle during a fallback connect cannot stop it through the session until
+  // session_init is set (request_stream_stop() ignores it, and this function reset
+  // stop_requested above), so the cancel is seen here instead. Each side writes then reads
+  // (cancel: clear recovery_active, then read session_init; here: set session_init, then read
+  // recovery_active) with a full barrier between, so at least one of them sees the other.
+  __sync_synchronize();
+  if (recovery_connect && !context.stream.recovery_active) {
+    LOGD("Fallback connect cancelled by user before session start");
+    goto cleanup;
+  }
+
   err = chiaki_session_start(&context.stream.session);
   if (err != CHIAKI_ERR_SUCCESS) {
     LOGE("Error during stream start: %s", chiaki_error_string(err));
@@ -513,6 +524,8 @@ int host_stream(VitaChiakiHost *host) {
 
 cleanup:
   if (result != 0) {
+    if (context.stream.recovery_active)
+      host_recovery_abort("fallback connect failed to start");
     context.stream.inputs_resume_pending = false;
     host_shutdown_media_pipeline();
     // Finalize if session was partially initialized
@@ -522,7 +535,6 @@ cleanup:
     // No else needed - flag is already false or will be cleared by finalize
     context.stream.fast_restart_active = false;
     context.stream.reconnect_overlay_active = false;
-    context.stream.loss_retry_active = false;
     context.stream.loss_retry_pending = false;
     context.stream.is_streaming = false;
     context.stream.inputs_ready = false;

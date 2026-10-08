@@ -288,12 +288,16 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.disconnect_reason[0] = '\0';
   context.stream.disconnect_banner_until_us = 0;
   context.stream.loss_retry_pending = false;
-  context.stream.loss_retry_active = false;
-  context.stream.loss_retry_attempts = 0;
-  context.stream.loss_retry_bitrate_kbps = 0;
-  context.stream.loss_retry_ready_us = 0;
-  context.stream.reconnect_overlay_active = false;
-  context.stream.reconnect_overlay_start_us = 0;
+  // GH #272: a hard-fallback connect calls this via host_stream(); its attempt budget, bitrate
+  // and Reconnecting overlay must survive until the new session reports CONNECTED.
+  if (!context.stream.recovery_active) {
+    context.stream.loss_retry_attempts = 0;
+    context.stream.recovery_bitrate_kbps = 0;
+    context.stream.recovery_cause = NULL;
+    context.stream.loss_retry_ready_us = 0;
+    context.stream.reconnect_overlay_active = false;
+    context.stream.reconnect_overlay_start_us = 0;
+  }
   context.stream.fast_restart_active = false;
   context.stream.cached_controller_valid = false;
   context.stream.last_input_packet_us = 0;
