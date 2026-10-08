@@ -47,6 +47,7 @@ typedef enum ui_popup_size_t {
 typedef struct ui_popup_spec_t {
   UiPopupSize size;
   vita2d_texture *icon;  ///< optional, drawn UI_POPUP_ICON px high before the title
+  uint32_t icon_color;  ///< ABGR tint of the icon; 0 reads UI_TEXT (a result popup passes its tone)
   const char *title;
   const char *subtitle;                       ///< optional
   const char *body;                           ///< optional, wrapped to UI_POPUP_BODY_LINES
@@ -64,6 +65,7 @@ typedef struct ui_popup_t {
   bool open;
   UiPopupSize size;
   vita2d_texture *icon;
+  uint32_t icon_color;
   char title[UI_POPUP_TEXT_MAX];
   char subtitle[UI_POPUP_TEXT_MAX];  ///< empty for none
   UiWrapped body;                    ///< count 0 for none

@@ -19,34 +19,45 @@
 
 /** Width of the uniform middle band baked between the caps. */
 #define MID_W 3
-/** Stroke width of the outline and border variants. */
-#define OUTLINE_PX UI_LW1
-
 /** How one shape texture is built. */
 typedef struct shape_spec_t {
-  int height;   /**< 3-slice: the shape height; 9-slice: unused (square texture) */
-  int cap;      /**< corner radius and slice size */
-  bool outline; /**< only the 1 px edge ring, not the fill */
+  int height; /**< 3-slice: the shape height; 9-slice: unused (square texture) */
+  int cap;    /**< corner radius and slice size */
+  int stroke; /**< 0 for the filled shape, otherwise the width of its edge ring only */
 } ShapeSpec;
 
+/** A fixed-size shape: its width, height, corner radius and stroke (as in ShapeSpec). */
+typedef struct shape1_spec_t {
+  int w;
+  int h;
+  int cap;
+  int stroke;
+} Shape1Spec;
+
 static const ShapeSpec SHAPE3_SPECS[UI_SHAPE3_COUNT] = {
-    [UI_SHAPE3_BAR_48] = {UI_SHAPE_H_BAR, UI_R_SM, false},
-    [UI_SHAPE3_BAR_56] = {UI_SHAPE_H_BAR_LARGE, UI_R_SM, false},
-    [UI_SHAPE3_PILL_48] = {UI_SHAPE_H_BUTTON, UI_SHAPE_H_BUTTON / 2, false},
-    [UI_SHAPE3_PILL_48_OUTLINE] = {UI_SHAPE_H_BUTTON, UI_SHAPE_H_BUTTON / 2, true},
-    [UI_SHAPE3_PILL_32] = {UI_SHAPE_H_PILL, UI_SHAPE_H_PILL / 2, false},
-    [UI_SHAPE3_PILL_32_OUTLINE] = {UI_SHAPE_H_PILL, UI_SHAPE_H_PILL / 2, true},
-    [UI_SHAPE3_PILL_24] = {UI_SHAPE_H_TRACK, UI_SHAPE_H_TRACK / 2, false},
+    [UI_SHAPE3_BAR_48] = {UI_SHAPE_H_BAR, UI_R_SM, 0},
+    [UI_SHAPE3_BAR_56] = {UI_SHAPE_H_BAR_LARGE, UI_R_SM, 0},
+    [UI_SHAPE3_PILL_48] = {UI_SHAPE_H_BUTTON, UI_SHAPE_H_BUTTON / 2, 0},
+    [UI_SHAPE3_PILL_48_OUTLINE] = {UI_SHAPE_H_BUTTON, UI_SHAPE_H_BUTTON / 2, UI_LW1},
+    [UI_SHAPE3_PILL_32] = {UI_SHAPE_H_PILL, UI_SHAPE_H_PILL / 2, 0},
+    [UI_SHAPE3_PILL_32_OUTLINE] = {UI_SHAPE_H_PILL, UI_SHAPE_H_PILL / 2, UI_LW1},
+    [UI_SHAPE3_PILL_24] = {UI_SHAPE_H_TRACK, UI_SHAPE_H_TRACK / 2, 0},
 };
 
 static const ShapeSpec SHAPE9_SPECS[UI_SHAPE9_COUNT] = {
-    [UI_SHAPE9_SM] = {0, UI_R_SM, false},
-    [UI_SHAPE9_MD] = {0, UI_R_MD, false},
-    [UI_SHAPE9_MD_BORDER] = {0, UI_R_MD, true},
+    [UI_SHAPE9_SM] = {0, UI_R_SM, 0},
+    [UI_SHAPE9_MD] = {0, UI_R_MD, 0},
+    [UI_SHAPE9_MD_BORDER] = {0, UI_R_MD, UI_LW1},
+};
+
+static const Shape1Spec SHAPE1_SPECS[UI_SHAPE1_COUNT] = {
+    [UI_SHAPE1_PIN_BOX] = {UI_PIN_BOX_W, UI_PIN_BOX_H, UI_R_SM, 0},
+    [UI_SHAPE1_PIN_BOX_BORDER] = {UI_PIN_BOX_W, UI_PIN_BOX_H, UI_R_SM, UI_PIN_BORDER},
 };
 
 static vita2d_texture *s_shape3[UI_SHAPE3_COUNT];
 static vita2d_texture *s_shape9[UI_SHAPE9_COUNT];
+static vita2d_texture *s_shape1[UI_SHAPE1_COUNT];
 
 /** Clamp @v to 0..1. */
 static float clamp01(float v) {
@@ -56,9 +67,9 @@ static float clamp01(float v) {
 /**
  * coverage() - Anti-aliased coverage (0..1) of the pixel centred at (px, py) for a rounded
  * rectangle of @w x @h with corner radius @r, from its signed distance to the edge.
- * For an outline, the shape shrunk by OUTLINE_PX is subtracted, leaving a ring.
+ * For a stroke wider than 0, the shape shrunk by @stroke is subtracted, leaving a ring.
  */
-static float coverage(float px, float py, int w, int h, int r, bool outline) {
+static float coverage(float px, float py, int w, int h, int r, int stroke) {
   float qx = fabsf(px - (float)w / 2.0f) - ((float)w / 2.0f - (float)r);
   float qy = fabsf(py - (float)h / 2.0f) - ((float)h / 2.0f - (float)r);
   float ox = qx > 0.0f ? qx : 0.0f;
@@ -67,13 +78,13 @@ static float coverage(float px, float py, int w, int h, int r, bool outline) {
   float d = sqrtf(ox * ox + oy * oy) + (inside < 0.0f ? inside : 0.0f) - (float)r;
 
   float outer = clamp01(0.5f - d);
-  if (!outline)
+  if (stroke == 0)
     return outer;
-  return outer - clamp01(0.5f - (d + (float)OUTLINE_PX));
+  return outer - clamp01(0.5f - (d + (float)stroke));
 }
 
 /** Create a @w x @h white texture whose alpha is the rounded-rectangle coverage. */
-static vita2d_texture *bake_shape(int w, int h, int cap, bool outline) {
+static vita2d_texture *bake_shape(int w, int h, int cap, int stroke) {
   vita2d_texture *tex = vita2d_create_empty_texture((unsigned int)w, (unsigned int)h);
   if (!tex) {
     LOGE("ui_shapes: could not allocate %dx%d shape texture", w, h);
@@ -83,7 +94,7 @@ static vita2d_texture *bake_shape(int w, int h, int cap, bool outline) {
   uint32_t *pixels = (uint32_t *)vita2d_texture_get_datap(tex);
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
-      float a = coverage((float)x + 0.5f, (float)y + 0.5f, w, h, cap, outline);
+      float a = coverage((float)x + 0.5f, (float)y + 0.5f, w, h, cap, stroke);
       pixels[y * stride_px + x] = RGBA8(255, 255, 255, (int)(a * 255.0f + 0.5f));
     }
   }
@@ -95,12 +106,17 @@ void ui_shapes_init(void) {
   for (int i = 0; i < UI_SHAPE3_COUNT; i++) {
     if (!s_shape3[i])
       s_shape3[i] = bake_shape(SHAPE3_SPECS[i].cap * 2 + MID_W, SHAPE3_SPECS[i].height,
-                               SHAPE3_SPECS[i].cap, SHAPE3_SPECS[i].outline);
+                               SHAPE3_SPECS[i].cap, SHAPE3_SPECS[i].stroke);
   }
   for (int i = 0; i < UI_SHAPE9_COUNT; i++) {
     int side = SHAPE9_SPECS[i].cap * 2 + MID_W;
     if (!s_shape9[i])
-      s_shape9[i] = bake_shape(side, side, SHAPE9_SPECS[i].cap, SHAPE9_SPECS[i].outline);
+      s_shape9[i] = bake_shape(side, side, SHAPE9_SPECS[i].cap, SHAPE9_SPECS[i].stroke);
+  }
+  for (int i = 0; i < UI_SHAPE1_COUNT; i++) {
+    if (!s_shape1[i])
+      s_shape1[i] = bake_shape(SHAPE1_SPECS[i].w, SHAPE1_SPECS[i].h, SHAPE1_SPECS[i].cap,
+                               SHAPE1_SPECS[i].stroke);
   }
 }
 
@@ -135,7 +151,7 @@ void ui_shape9_draw(UiShape9 shape, UiRect r, uint32_t color) {
   color = ui_layer_color(color);
   const vita2d_texture *tex = s_shape9[shape];
   const int cap = SHAPE9_SPECS[shape].cap;
-  const bool skip_centre = SHAPE9_SPECS[shape].outline;
+  const bool skip_centre = SHAPE9_SPECS[shape].stroke > 0;
   if (r.w < cap * 2)
     r.w = cap * 2;
   if (r.h < cap * 2)
@@ -161,4 +177,10 @@ void ui_shape9_draw(UiShape9 shape, UiRect r, uint32_t color) {
           (float)dst_y_len[row] / (float)src_len[row], color);
     }
   }
+}
+
+void ui_shape1_draw(UiShape1 shape, int x, int y, uint32_t color) {
+  if (shape < 0 || shape >= UI_SHAPE1_COUNT || !s_shape1[shape])
+    return;
+  vita2d_draw_texture_tint(s_shape1[shape], (float)x, (float)y, ui_layer_color(color));
 }

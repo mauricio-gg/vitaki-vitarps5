@@ -19,7 +19,7 @@
 
 static const char *const PAGE_ICON_FILES[UI_PAGE_ICON_COUNT] = {
     [UI_PAGE_ICON_LAN] = "lan",   [UI_PAGE_ICON_GLOBE] = "globe", [UI_PAGE_ICON_MOON] = "moon",
-    [UI_PAGE_ICON_WIFI] = "wifi", [UI_PAGE_ICON_GEAR] = "gear",
+    [UI_PAGE_ICON_WIFI] = "wifi", [UI_PAGE_ICON_GEAR] = "gear",   [UI_PAGE_ICON_LOCK] = "lock",
 };
 
 static vita2d_texture *s_icons[UI_PAGE_ICON_COUNT];
@@ -30,6 +30,12 @@ void ui_page_frame_init(void) {
     snprintf(path, sizeof(path), "app0:/assets/icons/page_%s.png", PAGE_ICON_FILES[i]);
     s_icons[i] = ui_load_png_linear(path);
   }
+}
+
+vita2d_texture *ui_page_frame_icon(UiPageIcon icon) {
+  if (icon < 0 || icon >= UI_PAGE_ICON_COUNT)
+    return NULL;
+  return s_icons[icon];
 }
 
 void ui_page_frame_draw(UiPageIcon icon, const char *title) {

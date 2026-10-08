@@ -20,10 +20,12 @@
 
 static const char ALERT_TEXT[] = "Network Unstable";
 
-/** The combined D-pad Left/Right hint ("Change"). */
+/** The combined D-pad Left/Right hint ("Change") and Up/Down hint. */
 #define ACTION_DPAD_H (UI_BTN_LEFT | UI_BTN_RIGHT)
+#define ACTION_DPAD_V (UI_BTN_UP | UI_BTN_DOWN)
 
-/** The D-pad left-right glyph is drawn in a 24 x 24 grid (the mock's dpadh icon): two triangles. */
+/** The D-pad left-right glyph is drawn in a 24 x 24 grid (the mock's dpadh icon): two triangles.
+ * The up-down glyph is the same two triangles with x and y swapped. */
 #define DPAD_GRID 24
 #define DPAD_TRIANGLES 2
 #define DPAD_SUBSAMPLES 4
@@ -41,6 +43,7 @@ static const DpadPoint DPAD_TRIANGLE[DPAD_TRIANGLES][3] = {
 static vita2d_texture *s_badge_l = NULL;
 static vita2d_texture *s_badge_r = NULL;
 static vita2d_texture *s_badge_dpad_h = NULL;
+static vita2d_texture *s_badge_dpad_v = NULL;
 
 /** True when (@px, @py) lies inside triangle @t (either winding). */
 static bool in_triangle(const DpadPoint t[3], float px, float py) {
@@ -55,17 +58,20 @@ static bool in_triangle(const DpadPoint t[3], float px, float py) {
   return !(has_neg && has_pos);
 }
 
-/** Alpha of the D-pad left-right glyph: triangle coverage, supersampled DPAD_SUBSAMPLES^2. */
-static float dpad_h_alpha(float px, float py, const void *ctx) {
-  (void)ctx;
+/** Alpha of a D-pad glyph: triangle coverage, supersampled DPAD_SUBSAMPLES^2. @ctx points to a
+ * bool, true for the up-down glyph. */
+static float dpad_alpha(float px, float py, const void *ctx) {
+  const bool vertical = *(const bool *)ctx;
   const float cell = (float)DPAD_GRID / (float)UI_HINT_GLYPH_H;
   const float x0 = (px - 0.5f) * cell;
   const float y0 = (py - 0.5f) * cell;
   int hits = 0;
   for (int sy = 0; sy < DPAD_SUBSAMPLES; sy++) {
     for (int sx = 0; sx < DPAD_SUBSAMPLES; sx++) {
-      const float sample_x = x0 + ((float)sx + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
-      const float sample_y = y0 + ((float)sy + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
+      const float across = x0 + ((float)sx + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
+      const float down = y0 + ((float)sy + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
+      const float sample_x = vertical ? down : across;
+      const float sample_y = vertical ? across : down;
       for (int t = 0; t < DPAD_TRIANGLES; t++) {
         if (in_triangle(DPAD_TRIANGLE[t], sample_x, sample_y)) {
           hits++;
@@ -80,8 +86,12 @@ static float dpad_h_alpha(float px, float py, const void *ctx) {
 void ui_hint_row_init(void) {
   s_badge_l = ui_load_png_linear(BADGE_DIR "hint_l.png");
   s_badge_r = ui_load_png_linear(BADGE_DIR "hint_r.png");
-  if (!s_badge_dpad_h)
-    s_badge_dpad_h = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_h_alpha, NULL);
+  static const bool HORIZONTAL = false;
+  static const bool VERTICAL = true;
+  if (!s_badge_dpad_h) {
+    s_badge_dpad_h = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_alpha, &HORIZONTAL);
+    s_badge_dpad_v = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_alpha, &VERTICAL);
+  }
 }
 
 /**
@@ -116,6 +126,8 @@ static vita2d_texture *glyph_texture(uint32_t action) {
       return s_badge_r;
     case ACTION_DPAD_H:
       return s_badge_dpad_h;
+    case ACTION_DPAD_V:
+      return s_badge_dpad_v;
     default:
       return NULL;
   }

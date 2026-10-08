@@ -22,9 +22,10 @@
 
 /**
  * One hint. @action is a UiButton bit, UI_BTN_L | UI_BTN_R for the combined "L R" hint, or
- * UI_BTN_LEFT | UI_BTN_RIGHT for the D-pad left-right hint. CONFIRM and CANCEL resolve to Cross or
+ * UI_BTN_LEFT | UI_BTN_RIGHT for the D-pad left-right hint, UI_BTN_UP | UI_BTN_DOWN for the
+ * up-down hint. CONFIRM and CANCEL resolve to Cross or
  * Circle from the setting. Only the glyphs a screen uses are baked: Confirm, Cancel, Options,
- * Clear, L, R, D-pad left-right; an action without a glyph draws its label alone.
+ * Clear, L, R, D-pad left-right and up-down; an action without a glyph draws its label alone.
  */
 typedef struct ui_hint_item_t {
   uint32_t action;

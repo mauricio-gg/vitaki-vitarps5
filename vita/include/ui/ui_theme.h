@@ -613,6 +613,42 @@ typedef enum ui_face_t {
 #define UI_BUTTON_GLOW_PCT 20
 
 /* ============================================================================
+ * C17 PinField (ui_pin_field.c) and the PIN screen (ui_pin.c, SPEC 3.2)
+ * ============================================================================ */
+
+/* The number of digits is UI_PIN_DIGITS (ui_pin_digits.h). */
+#define UI_PIN_BOX_W 56
+#define UI_PIN_BOX_H 72
+#define UI_PIN_GAP 8
+/** The chevron boxes above and below the focused digit: hit and visible box, then the art. */
+#define UI_PIN_CHEV_W 56
+#define UI_PIN_CHEV_H 48
+#define UI_PIN_CHEV_ART 20
+/** The chevron stroke: the mock's 2 on a 24 grid, scaled to the art. */
+#define UI_PIN_CHEV_STROKE 1.7f
+/** Top of the row: the up chevron box. The digit boxes follow it, then the down chevron box. */
+#define UI_PIN_ROW_Y 224
+#define UI_PIN_BTN_Y 424
+#define UI_PIN_BTN_COUNT 3
+#define UI_PIN_BTN_GAP UI_S2
+#define UI_PIN_BORDER UI_LW2
+#define UI_PIN_GLOW 12
+#define UI_PIN_GLOW_PCT 20
+/** The cursor of an empty focused box blinks over UI_PIN_BLINK_MS: full, then
+ * UI_PIN_CURSOR_LOW_PCT. */
+#define UI_PIN_CURSOR_W 2
+#define UI_PIN_CURSOR_H 40
+#define UI_PIN_BLINK_MS 1000
+#define UI_PIN_CURSOR_LOW_PCT 20
+/** Digits and buttons of a field that is waiting for the console. */
+#define UI_PIN_LOCKED_PCT UI_BUTTON_DISABLED_PCT
+#define UI_PIN_PROMPT_Y 160
+/** Gap between the page title and the console name and address after it. */
+#define UI_PIN_SUB_GAP UI_S1
+/** Bytes kept of the console name and address line and of the prompt. */
+#define UI_PIN_TEXT_MAX 160
+
+/* ============================================================================
  * Connecting screen (ui_connecting.c, SPEC 3.4)
  * ============================================================================ */
 

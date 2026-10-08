@@ -35,6 +35,7 @@
 #include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
 #include "ui/ui_options_column.h"
+#include "ui/ui_page_frame.h"
 #include "ui/ui_popup.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_settings.h"
@@ -194,6 +195,8 @@ static UiOptionsColumn s_opts;
 /** The Re-pair confirm popup, and the console it was opened for. */
 static UiPopup s_popup;
 static VitaChiakiHost *s_repair_host = NULL;
+/** The console Home should focus on its next live frame (ui_home_focus_console), or NULL. */
+static const VitaChiakiHost *s_focus_host = NULL;
 
 /* ============================================================================
  * Setup
@@ -222,6 +225,7 @@ void ui_home_init(void) {
   ui_options_column_init(&s_opts);
   ui_popup_close(&s_popup);
   s_repair_host = NULL;
+  s_focus_host = NULL;
 }
 
 void ui_home_on_enter(void) {
@@ -399,6 +403,29 @@ void ui_home_select_settings_group(int group) {
   ui_xmb_list_set_focus(&s_list, group);
 }
 
+void ui_home_focus_console(const VitaChiakiHost *host) {
+  s_focus_host = host;
+  ui_cards_mark_dirty();
+}
+
+/** Carry out a ui_home_focus_console() request: Consoles category, the console's row. */
+static void apply_focus_request(const VitaChiakiHost *cooldown) {
+  if (!s_focus_host)
+    return;
+  const VitaChiakiHost *host = s_focus_host;
+  s_focus_host = NULL;
+
+  ui_category_bar_set_focus(&s_bar, HOME_CAT_CONSOLES);
+  refresh_items(cooldown);
+  for (int i = 0; i < ui_cards_get_count(); i++) {
+    if (ui_cards_get_card(i)->host == host) {
+      ui_xmb_list_set_focus(&s_list, i + (s_filter_row ? 1 : 0));
+      ui_cards_set_selected_index(i);
+      return;
+    }
+  }
+}
+
 /* ============================================================================
  * Cooldown
  * ============================================================================ */
@@ -573,6 +600,7 @@ static void open_repair_popup(void) {
   s_repair_host = card->host;
   ui_popup_open(&s_popup, &(UiPopupSpec){
                               .size = UI_POPUP_SIZE_S,
+                              .icon = ui_page_frame_icon(UI_PAGE_ICON_LOCK),
                               .title = title,
                               .body = REPAIR_BODY,
                               .buttons = {REPAIR_BUTTON_CANCEL, REPAIR_BUTTON_CONFIRM},
@@ -798,6 +826,7 @@ UIScreenType ui_home_frame(void) {
   if (!frozen) {
     cooldown = cooldown_host(&banner_reason);
     refresh_items(cooldown);
+    apply_focus_request(cooldown);
     if (ui_options_column_is_open(&s_opts))
       refresh_options();
   }

@@ -69,6 +69,7 @@ void ui_popup_open(UiPopup *p, const UiPopupSpec *spec) {
   p->open = true;
   p->size = spec->size;
   p->icon = spec->icon;
+  p->icon_color = spec->icon_color ? spec->icon_color : UI_TEXT;
   p->button_count = spec->button_count;
   p->focus = spec->default_focus;
   p->cancel_button = spec->cancel_button;
@@ -142,7 +143,7 @@ void ui_popup_draw(const UiPopup *p) {
   if (p->icon) {
     const float scale = (float)UI_POPUP_ICON / (float)vita2d_texture_get_height(p->icon);
     vita2d_draw_texture_tint_scale(p->icon, (float)p->left_x, (float)(p->title_y + dy), scale,
-                                   scale, ui_layer_color(UI_TEXT));
+                                   scale, ui_layer_color(p->icon_color));
   }
   ui_text_draw_face_centered_v(UI_FACE_T28, p->title_x, p->title_y + dy, UI_T28_LINE, UI_TEXT,
                                p->title);

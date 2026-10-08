@@ -47,26 +47,16 @@ static float clamp01(float v) {
   return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
 }
 
-/** Distance from (@px, @py) to the segment (@ax, @ay)-(@bx, @by). */
-static float distance_to_segment(float px, float py, float ax, float ay, float bx, float by) {
-  const float abx = bx - ax;
-  const float aby = by - ay;
-  const float t = clamp01(((px - ax) * abx + (py - ay) * aby) / (abx * abx + aby * aby));
-  const float dx = px - (ax + t * abx);
-  const float dy = py - (ay + t * aby);
-  return sqrtf(dx * dx + dy * dy);
-}
-
 /** Alpha of a chevron; @ctx points to +1 (right) or -1 (left). */
 static float chevron_alpha(float px, float py, const void *ctx) {
   const bool right = *(const int *)ctx > 0;
   const float scale = (float)UI_CHOICE_ARROW_ART / CHEVRON_GRID;
   const float tip_x = right ? CHEVRON_TIP_X : CHEVRON_GRID - CHEVRON_TIP_X;
   const float back_x = right ? CHEVRON_BACK_X : CHEVRON_GRID - CHEVRON_BACK_X;
-  const float d1 = distance_to_segment(px, py, back_x * scale, CHEVRON_TOP_Y * scale, tip_x * scale,
-                                       CHEVRON_MID_Y * scale);
-  const float d2 = distance_to_segment(px, py, tip_x * scale, CHEVRON_MID_Y * scale, back_x * scale,
-                                       CHEVRON_BOTTOM_Y * scale);
+  const float d1 = ui_bake_distance_to_segment(px, py, back_x * scale, CHEVRON_TOP_Y * scale,
+                                               tip_x * scale, CHEVRON_MID_Y * scale);
+  const float d2 = ui_bake_distance_to_segment(px, py, tip_x * scale, CHEVRON_MID_Y * scale,
+                                               back_x * scale, CHEVRON_BOTTOM_Y * scale);
   const float d = d1 < d2 ? d1 : d2;
   return UI_CHOICE_ARROW_STROKE / 2.0f + 0.5f - d;
 }

@@ -5,6 +5,8 @@
 
 #include "ui/ui_bake.h"
 
+#include <math.h>
+
 #include "context.h"
 
 vita2d_texture *ui_bake_white(int w, int h, UiBakeAlphaFn alpha, const void *ctx) {
@@ -24,4 +26,14 @@ vita2d_texture *ui_bake_white(int w, int h, UiBakeAlphaFn alpha, const void *ctx
   }
   vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
   return tex;
+}
+
+float ui_bake_distance_to_segment(float px, float py, float ax, float ay, float bx, float by) {
+  const float abx = bx - ax;
+  const float aby = by - ay;
+  float t = ((px - ax) * abx + (py - ay) * aby) / (abx * abx + aby * aby);
+  t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+  const float dx = px - (ax + t * abx);
+  const float dy = py - (ay + t * aby);
+  return sqrtf(dx * dx + dy * dy);
 }
