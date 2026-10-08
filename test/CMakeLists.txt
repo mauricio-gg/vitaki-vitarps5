@@ -114,3 +114,17 @@ target_include_directories(ui_console_status_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_console_status_tests COMMAND ui_console_status_tests)
+
+# ui_console_rows_tests.c checks the pure Consoles list rules (Filter row, row-to-console
+# mapping, focus, filter match). Standalone binary with its own main(); run natively (see the
+# file header).
+add_executable(ui_console_rows_tests
+    ui_console_rows_tests.c
+    ../vita/src/ui/ui_console_rows.c
+)
+
+target_include_directories(ui_console_rows_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)

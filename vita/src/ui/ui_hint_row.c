@@ -155,6 +155,10 @@ void ui_hint_row_layout(UiHintLayout *layout, const UiHintItem *items, int count
   }
 
   layout->alert = network_unstable_active();
+  /* Show Button Hints off: the row keeps only its alert slot. Dropping every item here makes
+   * draw and tap inert for all screens without them testing the setting. */
+  if (!context.config.show_button_hints)
+    count = 0;
   const int area_x0 = UI_MARGIN_X;
   const int area_x1 =
       layout->alert ? UI_CONTENT_RIGHT - UI_HINT_ALERT_W - UI_HINT_ALERT_GAP : UI_CONTENT_RIGHT;
