@@ -9,7 +9,6 @@
 #include "chiaki/base64.h"
 #include "config.h"
 #include "context.h"
-#include "ui/ui_screens.h"
 
 VitaChiakiContext context = {0};
 
@@ -409,21 +408,6 @@ static void test_resolution_roundtrip(void) {
   }
 }
 
-static void test_settings_streaming_item_invariants(void) {
-  assert(UI_SETTINGS_ITEM_QUALITY_PRESET == 0);
-  assert(UI_SETTINGS_ITEM_LATENCY_MODE == 1);
-  assert(UI_SETTINGS_ITEM_FPS_TARGET == 2);
-  assert(UI_SETTINGS_ITEM_FORCE_30_FPS == 3);
-  assert(UI_SETTINGS_ITEM_AUTO_DISCOVERY == 4);
-  assert(UI_SETTINGS_ITEM_SHOW_LATENCY == 5);
-  assert(UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS == 6);
-  assert(UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE == 7);
-  assert(UI_SETTINGS_ITEM_FILL_SCREEN == 8);
-  assert(UI_SETTINGS_ITEM_SHOW_NAV_LABELS == 9);
-  assert(UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM == 10);
-  assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
-}
-
 static void test_registered_hosts_require_required_fields(void) {
   reset_config_file();
   write_config_text(
@@ -520,7 +504,6 @@ int main(void) {
   test_root_level_bool_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
-  test_settings_streaming_item_invariants();
   test_registered_hosts_require_required_fields();
   test_old_config_gets_new_field_defaults();
   test_new_fields_survive_save_and_load();

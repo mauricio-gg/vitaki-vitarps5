@@ -100,15 +100,6 @@ typedef struct nav_collapse_state_t {
 } NavCollapseState;
 
 /**
- * Toggle switch animation state
- */
-typedef struct toggle_animation_state_t {
-  int animating_index;     // Which toggle is animating (-1 = none)
-  bool target_state;       // Target state (true = ON, false = OFF)
-  uint64_t start_time_us;  // Animation start time
-} ToggleAnimationState;
-
-/**
  * Hints popup state
  */
 typedef struct hints_popup_state_t {

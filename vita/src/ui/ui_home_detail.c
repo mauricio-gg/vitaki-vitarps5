@@ -158,13 +158,15 @@ static void build_settings_rows(int group) {
       add_toggle_row("Show Latency", cfg->show_latency);
       add_toggle_row("Show Network Alerts", cfg->show_network_indicator);
       add_toggle_row("Show Exit Shortcut Hint", cfg->show_stream_exit_hint);
+      add_toggle_row("Show Button Hints", cfg->show_button_hints);
+      add_row("Background Blur", ui_label_background_blur(cfg->background_blur), 0);
       break;
     case UI_SETTINGS_GROUP_CONTROLS:
       add_toggle_row("Circle Button Confirm", cfg->circle_btn_confirm);
       break;
     case UI_SETTINGS_GROUP_ADVANCED:
       add_toggle_row("Clamp Soft Restart Bitrate", cfg->clamp_soft_restart_bitrate);
-      add_toggle_row("Motion during loss (Experimental)", cfg->submit_on_missing_ref);
+      add_toggle_row("Motion during loss (artifacts) (Experimental)", cfg->submit_on_missing_ref);
       add_toggle_row("Enable Logging", cfg->logging.enabled);
       break;
     default:

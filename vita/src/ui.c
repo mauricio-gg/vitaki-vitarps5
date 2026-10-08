@@ -69,6 +69,7 @@
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
 #include "ui/ui_settings.h"
+#include "ui/ui_settings_actions.h"
 #include "ui/ui_shapes.h"
 
 vita2d_font *font;
@@ -112,9 +113,6 @@ static bool *touch_block_pending_clear = NULL;
 // selected_console_index moved to ui_console_cards.c
 // Console card cache moved to ui_console_cards.c
 // CardFocusAnimState moved to ui_console_cards.c
-
-// ToggleAnimationState type moved to ui_types.h
-// ToggleAnimationState instance moved to ui_components.c
 
 // Component functions moved to ui_components.c (accessible via ui_internal.h)
 static void render_loss_indicator_preview(void);
@@ -381,7 +379,6 @@ bool ui_reload_psn_account_id(void) {
 // ============================================================================
 // All screen rendering functions moved to ui_screens.c:
 // - ui_screen_draw_main()
-// - ui_screen_draw_settings()
 // - ui_screen_draw_profile()
 // - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
@@ -440,10 +437,7 @@ void init_ui() {
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
 
   // Set yes/no buttons (circle = yes on Japanese vitas, typically)
-  SCE_CTRL_CONFIRM = context.config.circle_btn_confirm ? SCE_CTRL_CIRCLE : SCE_CTRL_CROSS;
-  SCE_CTRL_CANCEL = context.config.circle_btn_confirm ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
-  confirm_btn_str = context.config.circle_btn_confirm ? "Circle" : "Cross";
-  cancel_btn_str = context.config.circle_btn_confirm ? "Cross" : "Circle";
+  ui_settings_apply_circle_confirm();
 
   // Initialize UI modules
   ui_input_init();

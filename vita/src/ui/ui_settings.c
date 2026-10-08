@@ -10,6 +10,9 @@
 #include "ui/ui_settings.h"
 
 #include "context.h"
+#include "logging.h"
+#include "video.h"
+#include "ui/ui_console_cards.h"
 #include "ui/ui_group_list.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_home.h"
@@ -121,14 +124,196 @@ static const SettingDef VIDEO_ROWS[] = {
      fill_screen_is_on, NULL, fill_screen_change},
 };
 
-/** Groups, in the order of Home's Settings list. The other groups are filled by ticket #302's
- * later tasks. */
+/* Network */
+
+static bool auto_discovery_is_on(void) {
+  return context.config.auto_discovery;
+}
+
+/* Read at startup only (SPEC 3.6): saving is all there is to do. */
+static void auto_discovery_change(int step) {
+  (void)step;
+  context.config.auto_discovery = !context.config.auto_discovery;
+  ui_settings_persist_config();
+}
+
+static bool psn_internet_is_on(void) {
+  return context.config.psn_remoteplay_enabled;
+}
+
+static void psn_internet_change(int step) {
+  (void)step;
+  context.config.psn_remoteplay_enabled = !context.config.psn_remoteplay_enabled;
+  ui_settings_persist_config();
+}
+
+static bool show_only_paired_is_on(void) {
+  return context.config.show_only_paired;
+}
+
+static void show_only_paired_change(int step) {
+  (void)step;
+  context.config.show_only_paired = !context.config.show_only_paired;
+  ui_settings_persist_config();
+  ui_cards_update_cache(true);
+}
+
+static const SettingDef NETWORK_ROWS[] = {
+    {"Auto Discovery", UI_SETTING_TOGGLE,
+     "Find consoles on your network automatically. Takes effect the next time the app starts.",
+     auto_discovery_is_on, NULL, auto_discovery_change},
+    {"Enable PSN Internet Mode", UI_SETTING_TOGGLE,
+     "Connect to your consoles over the internet with your PSN account.", psn_internet_is_on, NULL,
+     psn_internet_change},
+    {"Show Only Paired", UI_SETTING_TOGGLE, "Hide consoles that are not paired.",
+     show_only_paired_is_on, NULL, show_only_paired_change},
+};
+
+/* Display */
+
+static bool show_latency_is_on(void) {
+  return context.config.show_latency;
+}
+
+static void show_latency_change(int step) {
+  (void)step;
+  context.config.show_latency = !context.config.show_latency;
+  ui_settings_persist_config();
+}
+
+static bool network_alerts_is_on(void) {
+  return context.config.show_network_indicator;
+}
+
+static void network_alerts_change(int step) {
+  (void)step;
+  context.config.show_network_indicator = !context.config.show_network_indicator;
+  ui_settings_persist_config();
+  if (!context.config.show_network_indicator)
+    vitavideo_hide_poor_net_indicator();
+}
+
+static bool exit_hint_is_on(void) {
+  return context.config.show_stream_exit_hint;
+}
+
+static void exit_hint_change(int step) {
+  (void)step;
+  context.config.show_stream_exit_hint = !context.config.show_stream_exit_hint;
+  ui_settings_persist_config();
+}
+
+static bool button_hints_is_on(void) {
+  return context.config.show_button_hints;
+}
+
+static void button_hints_change(int step) {
+  (void)step;
+  context.config.show_button_hints = !context.config.show_button_hints;
+  ui_settings_persist_config();
+}
+
+static const char *background_blur_text(void) {
+  return ui_label_background_blur(context.config.background_blur);
+}
+
+/* The background draws from this field every frame, so storing it is all it takes to apply. */
+static void background_blur_change(int step) {
+  context.config.background_blur = (VitaChiakiBackgroundBlur)wrap_index(
+      (int)context.config.background_blur, step, VITA_BACKGROUND_BLUR_COUNT);
+  ui_settings_persist_config();
+}
+
+static const SettingDef DISPLAY_ROWS[] = {
+    {"Show Latency", UI_SETTING_TOGGLE, "Show latency and frame rate in the stream overlay.",
+     show_latency_is_on, NULL, show_latency_change},
+    {"Show Network Alerts", UI_SETTING_TOGGLE, "Show a badge when the connection becomes unstable.",
+     network_alerts_is_on, NULL, network_alerts_change},
+    {"Show Exit Shortcut Hint", UI_SETTING_TOGGLE, "Show how to leave the stream when it starts.",
+     exit_hint_is_on, NULL, exit_hint_change},
+    {"Show Button Hints", UI_SETTING_TOGGLE, "Show the button hints along the bottom of menus.",
+     button_hints_is_on, NULL, button_hints_change},
+    {"Background Blur", UI_SETTING_CHOICE,
+     "Blur the background waves behind menus. Strong and Dark are softer and calmer.", NULL,
+     background_blur_text, background_blur_change},
+};
+
+/* Controls */
+
+static bool circle_confirm_is_on(void) {
+  return context.config.circle_btn_confirm;
+}
+
+static void circle_confirm_change(int step) {
+  (void)step;
+  context.config.circle_btn_confirm = !context.config.circle_btn_confirm;
+  ui_settings_persist_config();
+  ui_settings_apply_circle_confirm();
+}
+
+static const SettingDef CONTROLS_ROWS[] = {
+    {"Circle Button Confirm", UI_SETTING_TOGGLE,
+     "Use Circle to confirm and Cross to go back, on every screen.", circle_confirm_is_on, NULL,
+     circle_confirm_change},
+};
+
+/* Advanced */
+
+static bool clamp_restart_is_on(void) {
+  return context.config.clamp_soft_restart_bitrate;
+}
+
+static void clamp_restart_change(int step) {
+  (void)step;
+  context.config.clamp_soft_restart_bitrate = !context.config.clamp_soft_restart_bitrate;
+  ui_settings_persist_config();
+}
+
+static bool motion_during_loss_is_on(void) {
+  return context.config.submit_on_missing_ref;
+}
+
+static void motion_during_loss_change(int step) {
+  (void)step;
+  context.config.submit_on_missing_ref = !context.config.submit_on_missing_ref;
+  ui_settings_persist_config();
+}
+
+static bool logging_is_on(void) {
+  return context.config.logging.enabled;
+}
+
+static void logging_change(int step) {
+  (void)step;
+  context.config.logging.enabled = !context.config.logging.enabled;
+  ui_settings_persist_config();
+  vita_log_update_enabled(context.config.logging.enabled);
+  context.log.level_mask = vita_logging_profile_mask(
+      context.config.logging.enabled ? VITA_LOG_PROFILE_VERBOSE : VITA_LOG_PROFILE_ERRORS);
+}
+
+static const SettingDef ADVANCED_ROWS[] = {
+    {"Clamp Soft Restart Bitrate", UI_SETTING_TOGGLE,
+     "Limit the bitrate when the stream restarts after packet loss.", clamp_restart_is_on, NULL,
+     clamp_restart_change},
+    {"Motion during loss (artifacts) (Experimental)", UI_SETTING_TOGGLE,
+     "Keep motion going while packets are lost. May show visual artifacts.",
+     motion_during_loss_is_on, NULL, motion_during_loss_change},
+    {"Enable Logging", UI_SETTING_TOGGLE, "Write diagnostic logs on the Vita for troubleshooting.",
+     logging_is_on, NULL, logging_change},
+};
+
+/** Groups, in the order of Home's Settings list. */
 static const SettingGroup GROUPS[UI_SETTINGS_GROUP_COUNT] = {
     [UI_SETTINGS_GROUP_VIDEO] = {VIDEO_ROWS, (int)(sizeof(VIDEO_ROWS) / sizeof(VIDEO_ROWS[0]))},
-    [UI_SETTINGS_GROUP_NETWORK] = {NULL, 0},
-    [UI_SETTINGS_GROUP_DISPLAY] = {NULL, 0},
-    [UI_SETTINGS_GROUP_CONTROLS] = {NULL, 0},
-    [UI_SETTINGS_GROUP_ADVANCED] = {NULL, 0},
+    [UI_SETTINGS_GROUP_NETWORK] = {NETWORK_ROWS,
+                                   (int)(sizeof(NETWORK_ROWS) / sizeof(NETWORK_ROWS[0]))},
+    [UI_SETTINGS_GROUP_DISPLAY] = {DISPLAY_ROWS,
+                                   (int)(sizeof(DISPLAY_ROWS) / sizeof(DISPLAY_ROWS[0]))},
+    [UI_SETTINGS_GROUP_CONTROLS] = {CONTROLS_ROWS,
+                                    (int)(sizeof(CONTROLS_ROWS) / sizeof(CONTROLS_ROWS[0]))},
+    [UI_SETTINGS_GROUP_ADVANCED] = {ADVANCED_ROWS,
+                                    (int)(sizeof(ADVANCED_ROWS) / sizeof(ADVANCED_ROWS[0]))},
 };
 
 static const char *const GROUP_NAMES[UI_SETTINGS_GROUP_COUNT] = {"Video", "Network", "Display",

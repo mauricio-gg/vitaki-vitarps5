@@ -3,7 +3,7 @@
  * @brief Config changes shared by the Settings screens
  *
  * The rules a setting follows when it changes (saving the config, applying it to a running
- * session) live here once, so the old Settings screen and the XMB Settings page cannot drift.
+ * session) live here once, so every screen that changes a setting follows the same rules.
  */
 
 #pragma once
@@ -27,3 +27,12 @@ ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPre
  * Does nothing when no session is initialised.
  */
 void ui_settings_apply_force_30fps(void);
+
+/**
+ * ui_settings_apply_circle_confirm() - Make the Circle Button Confirm setting take effect: the
+ * legacy SCE_CTRL_CONFIRM / SCE_CTRL_CANCEL globals and their button names follow the config
+ * (the UiInput snapshot already reads the config every frame). When a face button is held, it is
+ * blocked until released, so the press that flipped the setting is not read again as the swapped
+ * button. Also called once at startup, to set the globals from the loaded config.
+ */
+void ui_settings_apply_circle_confirm(void);

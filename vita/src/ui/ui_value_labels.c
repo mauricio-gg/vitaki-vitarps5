@@ -53,6 +53,20 @@ const char *ui_label_on_off(bool on) {
   return on ? "On" : "Off";
 }
 
+const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur) {
+  switch (blur) {
+    case VITA_BACKGROUND_BLUR_SOFT:
+      return "Soft";
+    case VITA_BACKGROUND_BLUR_STRONG:
+      return "Strong";
+    case VITA_BACKGROUND_BLUR_DARK:
+      return "Dark";
+    case VITA_BACKGROUND_BLUR_NONE:
+    default:
+      return "None";
+  }
+}
+
 VitaChiakiHost *ui_profile_reference_host(void) {
   if (context.active_host) {
     return context.active_host;

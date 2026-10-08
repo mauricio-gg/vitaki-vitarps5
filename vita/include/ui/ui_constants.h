@@ -142,11 +142,6 @@
 #define CARD_TEXT_BASELINE_OFFSET 7     // Vertical baseline adjustment
 
 // ============================================================================
-// Toggle Switch Animation
-// ============================================================================
-#define TOGGLE_ANIMATION_DURATION_MS 180  // 180ms for smooth feel
-
-// ============================================================================
 // Hints Popup
 // ============================================================================
 #define HINTS_POPUP_DURATION_MS 7000
