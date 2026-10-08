@@ -676,7 +676,14 @@ void draw_ui() {
 
       ui_input_update_snapshot();
 
-      vita2d_start_drawing();
+      /*
+       * The background resets vita2d's pool and renders its blur target (a scene of its own)
+       * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
+       * which would reset the pool again.
+       */
+      ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
+                            screen == UI_SCREEN_TYPE_RECONNECTING);
+      vita2d_start_drawing_advanced(NULL, 0);
       vita2d_clear_screen();
 
       /*

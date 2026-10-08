@@ -258,6 +258,16 @@ typedef enum ui_face_t {
 #define UI_BG_DUST_BOB_TIME 0.0004f
 #define UI_BG_DUST_BOB_AMP 6.0f
 
+/* Blur levels: the wave is rendered into a small target and drawn upscaled with bilinear
+ * filtering. Soft uses 1/4 scale, Strong and Dark 1/16 (SPEC C27, FEASIBILITY section 8).
+ * Both sizes divide the screen exactly, so the upscale factor is VITA_WIDTH / width. */
+#define UI_BG_BLUR_SOFT_W 240
+#define UI_BG_BLUR_SOFT_H 136
+#define UI_BG_BLUR_STRONG_W 60
+#define UI_BG_BLUR_STRONG_H 34
+/* GXM reads a linear texture with rows padded to a multiple of this many pixels. */
+#define UI_BG_BLUR_STRIDE_ALIGN 8
+
 /** Depth of every background vertex (vita2d draws 2D shapes at z = 0.5). */
 #define UI_BG_Z 0.5f
 
