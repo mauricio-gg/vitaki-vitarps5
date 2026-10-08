@@ -59,6 +59,16 @@ static inline bool ui_rect_contains(UiRect r, float px, float py) {
   return px >= (float)r.x && px < (float)(r.x + r.w) && py >= (float)r.y && py < (float)(r.y + r.h);
 }
 
+/**
+ * ui_color_scale_alpha() - Scale the alpha byte of an ABGR colour.
+ * @color: Colour whose alpha is scaled.
+ * @k:     Factor, 0 (invisible) to 1 (unchanged).
+ */
+static inline uint32_t ui_color_scale_alpha(uint32_t color, float k) {
+  uint32_t alpha = (uint32_t)((float)(color >> 24) * k + 0.5f);
+  return (color & 0x00FFFFFFu) | (alpha << 24);
+}
+
 /* ============================================================================
  * Events and input
  * ============================================================================ */

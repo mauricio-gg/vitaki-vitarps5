@@ -142,6 +142,9 @@ typedef enum ui_face_t {
 #define UI_R_SM 8
 #define UI_R_MD 16
 
+/** Right edge of the content area (screen width minus UI_MARGIN_X). */
+#define UI_CONTENT_RIGHT 912
+
 /* Motion */
 #define UI_D1_MS 150
 #define UI_D2_MS 300
@@ -323,3 +326,57 @@ typedef enum ui_face_t {
 /** Holding Confirm this long on a console with both a local and an Internet route opens "Connect
  * via". */
 #define UI_HOME_LONG_PRESS_MS 600
+
+/* ============================================================================
+ * Rounded shapes (SPEC 1.3): fixed heights of the baked 3-slice shapes
+ * ============================================================================ */
+
+#define UI_SHAPE_H_BAR 48
+#define UI_SHAPE_H_BAR_LARGE 56
+#define UI_SHAPE_H_BUTTON 48
+#define UI_SHAPE_H_PILL 32
+#define UI_SHAPE_H_TRACK 24
+
+/* ============================================================================
+ * C19 Pill
+ * ============================================================================ */
+
+#define UI_PILL_H UI_SHAPE_H_PILL
+#define UI_PILL_PAD UI_S2
+#define UI_PILL_DOT_R 6
+#define UI_PILL_DOT_GAP UI_S1
+/** The unstable pill pulses its opacity between 100% and UI_PILL_PULSE_MIN_PCT over this period. */
+#define UI_PILL_PULSE_MS 1400
+#define UI_PILL_PULSE_MIN_PCT 55
+
+/* ============================================================================
+ * C23 TopBar
+ * ============================================================================ */
+
+#define UI_TOPBAR_H 32
+#define UI_TOPBAR_ICON 24
+#define UI_TOPBAR_GAP UI_S3
+#define UI_TOPBAR_ICON_GAP UI_S1
+#define UI_TOPBAR_SLOT_PAD UI_S3
+/** System reads (Wi-Fi link, battery, clock) are refreshed this often, never per frame. */
+#define UI_TOPBAR_POLL_MS 1000
+/** Wi-Fi icon opacity while there is no link. */
+#define UI_TOPBAR_OFFLINE_PCT 45
+
+/* ============================================================================
+ * C06 HintRow
+ * ============================================================================ */
+
+#define UI_HINT_H 48
+#define UI_HINT_GAP UI_S3
+#define UI_HINT_GLYPH_H 20
+#define UI_HINT_GLYPH_GAP UI_S1
+/** Gap between the two badges of the combined L R glyph. */
+#define UI_HINT_LR_GAP 4
+#define UI_HINT_DIM_PCT 45
+/** Right slot reserved for the Network Unstable pill. */
+#define UI_HINT_ALERT_W 200
+/** Hints never run closer than this to the alert slot. */
+#define UI_HINT_ALERT_GAP UI_S2
+/** The most hints one row can hold. */
+#define UI_HINT_MAX_ITEMS 8

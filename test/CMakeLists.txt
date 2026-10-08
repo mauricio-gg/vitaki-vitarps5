@@ -63,3 +63,16 @@ target_include_directories(bitstream_sps_tests PRIVATE
 )
 
 add_test(NAME vitarps5_bitstream_sps_tests COMMAND bitstream_sps_tests)
+
+# ui_chrome_layout_tests.c checks the pure hint-row collapse and banner ellipsis rules.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_chrome_layout_tests
+    ui_chrome_layout_tests.c
+    ../vita/src/ui/ui_chrome_layout.c
+)
+
+target_include_directories(ui_chrome_layout_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_chrome_layout_tests COMMAND ui_chrome_layout_tests)

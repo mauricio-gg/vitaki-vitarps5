@@ -1,0 +1,169 @@
+/**
+ * @file ui_hint_row.c
+ * @brief C06 HintRow (SPEC.md C06)
+ */
+
+#include "ui/ui_hint_row.h"
+
+#include <vita2d.h>
+#include <psp2/kernel/processmgr.h>
+
+#include "context.h"
+#include "ui/ui_chrome_layout.h"
+#include "ui/ui_internal.h"
+#include "ui/ui_pill.h"
+#include "ui/ui_text.h"
+#include "ui/ui_theme.h"
+
+#define BADGE_DIR "app0:/assets/glyphs/"
+
+static const char ALERT_TEXT[] = "Network Unstable";
+
+static vita2d_texture *s_badge_l = NULL;
+static vita2d_texture *s_badge_r = NULL;
+
+void ui_hint_row_init(void) {
+  s_badge_l = ui_load_png_linear(BADGE_DIR "hint_l.png");
+  s_badge_r = ui_load_png_linear(BADGE_DIR "hint_r.png");
+}
+
+/**
+ * network_unstable_active() - True while a Network Unstable alert is showing on a menu.
+ *
+ * The same signal the old menu indicator (render_loss_indicator_preview in ui.c) reads:
+ * not streaming, the Show Network Alerts setting on, and the loss alert deadline in the
+ * future. The host side sets the deadline on packet-loss bursts.
+ */
+static bool network_unstable_active(void) {
+  if (context.stream.is_streaming || !context.config.show_network_indicator)
+    return false;
+  const uint64_t until_us = context.stream.loss_alert_until_us;
+  return until_us != 0 && sceKernelGetProcessTimeWide() < until_us;
+}
+
+/** Texture of a single-glyph action, or NULL when the action has none. */
+static vita2d_texture *glyph_texture(uint32_t action) {
+  const bool circle_confirm = context.config.circle_btn_confirm;
+  switch (action) {
+    case UI_BTN_CONFIRM:
+      return circle_confirm ? symbol_circle : symbol_ex;
+    case UI_BTN_CANCEL:
+      return circle_confirm ? symbol_ex : symbol_circle;
+    case UI_BTN_OPTIONS:
+      return symbol_triangle;
+    case UI_BTN_CLEAR:
+      return symbol_square;
+    case UI_BTN_L:
+      return s_badge_l;
+    case UI_BTN_R:
+      return s_badge_r;
+    default:
+      return NULL;
+  }
+}
+
+/** Drawn width of @tex scaled to UI_HINT_GLYPH_H high; 0 for NULL. */
+static int glyph_width(const vita2d_texture *tex) {
+  if (!tex)
+    return 0;
+  return (int)vita2d_texture_get_width(tex) * UI_HINT_GLYPH_H / (int)vita2d_texture_get_height(tex);
+}
+
+/** Width of the glyph (or glyph pair) of @action; 0 when it has none. */
+static int action_glyph_width(uint32_t action) {
+  if (action == (UI_BTN_L | UI_BTN_R))
+    return glyph_width(s_badge_l) + UI_HINT_LR_GAP + glyph_width(s_badge_r);
+  return glyph_width(glyph_texture(action));
+}
+
+/** Width of a whole hint: glyph, gap, label. */
+static int item_width(const UiHintItem *item) {
+  const int glyph_w = action_glyph_width(item->action);
+  const int label_w = ui_text_face_width(UI_FACE_T14, item->label);
+  return glyph_w > 0 ? glyph_w + UI_HINT_GLYPH_GAP + label_w : label_w;
+}
+
+void ui_hint_row_layout(UiHintLayout *layout, const UiHintItem *items, int count) {
+  if (count > UI_HINT_MAX_ITEMS)
+    count = UI_HINT_MAX_ITEMS;
+
+  int widths[UI_HINT_MAX_ITEMS];
+  bool low[UI_HINT_MAX_ITEMS];
+  bool keep[UI_HINT_MAX_ITEMS];
+  for (int i = 0; i < count; i++) {
+    widths[i] = item_width(&items[i]);
+    low[i] = items[i].low_priority;
+  }
+
+  layout->alert = network_unstable_active();
+  const int area_x0 = UI_MARGIN_X;
+  const int area_x1 =
+      layout->alert ? UI_CONTENT_RIGHT - UI_HINT_ALERT_W - UI_HINT_ALERT_GAP : UI_CONTENT_RIGHT;
+  const int total = ui_hint_row_fit(widths, low, count, UI_HINT_GAP, area_x1 - area_x0, keep);
+
+  int x = (area_x0 + area_x1 - total) / 2;
+  if (x < area_x0)
+    x = area_x0;
+  layout->count = 0;
+  for (int i = 0; i < count; i++) {
+    if (!keep[i])
+      continue;
+    const int n = layout->count++;
+    layout->items[n] = items[i];
+    layout->x[n] = x;
+    layout->hit[n] = (UiRect){x, UI_HINT_Y, widths[i], UI_HINT_H};
+    x += widths[i] + UI_HINT_GAP;
+  }
+}
+
+/** Draw @tex scaled to UI_HINT_GLYPH_H high at (@x, @y) with @tint. */
+static void draw_glyph(vita2d_texture *tex, int x, int y, uint32_t tint) {
+  if (!tex)
+    return;
+  const float scale = (float)UI_HINT_GLYPH_H / (float)vita2d_texture_get_height(tex);
+  vita2d_draw_texture_tint_scale(tex, (float)x, (float)y, scale, scale, tint);
+}
+
+void ui_hint_row_draw(const UiHintLayout *layout) {
+  const int glyph_y = UI_HINT_Y + (UI_HINT_H - UI_HINT_GLYPH_H) / 2;
+
+  for (int i = 0; i < layout->count; i++) {
+    const UiHintItem *item = &layout->items[i];
+    const float k = item->dim ? (float)UI_HINT_DIM_PCT / 100.0f : 1.0f;
+    const uint32_t tint = ui_color_scale_alpha(UI_TEXT, k);
+    int x = layout->x[i];
+
+    if (item->action == (UI_BTN_L | UI_BTN_R)) {
+      draw_glyph(s_badge_l, x, glyph_y, tint);
+      x += glyph_width(s_badge_l) + UI_HINT_LR_GAP;
+      draw_glyph(s_badge_r, x, glyph_y, tint);
+      x += glyph_width(s_badge_r) + UI_HINT_GLYPH_GAP;
+    } else if (glyph_texture(item->action)) {
+      draw_glyph(glyph_texture(item->action), x, glyph_y, tint);
+      x += glyph_width(glyph_texture(item->action)) + UI_HINT_GLYPH_GAP;
+    }
+    ui_text_draw_face_centered_v(UI_FACE_T14, x, UI_HINT_Y, UI_HINT_H,
+                                 ui_color_scale_alpha(UI_TEXT_2, k), item->label);
+  }
+
+  if (layout->alert) {
+    const int w = ui_pill_width(UI_PILL_UNSTABLE, ALERT_TEXT);
+    ui_pill_draw(UI_PILL_UNSTABLE, UI_CONTENT_RIGHT - w, UI_HINT_Y + (UI_HINT_H - UI_PILL_H) / 2,
+                 ALERT_TEXT);
+  }
+}
+
+uint32_t ui_hint_row_tap(const UiHintLayout *layout, const UiInput *in) {
+  if (!ui_touch_tap(in))
+    return 0;
+  for (int i = 0; i < layout->count; i++) {
+    const UiRect hit = layout->hit[i];
+    if (!ui_rect_contains(hit, in->touch.x, in->touch.y))
+      continue;
+    const uint32_t action = layout->items[i].action;
+    if (action != (UI_BTN_L | UI_BTN_R))
+      return action;
+    return in->touch.x < (float)(hit.x + hit.w / 2) ? UI_BTN_L : UI_BTN_R;
+  }
+  return 0;
+}

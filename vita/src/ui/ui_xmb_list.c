@@ -32,12 +32,6 @@ static float row_fade(int top) {
   return (float)(LIST_BOTTOM - probe) / (float)UI_LIST_FADE_H;
 }
 
-/** Scale the alpha byte of an ABGR colour by @k (0..1). */
-static uint32_t scale_alpha(uint32_t color, float k) {
-  uint32_t alpha = (uint32_t)((float)(color >> 24) * k + 0.5f);
-  return (color & 0x00FFFFFFu) | (alpha << 24);
-}
-
 static void layout_rows(UiXmbList *list) {
   for (int i = 0; i < list->count; i++) {
     UiRect empty = {0, 0, 0, 0};
@@ -80,14 +74,15 @@ static void draw_status_line(const UiXmbItem *item, UiFace face, int text_y, flo
 
   if (item->status_dot) {
     vita2d_draw_fill_circle(x + UI_LIST_DOT_R, text_y + line_h / 2, UI_LIST_DOT_R,
-                            scale_alpha(item->status_color, k));
+                            ui_color_scale_alpha(item->status_color, k));
     x += UI_LIST_DOT_R * 2 + UI_LIST_DOT_GAP;
   }
-  ui_text_draw_face_centered_v(face, x, text_y, line_h, scale_alpha(item->status_color, k),
+  ui_text_draw_face_centered_v(face, x, text_y, line_h, ui_color_scale_alpha(item->status_color, k),
                                item->status);
   if (item->route) {
     x += ui_text_face_width(face, item->status) + UI_LIST_ROUTE_GAP;
-    ui_text_draw_face_centered_v(face, x, text_y, line_h, scale_alpha(UI_INTERNET, k), item->route);
+    ui_text_draw_face_centered_v(face, x, text_y, line_h, ui_color_scale_alpha(UI_INTERNET, k),
+                                 item->route);
   }
 }
 
@@ -107,14 +102,14 @@ static void draw_row(const UiXmbItem *item, int top, bool focused) {
     if (glow) {
       vita2d_draw_texture_tint(glow, (float)(UI_LIST_ICON_CX - UI_LIST_GLOW / 2),
                                (float)(top + UI_LIST_ICON_BOX / 2 - UI_LIST_GLOW / 2),
-                               scale_alpha(UI_WHITE_PCT(UI_LIST_GLOW_PCT), k));
+                               ui_color_scale_alpha(UI_WHITE_PCT(UI_LIST_GLOW_PCT), k));
     }
   }
 
   if (item->icon) {
     float icon_k = item->dim_icon ? k * (float)UI_LIST_DIM_PCT / 100.0f : k;
     vita2d_draw_texture_tint(item->icon, (float)icon_x, (float)icon_y,
-                             scale_alpha(UI_TEXT, icon_k));
+                             ui_color_scale_alpha(UI_TEXT, icon_k));
   }
 
   UiFace name_face = focused ? UI_FACE_T20 : UI_FACE_T16;
@@ -124,7 +119,7 @@ static void draw_row(const UiXmbItem *item, int top, bool focused) {
   int text_top = top + (UI_LIST_ROW_H - (name_h + status_h)) / 2;
 
   ui_text_draw_face_centered_v(name_face, UI_LIST_TEXT_X, text_top, name_h,
-                               scale_alpha(focused ? UI_TEXT : UI_TEXT_2, k), item->name);
+                               ui_color_scale_alpha(focused ? UI_TEXT : UI_TEXT_2, k), item->name);
   if (item->status)
     draw_status_line(item, status_face, text_top + name_h, k);
 }
