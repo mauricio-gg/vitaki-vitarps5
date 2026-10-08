@@ -26,6 +26,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_metrics.c
     src/host_quit.c
     src/host_registration.c
+    src/host_registration_result.c
     src/host_recovery.c
     src/host_storage.c
     src/psn_auth.c
@@ -55,6 +56,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_text.c
     src/ui/ui_component.c
     src/ui/ui_console_status.c
+    src/ui/ui_result_copy.c
     src/ui/ui_console_rows.c
     src/ui/ui_category_bar.c
     src/ui/ui_xmb_list.c
