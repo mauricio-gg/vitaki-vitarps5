@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaRPS5 XMB Mock</title>
+<link rel="stylesheet" href="tokens-xmb.css">
+<link rel="stylesheet" href="xmb.css">
+</head><body>
+<div class="shell">
+  <div class="bar" id="bar">
+    <span class="ttl">VitaRPS5 XMB</span>
+    <a href="index.html">&larr; Index</a>
+    <select id="jump" aria-label="Jump to screen"></select>
+    <button id="bCc" aria-pressed="false" title="Circle Button Confirm setting">Confirm: Cross</button>
+    <button id="bUn" aria-pressed="false">Network unstable: off</button>
+    <button id="bDev" aria-pressed="false">View on device</button>
+    <button id="bZoom">Zoom 2&times;</button>
+  </div>
+  <div class="devWrap" id="wrap"><div class="devScale">
+    <svg class="bezel" viewBox="0 0 1260 712" aria-hidden="true">
+      <defs>
+        <linearGradient id="bzBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b303b"/><stop offset=".5" stop-color="#1a1e27"/><stop offset="1" stop-color="#12151c"/></linearGradient>
+        <linearGradient id="bzRim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4b5263"/><stop offset="1" stop-color="#0c0e13"/></linearGradient>
+        <radialGradient id="bzStick" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#4a5163"/><stop offset="1" stop-color="#14171e"/></radialGradient>
+        <linearGradient id="bzBtn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4050"/><stop offset="1" stop-color="#1b1f28"/></linearGradient>
+      </defs>
+      <rect x="2" y="2" width="1256" height="708" rx="96" fill="url(#bzRim)"/>
+      <rect x="7" y="7" width="1246" height="698" rx="92" fill="url(#bzBody)"/>
+      <rect x="150" y="84" width="960" height="544" rx="6" fill="#000"/>
+      <rect x="138" y="72" width="984" height="568" rx="14" fill="none" stroke="#0a0c11" stroke-width="12"/>
+      <g transform="translate(75 186)"><rect x="-17" y="-52" width="34" height="104" rx="9" fill="url(#bzBtn)"/><rect x="-52" y="-17" width="104" height="34" rx="9" fill="url(#bzBtn)"/><circle r="12" fill="#12151c"/></g>
+      <g transform="translate(75 392)"><circle r="46" fill="#0d1016"/><circle r="38" fill="url(#bzStick)"/><circle r="22" fill="none" stroke="#0b0d12" stroke-width="3" opacity=".7"/></g>
+      <g transform="translate(1185 186)" fill="url(#bzBtn)"><circle cx="0" cy="-42" r="19"/><circle cx="0" cy="42" r="19"/><circle cx="-42" cy="0" r="19"/><circle cx="42" cy="0" r="19"/></g>
+      <g transform="translate(1185 392)"><circle r="46" fill="#0d1016"/><circle r="38" fill="url(#bzStick)"/><circle r="22" fill="none" stroke="#0b0d12" stroke-width="3" opacity=".7"/></g>
+      <g fill="#0d1016"><rect x="48" y="620" width="54" height="14" rx="7"/><rect x="1158" y="620" width="54" height="14" rx="7"/></g>
+      <g fill="#0a0c11"><circle cx="75" cy="560" r="3"/><circle cx="90" cy="560" r="3"/><circle cx="105" cy="560" r="3"/><circle cx="1155" cy="560" r="3"/><circle cx="1170" cy="560" r="3"/><circle cx="1185" cy="560" r="3"/></g>
+      <circle cx="630" cy="42" r="6" fill="#0a0c11"/><circle cx="630" cy="42" r="2.5" fill="#1d3a55"/>
+      <rect x="40" y="0" width="150" height="9" rx="4.5" fill="#0e1117"/><rect x="1070" y="0" width="150" height="9" rx="4.5" fill="#0e1117"/>
+    </svg>
+    <div class="stage" id="stage"><div id="screen"></div><div class="glare"></div></div>
+  </div></div>
+  <div class="legend" id="legend"></div>
+  <div class="note">Native 960&times;544. Console, logo and controller images are the app's own assets; the stream picture is fictional. The QR code is illustrative and not scannable. Backdrop blur and glow become baked textures on the Vita; see FEASIBILITY.md. Build spec: <a href="SPEC.md" style="color:#9cc7ff">SPEC.md</a>. The device frame is a generic handheld.</div>
+</div>
+<script src="xmb-data.js"></script>
+<script src="xmb-ui.js"></script>
+<script src="xmb-wave.js"></script>
+<script src="xmb-app.js"></script>
+</body></html>
