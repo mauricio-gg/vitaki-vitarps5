@@ -25,6 +25,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ui_component.h"
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -85,34 +87,6 @@ void ui_input_clear_button_blocks(void);
 void ui_input_block_button(SceCtrlButtons btn);
 
 // ============================================================================
-// Cross Button Hold Tracking
-// ============================================================================
-
-/**
- * Update Cross button hold timing — call once per frame after button state
- * has been refreshed (old_button_state / button_state are current).
- *
- * Records the start time on the leading edge of a Cross press and clears it
- * on release.  Must be called before any code queries ui_input_cross_held_ms().
- */
-void ui_input_update_hold_tracking(void);
-
-/**
- * Query whether the Cross button has been held for at least @p ms milliseconds.
- *
- * @param ms  Minimum continuous hold duration in milliseconds.
- * @return    true if the Cross button has been held for >= ms, false otherwise.
- */
-bool ui_input_cross_held_ms(uint32_t ms);
-
-/**
- * Reset the Cross button hold tracker after consuming a long-press event.
- *
- * Prevents the same hold from firing additional actions in subsequent frames.
- */
-void ui_input_cross_hold_reset(void);
-
-// ============================================================================
 // Touch Input
 // ============================================================================
 
@@ -146,6 +120,27 @@ float ui_input_get_touch_y(void);
  * @return true if touch events should be ignored
  */
 bool ui_input_is_touch_blocked(void);
+
+// ============================================================================
+// Per-Frame Snapshot
+// ============================================================================
+
+/**
+ * Rebuild the per-frame input snapshot used by XMB components.
+ *
+ * Call once per UI frame, after the controller and front touch have been read and
+ * before any screen runs. Buttons are resolved to logical actions (Circle Button
+ * Confirm swap applied), D-pad hold-repeat is computed, and touch is mapped to
+ * screen pixels. Respects the button block mask and the touch block set by
+ * ui_input_block_for_transition(), and reports nothing while an error popup or the
+ * debug menu owns input, so a press that opened a screen never acts on the next.
+ */
+void ui_input_update_snapshot(void);
+
+/**
+ * The snapshot built by the last ui_input_update_snapshot() call (never NULL).
+ */
+const UiInput *ui_input_snapshot(void);
 
 // ============================================================================
 // Hit Testing Utilities

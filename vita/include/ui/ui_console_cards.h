@@ -1,19 +1,21 @@
 /**
  * @file ui_console_cards.h
- * @brief Console card rendering and state management
+ * @brief Console list data for the Home screen
  *
- * Handles the display of console cards in the main UI:
- * - Grid/vertical layout of console cards
- * - Individual card rendering with status, logos, and names
- * - Card selection and focus animations
- * - Card cache to prevent flickering during discovery updates
+ * - Card cache (sorted: paired first, then by name; filtered) that prevents flicker
+ *   during discovery updates
  * - Host-to-card mapping logic
+ * - The selected console and the console filter (name or IP address)
  */
 
 #pragma once
 
 #include <stdbool.h>
+#include "ui_console_status.h"
 #include "ui_types.h"
+
+/** Size in bytes of a filter text buffer, terminator included (at most 31 bytes of text). */
+#define UI_FILTER_TEXT_MAX 32
 
 // ============================================================================
 // Initialization
@@ -22,38 +24,10 @@
 /**
  * ui_cards_init() - Initialize console card system
  *
- * Sets up the card cache and animation state.
+ * Sets up the card cache and filter state.
  * Call once during UI initialization.
  */
 void ui_cards_init(void);
-
-// ============================================================================
-// Rendering
-// ============================================================================
-
-/**
- * ui_cards_render_grid() - Render the console card grid
- *
- * Renders all console cards in a vertical layout, centered in the content area.
- * Handles card caching, focus animation, and cooldown states.
- * Call once per frame when the main screen is active.
- */
-void ui_cards_render_grid(void);
-
-/**
- * ui_cards_render_single() - Render a single console card
- * @console: Console card info to render
- * @x: X position (top-left corner)
- * @y: Y position (top-left corner)
- * @selected: Whether this card is currently selected
- * @cooldown_for_card: Whether this card is in streaming cooldown
- * @scale: Scale factor (0.95 to 1.0 for focus animation)
- *
- * Renders a single console card with logo, name, status indicator, and state text.
- * Handles both PS4 and PS5 consoles, paired/unpaired states, and visual feedback.
- */
-void ui_cards_render_single(ConsoleCardInfo *console, int x, int y, bool selected,
-                            bool cooldown_for_card, float scale);
 
 // ============================================================================
 // Selection & State
@@ -70,7 +44,7 @@ int ui_cards_get_selected_index(void);
  * ui_cards_set_selected_index() - Set the selected card index
  * @index: New selected card index
  *
- * Updates the selected card index and triggers focus animation.
+ * Clamps the index to the cache and records it as the selected console.
  */
 void ui_cards_set_selected_index(int index);
 
@@ -114,16 +88,24 @@ void ui_cards_mark_dirty(void);
  * @host: Source host data
  * @card: Destination card info (output)
  *
- * Converts a VitaChiakiHost into a ConsoleCardInfo for rendering.
+ * Converts a VitaChiakiHost into a ConsoleCardInfo for the Home list.
  * Extracts name, IP, status, and state information from the host.
  */
 void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card);
 
 /**
- * ui_cards_ensure_selected_visible() - Auto-scroll to keep selected card visible
- * Call after changing selected index to trigger smooth scroll if needed.
+ * ui_cards_get_total_count() - Consoles known before the filter is applied
+ *
+ * Returns: Number of consoles the list would show with no filter (after "show only paired")
  */
-void ui_cards_ensure_selected_visible(void);
+int ui_cards_get_total_count(void);
+
+/**
+ * ui_cards_get_card() - Get a cached card by position
+ * @index: Position in the cache (sorted order)
+ * Returns: Pointer to the card, or NULL if @index is out of range
+ */
+ConsoleCardInfo *ui_cards_get_card(int index);
 
 /**
  * ui_cards_get_selected_card() - Get the selected card's ConsoleCardInfo
@@ -132,20 +114,32 @@ void ui_cards_ensure_selected_visible(void);
 ConsoleCardInfo *ui_cards_get_selected_card(void);
 
 /**
- * ui_cards_get_scroll_offset() - Get current scroll offset
- * Returns: Index of the leftmost visible card
+ * ui_cards_classify() - Decide what status a cached console shows (see ui_console_classify()).
+ * @card:     The console.
+ * @token_ok: The PSN token is valid, so a PSN route counts as reachable.
+ * @cooldown: The post-stream cooldown is active for this console.
  */
-int ui_cards_get_scroll_offset(void);
+UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown);
 
 // ============================================================================
 // Filter
 // ============================================================================
 
 /**
- * ui_cards_open_filter() - Open IME keyboard to filter consoles
- * If filter is active, clears it instead. Press Start to toggle.
+ * ui_cards_open_filter() - Start shortcut: clear an active filter, otherwise open the keyboard
  */
 void ui_cards_open_filter(void);
+
+/**
+ * ui_cards_edit_filter() - Open the system keyboard ("Filter Consoles") with the current text
+ * prefilled. Done with empty text clears the filter; Cancel keeps it.
+ */
+void ui_cards_edit_filter(void);
+
+/**
+ * ui_cards_clear_filter() - Drop the filter and show every console again
+ */
+void ui_cards_clear_filter(void);
 
 /**
  * ui_cards_poll_filter_ime() - Poll IME dialog state (call each frame)
@@ -157,10 +151,7 @@ void ui_cards_poll_filter_ime(void);
  */
 bool ui_cards_is_filter_active(void);
 
-// ============================================================================
-// Touch Drag-to-Scroll API
-// ============================================================================
-
-void ui_cards_drag_begin(void);
-void ui_cards_drag_update(float delta_x);
-void ui_cards_drag_end(void);
+/**
+ * ui_cards_get_filter_text() - The active filter text ("" when no filter is set)
+ */
+const char *ui_cards_get_filter_text(void);

@@ -127,17 +127,6 @@ typedef struct toggle_animation_state_t {
 } ToggleAnimationState;
 
 /**
- * Card focus animation state
- */
-typedef struct card_focus_anim_state_t {
-  int focused_card_index;           // Which card is currently focused (-1 = none)
-  float current_scale;              // Current scale (0.95 to 1.0)
-  uint64_t focus_start_us;          // When focus started
-  int previous_focused_card_index;  // Previous focused card for scale-down
-  uint64_t unfocus_start_us;        // When unfocus animation started
-} CardFocusAnimState;
-
-/**
  * Hints popup state
  */
 typedef struct hints_popup_state_t {
@@ -150,22 +139,29 @@ typedef struct hints_popup_state_t {
 // Console Card Types
 // ============================================================================
 
+/** Power state a console card reports (ConsoleCardInfo.state). */
+typedef enum console_card_state_t {
+  CONSOLE_CARD_STATE_UNKNOWN = 0,
+  CONSOLE_CARD_STATE_READY,
+  CONSOLE_CARD_STATE_STANDBY,
+} ConsoleCardState;
+
 /**
  * Console card information
  */
 typedef struct console_card_info_t {
-  char name[32];         // "PS5 - 024"
-  char ip_address[16];   // "192.168.1.100"
-  int status;            // 0=Available, 1=Unavailable, 2=Connecting
-  int state;             // 0=Unknown, 1=Ready, 2=Standby
-  bool is_registered;    // Has valid credentials
-  bool is_discovered;    // From network discovery
-  bool has_internet;     // Host is reachable over the internet via PSN remote play (mirrors
-                         // VitaChiakiHost.psn_remote_available). True for both a LAN host with a
-                         // merged PSN_REMOTE entry AND a standalone PSN_REMOTE card with no LAN
-                         // route -- callers that need "has both a LAN and an internet route" must
-                         // additionally check host->source != VITA_HOST_SOURCE_PSN_REMOTE.
-  VitaChiakiHost *host;  // Original vitaki host reference
+  char name[32];           // "PS5 - 024"
+  char ip_address[16];     // "192.168.1.100"
+  int status;              // 0=Available, 1=Unavailable, 2=Connecting
+  ConsoleCardState state;  // Power state: unknown, ready or standby
+  bool is_registered;      // Has valid credentials
+  bool is_discovered;      // From network discovery
+  bool has_internet;       // Host is reachable over the internet via PSN remote play (mirrors
+                           // VitaChiakiHost.psn_remote_available). True for both a LAN host with a
+                           // merged PSN_REMOTE entry AND a standalone PSN_REMOTE card with no LAN
+                           // route -- callers that need "has both a LAN and an internet route" must
+                           // additionally check host->source != VITA_HOST_SOURCE_PSN_REMOTE.
+  VitaChiakiHost *host;    // Original vitaki host reference
 } ConsoleCardInfo;
 
 /**
@@ -176,27 +172,6 @@ typedef struct console_card_cache_t {
   int num_cards;
   uint64_t last_update_time;  // Microseconds since epoch
 } ConsoleCardCache;
-
-// ============================================================================
-// Particle System Types
-// ============================================================================
-
-/**
- * Background particle structure
- */
-typedef struct particle_t {
-  float x, y;
-  float vx, vy;
-  float scale;
-  float rotation;
-  float rotation_speed;
-  int symbol_type;  // 0=triangle, 1=circle, 2=x, 3=square
-  uint32_t color;
-  bool active;
-  int layer;         // 0=background (0.7x speed), 1=foreground (1.0x speed)
-  float sway_phase;  // for horizontal sway animation
-  float sway_speed;  // radians per second
-} Particle;
 
 // ============================================================================
 // PIN Entry Types

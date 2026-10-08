@@ -39,7 +39,7 @@ extern vita2d_font *font_mono;
 // Console icons
 extern vita2d_texture *img_ps4;
 
-// UI symbols (particles)
+// UI symbols
 extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 
 // Status ellipses
@@ -51,7 +51,7 @@ extern vita2d_texture *icon_button_triangle;
 
 // Other UI textures
 extern vita2d_texture *button_add_new;
-extern vita2d_texture *background_gradient, *vita_rps5_logo;
+extern vita2d_texture *vita_rps5_logo;
 extern vita2d_texture *ps5_logo;
 
 // ============================================================================
@@ -227,9 +227,6 @@ void ui_draw_loss_indicator(void);
 #include "ui_console_cards.h"
 
 // Animation (ui_animation.c)
-void ui_particles_init(void);
-void ui_particles_update(void);
-void ui_particles_render(void);
 uint64_t ui_anim_now_us(void);
 float ui_anim_elapsed_ms(uint64_t start_us);
 

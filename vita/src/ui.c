@@ -8,7 +8,7 @@
  *
  * Architecture:
  * - ui_graphics.c: Low-level drawing primitives and shapes
- * - ui_animation.c: Particle effects and animation timing
+ * - ui_animation.c: Animation timing utilities
  * - ui_input.c: Button/touch input handling and gesture detection
  * - ui_state.c: UI state management and transitions
  * - ui_components.c: Reusable UI widgets (toggles, dropdowns, popups)
@@ -55,6 +55,8 @@
 #include "psn_remote.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
+#include "ui/ui_background.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -63,6 +65,9 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
 #include "ui/ui_text.h"
+#include "ui/ui_component.h"
+#include "ui/ui_home.h"
+#include "ui/ui_shapes.h"
 
 vita2d_font *font;
 vita2d_font *font_mono;
@@ -74,7 +79,7 @@ vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
 vita2d_texture *icon_button_triangle;
-vita2d_texture *background_gradient, *vita_rps5_logo;
+vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
 
 // Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
@@ -255,7 +260,6 @@ void load_textures() {
   icon_button_triangle = ui_load_png_linear("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
-  background_gradient = ui_load_png_linear("app0:/assets/background.png");
   vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
   ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
@@ -374,7 +378,7 @@ bool ui_reload_psn_account_id(void) {
  * 2. Loads all textures and fonts
  * 3. Initializes touch screen input
  * 4. Configures confirm/cancel button layout
- * 5. Initializes all UI modules (input, screens, state, particles, cards)
+ * 5. Initializes all UI modules (input, screens, state, background, cards)
  *
  * Must be called before draw_ui() main loop.
  */
@@ -388,14 +392,18 @@ void init_ui() {
   }
   vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
   load_textures();
-  ui_particles_init();  // Initialize VitaRPS5 particle background
-  ui_cards_init();      // Initialize console card system
+  ui_background_init();  // Build the wave background geometry
+  ui_cards_init();       // Initialize console card system
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
 
   /* Initialize text helper: measures per-size metrics from the loaded fonts.
    * Must happen after font load and before the first draw_ui() frame. */
-  ui_text_init(font, font_mono);
+  vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
+  ui_text_init(font, font_mono, font_light);
+  ui_glow_init();
+  ui_shapes_init();
+  ui_home_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -446,6 +454,9 @@ void draw_ui() {
   memset(&ctrl, 0, sizeof(ctrl));
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
+  /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
+   * sidebar when it becomes active again. Starts as STREAM so the first frame counts as entry. */
+  UIScreenType drawn_screen = UI_SCREEN_TYPE_STREAM;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
@@ -590,9 +601,6 @@ void draw_ui() {
     context.ui_state.button_state = ctrl.buttons;
     *button_block_mask &= context.ui_state.button_state;
 
-    // Update Cross button hold timing before any input handler runs
-    ui_input_update_hold_tracking();
-
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
 
@@ -639,6 +647,8 @@ void draw_ui() {
         screen = UI_SCREEN_TYPE_MAIN;
       }
 
+      ui_input_update_snapshot();
+
       vita2d_start_drawing();
       vita2d_clear_screen();
 
@@ -654,19 +664,17 @@ void draw_ui() {
         LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
       }
 
-      // Draw full-screen background - nav is a pure overlay
-      if (background_gradient) {
-        vita2d_draw_texture_part(background_gradient, 0, 0, 0, 0, VITA_WIDTH, VITA_HEIGHT);
-      } else {
-        vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, UI_COLOR_BACKGROUND);
-      }
+      UI_DRAW_STATS_FRAME_BEGIN();
+
+      // Wave background under every screen; it updates at half rate while connecting
+      ui_background_draw(screen == UI_SCREEN_TYPE_WAKING || screen == UI_SCREEN_TYPE_RECONNECTING);
 
       // Wave navigation area removed - nav is a pure overlay with no background
 
       // Focus overlay moved to after screen rendering for correct z-order
 
-      // Draw Vita RPS5 logo in top-right corner for professional branding (small with transparency)
-      if (vita_rps5_logo) {
+      // Old screens only: Home draws the logo in its own top bar (C23)
+      if (vita_rps5_logo && screen != UI_SCREEN_TYPE_MAIN) {
         int logo_w = vita2d_texture_get_width(vita_rps5_logo);
         int logo_h = vita2d_texture_get_height(vita_rps5_logo);
         float logo_scale = 0.1f;  // 10% of original size
@@ -689,6 +697,8 @@ void draw_ui() {
 
       // Render the current screen
       if (screen == UI_SCREEN_TYPE_MAIN) {
+        if (drawn_screen != UI_SCREEN_TYPE_MAIN)
+          ui_home_on_enter();
         next_screen = ui_screen_draw_main();
       } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
         context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
@@ -740,22 +750,29 @@ void draw_ui() {
           context.ui_state.register_host_modal_pushed = true;
         }
       }
+      drawn_screen = prev_screen;
       screen = next_screen;
 
-      // Render focus overlay after all screen content (correct z-order)
-      ui_nav_render_content_overlay();
+      // The wave sidebar belongs to the old screens only; Home has its own category bar.
+      if (screen != UI_SCREEN_TYPE_MAIN) {
+        // Render focus overlay after all screen content (correct z-order)
+        ui_nav_render_content_overlay();
 
-      // Render navigation menu overlay (on top of tint)
-      render_wave_navigation();
+        // Render navigation menu overlay (on top of tint)
+        render_wave_navigation();
+      }
 
       // Render hints system (indicator + popup)
       render_hints_indicator();
       render_hints_popup();
 
-      render_loss_indicator_preview();
+      // Home shows Network Unstable as a pill in its hint row (C06) instead
+      if (screen != UI_SCREEN_TYPE_MAIN)
+        render_loss_indicator_preview();
       render_connect_popup();
       render_debug_menu();
       render_error_popup();
+      UI_DRAW_STATS_FRAME_END(prev_screen == UI_SCREEN_TYPE_MAIN);
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();

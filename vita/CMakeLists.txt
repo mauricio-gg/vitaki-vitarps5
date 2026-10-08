@@ -53,6 +53,22 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_qr.c
     src/ui/ui_controller_diagram.c
     src/ui/ui_text.c
+    src/ui/ui_component.c
+    src/ui/ui_console_status.c
+    src/ui/ui_console_rows.c
+    src/ui/ui_category_bar.c
+    src/ui/ui_xmb_list.c
+    src/ui/ui_home.c
+    src/ui/ui_home_detail.c
+    src/ui/ui_detail_panel.c
+    src/ui/ui_text_wrap.c
+    src/ui/ui_value_labels.c
+    src/ui/ui_background.c
+    src/ui/ui_shapes.c
+    src/ui/ui_pill.c
+    src/ui/ui_top_bar.c
+    src/ui/ui_hint_row.c
+    src/ui/ui_chrome_layout.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -140,7 +156,9 @@ endif()
 if(DEFINED VITARPS5_DEBUG_TOOLS)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_TOOLS=${VITARPS5_DEBUG_TOOLS})
     if(VITARPS5_DEBUG_TOOLS)
-        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c)
+        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c src/ui/ui_draw_stats.c)
+        # Ticket #300: count every sceGxmDraw (ui_draw_stats.c). Testing builds only.
+        target_link_options(${VITA_APP_NAME}.elf PRIVATE -Wl,--wrap=sceGxmDraw)
     endif()
 endif()
 
@@ -235,6 +253,7 @@ if(CHIAKI_IS_VITA)
         FILE res/assets/controller_front.png assets/controller_front.png
         FILE res/assets/controller_back.png assets/controller_back.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
+        FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory
         FILE assets/symbol_triangle.png assets/symbol_triangle.png
@@ -251,6 +270,26 @@ if(CHIAKI_IS_VITA)
         FILE assets/icon_profile.png assets/icon_profile.png
         FILE assets/icon_play.png assets/icon_play.png
         FILE assets/icon_button_triangle.png assets/icon_button_triangle.png
+        # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
+        FILE assets/icons/controller.png assets/icons/controller.png
+        FILE assets/icons/profile.png assets/icons/profile.png
+        FILE assets/icons/tv.png assets/icons/tv.png
+        FILE assets/icons/video.png assets/icons/video.png
+        FILE assets/icons/network.png assets/icons/network.png
+        FILE assets/icons/display.png assets/icons/display.png
+        FILE assets/icons/controls.png assets/icons/controls.png
+        FILE assets/icons/advanced.png assets/icons/advanced.png
+        FILE assets/icons/account.png assets/icons/account.png
+        FILE assets/icons/connection.png assets/icons/connection.png
+        FILE assets/icons/psn.png assets/icons/psn.png
+        FILE assets/icons/slot1.png assets/icons/slot1.png
+        FILE assets/icons/slot2.png assets/icons/slot2.png
+        FILE assets/icons/slot3.png assets/icons/slot3.png
+        FILE assets/icons/search.png assets/icons/search.png
+        FILE assets/icons/wifi.png assets/icons/wifi.png
+        FILE assets/icons/battery.png assets/icons/battery.png
+        FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
+        FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png

@@ -48,6 +48,8 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_qr.h"
 #include "ui/ui_text.h"
+#include "ui/ui_value_labels.h"
+#include "ui/ui_home.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -75,16 +77,6 @@ static bool pin_entry_initialized = false;
 static bool *touch_block_active = NULL;
 static bool *touch_block_pending_clear = NULL;
 
-// Gesture recognition state for tap vs. swipe disambiguation
-#define TAP_SWIPE_THRESHOLD 25.0f
-
-static bool touch_is_down = false;
-static bool touch_is_swipe = false;
-static float touch_start_x = 0.0f;
-static float touch_start_y = 0.0f;
-static int touch_start_card_index = -1;
-static bool touch_start_was_add_btn = false;
-
 // Profile PSN login assist state
 static bool profile_login_qr_visible = false;
 static bool profile_login_was_active = false;
@@ -105,13 +97,6 @@ static int s_logout_btn_abs_y = 0;         ///< Button top edge in screen pixels
 static int s_logout_btn_abs_w = 0;         ///< Button width in screen pixels.
 static int s_logout_btn_abs_h = 0;         ///< Button height in screen pixels.
 static bool s_logout_btn_visible = false;  ///< false while device-login flow is active.
-
-/*
- * cross_tracking_for_popup — true from the moment a Cross press is detected on
- * a dual-source card until it resolves as either a short press (LAN connect) or
- * a long press (popup shown).  Cleared on release or threshold reached.
- */
-static bool cross_tracking_for_popup = false;
 
 // Geometry constants for the Log out button — shared between draw and touch hit-test.
 #define LOGOUT_BTN_W 80              ///< Button pixel width.
@@ -134,7 +119,6 @@ static void reset_pin_entry(void);
 static void update_cursor_blink(void);
 static bool is_pin_complete(void);
 static uint32_t pin_to_number(void);
-static UIScreenType handle_vitarps5_touch_input(int num_hosts);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
@@ -501,199 +485,19 @@ static void show_cooldown_hint(VitaChiakiHost *host) {
 }
 
 // ============================================================================
-// Touch Input Handler
+// Console connect and re-pair (called by the Home screen, ui_home.c)
 // ============================================================================
 
-static UIScreenType handle_vitarps5_touch_input(int num_hosts) {
-  SceTouchData touch;
-  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
-
-  if (context.ui_state.error_popup_active || context.ui_state.debug_menu_active ||
-      ui_connect_popup_is_active()) {
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  if (*touch_block_active) {
-    if (touch.reportNum == 0) {
-      *touch_block_active = false;
-      *touch_block_pending_clear = false;
-    } else {
-      return UI_SCREEN_TYPE_MAIN;
-    }
-    // Also reset gesture state when touch block clears
-    touch_is_down = false;
-    touch_is_swipe = false;
-    touch_start_card_index = -1;
-    touch_start_was_add_btn = false;
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  // Precompute card layout (needed by all phases)
-  int content_center_x = ui_get_dynamic_content_center_x();
-  int visible = (num_hosts < CARDS_VISIBLE_MAX) ? num_hosts : CARDS_VISIBLE_MAX;
-  int row_width = visible * CONSOLE_CARD_WIDTH + (visible - 1) * CARD_H_GAP;
-  int h_start_x = content_center_x - (row_width / 2);
-  int card_y = (VITA_HEIGHT / 2) - (CONSOLE_CARD_HEIGHT / 2);
-  int stride = CONSOLE_CARD_WIDTH + CARD_H_GAP;
-  int offset = ui_cards_get_scroll_offset();
-
-  // ── Phase A: Touch-down (finger just made contact) ──
-  if (touch.reportNum > 0 && !touch_is_down) {
-    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
-
-    // Nav bar fires immediately (unchanged)
-    UIScreenType nav_touch_screen;
-    if (nav_touch_hit(touch_x, touch_y_sc, &nav_touch_screen))
-      return nav_touch_screen;
-
-    touch_is_down = true;
-    touch_is_swipe = false;
-    touch_start_x = touch_x;
-    touch_start_y = touch_y_sc;
-    touch_start_card_index = -1;
-    touch_start_was_add_btn = false;
-
-    // Begin drag tracking for swipe-to-scroll
-    ui_cards_drag_begin();
-
-    // Check card hitboxes — record index but do NOT fire action
-    if (num_hosts > 0) {
-      for (int vi = 0; vi < visible && (offset + vi) < num_hosts; vi++) {
-        int i = offset + vi;
-        int card_x = h_start_x + vi * stride;
-        if (is_point_in_rect(touch_x, touch_y_sc, card_x, card_y, CONSOLE_CARD_WIDTH,
-                             CONSOLE_CARD_HEIGHT)) {
-          touch_start_card_index = i;
-          break;
-        }
-      }
-
-      // Check "Add New" button
-      if (button_add_new && touch_start_card_index < 0) {
-        int btn_w = vita2d_texture_get_width(button_add_new);
-        int btn_x = content_center_x - (btn_w / 2);
-        int btn_y = card_y + CONSOLE_CARD_HEIGHT + 60;
-        int btn_h = vita2d_texture_get_height(button_add_new);
-        if (is_point_in_rect(touch_x, touch_y_sc, btn_x, btn_y, btn_w, btn_h)) {
-          touch_start_was_add_btn = true;
-        }
-      }
-    }
-
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  // ── Phase B: Finger moving (detect swipe) ──
-  if (touch.reportNum > 0 && touch_is_down) {
-    float touch_x = (touch.report[0].x / (float)VITA_TOUCH_PANEL_WIDTH) * (float)VITA_WIDTH;
-    float touch_y_sc = (touch.report[0].y / (float)VITA_TOUCH_PANEL_HEIGHT) * (float)VITA_HEIGHT;
-
-    if (!touch_is_swipe) {
-      float dx = touch_x - touch_start_x;
-      float dy = touch_y_sc - touch_start_y;
-      if ((dx * dx + dy * dy) > (TAP_SWIPE_THRESHOLD * TAP_SWIPE_THRESHOLD)) {
-        touch_is_swipe = true;
-      }
-    }
-
-    // Feed drag offset to card carousel (drag left = positive = scroll right)
-    if (touch_is_swipe) {
-      float drag_dx = touch_start_x - touch_x;
-      ui_cards_drag_update(drag_dx);
-    }
-
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  // ── Phase C: Finger lifted (fire tap if not a swipe) ──
-  if (touch.reportNum == 0 && touch_is_down) {
-    bool was_swipe = touch_is_swipe;
-    int card_idx = touch_start_card_index;
-    bool was_add_btn = touch_start_was_add_btn;
-
-    // Finish drag tracking (snap-scrolls on swipe, no-ops on tap)
-    ui_cards_drag_end();
-
-    // Reset state
-    touch_is_down = false;
-    touch_is_swipe = false;
-    touch_start_card_index = -1;
-    touch_start_was_add_btn = false;
-
-    if (!was_swipe) {
-      // Tap on a console card
-      if (card_idx >= 0 && num_hosts > 0) {
-        ui_cards_set_selected_index(card_idx);
-
-        ConsoleCardInfo *card = ui_cards_get_selected_card();
-        if (card && card->host) {
-          context.active_host = card->host;
-
-          if (takion_cooldown_gate_active()) {
-            LOGD("Touch connect ignored — network recovery cooldown active");
-            show_cooldown_hint(context.active_host);
-            return UI_SCREEN_TYPE_MAIN;
-          }
-          // A manual connect attempt cancels any pending RP_IN_USE auto-retry
-          // (Piece C) rather than racing with it, and earns a fresh one-shot
-          // auto-retry budget of its own -- each explicit user press is
-          // naturally bounded (it requires the user to act), so there's no
-          // risk of an unbounded retry loop from resetting this here.
-          context.stream.rp_in_use_retry_pending = false;
-          context.stream.rp_in_use_retry_used = false;
-
-          bool discovered =
-              (context.active_host->type & DISCOVERED) && (context.active_host->discovery_state);
-          bool registered = context.active_host->type & REGISTERED;
-          bool at_rest = discovered && context.active_host->discovery_state_snapshot ==
-                                           CHIAKI_DISCOVERY_HOST_STATE_STANDBY;
-
-          if (!registered) {
-            return UI_SCREEN_TYPE_REGISTER_HOST;
-          } else if (at_rest) {
-            LOGD("Touch wake gesture on dormant console");
-            ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-            if (request_host_wakeup_with_feedback(context.active_host, "touch-standby", false))
-              return UI_SCREEN_TYPE_WAKING;
-            ui_connection_cancel();
-            return UI_SCREEN_TYPE_MAIN;
-          } else if (registered) {
-            /* Touch always connects via LAN — long-press popup is controller-only by design. */
-            ui_connection_begin(UI_CONNECTION_STAGE_CONNECTING);
-            if (!start_connection_thread(context.active_host)) {
-              ui_connection_cancel();
-              return UI_SCREEN_TYPE_MAIN;
-            }
-            ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
-            return UI_SCREEN_TYPE_WAKING;
-          }
-        }
-      }
-
-      // Tap on "Add New" button
-      if (was_add_btn) {
-        if (!context.discovery_enabled) {
-          start_discovery(NULL, NULL);
-        }
-      }
-    }
-
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
-  return UI_SCREEN_TYPE_MAIN;
-}
-
-static void main_menu_move_selection(int delta, int num_hosts) {
-  if (!ui_focus_is_content() || num_hosts <= 0)
-    return;
-  int selected = ui_cards_get_selected_index();
-  ui_cards_set_selected_index((selected + delta + num_hosts) % num_hosts);
-  ui_cards_ensure_selected_visible();
-}
-
-static UIScreenType main_menu_activate_selected_card(void) {
+/**
+ * ui_screens_connect_host() - Run the Confirm flow for @host: pair, wake or connect.
+ *
+ * Applies the cooldown gate, resets the RP_IN_USE auto-retry, then routes to the PIN
+ * screen (unregistered), the wake flow (standby) or a connection thread. Consumes
+ * context.stream.force_psn_holepunch.
+ *
+ * @return the screen to show next (MAIN when nothing started)
+ */
+UIScreenType ui_screens_connect_host(VitaChiakiHost *host) {
   /* Capture and clear force_psn_holepunch so early-return paths never leak the
    * flag into a future LAN attempt. Restored only where start_connection_thread
    * is invoked — including the standby-wake path, where ui_screen_draw_waking()
@@ -701,14 +505,12 @@ static UIScreenType main_menu_activate_selected_card(void) {
   bool saved_force_psn = context.stream.force_psn_holepunch;
   context.stream.force_psn_holepunch = false;
 
-  ConsoleCardInfo *card = ui_cards_get_selected_card();
-  if (!card || !card->host)
+  if (!host)
     return UI_SCREEN_TYPE_MAIN;
 
-  LOGD("main_menu_activate_selected_card: card_host_ptr=%p source=%d type=0x%x hostname=%s",
-       (void *)card->host, card->host->source, card->host->type,
-       card->host->hostname[0] ? card->host->hostname : "<null>");
-  context.active_host = card->host;
+  LOGD("ui_screens_connect_host: host_ptr=%p source=%d type=0x%x hostname=%s", (void *)host,
+       host->source, host->type, host->hostname[0] ? host->hostname : "<null>");
+  context.active_host = host;
   if (takion_cooldown_gate_active()) {
     LOGD("Ignoring connect request — network recovery cooldown active");
     show_cooldown_hint(context.active_host);
@@ -763,13 +565,13 @@ static UIScreenType main_menu_activate_selected_card(void) {
   return UI_SCREEN_TYPE_WAKING;
 }
 
-static UIScreenType main_menu_repair_selected_card(void) {
-  ConsoleCardInfo *card = ui_cards_get_selected_card();
-  if (!card || !card->host)
-    return UI_SCREEN_TYPE_MAIN;
-
-  VitaChiakiHost *host = card->host;
-  if (!(host->type & REGISTERED))
+/**
+ * ui_screens_repair_host() - Unregister @host and send the user to the PIN screen.
+ *
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or MAIN when @host is NULL or not paired
+ */
+UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
+  if (!host || !(host->type & REGISTERED))
     return UI_SCREEN_TYPE_MAIN;
 
   LOGD("Re-pairing console: %s", host->hostname);
@@ -797,133 +599,7 @@ static UIScreenType main_menu_repair_selected_card(void) {
 }
 
 UIScreenType ui_screen_draw_main(void) {
-  // Update and render VitaRPS5 particle background
-  ui_particles_update();
-  ui_particles_render();
-
-  UIScreenType nav_screen;
-  if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_MAIN, &nav_screen, true))
-    return nav_screen;
-
-  /* Render VitaRPS5 console cards instead of host tiles */
-  ui_cards_render_grid();
-
-  /* Get cached card count (fresh from render_grid call above) */
-  int num_hosts = ui_cards_get_count();
-
-  UIScreenType next_screen = UI_SCREEN_TYPE_MAIN;
-
-  // === D-PAD NAVIGATION (moves between console cards in content area) ===
-  // Note: Nav bar UP/DOWN is handled by ui_nav_handle_shortcuts() in handle_global_nav_shortcuts()
-
-  if (btn_pressed(SCE_CTRL_LEFT) || btn_pressed(SCE_CTRL_UP))
-    main_menu_move_selection(-1, num_hosts);
-  else if (btn_pressed(SCE_CTRL_RIGHT) || btn_pressed(SCE_CTRL_DOWN))
-    main_menu_move_selection(1, num_hosts);
-
-  /* === X BUTTON (Activate/Select highlighted element) === */
-
-  /*
-   * If the user navigates away from content while a Cross long-press is in
-   * progress, clear the tracking flag so the stale hold timestamp cannot fire
-   * the popup when focus returns to a (potentially different) card.
-   */
-  if (cross_tracking_for_popup && !ui_focus_is_content()) {
-    cross_tracking_for_popup = false;
-    ui_input_cross_hold_reset();
-  }
-
-  /*
-   * Connection method selection:
-   *   - When the popup is open, input is forwarded to ui_connect_popup_update()
-   *     regardless of content focus (modal focus is active, so
-   *     ui_focus_is_content() returns false while the popup is open).
-   *   - Dual-source card (has_internet == true AND a non-PSN LAN source): short
-   *     press → LAN immediately; long-press (≥600 ms) → show "Connect via" popup.
-   *   - Single-source card (including a standalone PSN_REMOTE card, which has no
-   *     LAN route to offer): immediate connect on press (unchanged behaviour).
-   */
-  if (ui_connect_popup_is_active()) {
-    /* Popup is open — let it consume input and act on the result. */
-    int result = ui_connect_popup_update();
-    if (result == 0) {
-      /* Local Network selected — connect immediately via LAN. */
-      next_screen = main_menu_activate_selected_card();
-    } else if (result == 1) {
-      /* Internet selected — route through PSN holepunch.
-       * Set a transient flag on the stream context rather than mutating the
-       * shared host struct, which would corrupt MAC-based dedup on the next
-       * discovery refresh and permanently change the card's render branch. */
-      context.stream.force_psn_holepunch = true;
-      next_screen = main_menu_activate_selected_card();
-    }
-    /* result == 2 (cancel) or -1 (still active) — nothing to do. */
-  } else if (ui_focus_is_content() && num_hosts > 0) {
-    ConsoleCardInfo *sel = ui_cards_get_selected_card();
-    /* has_internet alone isn't sufficient: a standalone PSN_REMOTE card (no
-     * LAN-discovered host merged in) also has_internet == true, but it has no
-     * LAN route to offer. Its "Local Network" popup option would be
-     * misinformation for a console reachable only over the internet, so the
-     * dual-route press UX requires a non-PSN source in addition to the
-     * internet flag (GH #204). */
-    bool dual =
-        sel && sel->has_internet && sel->host && sel->host->source != VITA_HOST_SOURCE_PSN_REMOTE;
-
-    if (dual) {
-      /*
-       * Track the Cross press for long-hold detection without immediately
-       * triggering a connection.  btn_pressed() returns true only on the
-       * leading edge, so this block executes exactly once per press.
-       */
-      if (btn_pressed(SCE_CTRL_CROSS))
-        cross_tracking_for_popup = true;
-
-      if (cross_tracking_for_popup && ui_input_cross_held_ms(600)) {
-        /* Long press threshold reached — open the popup. */
-        cross_tracking_for_popup = false;
-        ui_input_cross_hold_reset();
-        ui_connect_popup_show();
-      } else if (cross_tracking_for_popup && btn_released(SCE_CTRL_CROSS)) {
-        /* Released before threshold — treat as a short press (LAN). */
-        cross_tracking_for_popup = false;
-        ui_input_cross_hold_reset();
-        next_screen = main_menu_activate_selected_card();
-      }
-    } else {
-      /* Non-dual card: cancel any in-flight long-press tracking from a
-       * previous dual card, then connect immediately on press. */
-      if (cross_tracking_for_popup) {
-        cross_tracking_for_popup = false;
-        ui_input_cross_hold_reset();
-      }
-      if (btn_pressed(SCE_CTRL_CROSS))
-        next_screen = main_menu_activate_selected_card();
-    }
-  }
-
-  /* === OTHER BUTTONS === */
-
-  /* Square: Re-pair selected console (unregister + register again) */
-  if (btn_pressed(SCE_CTRL_SQUARE) && ui_focus_is_content() && num_hosts > 0)
-    next_screen = main_menu_repair_selected_card();
-
-  /* Handle touch screen input for VitaRPS5 UI */
-  UIScreenType touch_screen = handle_vitarps5_touch_input(num_hosts);
-  if (touch_screen != UI_SCREEN_TYPE_MAIN) {
-    return touch_screen;
-  }
-
-  /* Start: Open/clear console filter */
-  if (btn_pressed(SCE_CTRL_START) && ui_focus_is_content()) {
-    ui_cards_open_filter();
-  }
-
-  /* Select button shows hints popup */
-  if (btn_pressed(SCE_CTRL_SELECT)) {
-    trigger_hints_popup("L/R: Browse | Cross: Connect | Start: Filter");
-  }
-
-  return next_screen;
+  return ui_home_frame();
 }
 
 // ============================================================================
@@ -984,50 +660,6 @@ static void settings_update_scroll_for_selection(void) {
   } else if (settings_state.selected_item >=
              settings_state.scroll_offset + SETTINGS_VISIBLE_ITEMS) {
     settings_state.scroll_offset = settings_state.selected_item - SETTINGS_VISIBLE_ITEMS + 1;
-  }
-}
-
-/// Get resolution string from ChiakiVideoResolutionPreset
-static const char *get_resolution_string(ChiakiVideoResolutionPreset preset) {
-  switch (preset) {
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-      return "360p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-      return "540p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-      // Legacy/unsupported values are shown as their effective Vita preset.
-      return "540p";
-    default:
-      return "540p";
-  }
-}
-
-/// Get FPS string from ChiakiVideoFPSPreset
-static const char *get_fps_string(ChiakiVideoFPSPreset preset) {
-  switch (preset) {
-    case CHIAKI_VIDEO_FPS_PRESET_30:
-      return "30 FPS";
-    case CHIAKI_VIDEO_FPS_PRESET_60:
-      return "60 FPS";
-    default:
-      return "60 FPS";
-  }
-}
-
-static const char *get_latency_mode_string(VitaChiakiLatencyMode mode) {
-  switch (mode) {
-    case VITA_LATENCY_MODE_ULTRA_LOW:
-      return "Ultra Low (≈1.2 Mbps)";
-    case VITA_LATENCY_MODE_LOW:
-      return "Low (≈1.8 Mbps)";
-    case VITA_LATENCY_MODE_HIGH:
-      return "High (≈3.2 Mbps)";
-    case VITA_LATENCY_MODE_MAX:
-      return "Max (≈3.8 Mbps)";
-    case VITA_LATENCY_MODE_BALANCED:
-    default:
-      return "Balanced (≈2.6 Mbps)";
   }
 }
 
@@ -1165,15 +797,15 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
     switch (i) {
       case UI_SETTINGS_ITEM_QUALITY_PRESET:
         draw_dropdown(content_x, y, content_w, item_h, "Quality Preset",
-                      get_resolution_string(context.config.resolution), false, selected);
+                      ui_label_resolution(context.config.resolution), false, selected);
         break;
       case UI_SETTINGS_ITEM_LATENCY_MODE:
         draw_dropdown(content_x, y, content_w, item_h, "Latency Mode",
-                      get_latency_mode_string(context.config.latency_mode), false, selected);
+                      ui_label_latency_mode(context.config.latency_mode), false, selected);
         break;
       case UI_SETTINGS_ITEM_FPS_TARGET:
         draw_dropdown(content_x, y, content_w, item_h, "FPS Target",
-                      get_fps_string(context.config.fps), false, selected);
+                      ui_label_fps(context.config.fps), false, selected);
         break;
       case UI_SETTINGS_ITEM_FORCE_30_FPS:
         draw_settings_toggle_item(content_x, y, content_w, item_h, "Force 30 FPS Output",
@@ -1280,10 +912,6 @@ static void draw_settings_streaming_tab(int content_x, int content_y, int conten
 /// Main Settings screen rendering function
 /// @return next screen to display
 UIScreenType ui_screen_draw_settings(void) {
-  // Render particle background
-  ui_particles_update();
-  ui_particles_render();
-
   UIScreenType nav_screen;
   if (handle_global_nav_shortcuts(UI_SCREEN_TYPE_SETTINGS, &nav_screen, true))
     return nav_screen;
@@ -1387,31 +1015,6 @@ static void execute_psn_logout(void) {
   profile_state.connection_focus = CONN_FOCUS_CARD;
 }
 
-static VitaChiakiHost *profile_get_reference_host(void) {
-  if (context.active_host) {
-    return context.active_host;
-  }
-
-  int selected = ui_cards_get_selected_index();
-  int host_idx = 0;
-  VitaChiakiHost *first_host = NULL;
-  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-    VitaChiakiHost *host = context.hosts[i];
-    if (!host) {
-      continue;
-    }
-    if (!first_host) {
-      first_host = host;
-    }
-    if (host_idx == selected) {
-      return host;
-    }
-    host_idx++;
-  }
-
-  return first_host;
-}
-
 /// Draw profile card (left side)
 static void draw_profile_card(int x, int y, int width, int height, bool selected) {
   uint32_t card_color = UI_COLOR_CARD_BG;
@@ -1499,9 +1102,8 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
    * consistent and the syscall is issued only once per draw call. */
   uint64_t now_us = (uint64_t)sceKernelGetProcessTimeWide();
 
-  VitaChiakiHost *host = profile_get_reference_host();
+  VitaChiakiHost *host = ui_profile_reference_host();
   bool has_host = (host != NULL);
-  bool has_discovery = has_host && host->discovery_state;
   bool has_registered = has_host && host->registered_state;
   bool is_streaming = context.stream.is_streaming && context.stream.session_init;
 
@@ -1509,37 +1111,18 @@ static void draw_connection_info_card(int x, int y, int width, int height, bool 
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, "Network");
   cy += sec_line_h; /* cy ≈ y+73 */
 
-  const char *network_text = "Unavailable";
-  if (has_discovery) {
-    network_text = "Local Wi-Fi";
-  } else if (has_host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) {
-    network_text = "PSN Internet";
-  } else if (has_host && (host->type & MANUALLY_ADDED)) {
-    network_text = "Manual Host";
-  }
+  const char *network_text = ui_connection_network_type(host);
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Network Type");
   ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, network_text);
   cy += body_line_h; /* cy ≈ y+91 */
 
-  /* Render only host's inline snapshot fields (display_name/hostname) -- never
-   * discovery_state->host_name/host_addr or registered_state->server_nickname, which are
-   * upstream heap structs the discovery thread may free/re-strdup concurrently. display_name
-   * already encodes the discovery-name > registered-nickname > hostname precedence. */
-  const char *console_name = "Not selected";
-  if (has_host && host->display_name[0]) {
-    console_name = host->display_name;
-  } else if (has_host && host->hostname[0]) {
-    console_name = host->hostname;
-  }
+  const char *console_name = ui_connection_console_name(host);
   ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console");
   ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_name);
   cy += body_line_h; /* cy ≈ y+109 */
 
   /* Console IP — only when a meaningful address is available */
-  const char *console_ip = NULL;
-  if (has_host && host->hostname[0]) {
-    console_ip = host->hostname;
-  }
+  const char *console_ip = ui_connection_console_ip(host);
   if (console_ip) {
     ui_text_draw(font, content_x, cy, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, "Console IP");
     ui_text_draw(font, col2_x, cy, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SMALL, console_ip);
@@ -1766,10 +1349,6 @@ static void draw_registration_section(int x, int y, int width, int height, bool 
 /// Main Profile & Registration screen
 /// @return next screen type to display
 UIScreenType ui_screen_draw_profile(void) {
-  // Render particle background
-  ui_particles_update();
-  ui_particles_render();
-
   /* Reset focus and confirm state on screen-enter so a previous visit cannot
    * leave CONN_FOCUS_LOGOUT_BTN or an armed confirm window across Circle-back
    * + re-entry.  The flag is cleared whenever the screen returns a non-PROFILE
@@ -1987,7 +1566,7 @@ UIScreenType ui_screen_draw_profile(void) {
 
   /* Touch: hit-test the Log out button on the Connection card.
    *
-   * Three-phase edge detection (mirrors handle_vitarps5_touch_input):
+   * Three-phase edge detection (down / hold / up):
    *   Phase A — down-edge: record whether the tap landed in the button rect
    *             and immediately set focus for visual feedback.
    *   Phase B — hold: do nothing; waiting for release.
@@ -3099,8 +2678,6 @@ UIScreenType ui_screen_draw_controller(void) {
     controller_summary_sync_selection();
   }
 
-  ui_particles_update();
-  ui_particles_render();
   ui_nav_render();
 
   UIScreenType nav_screen;
