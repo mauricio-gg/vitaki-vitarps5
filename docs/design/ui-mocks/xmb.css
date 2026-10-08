@@ -1,4 +1,4 @@
-/* VitaRPS5 XMB mock, round 6. Components are named as in SPEC.md section 2 (C01...C28).
+/* VitaRPS5 XMB mock, round 8. Components are named as in SPEC.md section 2 (C01...C28).
    Every colour, size and duration comes from tokens-xmb.css. Native 960x544, 8 px grid. */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:radial-gradient(90% 60% at 50% 35%,#111a2c,#04060b);min-height:100%;font-family:var(--font);font-weight:var(--w-reg);-webkit-font-smoothing:antialiased;color:var(--text)}
@@ -102,7 +102,6 @@ img.g{height:24px}
 /* C26 EmptyState */
 .empty{position:absolute;left:304px;top:208px;width:288px;font-size:var(--t20);font-weight:var(--w-light);color:var(--text-2);line-height:32px;display:flex;align-items:center;gap:var(--s2)}
 .empty .sp{width:16px;height:16px;border-radius:50%;border:var(--lw2) solid var(--text);border-top-color:transparent;animation:spin 800ms linear infinite;flex:none}
-/* C28 FilterLine: x608 y144 */
 
 /* C03 StatusRing: room icon in a 2 px ring + corner badge */
 .ring{position:relative;display:inline-flex;width:var(--sz);height:var(--sz);border-radius:50%;align-items:center;justify-content:center;border:var(--lw2) solid var(--rc);--rc:var(--idle);background:radial-gradient(circle at 50% 40%,var(--ring-fill),transparent 70%);box-shadow:0 0 12px color-mix(in srgb,var(--rc) 45%,transparent);text-shadow:none}

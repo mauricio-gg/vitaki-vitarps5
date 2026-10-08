@@ -6,8 +6,8 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 
 | Asset | Source | Used for | Notes |
 |---|---|---|---|
-| `icon_play.png`, `icon_settings.png` (48 px) | existing in the app | Consoles and Settings categories, setting-group rows | white, drawn tinted |
-| `icons/controller.svg`, `icons/profile.svg` | new, flat white | Controller and Profile categories, page titles | bake to 48 px PNG |
+| `icon_play.png`, `icon_settings.png` (48 px) | existing in the app | Consoles and Settings category icons only | white, drawn tinted; the group rows use the dedicated item icons below, not the gear |
+| `icons/controller.svg`, `icons/profile.svg` | new, flat white | Controller and Profile category icons, page titles | bake to 48 px PNG |
 | Room icons `tv, sofa, bed, bunk, desk, house` | new, flat white | console list items (38 px, no ring), Connecting ring centre, icon picker | one atlas, 6 x 48 px, under 0.05 MB; default tv; dimmed to 55% for Unpaired, Unavailable and Cooldown |
 | Connecting ring | baked once | Connecting screen only | one 128 px ring texture tinted per state colour (list rings and badges were removed in round 8); with the halo, 2 draws |
 | Item icons | new, flat white SVG baked to 38 px | settings groups (video, network, display, controls, advanced), Profile groups (account, connection, psn), presets (slot1 to slot3), Filter (search) | 12 icons of 38 x 38 RGBA (about 5.8 KB each), about 0.07 MB as one atlas; same weight as the room icons |
@@ -26,14 +26,14 @@ Removed from the app by this design: the wave sidebar, particles, rounded-rect a
 
 ## 2. Type
 
-**5 sizes, 5 faces, Roboto only; no mono face.** Pre-rendered into the existing FreeType atlas:
+**5 atlas entries (sizes) from 2 loaded weights, Light and Regular; no mono face.** Roboto Medium appears only inside baked glyphs. Pre-rendered into the existing FreeType atlas:
 
 | Face | Size | Use |
 |---|---|---|
 | Roboto Light | 20, 28, 40 | rows and buttons (20), titles (28), PIN digits (40) |
 | Roboto Regular | 14, 16 | hint row (14), captions, kv rows and values such as IPs and stats (16) |
 
-Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 faces instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 atlas entries from 2 weights instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
 
 ## 3. Background
 
@@ -45,7 +45,7 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 
 | Screen | Draws | Breakdown |
 |---|---|---|
-| **Home (Consoles)** | **67** (69 with a status message, 70 with the cooldown banner) | wave 12 (5 fill strips + 5 line strips + gradient + dust), vignette 3 (gradient rects), top bar 5 (logo, Wi-Fi, battery icon, percent, clock), categories 6 (4 icons, glow, label), list 22 (5 rows visible including the faded one x 4 draws: icon, dot, name, status; +1 focus glow; +1 "Internet" label), detail 13 (logo, name, status dot + text, 3 kv rows x 3: label, value, hairline), hint row 6 (Connect, Options, L R Category: 3 x glyph + text) |
+| **Home (Consoles)** | **67** (69 with a status message, 70 with the cooldown banner) | wave 12 (5 fill strips + 5 line strips + gradient + dust), vignette 3 (gradient rects), top bar 5 (logo, Wi-Fi, battery icon, percent, clock), categories 6 (4 icons, glow, label), list 22 (4 full rows plus a faded fifth preview, 5 rows x 4 draws: icon, dot, name, status; +1 focus glow; +1 "Internet" label), detail 13 (logo, name, status dot + text, 3 kv rows x 3: label, value, hairline), hint row 6 (Connect, Options, L R Category: 3 x glyph + text) |
 | Home, Filter row focused | 55 | same frame 12 + 3 + 5 + 6, list 21 (Filter row: icon, name, status, glow = 4; 4 console rows x 4 + Internet label), detail 4 (title, two text lines, count), hint row 4 (Filter, L R Category; +2 with Clear) |
 | Home with Options open | **75** | the retained Home layers still drawn dimmed: wave 12, vignette 3, top bar 5, categories 6, list 22, detail 13 = 61 (dimming is a tint on each draw, no extra call); hint row 4 (Select, Back); Options column 10 (edge gradient 1, name 1, "Options" 1, 4 row labels, focused 3-slice bar 3). Cheap saving if needed: do not draw the detail panel behind the column (-13) |
 | Settings (Video group, worst case) | 62 | wave 12, wash 1, top bar 5, title 3, group list 6 (5 labels + current marker), rows 25 (5 rows x 5: label, divider, and a control of 3: toggle = track + knob + On/Off text, choice = 2 chevrons + value), focused 3-slice bar 3, description 1, hint row 6 |
@@ -55,7 +55,7 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 | PIN | 62 | wave 12, wash 1, top bar 5, title 3, prompt 1, 8 boxes x 2 (baked box + digit) 16, chevrons 2, 3 pill buttons x 4 (3-slice + label) 12, hint row 10 |
 | Connecting | 51 | wave 12, wash 1, top bar 5, title 3, ring + glow + spinner arc + room icon + logo + name + route 7, steps up to 17, Cancel button 4, hint row 2 |
 | Stream overlay | 26 worst case | exit pill 7 (3-slice, 3 glyphs, text), stats panel 14 (9-slice 9, title, 2 rows x 2), unstable badge 5 |
-| Any popup | about 36 | **the screen behind is frozen into one half-resolution copy when the popup opens (1 draw)**, scrim 1, popup body 9-slice 9, title and text 3 to 4, buttons 2 x 4 or list rows (6 x 2 + focused 3-slice bar 3 + scroll 2), hint row 4. Popups are not drawn over the live screen because that would exceed the budget (Home 74 + a 31-draw list popup) |
+| Any popup | about 36 | **the screen behind is frozen into one half-resolution copy when the popup opens (1 draw)**, scrim 1, popup body 9-slice 9, title and text 3 to 4, buttons 2 x 4 or list rows (6 x 2 + focused 3-slice bar 3 + scroll 2), hint row 4. Popups are not drawn over the live screen because that would exceed the budget (Home 67 + a 31-draw list popup = 98) |
 
 Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.
 
@@ -67,7 +67,7 @@ Status messages in the detail panel are laid out once when the selection or mess
 | Item icons (12 x 38 px), room-icon atlas, glow textures, Connecting ring | 0.27 |
 | PS5 and PS4 logos | 0.05 |
 | Controller diagrams at source size (scale down for a saving) | 2.50 |
-| Font atlases (5 faces) | 1.40 |
+| Font atlases (5 entries, Light and Regular) | 1.40 |
 | Top-bar logo, misc | 0.10 |
 | Rounded shape textures (3-slice, 9-slice, knob, PIN box) | 0.05 |
 | Frozen half-resolution background copy for popups (480 x 272 RGBA) | 0.52 |

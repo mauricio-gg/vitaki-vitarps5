@@ -248,7 +248,7 @@ function paintPage(full){
 }
 function pageHints(){
  const P=S.pg,{rs,i}=curRow(),r=rs[i];
- if(P.kind==='profile'&&P.g===2&&psnState()==='await')return [['confirm','Enter code'],['start','QR'],['select','Browser'],['sq','Cancel login']];
+ if(P.kind==='profile'&&P.g===2&&psnState()==='await')return [['confirm','Enter code',{key:'ok'}],['start','QR',{key:'start'}],['select','Browser',{key:'select'}],['sq','Cancel login',{key:'sq'}]];
  if(P.focus==='g')return [['confirm','Open',{key:'ok'}],['cancel','Back',{key:'back'}]];
  const L=[];
  if(r.type==='toggle')L.push(['confirm','Toggle',{key:'ok'}]);
@@ -580,14 +580,14 @@ function act(a,arg,el){
  else if(a==='scrim')key('back');
  else if(a==='kbok')key('ok');
 }
-/* touch swipe: vertical on the list, page pane and list popups; horizontal on the category row. One step per 56 px (list, categories) or 48 px (rows); focus follows the finger like the D-pad. */
+/* touch swipe: vertical on the list, page pane and list popups; horizontal on the category row. One step per 64 px (list, the row pitch), 56 px (categories) or 48 px (rows); focus follows the finger like the D-pad. */
 let sw=null,suppressUntil=0;
 const zoomNow=()=>parseFloat(getComputedStyle($('#wrap')).getPropertyValue('--z'))||1;
 document.addEventListener('pointerdown',e=>{
  if(S.kb||!$('#stage').contains(e.target))return;
  let t=null;
  if(S.pop){if(e.target.closest('.lp')&&S.pop.rows&&!S.pop.grid)t=['v',48];}
- else if(S.screen==='home'&&!S.opts){if(e.target.closest('#listvp'))t=['v',56];else if(e.target.closest('#catstrip,.cat'))t=['h',56];}
+ else if(S.screen==='home'&&!S.opts){if(e.target.closest('#listvp'))t=['v',64];else if(e.target.closest('#catstrip,.cat'))t=['h',56];}
  else if(S.screen==='page'&&e.target.closest('#pane'))t=['v',48];
  if(t)sw={dir:t[0],size:t[1],x:e.clientX,y:e.clientY,done:0,moved:false};
 });

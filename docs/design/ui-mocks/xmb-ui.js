@@ -1,7 +1,7 @@
 /* VitaRPS5 XMB mock: reusable components. Each returns markup for one component of SPEC.md section 2.
    No colour or size literal lives here; classes and tokens do the work. */
 
-/* flat stroke icons, 24 grid, 2 px round stroke, no fills (used inside rings, badges, rows, popups) */
+/* flat stroke icons, 24 grid, 2 px round stroke, no fills (used in rows, popups and the top bar) */
 const ICONS={
  back:'<path d="M15 5l-7 7 7 7"/>',next:'<path d="M9 5l7 7-7 7"/>',up:'<path d="M5 15l7-7 7 7"/>',down:'<path d="M5 9l7 7 7-7"/>',
  check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',close:'<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
