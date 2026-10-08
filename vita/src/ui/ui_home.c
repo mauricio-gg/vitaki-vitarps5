@@ -20,8 +20,10 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_background.h"
 #include "ui/ui_category_bar.h"
+#include "ui/ui_chrome_layout.h"
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
+#include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_detail_panel.h"
@@ -57,14 +59,15 @@ typedef enum home_icon_t {
   HOME_ICON_SLOT1,
   HOME_ICON_SLOT2,
   HOME_ICON_SLOT3,
+  HOME_ICON_SEARCH,
   HOME_ICON_COUNT,
 } HomeIcon;
 
 #define HOME_ICON_DIR "app0:/assets/icons/"
 
 static const char *const HOME_ICON_FILES[HOME_ICON_COUNT] = {
-    "tv",      "video",      "network", "display", "controls", "advanced",
-    "account", "connection", "psn",     "slot1",   "slot2",    "slot3",
+    "tv",         "video", "network", "display", "controls", "advanced", "account",
+    "connection", "psn",   "slot1",   "slot2",   "slot3",    "search",
 };
 
 /** A non-console row: name, optional second line, icon. */
@@ -119,21 +122,23 @@ static const char ROUTE_INTERNET[] = "\xC2\xB7 Internet";
 static const char EMPTY_SEARCHING[] = "Searching for consoles...";
 static const char EMPTY_NO_MATCH[] = "No consoles match filter";
 static const char BANNER_DEFAULT_REASON[] = "Connection interrupted";
-static const char FILTER_LINE_FORMAT[] = "Filter: \"%s\" (%d found) - Start to clear";
+static const char FILTER_IDLE_NAME[] = "Filter...";
+static const char FILTER_NAME_FORMAT[] = "Filter: \"%s\"";
+static const char FILTER_STATUS_FORMAT[] = "%d found \xC2\xB7";
+static const char FILTER_STATUS_TAIL[] = "to clear";
+static const char FILTER_IDLE_STATUS[] = "";
 static const char HINT_CONNECT[] = "Connect";
 static const char HINT_WAKE[] = "Wake";
 static const char HINT_PAIR[] = "Pair";
 static const char HINT_PLEASE_WAIT[] = "Please wait";
 static const char HINT_OPEN[] = "Open";
 static const char HINT_CATEGORY[] = "Category";
+static const char HINT_FILTER[] = "Filter";
+static const char HINT_CLEAR[] = "Clear";
 
-/**
- * Interim active-filter line (the Filter row and its hints come with a later ticket).
- * It sits in the 24 px band directly above the hint row, so it never overlaps the hints.
- */
-#define FILTER_LINE_Y (UI_HINT_Y - UI_S3)
-#define FILTER_LINE_H UI_S3
-#define FILTER_LINE_MAX 96
+/** Room for the Filter row's name: the quoted filter text plus "Filter: ". */
+#define FILTER_NAME_MAX (UI_FILTER_TEXT_MAX + 16)
+#define FILTER_STATUS_MAX 24
 
 /* ============================================================================
  * State
@@ -144,9 +149,19 @@ static UiXmbList s_list;
 static UiXmbItem s_items[UI_LIST_MAX_ITEMS];
 static vita2d_texture *s_item_icons[HOME_ICON_COUNT];
 static int s_item_count = 0;
-/** Status of each console row, parallel to s_items while Consoles is focused (drives the hint
- * verb). */
+/** Status of each list row, parallel to s_items while Consoles is focused (drives the hint verb).
+ * The Filter row's entry is unused. */
 static UiConsoleStatus s_console_status[UI_LIST_MAX_ITEMS];
+/** The Consoles list starts with the Filter row (ui_console_rows_has_filter), as of the last
+ * refresh. Row i is console i - 1 while it is set, console i otherwise. */
+static bool s_filter_row = false;
+/** Category whose rows the last refresh built; -1 before the first one. */
+static int s_last_category = -1;
+/** The Filter row's strings, rebuilt only when the filter text or the match count changes. */
+static char s_filter_name[FILTER_NAME_MAX];
+static char s_filter_status[FILTER_STATUS_MAX];
+static char s_filter_cached_text[UI_FILTER_TEXT_MAX];
+static int s_filter_cached_found = -1;
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
 
@@ -174,6 +189,9 @@ void ui_home_init(void) {
   ui_top_bar_init();
   ui_hint_row_init();
   s_item_count = 0;
+  s_filter_row = false;
+  s_last_category = -1;
+  s_filter_cached_found = -1;
   s_hints.count = 0;
   s_confirm_tracking = false;
 }
@@ -238,24 +256,86 @@ static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state)
   return item;
 }
 
-/** Fill s_items from the console cache; @cooldown_host is the console in cooldown, if any. */
-static int fill_console_items(const VitaChiakiHost *cooldown_host) {
-  const bool token_ok = psn_auth_token_is_valid((uint64_t)time(NULL));
-  const int count =
-      ui_cards_get_count() < UI_LIST_MAX_ITEMS ? ui_cards_get_count() : UI_LIST_MAX_ITEMS;
+/** Width of @text in the list's name face, for ellipsizing the Filter row's name. */
+static int measure_name_face(const char *text, void *ctx) {
+  (void)ctx;
+  return ui_text_face_width(UI_FACE_T20, text);
+}
 
+/** Rewrite the Filter row's name and status when the filter text or the match count changed. */
+static void update_filter_strings(void) {
+  const char *text = ui_cards_get_filter_text();
+  const int found = ui_cards_get_count();
+  if (found == s_filter_cached_found && strcmp(text, s_filter_cached_text) == 0)
+    return;
+
+  char full_name[FILTER_NAME_MAX];
+  snprintf(full_name, sizeof(full_name), FILTER_NAME_FORMAT, text);
+  ui_ellipsize_to_fit(full_name, UI_LIST_TEXT_W, measure_name_face, NULL, s_filter_name,
+                      sizeof(s_filter_name));
+  snprintf(s_filter_status, sizeof(s_filter_status), FILTER_STATUS_FORMAT, found);
+  snprintf(s_filter_cached_text, sizeof(s_filter_cached_text), "%s", text);
+  s_filter_cached_found = found;
+}
+
+/** The Filter row: idle it reads "Filter...", active it shows the text and the match count. */
+static UiXmbItem filter_item(void) {
+  UiXmbItem item = {
+      .icon = s_item_icons[HOME_ICON_SEARCH],
+      .name = FILTER_IDLE_NAME,
+      .status = FILTER_IDLE_STATUS,
+      .status_color = UI_TEXT_2,
+  };
+  if (ui_cards_is_filter_active()) {
+    update_filter_strings();
+    item.name = s_filter_name;
+    item.status = s_filter_status;
+    item.status_glyph = symbol_square;
+    item.status_tail = FILTER_STATUS_TAIL;
+  }
+  return item;
+}
+
+/**
+ * Fill s_items from the console cache, after the Filter row when @filter_row is set.
+ * @cooldown_host is the console in cooldown, if any.
+ */
+static int fill_console_items(const VitaChiakiHost *cooldown_host, bool filter_row) {
+  const bool token_ok = psn_auth_token_is_valid((uint64_t)time(NULL));
+  const int first = filter_row ? 1 : 0;
+  const int count = ui_cards_get_count() < UI_LIST_MAX_ITEMS - first ? ui_cards_get_count()
+                                                                     : UI_LIST_MAX_ITEMS - first;
+
+  if (filter_row)
+    s_items[0] = filter_item();
   for (int i = 0; i < count; i++) {
     const ConsoleCardInfo *card = ui_cards_get_card(i);
     UiConsoleState state =
         ui_cards_classify(card, token_ok, cooldown_host && card->host == cooldown_host);
-    s_items[i] = console_item(card, state);
-    s_console_status[i] = state.status;
+    s_items[first + i] = console_item(card, state);
+    s_console_status[first + i] = state.status;
   }
-  return count;
+  return first + count;
+}
+
+/**
+ * Rebuild the Consoles rows. When the Filter row appears or goes away while Consoles stays
+ * focused, the focus follows its console (ui_console_rows_rebase_focus).
+ */
+static void refresh_console_rows(const VitaChiakiHost *cooldown_host) {
+  const bool had_filter_row = s_filter_row;
+  s_filter_row =
+      ui_console_rows_has_filter(ui_cards_get_total_count(), ui_cards_is_filter_active());
+  s_item_count = fill_console_items(cooldown_host, s_filter_row);
+  ui_xmb_list_set_items(&s_list, s_items, s_item_count);
+  if (s_last_category == HOME_CAT_CONSOLES && had_filter_row != s_filter_row)
+    ui_xmb_list_set_focus(&s_list,
+                          ui_console_rows_rebase_focus(s_list.focus, had_filter_row, s_filter_row));
 }
 
 /** Rebuild s_items for the focused category and hand them to the list. */
 static void refresh_items(const VitaChiakiHost *cooldown_host) {
+  s_filter_row = s_filter_row && s_bar.focus == HOME_CAT_CONSOLES;
   switch (s_bar.focus) {
     case HOME_CAT_SETTINGS:
       s_item_count = fill_static_items(
@@ -270,10 +350,12 @@ static void refresh_items(const VitaChiakiHost *cooldown_host) {
                                        (int)(sizeof(PROFILE_ENTRIES) / sizeof(PROFILE_ENTRIES[0])));
       break;
     default:
-      s_item_count = fill_console_items(cooldown_host);
-      break;
+      refresh_console_rows(cooldown_host);
+      s_last_category = s_bar.focus;
+      return;
   }
   ui_xmb_list_set_items(&s_list, s_items, s_item_count);
+  s_last_category = s_bar.focus;
 }
 
 /* ============================================================================
@@ -314,12 +396,29 @@ static const VitaChiakiHost *cooldown_host(const char **banner_reason) {
  * Input
  * ============================================================================ */
 
+/** The console the focused row stands for, or -1 (Filter row, other category, empty list). */
+static int focused_console_index(void) {
+  if (s_bar.focus != HOME_CAT_CONSOLES)
+    return -1;
+  return ui_console_rows_console_index(s_filter_row, s_list.focus, ui_cards_get_count());
+}
+
+/** The focused console's card, or NULL when the focus is not on a console. */
+static ConsoleCardInfo *focused_card(void) {
+  return ui_cards_get_card(focused_console_index());
+}
+
+/** True when the focus is on the Consoles list's Filter row. */
+static bool filter_row_focused(void) {
+  return s_bar.focus == HOME_CAT_CONSOLES && s_filter_row && s_list.focus == 0;
+}
+
 /** Connect to the focused console; @force_psn routes it through the PSN holepunch. */
 static UIScreenType connect_focused_console(bool force_psn) {
-  ConsoleCardInfo *card = ui_cards_get_card(s_list.focus);
+  ConsoleCardInfo *card = focused_card();
   if (!card)
     return UI_SCREEN_TYPE_MAIN;
-  ui_cards_set_selected_index(s_list.focus);
+  ui_cards_set_selected_index(focused_console_index());
   context.stream.force_psn_holepunch = force_psn;
   return ui_screens_connect_host(card->host);
 }
@@ -338,9 +437,7 @@ static UIScreenType open_category_screen(void) {
  * press of Confirm offers "Connect via". A PSN-only console has no local route to offer.
  */
 static bool focused_console_has_both_routes(void) {
-  if (s_bar.focus != HOME_CAT_CONSOLES)
-    return false;
-  const ConsoleCardInfo *card = ui_cards_get_card(s_list.focus);
+  const ConsoleCardInfo *card = focused_card();
   return card && card->has_internet && card->host &&
          card->host->source != VITA_HOST_SOURCE_PSN_REMOTE;
 }
@@ -393,24 +490,42 @@ static UIScreenType update_list(const UiInput *in) {
     s_confirm_tracking = false;
   }
 
+  /* One tap on the Filter row opens the keyboard at once, focused or not. */
+  if (s_filter_row && ui_touch_tap(in) &&
+      ui_rect_contains(s_list.hit[0], in->touch.x, in->touch.y)) {
+    ui_cards_edit_filter();
+    return next;
+  }
+
   UiEvent ev = ui_xmb_list_input(&s_list, &list_in);
   if (ev == UI_EVENT_MOVED) {
     s_confirm_tracking = false;
   } else if (ev == UI_EVENT_ACTIVATED) {
-    next =
-        s_bar.focus == HOME_CAT_CONSOLES ? connect_focused_console(false) : open_category_screen();
+    if (filter_row_focused())
+      ui_cards_edit_filter();
+    else
+      next = s_bar.focus == HOME_CAT_CONSOLES ? connect_focused_console(false)
+                                              : open_category_screen();
   }
-  if (s_bar.focus == HOME_CAT_CONSOLES)
-    ui_cards_set_selected_index(s_list.focus);
+  if (focused_console_index() >= 0)
+    ui_cards_set_selected_index(focused_console_index());
   return next;
 }
 
-/** Square re-pairs and Start filters the focused console. */
+/**
+ * Square clears an active filter on the Filter row and re-pairs the focused console (until
+ * ticket #303 moves it into Options); Start opens the keyboard or clears the filter.
+ */
 static UIScreenType update_console_shortcuts(const UiInput *in) {
-  if ((in->pressed & UI_BTN_CLEAR) && s_item_count > 0) {
-    ConsoleCardInfo *card = ui_cards_get_card(s_list.focus);
-    if (card)
-      return ui_screens_repair_host(card->host);
+  if (in->pressed & UI_BTN_CLEAR) {
+    if (filter_row_focused()) {
+      if (ui_cards_is_filter_active())
+        ui_cards_clear_filter();
+    } else {
+      ConsoleCardInfo *card = focused_card();
+      if (card)
+        return ui_screens_repair_host(card->host);
+    }
   }
   if (in->pressed & UI_BTN_FILTER)
     ui_cards_open_filter();
@@ -421,19 +536,17 @@ static UIScreenType update_console_shortcuts(const UiInput *in) {
  * Draw
  * ============================================================================ */
 
-/** Draw the Consoles empty state, or the active-filter line. */
-static void draw_console_status_text(void) {
-  if (s_item_count == 0) {
-    const char *msg = ui_cards_is_filter_active() ? EMPTY_NO_MATCH : EMPTY_SEARCHING;
-    ui_text_draw_face_centered_v(UI_FACE_T16, UI_LIST_TEXT_X, UI_LIST_FOCUS_Y, UI_LIST_ROW_H,
-                                 UI_TEXT_3, msg);
-  }
-  if (ui_cards_is_filter_active()) {
-    char line[FILTER_LINE_MAX];
-    snprintf(line, sizeof(line), FILTER_LINE_FORMAT, ui_cards_get_filter_text(), s_item_count);
-    ui_text_draw_face_centered_v(UI_FACE_T14, UI_MARGIN_X, FILTER_LINE_Y, FILTER_LINE_H, UI_TEXT_2,
-                                 line);
-  }
+/**
+ * Draw the Consoles empty state (SPEC C26): below the Filter row when there is one. Text only;
+ * the 16 px spinner of the mock would cost a ring of line draws every frame.
+ */
+static void draw_empty_state(void) {
+  if (ui_cards_get_count() > 0)
+    return;
+  const bool no_match = ui_cards_is_filter_active() && ui_cards_get_total_count() > 0;
+  const int y = UI_LIST_FOCUS_Y + (s_filter_row ? UI_LIST_ROW_H + UI_LIST_FOCUS_GAP : 0);
+  ui_text_draw_face_centered_v(UI_FACE_T20, UI_LIST_TEXT_X, y, UI_LIST_ROW_H, UI_TEXT_2,
+                               no_match ? EMPTY_NO_MATCH : EMPTY_SEARCHING);
 }
 
 /** Confirm verb for a console in @status (SPEC 3.1). */
@@ -454,14 +567,19 @@ static const char *console_confirm_verb(UiConsoleStatus status) {
  * build_hints() - Fill @out with the hints for what is focused (SPEC 3.1) and return how many.
  *
  * Consoles with a console focused: Confirm with the console's verb, then L R Category (low
- * priority). Cooldown shows "Please wait" dimmed. Other categories: Confirm Open. An empty
- * console list: L R Category only. The Options hint arrives with ticket #303.
+ * priority). Cooldown shows "Please wait" dimmed. The Filter row: Confirm Filter, Square Clear
+ * while a filter is active, L R Category. Other categories: Confirm Open. An empty console
+ * list: L R Category only. The Options hint arrives with ticket #303.
  */
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   int n = 0;
   const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
 
-  if (!consoles || s_item_count > 0) {
+  if (filter_row_focused()) {
+    out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_FILTER};
+    if (ui_cards_is_filter_active())
+      out[n++] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CLEAR};
+  } else if (!consoles || s_item_count > 0) {
     const UiConsoleStatus status = consoles ? s_console_status[s_list.focus] : UI_CONSOLE_READY;
     out[n++] = (UiHintItem){
         .action = UI_BTN_CONFIRM,
@@ -503,12 +621,15 @@ UIScreenType ui_home_frame(void) {
     next = update_connect_popup();
   } else {
     if (ui_category_bar_input(&s_bar, &in) == UI_EVENT_MOVED) {
-      ui_xmb_list_set_focus(&s_list, 0);
-      ui_xmb_list_cascade_in(&s_list);
       s_confirm_tracking = false;
       refresh_items(cooldown);
-      if (s_bar.focus == HOME_CAT_CONSOLES)
-        ui_cards_set_selected_index(0);
+      ui_xmb_list_set_focus(&s_list,
+                            s_bar.focus == HOME_CAT_CONSOLES
+                                ? ui_console_rows_initial_focus(s_filter_row, ui_cards_get_count())
+                                : 0);
+      ui_xmb_list_cascade_in(&s_list);
+      if (focused_console_index() >= 0)
+        ui_cards_set_selected_index(focused_console_index());
     } else {
       next = update_list(&in);
     }
@@ -522,9 +643,9 @@ UIScreenType ui_home_frame(void) {
   ui_top_bar_draw(consoles ? banner_reason : NULL);
   ui_category_bar_draw(&s_bar);
   ui_xmb_list_draw(&s_list);
-  ui_home_detail_draw((UiHomeDetailSource)s_bar.focus, &s_list);
+  ui_home_detail_draw((UiHomeDetailSource)s_bar.focus, &s_list, consoles && s_filter_row);
   if (consoles)
-    draw_console_status_text();
+    draw_empty_state();
 
   UiHintItem hints[UI_HINT_MAX_ITEMS];
   ui_hint_row_layout(&s_hints, hints, build_hints(hints));

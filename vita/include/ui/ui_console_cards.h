@@ -5,7 +5,7 @@
  * - Card cache (sorted: paired first, then by name; filtered) that prevents flicker
  *   during discovery updates
  * - Host-to-card mapping logic
- * - The selected console and the console name filter
+ * - The selected console and the console filter (name or IP address)
  */
 
 #pragma once
@@ -13,6 +13,9 @@
 #include <stdbool.h>
 #include "ui_console_status.h"
 #include "ui_types.h"
+
+/** Size in bytes of a filter text buffer, terminator included (at most 31 bytes of text). */
+#define UI_FILTER_TEXT_MAX 32
 
 // ============================================================================
 // Initialization
@@ -91,6 +94,13 @@ void ui_cards_mark_dirty(void);
 void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card);
 
 /**
+ * ui_cards_get_total_count() - Consoles known before the filter is applied
+ *
+ * Returns: Number of consoles the list would show with no filter (after "show only paired")
+ */
+int ui_cards_get_total_count(void);
+
+/**
  * ui_cards_get_card() - Get a cached card by position
  * @index: Position in the cache (sorted order)
  * Returns: Pointer to the card, or NULL if @index is out of range
@@ -116,10 +126,20 @@ UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, boo
 // ============================================================================
 
 /**
- * ui_cards_open_filter() - Open IME keyboard to filter consoles
- * If filter is active, clears it instead. Press Start to toggle.
+ * ui_cards_open_filter() - Start shortcut: clear an active filter, otherwise open the keyboard
  */
 void ui_cards_open_filter(void);
+
+/**
+ * ui_cards_edit_filter() - Open the system keyboard ("Filter Consoles") with the current text
+ * prefilled. Done with empty text clears the filter; Cancel keeps it.
+ */
+void ui_cards_edit_filter(void);
+
+/**
+ * ui_cards_clear_filter() - Drop the filter and show every console again
+ */
+void ui_cards_clear_filter(void);
 
 /**
  * ui_cards_poll_filter_ime() - Poll IME dialog state (call each frame)

@@ -31,8 +31,10 @@ typedef struct ui_xmb_item_t {
   uint32_t status_color;  ///< colour of the dot and the status label
   bool status_dot;        ///< draw the filled status dot before the label
   const char *route;  ///< optional route label drawn after the status (INTERNET colour), or NULL
-  bool dim_icon;      ///< icon at UI_LIST_DIM_PCT (Unpaired, Unavailable)
-  bool dim_row;       ///< whole row at UI_LIST_DIM_PCT (Cooldown)
+  vita2d_texture *status_glyph;  ///< optional button glyph drawn inline after the status label
+  const char *status_tail;       ///< optional text after the glyph (needs status_glyph)
+  bool dim_icon;                 ///< icon at UI_LIST_DIM_PCT (Unpaired, Unavailable)
+  bool dim_row;                  ///< whole row at UI_LIST_DIM_PCT (Cooldown)
 } UiXmbItem;
 
 typedef struct ui_xmb_list_t {

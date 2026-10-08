@@ -15,6 +15,7 @@
 #include "psn_auth.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_detail_panel.h"
 #include "ui/ui_internal.h"
@@ -23,6 +24,11 @@
 
 static const char UNKNOWN_ADDRESS[] = "Unknown";
 static const char NOT_SET[] = "Not Set";
+static const char FILTER_TITLE[] = "Filter";
+static const char FILTER_DESCRIPTION[] = "Find a console by name or IP address.";
+
+/** Identity of the Filter panel for the rise animation; no console pointer can equal it. */
+#define FILTER_PANEL_KEY 1u
 
 /** The content handed to the panel; rebuilt every frame from pointers, no allocation. */
 static UiDetailContent s_content;
@@ -32,6 +38,14 @@ static char s_front_text[16];
 static char s_rear_text[16];
 static int s_front_zones = -1;
 static int s_rear_zones = -1;
+
+/** The Filter panel's count line, rewritten only when its inputs change. */
+/** Room for the quoted filter text plus " found of " and two counts. */
+#define FILTER_COUNT_TEXT_MAX (UI_FILTER_TEXT_MAX + 48)
+static char s_filter_count[FILTER_COUNT_TEXT_MAX];
+static char s_filter_count_text[UI_FILTER_TEXT_MAX];
+static int s_filter_count_found = -1;
+static int s_filter_count_total = -1;
 
 /** Defaults a preset slot starts from while it has never been saved. */
 static ControllerMapStorage s_default_map;
@@ -91,6 +105,36 @@ static void build_console(const UiXmbItem *item, const ConsoleCardInfo *card) {
   add_row("Address", card->ip_address[0] ? card->ip_address : UNKNOWN_ADDRESS, 0);
   add_row("Route", ui_console_route_label(card->is_discovered, internet_ok), 0);
   add_row("Pairing", card->is_registered ? "Paired" : "Unpaired", 0);
+}
+
+/** The count line: "<N> consoles", or "\"<text>\": <N> found of <M>" while a filter is active. */
+static const char *filter_count_text(void) {
+  const bool active = ui_cards_is_filter_active();
+  const char *text = active ? ui_cards_get_filter_text() : "";
+  const int found = ui_cards_get_count();
+  const int total = ui_cards_get_total_count();
+
+  if (found != s_filter_count_found || total != s_filter_count_total ||
+      strcmp(text, s_filter_count_text) != 0) {
+    snprintf(s_filter_count_text, sizeof(s_filter_count_text), "%s", text);
+    if (active)
+      snprintf(s_filter_count, sizeof(s_filter_count), "\"%s\": %d found of %d", text, found,
+               total);
+    else
+      snprintf(s_filter_count, sizeof(s_filter_count), "%d consoles", total);
+    s_filter_count_found = found;
+    s_filter_count_total = total;
+  }
+  return s_filter_count;
+}
+
+/** Fill s_content for the Filter item: title, what it does, and the count as a label-only row. */
+static void build_filter(void) {
+  s_content.kind = UI_DETAIL_LIST;
+  s_content.key = FILTER_PANEL_KEY;
+  s_content.title = FILTER_TITLE;
+  s_content.description = FILTER_DESCRIPTION;
+  add_row(filter_count_text(), NULL, 0);
 }
 
 /* ============================================================================
@@ -289,15 +333,19 @@ static void build_list_item(UiHomeDetailSource source, const UiXmbItem *item, in
   }
 }
 
-void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list) {
+void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list, bool filter_row) {
   memset(&s_content, 0, sizeof(s_content));
 
   if (list->count > 0) {
     const UiXmbItem *item = &list->items[list->focus];
     if (source == UI_HOME_DETAIL_CONSOLES) {
-      const ConsoleCardInfo *card = ui_cards_get_card(list->focus);
+      const int index =
+          ui_console_rows_console_index(filter_row, list->focus, ui_cards_get_count());
+      const ConsoleCardInfo *card = ui_cards_get_card(index);
       if (card)
         build_console(item, card);
+      else if (filter_row && list->focus == 0)
+        build_filter();
     } else {
       build_list_item(source, item, list->focus);
     }

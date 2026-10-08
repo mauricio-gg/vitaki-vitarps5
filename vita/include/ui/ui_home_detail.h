@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "ui/ui_xmb_list.h"
 
 /** Which Home category the list shows. The values equal the CategoryBar order. */
@@ -45,9 +47,12 @@ typedef enum ui_profile_group_t {
 
 /**
  * ui_home_detail_draw() - Draw the detail panel for the focused row of @list.
- * @source: The category @list shows.
- * @list:   Home's list; its focused item supplies the title, status and description.
+ * @source:     The category @list shows.
+ * @list:       Home's list; its focused item supplies the title, status and description.
+ * @filter_row: Consoles only: the list's first row is the Filter item, not a console.
  *
- * Draws nothing when the list is empty. Reads config, the card cache and PSN state; changes none.
+ * With the Filter row focused the panel shows "Filter", what it does and the console count
+ * (4 draws). Draws nothing when the list is empty. Reads config, the card cache and PSN state;
+ * changes none.
  */
-void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list);
+void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list, bool filter_row);

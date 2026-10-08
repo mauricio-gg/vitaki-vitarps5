@@ -146,6 +146,17 @@ static void draw_status_line(const UiXmbItem *item, UiFace face, int text_y, flo
   }
   ui_text_draw_face_centered_v(face, x, text_y, line_h, ui_color_scale_alpha(item->status_color, k),
                                item->status);
+  if (item->status_glyph) {
+    /* The glyph is scaled to the status line; the tail follows it. */
+    x += ui_text_face_width(face, item->status) + UI_LIST_GLYPH_GAP;
+    const float scale = (float)line_h / (float)vita2d_texture_get_height(item->status_glyph);
+    vita2d_draw_texture_tint_scale(item->status_glyph, (float)x, (float)text_y, scale, scale,
+                                   ui_color_scale_alpha(item->status_color, k));
+    x += (int)((float)vita2d_texture_get_width(item->status_glyph) * scale) + UI_LIST_GLYPH_GAP;
+    if (item->status_tail)
+      ui_text_draw_face_centered_v(face, x, text_y, line_h,
+                                   ui_color_scale_alpha(item->status_color, k), item->status_tail);
+  }
   if (item->route) {
     x += ui_text_face_width(face, item->status) + UI_LIST_ROUTE_GAP;
     ui_text_draw_face_centered_v(face, x, text_y, line_h, ui_color_scale_alpha(UI_INTERNET, k),

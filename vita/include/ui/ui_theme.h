@@ -315,6 +315,8 @@ typedef enum ui_face_t {
 #define UI_LIST_DOT_GAP UI_S1
 /** Gap between the status label and the "Internet" route label. */
 #define UI_LIST_ROUTE_GAP UI_S1
+/** Gap on each side of an inline button glyph in a status line. */
+#define UI_LIST_GLYPH_GAP 4
 /** Rows fade out over the last UI_LIST_FADE_H pixels of the viewport (bottom edge UI_LIST_Y +
  * UI_LIST_H). */
 #define UI_LIST_FADE_H 48

@@ -17,6 +17,7 @@
 
 #include "ui/ui_internal.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_text.h"
 #include "ui/ui_focus.h"
@@ -34,6 +35,9 @@ static int selected_console_index = 0;
 /** Console card cache to prevent flickering during discovery updates */
 static ConsoleCardCache card_cache = {0};
 
+/** Consoles known before the filter is applied (the "M" of "N found of M"). */
+static int total_console_count = 0;
+
 /** Set by ui_cards_mark_dirty() (called from host_storage.c/discovery.c/psn_remote.c on host
  * removal) to force the next ui_cards_update_cache() call to bypass the throttle. Writers just
  * do a plain `cards_dirty = true;` (safe: a single-word store is atomic on Vita's Cortex-A9,
@@ -49,7 +53,7 @@ static volatile bool cards_dirty = false;
 // Filter State
 // ============================================================================
 
-#define FILTER_MAX_LEN 31
+#define FILTER_MAX_LEN (UI_FILTER_TEXT_MAX - 1)
 static char filter_text[FILTER_MAX_LEN + 1] = {0};
 static int filter_len = 0;
 static bool filter_active = false;
@@ -63,41 +67,6 @@ static char ime_title_buf[64];
 // ============================================================================
 // Filter Helpers
 // ============================================================================
-
-/**
- * str_contains_nocase() - Case-insensitive substring search
- * @haystack: String to search in
- * @needle: String to search for
- *
- * Returns: true if needle is found in haystack (case-insensitive ASCII)
- */
-static bool str_contains_nocase(const char *haystack, const char *needle) {
-  if (!haystack || !needle || !*needle)
-    return true;
-  size_t needle_len = strlen(needle);
-  size_t haystack_len = strlen(haystack);
-  if (needle_len > haystack_len)
-    return false;
-  for (size_t i = 0; i <= haystack_len - needle_len; i++) {
-    bool match = true;
-    for (size_t j = 0; j < needle_len; j++) {
-      char a = haystack[i + j];
-      char b = needle[j];
-      /* Simple ASCII case-insensitive */
-      if (a >= 'A' && a <= 'Z')
-        a += 32;
-      if (b >= 'A' && b <= 'Z')
-        b += 32;
-      if (a != b) {
-        match = false;
-        break;
-      }
-    }
-    if (match)
-      return true;
-  }
-  return false;
-}
 
 /**
  * utf16_to_utf8() - Convert UTF-16 to UTF-8
@@ -132,6 +101,33 @@ static void utf16_to_utf8(const SceWChar16 *src, size_t src_max, char *dst, size
   dst[o] = '\0';
 }
 
+/**
+ * utf8_to_utf16() - Convert UTF-8 to UTF-16 (BMP only, the inverse of utf16_to_utf8)
+ * @src: Source UTF-8 string
+ * @dst: Destination buffer, always NUL-terminated
+ * @dst_len: Capacity of @dst in SceWChar16 units
+ *
+ * Used to prefill the IME with the current filter. A character outside the BMP ends the text.
+ */
+static void utf8_to_utf16(const char *src, SceWChar16 *dst, size_t dst_len) {
+  size_t o = 0;
+  const unsigned char *p = (const unsigned char *)src;
+  while (*p && o + 1 < dst_len) {
+    if (*p < 0x80) {
+      dst[o++] = *p++;
+    } else if ((*p & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) {
+      dst[o++] = (SceWChar16)(((p[0] & 0x1F) << 6) | (p[1] & 0x3F));
+      p += 2;
+    } else if ((*p & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80) {
+      dst[o++] = (SceWChar16)(((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F));
+      p += 3;
+    } else {
+      break;
+    }
+  }
+  dst[o] = 0;
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -139,6 +135,7 @@ static void utf16_to_utf8(const SceWChar16 *src, size_t src_max, char *dst, size
 void ui_cards_init(void) {
   selected_console_index = 0;
   memset(&card_cache, 0, sizeof(card_cache));
+  total_console_count = 0;
   cards_dirty = false;
   /* Reset filter state */
   filter_text[0] = '\0';
@@ -233,6 +230,7 @@ void ui_cards_update_cache(bool force_update) {
 
   /* Count current valid hosts and apply filter */
   int num_hosts = 0;
+  int num_known = 0;
   ConsoleCardInfo temp_cards[MAX_CONTEXT_HOSTS];
 
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
@@ -242,9 +240,10 @@ void ui_cards_update_cache(bool force_update) {
       /* Skip unregistered hosts if "show only paired" is enabled */
       if (context.config.show_only_paired && !temp.is_registered)
         continue;
+      num_known++;
       /* Apply filter if active */
       if (filter_active && filter_len > 0) {
-        if (!str_contains_nocase(temp.name, filter_text))
+        if (!ui_console_matches_filter(temp.name, temp.ip_address, filter_text))
           continue;
       }
       temp_cards[num_hosts] = temp;
@@ -273,6 +272,7 @@ void ui_cards_update_cache(bool force_update) {
    * ordinary polling doesn't flicker the grid to empty on a transient zero-host read. */
   if (num_hosts > 0 || filter_active || force_update || was_dirty) {
     card_cache.num_cards = num_hosts;
+    total_console_count = num_known;
     if (num_hosts > 0)
       memcpy(card_cache.cards, temp_cards, sizeof(ConsoleCardInfo) * num_hosts);
     card_cache.last_update_time = current_time;
@@ -291,34 +291,32 @@ void ui_cards_update_cache(bool force_update) {
 // ============================================================================
 
 /**
- * ui_cards_open_filter() - Open IME keyboard to filter consoles
- *
- * If filter is already active, clears it instead of opening IME.
- * Press Start to toggle filter on/off.
+ * ui_cards_clear_filter() - Drop the filter text and show every console again.
  */
-void ui_cards_open_filter(void) {
+void ui_cards_clear_filter(void) {
+  filter_text[0] = '\0';
+  filter_len = 0;
+  filter_active = false;
+  ui_cards_update_cache(true);
+}
+
+/**
+ * ui_cards_edit_filter() - Open the system keyboard with the current filter text prefilled.
+ *
+ * Done with empty text clears the filter; Cancel leaves it as it was (see the poll below).
+ */
+void ui_cards_edit_filter(void) {
   if (ime_running)
     return;
 
-  /* If filter is already active, clear it instead of opening IME */
-  if (filter_active) {
-    filter_text[0] = '\0';
-    filter_len = 0;
-    filter_active = false;
-    ui_cards_update_cache(true);
-    return;
-  }
-
   memset(ime_input_buf, 0, sizeof(ime_input_buf));
-  memset(ime_initial_text, 0, sizeof(ime_initial_text));
+  utf8_to_utf16(filter_text, ime_initial_text,
+                sizeof(ime_initial_text) / sizeof(ime_initial_text[0]));
   sceClibSnprintf(ime_title_buf, sizeof(ime_title_buf), "Filter Consoles");
 
   /* Convert title to UTF-16 for IME */
   SceWChar16 ime_title_w[64];
-  for (int i = 0; i < 63 && ime_title_buf[i]; i++) {
-    ime_title_w[i] = (SceWChar16)ime_title_buf[i];
-    ime_title_w[i + 1] = 0;
-  }
+  utf8_to_utf16(ime_title_buf, ime_title_w, sizeof(ime_title_w) / sizeof(ime_title_w[0]));
 
   SceImeDialogParam param;
   sceImeDialogParamInit(&param);
@@ -335,7 +333,21 @@ void ui_cards_open_filter(void) {
   int ret = sceImeDialogInit(&param);
   if (ret >= 0) {
     ime_running = true;
+  } else {
+    LOGE("Filter keyboard failed to open: 0x%08x", ret);
   }
+}
+
+/**
+ * ui_cards_open_filter() - Start shortcut: clear an active filter, otherwise open the keyboard.
+ */
+void ui_cards_open_filter(void) {
+  if (ime_running)
+    return;
+  if (filter_active)
+    ui_cards_clear_filter();
+  else
+    ui_cards_edit_filter();
 }
 
 /**
@@ -354,17 +366,11 @@ void ui_cards_poll_filter_ime(void) {
     memset(&result, 0, sizeof(result));
     sceImeDialogGetResult(&result);
 
+    /* Done applies the typed text (empty clears the filter); Cancel keeps the filter as it was. */
     if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
-      /* User confirmed — convert UTF-16 to UTF-8 */
       utf16_to_utf8(ime_input_buf, FILTER_MAX_LEN + 1, filter_text, sizeof(filter_text));
       filter_len = (int)strlen(filter_text);
       filter_active = (filter_len > 0);
-    }
-    /* Cancel or empty = clear filter */
-    if (result.button != SCE_IME_DIALOG_BUTTON_ENTER || filter_len == 0) {
-      filter_text[0] = '\0';
-      filter_len = 0;
-      filter_active = false;
     }
 
     sceImeDialogTerm();
@@ -424,6 +430,10 @@ ConsoleCardInfo *ui_cards_get_selected_card(void) {
   if (selected_console_index < 0 || selected_console_index >= card_cache.num_cards)
     return NULL;
   return &card_cache.cards[selected_console_index];
+}
+
+int ui_cards_get_total_count(void) {
+  return total_console_count;
 }
 
 const char *ui_cards_get_filter_text(void) {
