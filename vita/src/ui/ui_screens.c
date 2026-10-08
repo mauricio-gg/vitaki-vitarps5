@@ -69,12 +69,6 @@
 // Module-local state
 // ============================================================================
 
-// PIN entry state
-static PinEntryState pin_entry_state = {0};
-bool show_cursor = false;  // Used by PIN entry digit rendering (ui_components.c)
-static uint32_t cursor_blink_timer = 0;
-static bool pin_entry_initialized = false;
-
 // Touch input state pointers (initialized in ui_screens_init)
 static bool *touch_block_active = NULL;
 static bool *touch_block_pending_clear = NULL;
@@ -117,10 +111,6 @@ static bool s_logout_btn_visible = false;  ///< false while device-login flow is
 // Forward declarations for helper functions
 // ============================================================================
 
-static void reset_pin_entry(void);
-static void update_cursor_blink(void);
-static bool is_pin_complete(void);
-static uint32_t pin_to_number(void);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
                                               bool continue_on_failure);
@@ -2608,174 +2598,6 @@ UIScreenType ui_screen_draw_controller(void) {
   return UI_SCREEN_TYPE_CONTROLLER;
 }
 
-// VitaRPS5-style PIN entry constants
-#define PIN_DIGIT_COUNT 8
-#define PIN_DIGIT_WIDTH 60
-#define PIN_DIGIT_HEIGHT 70
-#define PIN_DIGIT_SPACING 10
-#define PIN_CARD_WIDTH 700
-#define PIN_CARD_HEIGHT 450
-
-/// Helper: Reset PIN entry state
-void reset_pin_entry() {
-  for (int i = 0; i < PIN_DIGIT_COUNT; i++) {
-    pin_entry_state.pin_digits[i] = 10;  // 10 = empty
-  }
-  pin_entry_state.current_digit = 0;
-  pin_entry_state.pin_complete = false;
-  pin_entry_state.complete_pin = 0;
-
-  // Get touch input state pointers from ui_input module
-  touch_block_active = ui_input_get_touch_block_active_ptr();
-  touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
-  show_cursor = true;
-  cursor_blink_timer = 0;
-  pin_entry_initialized = true;
-}
-
-/// Helper: Update cursor blink animation
-void update_cursor_blink() {
-  cursor_blink_timer++;
-  if (cursor_blink_timer >= 30) {  // ~0.5 second at 60fps
-    show_cursor = !show_cursor;
-    cursor_blink_timer = 0;
-  }
-}
-
-/// Helper: Check if PIN is complete
-bool is_pin_complete() {
-  for (int i = 0; i < PIN_DIGIT_COUNT; i++) {
-    if (pin_entry_state.pin_digits[i] > 9) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/// Helper: Convert PIN digits to number
-uint32_t pin_to_number() {
-  uint32_t pin = 0;
-  for (int i = 0; i < PIN_DIGIT_COUNT; i++) {
-    pin = pin * 10 + pin_entry_state.pin_digits[i];
-  }
-  return pin;
-}
-
-// render_pin_digit() moved to ui_components.c
-
-/// Draw VitaRPS5-style PIN entry registration screen
-/// @return whether the dialog should keep rendering
-bool ui_screen_draw_registration(void) {
-  // Initialize PIN entry on first render
-  if (!pin_entry_initialized) {
-    reset_pin_entry();
-  }
-
-  // Update cursor blink
-  update_cursor_blink();
-
-  // Card centered on screen
-  int card_x = (VITA_WIDTH - PIN_CARD_WIDTH) / 2;
-  int card_y = (VITA_HEIGHT - PIN_CARD_HEIGHT) / 2;
-
-  ui_draw_card_with_shadow(card_x, card_y, PIN_CARD_WIDTH, PIN_CARD_HEIGHT, 12, UI_COLOR_CARD_BG);
-
-  // Title
-  ui_text_draw(font, card_x + 20, card_y + 50, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-               "PS5 Console Registration");
-
-  // Console info (name and IP)
-  if (context.active_host) {
-    char console_info[128];
-    const char *console_name = "Unknown Console";
-    const char *host_ip = NULL;
-
-    /* Read only the inline snapshot fields -- never discovery_state/registered_state strings,
-     * which are upstream heap structs the discovery thread may free/re-strdup concurrently.
-     * display_name already encodes discovery-name > registered-nickname > hostname precedence. */
-    if (context.active_host->display_name[0]) {
-      console_name = context.active_host->display_name;
-    } else if (context.active_host->hostname[0]) {
-      console_name = context.active_host->hostname;
-    }
-
-    if (context.active_host->hostname[0]) {
-      host_ip = context.active_host->hostname;
-    }
-
-    if (host_ip) {
-      snprintf(console_info, sizeof(console_info), "%s (%s)", console_name, host_ip);
-    } else {
-      snprintf(console_info, sizeof(console_info), "%s", console_name);
-    }
-    ui_text_draw(font, card_x + 20, card_y + 100, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_CARD_TITLE,
-                 console_info);
-  }
-
-  // Instructions
-  ui_text_draw(font, card_x + 20, card_y + 150, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_CARD_TITLE,
-               "Enter the 8-digit session PIN displayed on your PS5:");
-
-  // PIN digit boxes (centered in card)
-  int pin_total_width =
-      (PIN_DIGIT_WIDTH * PIN_DIGIT_COUNT) + (PIN_DIGIT_SPACING * (PIN_DIGIT_COUNT - 1));
-  int pin_start_x = card_x + (PIN_CARD_WIDTH - pin_total_width) / 2;
-  int pin_y = card_y + 220;
-
-  for (int i = 0; i < PIN_DIGIT_COUNT; i++) {
-    int x = pin_start_x + i * (PIN_DIGIT_WIDTH + PIN_DIGIT_SPACING);
-    bool is_current = (pin_entry_state.current_digit == i);
-    bool has_value = (pin_entry_state.pin_digits[i] <= 9);
-    render_pin_digit(x, pin_y, pin_entry_state.pin_digits[i], is_current, has_value);
-  }
-
-  // Navigation hints
-  ui_text_draw(font, card_x + 20, card_y + PIN_CARD_HEIGHT - 50, UI_COLOR_TEXT_SECONDARY,
-               FONT_SIZE_SUBHEADER,
-               "Left/Right: Move   Up/Down: Change digit   Cross: Confirm   Circle: Cancel");
-
-  // Input handling
-  if (btn_pressed(SCE_CTRL_LEFT)) {
-    if (pin_entry_state.current_digit > 0) {
-      pin_entry_state.current_digit--;
-    }
-  } else if (btn_pressed(SCE_CTRL_RIGHT)) {
-    if (pin_entry_state.current_digit < PIN_DIGIT_COUNT - 1) {
-      pin_entry_state.current_digit++;
-    }
-  } else if (btn_pressed(SCE_CTRL_UP)) {
-    uint32_t *digit = &pin_entry_state.pin_digits[pin_entry_state.current_digit];
-    if (*digit > 9)
-      *digit = 0;
-    else
-      *digit = (*digit + 1) % 10;
-  } else if (btn_pressed(SCE_CTRL_DOWN)) {
-    uint32_t *digit = &pin_entry_state.pin_digits[pin_entry_state.current_digit];
-    if (*digit > 9)
-      *digit = 9;
-    else
-      *digit = (*digit + 9) % 10;
-  } else if (btn_pressed(SCE_CTRL_SQUARE)) {
-    // Clear current digit
-    pin_entry_state.pin_digits[pin_entry_state.current_digit] = 10;
-  } else if (btn_pressed(SCE_CTRL_CROSS)) {
-    // Confirm PIN if complete
-    if (is_pin_complete()) {
-      uint32_t pin = pin_to_number();
-      LOGD("User entered PIN: %08u", pin);
-      host_register(context.active_host, pin);
-      pin_entry_initialized = false;  // Reset for next time
-      return false;
-    }
-  } else if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    // Cancel
-    pin_entry_initialized = false;  // Reset for next time
-    return false;
-  }
-
-  return true;
-}
-
 /// Render the current frame of an active stream
 /// @return whether the stream should keep rendering
 bool ui_screen_draw_stream(void) {
@@ -2972,18 +2794,6 @@ bool ui_screen_draw_messages(void) {
 // ============================================================================
 
 void ui_screens_init(void) {
-  // Initialize screen-specific state
-  pin_entry_initialized = false;
-  cursor_blink_timer = 0;
-
-  // PIN entry state will be initialized on first use
-  for (int i = 0; i < 8; i++) {
-    pin_entry_state.pin_digits[i] = 10;  // 10 = empty
-  }
-  pin_entry_state.current_digit = 0;
-  pin_entry_state.pin_complete = false;
-  pin_entry_state.complete_pin = 0;
-
   // Get touch input state pointers from ui_input module
   touch_block_active = ui_input_get_touch_block_active_ptr();
   touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();

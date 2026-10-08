@@ -67,9 +67,6 @@ extern char *cancel_btn_str;
 // Tooltip buffer
 extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
 
-// PIN entry cursor blink state
-extern bool show_cursor;
-
 // Navigation state (defined in ui_navigation.c, exposed for backward compatibility)
 // Note: New code should use ui_nav_* query functions instead of direct access
 extern NavCollapseState nav_collapse;
@@ -245,10 +242,6 @@ void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint3
                   int num_tabs, int selected);
 void draw_status_dot(int x, int y, int radius, int status);
 void draw_section_header(int x, int y, int width, const char *title);
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
-void render_error_popup(void);
-void handle_error_popup_input(void);
-void render_connect_popup(void);
 void trigger_hints_popup(const char *hint_text);
 void render_hints_popup(void);
 void render_hints_indicator(void);

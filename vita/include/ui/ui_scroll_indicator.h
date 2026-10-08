@@ -3,6 +3,7 @@
  * @brief C24 ScrollIndicator: a thin track and thumb beside a scrolling pane (SPEC.md C24)
  *
  * Display-only. Shown only when there are more rows than fit. Paper cost: 2 draws (track, thumb).
+ * Both follow the layer opacity (ui_layer_set_alpha), so a rising popup fades it with the rest.
  */
 
 #pragma once

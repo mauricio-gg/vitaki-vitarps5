@@ -107,7 +107,7 @@ void ui_category_bar_draw(const UiCategoryBar *bar) {
   if (glow) {
     vita2d_draw_texture_tint(glow, poses[bar->focus].cx - (float)UI_LIST_GLOW / 2.0f,
                              (float)(UI_CAT_Y - UI_LIST_GLOW / 2),
-                             ui_color_scale_alpha(UI_GLOW, p));
+                             ui_layer_color(ui_color_scale_alpha(UI_GLOW, p)));
   }
 
   for (int i = 0; i < UI_CAT_COUNT; i++) {
@@ -117,7 +117,8 @@ void ui_category_bar_draw(const UiCategoryBar *bar) {
     float size = (float)UI_CAT_ART * poses[i].scale;
     float scale = size / (float)vita2d_texture_get_width(icon);
     vita2d_draw_texture_tint_scale(icon, poses[i].cx - size / 2.0f, (float)UI_CAT_Y - size / 2.0f,
-                                   scale, scale, ui_color_scale_alpha(UI_TEXT, poses[i].opacity));
+                                   scale, scale,
+                                   ui_layer_color(ui_color_scale_alpha(UI_TEXT, poses[i].opacity)));
   }
 
   for (int i = 0; i < UI_CAT_COUNT; i++) {

@@ -131,7 +131,7 @@ Text is drawn from the 5 pre-rendered atlas entries (Light 20, 28, 40; Regular 1
 | Purpose | Horizontal Consoles / Settings / Controller / Profile row. Replaces the wave sidebar. |
 | Constants | `UI_CAT_BOX` 64 (art 48), `UI_CAT_Y` 104 (centre), `UI_CAT_X0` 256, `UI_CAT_FAR` 128 (first right neighbour), `UI_CAT_STEP` 112, `UI_CAT_SCALE_ON` 1.25, `UI_CAT_SCALE_LEFT` 0.75, `UI_CAT_STRIP` y 64 h 112 full width (swipe zone) |
 | Anatomy | Focused centre x 256, scale 1.25, glow, label T16 centred 16 below the box (y 152-176). Right neighbours at x 384, 496, 608. Left neighbours at 256 - 112 per step, scale 0.75. Unfocused opacity 62%. Icons: `icon_play.png`, `icon_settings.png`, `icons/controller.svg`, `icons/profile.svg`. |
-| States | focused, unfocused, dimmed to 12% while Options column is open |
+| States | focused, unfocused, dimmed to 25% while Options column is open (as C05 and the mock) |
 | Input | Left/Right or L/R changes category (slide 300 ms). Touch: tap an icon focuses it (hit 64 x 64); horizontal swipe on the strip moves one category per 56 px. |
 | Used by | Home |
 | Replaces | `ui_navigation.c` wave sidebar and `NAV_*` |
@@ -228,6 +228,8 @@ Rows h 48 (T20, optional right label T16 TEXT_3, check icon for the current valu
 | Focused | radial `FILL_FOCUS`, icon 120% + glow, label TEXT | same plus the check in TEXT |
 
 Input: Up/Down (grid: all four), Confirm, tap a row (selects and activates). Used by: Mapping popup (L), Connect via (S, 2 rows), Change icon (M grid).
+
+**As built (#303).** The focused grid cell is a baked `R_SM` rounded rect in `FILL_FOCUS` (one draw), as the mock's final CSS draws it (`.lg.sel` under `r-sm`), not the radial fill the matrix text names. The check is the 32 px popup check art scaled to 20 px (list) and 16 px (grid cell). The scroll indicator sits on the list's right edge inside the popup padding, as in the mock. The M grid is 8 px taller than the space under the subtitle (as in the mock) and uses the popup's bottom padding. A swipe applies to lists only. The list keeps the focused row at the middle of the viewport as `focus - visible / 2 + 1`, clamped, without the mock's slide.
 
 ### C13 ConfirmPopup (configuration of C11)
 Size S, title with icon, 1 to 3 lines body, two TextButtons (Cancel left, action right). Default focus Cancel. Left/Right switches, Confirm presses the focused button, Circle cancels. Used by: Re-pair.
@@ -355,6 +357,7 @@ Categories deep links: `#xmb-settings`, `#xmb-controller`, `#xmb-profile`.
 ### 3.2 PIN (`#pin`, `#pin-partial`, `#pin-full`)
 Page shell (lock icon). Title "<PS5|PS4> Console Registration" with the console name and IP as a T16 sub. Prompt T20 centred at y 160: "Enter the 8-digit session PIN displayed on your <PS5|PS4>:". C17 at y 224. TextButtons at y 424: Clear digit, Cancel, Register (disabled until all 8 are filled).
 **Focus**: one focus only, digits zone or buttons zone (C17). `#pin-full` opens with focus on Register and no digit highlighted. Buttons: Left/Right digit (digits zone) or button (buttons zone), Up/Down change the digit, Square clear digit, Confirm register (all 8 filled) or press the focused button, Cancel back to Home. Hints (digits): `[D-pad Digit] [Up-down Change] [Square Clear digit] [Confirm Register (dim until filled)] [Cancel Cancel]`; (buttons): `[D-pad Button] [Up-down Digits] [Confirm <focused button>] [Cancel Cancel]`. Touch: tap a digit box, tap its chevrons, tap a button.
+**As built (#303).** `#pin-full` is a preview only: the screen always opens empty with focus on the first digit. Down changes the digit (as the mock does); it does not also move to the buttons, so the buttons zone is reached with Right on the last digit once all 8 are filled (Register is disabled until then; Clear digit and Cancel are also reachable by touch, and Cancel by Circle). While the attempt runs the prompt reads "Pairing..." (new copy, for sign-off), the digits and the Clear digit and Register buttons are drawn at 45%, and Cancel stays live and stops the attempt.
 
 ### 3.3 Result and error popups, and the pairing result contract
 One C14, used for pairing success, pairing failure and connection failure. `#result-paired` (OK tone, one button OK), `#result-pair-failed`, `#result-pair-timeout`, `#result-pair-unreachable` (ERR, Close / Try again), `#result-connect-failed` (ERR, Close / Try again). Circle closes; hints follow the focused button (C06).
@@ -368,7 +371,11 @@ One C14, used for pairing success, pairing failure and connection failure. `#res
 | failed: console unreachable | "Pairing failed" / "<name> could not be reached. Check that it is on and on the same network." |
 | timeout | "Pairing failed" / "<name> did not answer in time. Open Link Device on the console again and retry." (the timeout length is an engineering choice; propose 30 s) |
 
-Failure popups offer Close and Try again (Try again returns to the PIN screen). Connection failure shows the raw disconnect reason from the copy deck. **Mock-only trigger:** in the mock a PIN starting with 0 gives "PIN not accepted", starting with 9 gives "timeout", anything else succeeds; this is not app behaviour.
+Failure popups offer Close and Try again (Try again returns to the PIN screen). Connection failure shows the raw disconnect reason from the copy deck.
+
+**As built (#303).** The backend cannot tell a wrong PIN from an unreachable console, so its FAILED result shows one collapsed body: "<name> did not accept the PIN or could not be reached. Check the code and that the console is on the same network." The other two bodies are used when the Vita knows the cause (no route to the console before lib is called: unreachable; no answer in 30 s: timeout). A cancel shows no popup. Cancel or a tap outside closes a failure popup (Close) and confirms a success popup (OK).
+
+**Mock-only trigger:** in the mock a PIN starting with 0 gives "PIN not accepted", starting with 9 gives "timeout", anything else succeeds; this is not app behaviour.
 
 ### 3.4 Connecting and Reconnecting
 Page shell, no groups. Title is set **per flow**, not per stage: a local standby flow reads "Waking Console" on its first stage and "Starting Remote Play" after; a local ready flow reads "Starting Remote Play"; every internet flow reads "Starting Internet Remote Play" from first stage to last. (Today's code flips the title per stage; the flip is a bug and this is the fix.) Each title has a 32 px icon (C07). Left art: ring 128 inside a 176 spinner and a soft halo (280), x 68..388, y 168..368, centred; type logo h 32 at y 384, name T28, route T16 ("via Local Network" / "via Internet"). Right: C16 steps. Cancel TextButton right-aligned at y 440. Circle or tap Cancel stops the connect and returns Home. Standby console: wake polls until awake, then auto-connects (steps continue).
@@ -544,7 +551,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 **PIN and results**
 - <PS5|PS4> Console Registration; <name> (<ip>); Enter the 8-digit session PIN displayed on your <PS5|PS4>:
-- Buttons: Clear digit, Cancel, Register; hints Digit, Change, Clear digit, Register, Cancel
+- Buttons: Clear digit, Cancel, Register; hints Digit, Change, Clear digit, Register, Cancel; prompt while the attempt runs: Pairing... (new)
 - Results (new): Console paired / <name> is paired. You can connect to it now. / OK ; Pairing failed / <name> did not accept the PIN. Check the code on the console and try again. | <name> could not be reached. Check that it is on and on the same network. | <name> did not answer in time. Open Link Device on the console again and retry. / Close, Try again ; Could not connect / <name>: <reason> / Close, Try again
 
 **Connecting**

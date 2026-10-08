@@ -10,6 +10,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c
+    src/room_icons.c
+    src/ui/ui_room_icons.c
     src/context.c
     src/discovery.c
     src/discovery_host.c
@@ -26,6 +28,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_metrics.c
     src/host_quit.c
     src/host_registration.c
+    src/host_registration_result.c
     src/host_recovery.c
     src/host_storage.c
     src/psn_auth.c
@@ -55,6 +58,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_text.c
     src/ui/ui_component.c
     src/ui/ui_console_status.c
+    src/ui/ui_result_copy.c
+    src/ui/ui_connect_failure.c
     src/ui/ui_console_rows.c
     src/ui/ui_category_bar.c
     src/ui/ui_xmb_list.c
@@ -84,6 +89,17 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_settings_actions.c
     src/ui/ui_settings.c
     src/ui/ui_reconnecting.c
+    src/ui/ui_gradient.c
+    src/ui/ui_downsample.c
+    src/ui/ui_freeze.c
+    src/ui/ui_popup.c
+    src/ui/ui_list_popup.c
+    src/ui/ui_result_popup.c
+    src/ui/ui_pin.c
+    src/ui/ui_pin_field.c
+    src/ui/ui_pin_digits.c
+    src/ui/ui_options_column.c
+    src/ui/ui_home_options.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -288,7 +304,6 @@ if(CHIAKI_IS_VITA)
         # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
         FILE assets/icons/controller.png assets/icons/controller.png
         FILE assets/icons/profile.png assets/icons/profile.png
-        FILE assets/icons/tv.png assets/icons/tv.png
         FILE assets/icons/video.png assets/icons/video.png
         FILE assets/icons/network.png assets/icons/network.png
         FILE assets/icons/display.png assets/icons/display.png
@@ -303,13 +318,33 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/search.png assets/icons/search.png
         FILE assets/icons/wifi.png assets/icons/wifi.png
         FILE assets/icons/battery.png assets/icons/battery.png
-        # Connecting screen: 32 px page-title icons and the 64 px room icon inside the ring
+        # Connecting screen: 32 px page-title icons. Room icons (list rows 38, picker 48, ring 64)
         FILE assets/icons/page_lan.png assets/icons/page_lan.png
         FILE assets/icons/page_globe.png assets/icons/page_globe.png
         FILE assets/icons/page_moon.png assets/icons/page_moon.png
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
-        FILE assets/icons/tv_64.png assets/icons/tv_64.png
+        FILE assets/icons/page_lock.png assets/icons/page_lock.png
+        FILE assets/icons/popup_check.png assets/icons/popup_check.png
+        FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
+        FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
+        FILE assets/icons/room_tv_48.png assets/icons/room_tv_48.png
+        FILE assets/icons/room_tv_64.png assets/icons/room_tv_64.png
+        FILE assets/icons/room_sofa_38.png assets/icons/room_sofa_38.png
+        FILE assets/icons/room_sofa_48.png assets/icons/room_sofa_48.png
+        FILE assets/icons/room_sofa_64.png assets/icons/room_sofa_64.png
+        FILE assets/icons/room_bed_38.png assets/icons/room_bed_38.png
+        FILE assets/icons/room_bed_48.png assets/icons/room_bed_48.png
+        FILE assets/icons/room_bed_64.png assets/icons/room_bed_64.png
+        FILE assets/icons/room_bunk_38.png assets/icons/room_bunk_38.png
+        FILE assets/icons/room_bunk_48.png assets/icons/room_bunk_48.png
+        FILE assets/icons/room_bunk_64.png assets/icons/room_bunk_64.png
+        FILE assets/icons/room_desk_38.png assets/icons/room_desk_38.png
+        FILE assets/icons/room_desk_48.png assets/icons/room_desk_48.png
+        FILE assets/icons/room_desk_64.png assets/icons/room_desk_64.png
+        FILE assets/icons/room_house_38.png assets/icons/room_house_38.png
+        FILE assets/icons/room_house_48.png assets/icons/room_house_48.png
+        FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         # Professional UI assets (gradient background, logo, controller diagrams)

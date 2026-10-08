@@ -22,3 +22,7 @@ typedef float (*UiBakeAlphaFn)(float px, float py, const void *ctx);
  * @return the texture, or NULL when it could not be allocated (logged)
  */
 vita2d_texture *ui_bake_white(int w, int h, UiBakeAlphaFn alpha, const void *ctx);
+
+/** ui_bake_distance_to_segment() - Distance from (@px, @py) to the segment (@ax, @ay)-(@bx, @by),
+ * for alpha functions that draw a stroke (chevrons). */
+float ui_bake_distance_to_segment(float px, float py, float ax, float ay, float bx, float by);

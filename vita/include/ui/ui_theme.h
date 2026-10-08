@@ -309,6 +309,8 @@ typedef enum ui_face_t {
 #define UI_LIST_W 368
 #define UI_LIST_H 336
 #define UI_ITEM_ICON 38
+#define UI_ROOM_ICON_GRID 48 /* Room icon in the Change-icon picker grid (SPEC C12) */
+#define UI_ROOM_ICON_RING 64 /* Room icon in the Connecting ring centre (SPEC C03) */
 #define UI_LIST_ICON_BOX 64
 #define UI_LIST_ICON_CX 256
 #define UI_LIST_TEXT_X 304
@@ -334,12 +336,95 @@ typedef enum ui_face_t {
 #define UI_LIST_MAX_ITEMS 64
 
 /* ============================================================================
- * Home screen (ui_home.c)
+ * C05 OptionsColumn (ui_options_column.c): x 608 to the right edge, the console's Triangle menu
  * ============================================================================ */
 
-/** Holding Confirm this long on a console with both a local and an Internet route opens "Connect
- * via". */
-#define UI_HOME_LONG_PRESS_MS 600
+#define UI_OPTS_X 608
+#define UI_OPTS_W 352
+/** The column's content (title, labels, dividers) sits this far from its left and right edges. */
+#define UI_OPTS_PAD UI_MARGIN_X
+#define UI_OPTS_TITLE_Y 88
+#define UI_OPTS_SUB_Y 120
+#define UI_OPTS_ROW_Y 160
+#define UI_OPTS_ROW_H UI_ROW_H_LARGE
+/** The focus bar reaches this far into the column's padding on each side; the label sits inside it.
+ */
+#define UI_OPTS_BAR_INSET UI_S4
+#define UI_OPTS_LABEL_PAD UI_S2
+#define UI_OPTS_GLOW UI_ROW_GLOW
+#define UI_OPTS_GLOW_PCT UI_ROW_GLOW_PCT
+/** The left edge fades from EDGE_0 to PANEL_EDGE over this share of the column's width. */
+#define UI_OPTS_FEATHER_PCT 18
+#define UI_OPTS_SLIDE_MS UI_D2_MS
+#define UI_OPTS_DISABLED_PCT 45
+/** Opacity of the Home layers (top bar, categories, list, detail) while the column is open. */
+#define UI_OPTS_BEHIND_PCT 25
+/** Most rows the column holds (Connect, Connect via, Re-pair, and room for Change icon). */
+#define UI_OPTS_MAX_ROWS 4
+/** Bytes kept of the console name shown as the column's title. */
+#define UI_OPTS_NAME_MAX 64
+
+/* ============================================================================
+ * C11 Popup (ui_popup.c): the one modal frame. Sizes S, M and L are 480 wide at x 240.
+ * ============================================================================ */
+
+#define UI_POPUP_X 240
+#define UI_POPUP_W 480
+#define UI_POPUP_PAD UI_S4
+#define UI_POPUP_S_Y 144
+#define UI_POPUP_S_H 256
+#define UI_POPUP_M_Y 96
+#define UI_POPUP_M_H 352
+#define UI_POPUP_L_Y 56
+#define UI_POPUP_L_H 432
+#define UI_POPUP_ICON 32
+#define UI_POPUP_ICON_GAP UI_S2
+/** Space between the last header line (title or subtitle) and the body. */
+#define UI_POPUP_BODY_GAP UI_S1
+#define UI_POPUP_BODY_LINES 3
+#define UI_POPUP_BUTTON_GAP UI_S2
+#define UI_POPUP_BUTTON_MAX_W 208
+#define UI_POPUP_MAX_BUTTONS 2
+#define UI_POPUP_ENTER_MS UI_D2_MS
+/** Bytes kept of the title and of the subtitle (UTF-8). */
+#define UI_POPUP_TEXT_MAX 96
+
+/* ============================================================================
+ * C12 ListPopup (ui_list_popup.c): rows and the icon grid inside a C11 popup
+ * ============================================================================ */
+
+#define UI_LISTPOP_ROW_H UI_SHAPE_H_BAR
+/** Label and right label sit this far inside the row's focus bar. */
+#define UI_LISTPOP_ROW_PAD UI_S1
+/** A list or grid in an M or L popup starts this far under the header. */
+#define UI_LISTPOP_TOP_GAP UI_S2
+/** Rows an L popup shows before it scrolls. */
+#define UI_LISTPOP_MAX_VISIBLE 6
+/** Rows or cells a list popup holds. */
+#define UI_LISTPOP_MAX_ROWS 16
+/** Bytes kept of a row's label and of its right label (UTF-8). */
+#define UI_LISTPOP_TEXT_MAX 48
+/** The check mark of the current row, drawn from the 32 px popup check art scaled down. */
+#define UI_LISTPOP_CHECK 20
+/** Space between a right label and the check mark. */
+#define UI_LISTPOP_CHECK_GAP UI_S1
+#define UI_LISTPOP_GRID_COLS 3
+#define UI_LISTPOP_CELL_W 128
+#define UI_LISTPOP_CELL_H 104
+#define UI_LISTPOP_CELL_GAP UI_S2
+#define UI_LISTPOP_CELL_ICON UI_ROOM_ICON_GRID
+/** Gap between a cell's icon and its label. */
+#define UI_LISTPOP_CELL_LABEL_GAP UI_S1
+#define UI_LISTPOP_CELL_ICON_PCT 70
+#define UI_LISTPOP_CELL_ICON_FOCUS_PCT 120
+#define UI_LISTPOP_CELL_GLOW UI_ROW_GLOW
+/** The quiet check of the current cell, and its inset from the cell's top-right corner. */
+#define UI_LISTPOP_CELL_CHECK 16
+#define UI_LISTPOP_CELL_CHECK_INSET UI_S1
+
+/* The background freeze (ui_freeze.c): a half-resolution copy of the screen behind a popup. */
+#define UI_FREEZE_W 480
+#define UI_FREEZE_H 272
 
 /* ============================================================================
  * Rounded shapes (SPEC 1.3): fixed heights of the baked 3-slice shapes
@@ -559,6 +644,42 @@ typedef enum ui_face_t {
 #define UI_BUTTON_DISABLED_PCT 45
 #define UI_BUTTON_GLOW 12
 #define UI_BUTTON_GLOW_PCT 20
+
+/* ============================================================================
+ * C17 PinField (ui_pin_field.c) and the PIN screen (ui_pin.c, SPEC 3.2)
+ * ============================================================================ */
+
+/* The number of digits is UI_PIN_DIGITS (ui_pin_digits.h). */
+#define UI_PIN_BOX_W 56
+#define UI_PIN_BOX_H 72
+#define UI_PIN_GAP 8
+/** The chevron boxes above and below the focused digit: hit and visible box, then the art. */
+#define UI_PIN_CHEV_W 56
+#define UI_PIN_CHEV_H 48
+#define UI_PIN_CHEV_ART 20
+/** The chevron stroke: the mock's 2 on a 24 grid, scaled to the art. */
+#define UI_PIN_CHEV_STROKE 1.7f
+/** Top of the row: the up chevron box. The digit boxes follow it, then the down chevron box. */
+#define UI_PIN_ROW_Y 224
+#define UI_PIN_BTN_Y 424
+#define UI_PIN_BTN_COUNT 3
+#define UI_PIN_BTN_GAP UI_S2
+#define UI_PIN_BORDER UI_LW2
+#define UI_PIN_GLOW 12
+#define UI_PIN_GLOW_PCT 20
+/** The cursor of an empty focused box blinks over UI_PIN_BLINK_MS: full, then
+ * UI_PIN_CURSOR_LOW_PCT. */
+#define UI_PIN_CURSOR_W 2
+#define UI_PIN_CURSOR_H 40
+#define UI_PIN_BLINK_MS 1000
+#define UI_PIN_CURSOR_LOW_PCT 20
+/** Digits and buttons of a field that is waiting for the console. */
+#define UI_PIN_LOCKED_PCT UI_BUTTON_DISABLED_PCT
+#define UI_PIN_PROMPT_Y 160
+/** Gap between the page title and the console name and address after it. */
+#define UI_PIN_SUB_GAP UI_S1
+/** Bytes kept of the console name and address line and of the prompt. */
+#define UI_PIN_TEXT_MAX 160
 
 /* ============================================================================
  * Connecting screen (ui_connecting.c, SPEC 3.4)

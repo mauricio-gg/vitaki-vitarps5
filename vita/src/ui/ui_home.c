@@ -5,6 +5,11 @@
  * One CategoryBar (Consoles / Settings / Controller / Profile) over one XmbList.
  * The list is rebuilt from its source every frame into a fixed array (no heap):
  * the console card cache for Consoles, static tables for the other categories.
+ *
+ * Triangle on a console opens the Options column (C05), which ui_home_options.c runs together
+ * with the popups its rows open. While a popup is open the screen behind it is frozen
+ * (ui_freeze.h) and Home runs only the popup, so the frame is the copy, the popup layer and the
+ * popup's hint row.
  */
 
 #include <stdio.h>
@@ -23,12 +28,17 @@
 #include "ui/ui_chrome_layout.h"
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
+#include "ui/ui_connect_failure.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_detail_panel.h"
+#include "ui/ui_freeze.h"
 #include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
+#include "ui/ui_home_options.h"
+#include "ui/ui_page_frame.h"
+#include "ui/ui_room_icons.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -48,8 +58,7 @@ typedef enum home_category_t {
 
 /** Item icons, in the order of HOME_ICON_FILES. */
 typedef enum home_icon_t {
-  HOME_ICON_TV = 0,
-  HOME_ICON_VIDEO,
+  HOME_ICON_VIDEO = 0,
   HOME_ICON_NETWORK,
   HOME_ICON_DISPLAY,
   HOME_ICON_CONTROLS,
@@ -67,8 +76,8 @@ typedef enum home_icon_t {
 #define HOME_ICON_DIR "app0:/assets/icons/"
 
 static const char *const HOME_ICON_FILES[HOME_ICON_COUNT] = {
-    "tv",         "video", "network", "display", "controls", "advanced", "account",
-    "connection", "psn",   "slot1",   "slot2",   "slot3",    "search",
+    "video",      "network", "display", "controls", "advanced", "account",
+    "connection", "psn",     "slot1",   "slot2",    "slot3",    "search",
 };
 
 /** A non-console row: name, optional second line, icon. */
@@ -135,6 +144,7 @@ static const char HINT_PAIR[] = "Pair";
 static const char HINT_PLEASE_WAIT[] = "Please wait";
 static const char HINT_OPEN[] = "Open";
 static const char HINT_CATEGORY[] = "Category";
+static const char HINT_OPTIONS[] = "Options";
 static const char HINT_FILTER[] = "Filter";
 static const char HINT_CLEAR[] = "Clear";
 
@@ -167,9 +177,10 @@ static int s_filter_cached_found = -1;
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
 
-/** Confirm is being held on a console that offers both routes (long press opens the popup). */
-static bool s_confirm_tracking = false;
-static uint64_t s_confirm_start_us = 0;
+/** The console Home should focus on its next live frame (ui_home_focus_console), or NULL. */
+static const VitaChiakiHost *s_focus_host = NULL;
+
+static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn);
 
 /* ============================================================================
  * Setup
@@ -195,14 +206,16 @@ void ui_home_init(void) {
   s_last_category = -1;
   s_filter_cached_found = -1;
   s_hints.count = 0;
-  s_confirm_tracking = false;
+  ui_connect_failure_init();
+  ui_home_options_init(connect_console);
+  s_focus_host = NULL;
 }
 
 void ui_home_on_enter(void) {
   if (!ui_focus_has_modal())
     ui_focus_set_zone(FOCUS_ZONE_MAIN_CONTENT);
   ui_nav_reset_collapsed();
-  s_confirm_tracking = false;
+  ui_home_options_reset();
   s_hints.count = 0;
   ui_xmb_list_cascade_in(&s_list);
   ui_detail_panel_restart_rise();
@@ -228,7 +241,7 @@ static int fill_static_items(const HomeEntry *entries, int count) {
 /** Row appearance for a classified console. */
 static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state) {
   UiXmbItem item = {
-      .icon = s_item_icons[HOME_ICON_TV],
+      .icon = ui_room_icons_get(ui_room_icon_for_host(card->host), ROOM_ICON_SIZE_ROW),
       .name = card->name,
       .status = ui_console_status_label(state.status),
       .status_dot = true,
@@ -370,7 +383,29 @@ void ui_home_select_settings_group(int group) {
   ui_category_bar_set_focus(&s_bar, HOME_CAT_SETTINGS);
   refresh_items(NULL);
   ui_xmb_list_set_focus(&s_list, group);
-  s_confirm_tracking = false;
+}
+
+void ui_home_focus_console(const VitaChiakiHost *host) {
+  s_focus_host = host;
+  ui_cards_mark_dirty();
+}
+
+/** Carry out a ui_home_focus_console() request: Consoles category, the console's row. */
+static void apply_focus_request(const VitaChiakiHost *cooldown) {
+  if (!s_focus_host)
+    return;
+  const VitaChiakiHost *host = s_focus_host;
+  s_focus_host = NULL;
+
+  ui_category_bar_set_focus(&s_bar, HOME_CAT_CONSOLES);
+  refresh_items(cooldown);
+  for (int i = 0; i < ui_cards_get_count(); i++) {
+    if (ui_cards_get_card(i)->host == host) {
+      ui_xmb_list_set_focus(&s_list, i + (s_filter_row ? 1 : 0));
+      ui_cards_set_selected_index(i);
+      return;
+    }
+  }
 }
 
 /* ============================================================================
@@ -428,14 +463,24 @@ static bool filter_row_focused(void) {
   return s_bar.focus == HOME_CAT_CONSOLES && s_filter_row && s_list.focus == 0;
 }
 
-/** Connect to the focused console; @force_psn routes it through the PSN holepunch. */
-static UIScreenType connect_focused_console(bool force_psn) {
-  ConsoleCardInfo *card = focused_card();
-  if (!card)
+/** Index of @host in the console cache, or -1 when it is not listed (gone, or filtered out). */
+static int listed_console_index(const VitaChiakiHost *host) {
+  for (int i = 0; i < ui_cards_get_count(); i++) {
+    if (ui_cards_get_card(i)->host == host)
+      return i;
+  }
+  return -1;
+}
+
+/** Connect to @host as Confirm on its row does; @force_psn routes it through the PSN
+ * holepunch. */
+static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn) {
+  const int index = listed_console_index(host);
+  if (index < 0)
     return UI_SCREEN_TYPE_MAIN;
-  ui_cards_set_selected_index(focused_console_index());
+  ui_cards_set_selected_index(index);
   context.stream.force_psn_holepunch = force_psn;
-  return ui_screens_connect_host(card->host);
+  return ui_screens_connect_host(host);
 }
 
 /** Open the screen for the focused Settings, Controller or Profile item. */
@@ -449,104 +494,52 @@ static UIScreenType open_category_screen(void) {
   return target;
 }
 
-/**
- * True when the focused console has both a local and an Internet route, so a long
- * press of Confirm offers "Connect via". A PSN-only console has no local route to offer.
- */
-static bool focused_console_has_both_routes(void) {
-  const ConsoleCardInfo *card = focused_card();
-  return card && card->has_internet && card->host &&
-         card->host->source != VITA_HOST_SOURCE_PSN_REMOTE;
-}
-
-/** Drive the "Connect via" popup; returns the screen to show next. */
-static UIScreenType update_connect_popup(void) {
-  int result = ui_connect_popup_update();
-  if (result == 0)
-    return connect_focused_console(false);
-  if (result == 1)
-    return connect_focused_console(true);
-  return UI_SCREEN_TYPE_MAIN;
-}
-
-/**
- * Handle Confirm held on a dual-route console: a short press connects locally, holding
- * UI_HOME_LONG_PRESS_MS opens the "Connect via" popup.
- *
- * @return the screen to show next
- */
-static UIScreenType update_dual_route_confirm(const UiInput *in) {
-  if (in->pressed & UI_BTN_CONFIRM) {
-    s_confirm_tracking = true;
-    s_confirm_start_us = sceKernelGetProcessTimeWide();
-  }
-  if (!s_confirm_tracking)
-    return UI_SCREEN_TYPE_MAIN;
-
-  if (in->released & UI_BTN_CONFIRM) {
-    s_confirm_tracking = false;
-    return connect_focused_console(false);
-  }
-  if ((in->down & UI_BTN_CONFIRM) &&
-      sceKernelGetProcessTimeWide() - s_confirm_start_us >= UI_HOME_LONG_PRESS_MS * 1000ULL) {
-    s_confirm_tracking = false;
-    ui_connect_popup_show();
-  }
-  return UI_SCREEN_TYPE_MAIN;
-}
-
 /** Forward input to the list and act on its event; returns the screen to show next. */
 static UIScreenType update_list(const UiInput *in) {
-  UiInput list_in = *in;
-  UIScreenType next = UI_SCREEN_TYPE_MAIN;
-
-  if (focused_console_has_both_routes()) {
-    list_in.pressed &= ~(uint32_t)UI_BTN_CONFIRM;
-    next = update_dual_route_confirm(in);
-  } else {
-    s_confirm_tracking = false;
-  }
-
   /* One tap on the Filter row opens the keyboard at once, focused or not. */
   if (s_filter_row && ui_touch_tap(in) &&
       ui_rect_contains(s_list.hit[0], in->touch.x, in->touch.y)) {
     ui_cards_edit_filter();
-    return next;
+    return UI_SCREEN_TYPE_MAIN;
   }
 
-  UiEvent ev = ui_xmb_list_input(&s_list, &list_in);
-  if (ev == UI_EVENT_MOVED) {
-    s_confirm_tracking = false;
-  } else if (ev == UI_EVENT_ACTIVATED) {
-    if (filter_row_focused())
+  UIScreenType next = UI_SCREEN_TYPE_MAIN;
+  if (ui_xmb_list_input(&s_list, in) == UI_EVENT_ACTIVATED) {
+    if (filter_row_focused()) {
       ui_cards_edit_filter();
-    else
-      next = s_bar.focus == HOME_CAT_CONSOLES ? connect_focused_console(false)
-                                              : open_category_screen();
+    } else if (s_bar.focus != HOME_CAT_CONSOLES) {
+      next = open_category_screen();
+    } else if (focused_card()) {
+      next = connect_console(focused_card()->host, false);
+    }
   }
   if (focused_console_index() >= 0)
     ui_cards_set_selected_index(focused_console_index());
   return next;
 }
 
+/** The focused console and its status, for the Options column. */
+static UiHomeOptionsTarget options_target(void) {
+  const ConsoleCardInfo *card = focused_card();
+  return (UiHomeOptionsTarget){
+      .card = card,
+      .status = card ? s_console_status[s_list.focus] : UI_CONSOLE_UNAVAILABLE,
+  };
+}
+
 /**
- * Square clears an active filter on the Filter row and re-pairs the focused console (until
- * ticket #303 moves it into Options); Start opens the keyboard or clears the filter.
+ * Square clears an active filter on the Filter row; Start opens the keyboard or clears the
+ * filter; Triangle on a console opens its Options column.
  */
-static UIScreenType update_console_shortcuts(const UiInput *in) {
-  if (in->pressed & UI_BTN_CLEAR) {
-    if (filter_row_focused()) {
-      if (ui_cards_is_filter_active())
-        ui_cards_clear_filter();
-    } else {
-      ConsoleCardInfo *card = focused_card();
-      if (card)
-        return ui_screens_repair_host(card->host);
-    }
-  }
+static void update_console_shortcuts(const UiInput *in) {
+  if ((in->pressed & UI_BTN_CLEAR) && filter_row_focused() && ui_cards_is_filter_active())
+    ui_cards_clear_filter();
   if (in->pressed & UI_BTN_FILTER)
     ui_cards_open_filter();
-  return UI_SCREEN_TYPE_MAIN;
+  if (in->pressed & UI_BTN_OPTIONS) {
+    const UiHomeOptionsTarget target = options_target();
+    ui_home_options_open(&target);
+  }
 }
 
 /* ============================================================================
@@ -583,15 +576,18 @@ static const char *console_confirm_verb(UiConsoleStatus status) {
 /**
  * build_hints() - Fill @out with the hints for what is focused (SPEC 3.1) and return how many.
  *
- * Consoles with a console focused: Confirm with the console's verb, then L R Category (low
- * priority). Cooldown shows "Please wait" dimmed. The Filter row: Confirm Filter, Square Clear
- * while a filter is active, L R Category. Other categories: Confirm Open. An empty console
- * list: L R Category only. The Options hint arrives with ticket #303.
+ * An open popup owns the row, then the Options column (ui_home_options_hints): Confirm Select,
+ * Cancel Back. Consoles with a console focused: Confirm with the console's verb, Options, then
+ * L R Category (low priority). Cooldown shows "Please wait" dimmed. The Filter row: Confirm
+ * Filter, Square Clear while a filter is active, L R Category. Other categories: Confirm Open.
+ * An empty console list: L R Category only.
  */
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
-  int n = 0;
-  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
+  int n = ui_home_options_hints(out);
+  if (n > 0)
+    return n;
 
+  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
   if (filter_row_focused()) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_FILTER};
     if (ui_cards_is_filter_active())
@@ -603,6 +599,8 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
         .label = consoles ? console_confirm_verb(status) : HINT_OPEN,
         .dim = consoles && status == UI_CONSOLE_COOLDOWN,
     };
+    if (consoles)
+      out[n++] = (UiHintItem){.action = UI_BTN_OPTIONS, .label = HINT_OPTIONS};
   }
   out[n++] =
       (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_CATEGORY, .low_priority = true};
@@ -613,10 +611,79 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
  * Frame
  * ============================================================================ */
 
+/**
+ * Run one frame of input for the layer that has it: a popup or the Options column
+ * (ui_home_options.c), else the category bar, the list and the shortcuts.
+ *
+ * @return the screen to show next
+ */
+static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldown) {
+  if (ui_home_options_popup_open() || ui_home_options_column_open()) {
+    const UiHomeOptionsTarget target = options_target();
+    return ui_home_options_input(in, &target);
+  }
+
+  if (ui_category_bar_input(&s_bar, in) == UI_EVENT_MOVED) {
+    refresh_items(cooldown);
+    ui_xmb_list_set_focus(&s_list,
+                          s_bar.focus == HOME_CAT_CONSOLES
+                              ? ui_console_rows_initial_focus(s_filter_row, ui_cards_get_count())
+                              : 0);
+    ui_xmb_list_cascade_in(&s_list);
+    if (focused_console_index() >= 0)
+      ui_cards_set_selected_index(focused_console_index());
+    return UI_SCREEN_TYPE_MAIN;
+  }
+
+  const UIScreenType next = update_list(in);
+  if (s_bar.focus == HOME_CAT_CONSOLES && next == UI_SCREEN_TYPE_MAIN)
+    update_console_shortcuts(in);
+  return next;
+}
+
+/**
+ * Open the "Could not connect" popup for a connection failure waiting in the hand-off, unless a
+ * popup is already open (the failure then waits). It opens after this frame's input, so a press
+ * made for something else cannot answer it. Try again is offered only while the console is in
+ * the list (listed_console_index()): a console that is gone, or filtered out, cannot be
+ * connected to from here.
+ */
+static void open_pending_failure(void) {
+  if (ui_home_options_popup_open())
+    return;
+  UiConnectFailure failure;
+  if (ui_connect_failure_take(&failure))
+    ui_home_options_open_failure(&failure, listed_console_index(failure.host) >= 0);
+}
+
+/** Draw the live Home layers. The ones behind the Options column are tinted down to its dim. */
+static void draw_live_layers(const char *banner_reason) {
+  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
+
+  ui_background_draw_home_vignette();
+  ui_layer_set_alpha(ui_home_options_behind_alpha());
+  ui_top_bar_draw(consoles ? banner_reason : NULL);
+  ui_category_bar_draw(&s_bar);
+  ui_xmb_list_draw(&s_list);
+  ui_home_detail_draw((UiHomeDetailSource)s_bar.focus, &s_list, consoles && s_filter_row);
+  if (consoles)
+    draw_empty_state();
+  ui_layer_set_alpha(1.0f);
+  ui_home_options_draw_column();
+}
+
 UIScreenType ui_home_frame(void) {
-  /* A tapped hint acts as that button pressed and released in one frame. */
+  /* The freeze state at the start of the frame (it changes only after the swap) decides whether
+   * ui.c already drew the frozen copy: then the screen behind is not drawn live. Whether this
+   * frame becomes a popup's background copy is known only after input, which is what opens the
+   * popup (see "capturing" below). */
+  const bool frozen = ui_freeze_is_ready();
+
+  /* A tapped hint acts as that button pressed and released in one frame, except while the
+   * Options column is open, where every tap outside it only closes it. */
   UiInput in = *ui_input_snapshot();
-  const uint32_t tapped = ui_hint_row_tap(&s_hints, &in);
+  const bool hints_tappable = ui_home_options_popup_open() || !ui_home_options_column_open();
+  const uint32_t tapped = hints_tappable ? ui_hint_row_tap(&s_hints, &in) : 0;
   if (tapped) {
     in.pressed |= tapped;
     in.released |= tapped;
@@ -625,48 +692,43 @@ UIScreenType ui_home_frame(void) {
     in.touch.down = false;
   }
 
-  ui_cards_update_cache(false);
-  ui_cards_poll_filter_ime();
-
-  const char *banner_reason;
-  const VitaChiakiHost *cooldown = cooldown_host(&banner_reason);
-  refresh_items(cooldown);
-
-  UIScreenType next = UI_SCREEN_TYPE_MAIN;
-
-  if (ui_connect_popup_is_active()) {
-    next = update_connect_popup();
-  } else {
-    if (ui_category_bar_input(&s_bar, &in) == UI_EVENT_MOVED) {
-      s_confirm_tracking = false;
-      refresh_items(cooldown);
-      ui_xmb_list_set_focus(&s_list,
-                            s_bar.focus == HOME_CAT_CONSOLES
-                                ? ui_console_rows_initial_focus(s_filter_row, ui_cards_get_count())
-                                : 0);
-      ui_xmb_list_cascade_in(&s_list);
-      if (focused_console_index() >= 0)
-        ui_cards_set_selected_index(focused_console_index());
-    } else {
-      next = update_list(&in);
+  /* Behind a popup the console list does not change, so the row a popup is about stays put. */
+  const char *banner_reason = NULL;
+  const VitaChiakiHost *cooldown = NULL;
+  if (!ui_home_options_popup_open()) {
+    ui_cards_update_cache(false);
+    ui_cards_poll_filter_ime();
+  }
+  if (!frozen) {
+    cooldown = cooldown_host(&banner_reason);
+    refresh_items(cooldown);
+    apply_focus_request(cooldown);
+    if (ui_home_options_column_open()) {
+      const UiHomeOptionsTarget target = options_target();
+      ui_home_options_refresh(&target);
     }
-
-    if (s_bar.focus == HOME_CAT_CONSOLES && next == UI_SCREEN_TYPE_MAIN)
-      next = update_console_shortcuts(&in);
   }
 
-  ui_background_draw_home_vignette();
-  const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
-  ui_top_bar_draw(consoles ? banner_reason : NULL);
-  ui_category_bar_draw(&s_bar);
-  ui_xmb_list_draw(&s_list);
-  ui_home_detail_draw((UiHomeDetailSource)s_bar.focus, &s_list, consoles && s_filter_row);
-  if (consoles)
-    draw_empty_state();
+  const UIScreenType next = update_input(&in, cooldown);
+  if (next == UI_SCREEN_TYPE_MAIN)
+    open_pending_failure();
 
-  UiHintItem hints[UI_HINT_MAX_ITEMS];
-  ui_hint_row_layout(&s_hints, hints, build_hints(hints));
-  ui_hint_row_draw(&s_hints);
+  /* True when a popup was opened this frame: the frame becomes the popup's background copy, so
+   * it is drawn without the popup and without the hint row. Read after input, which is what
+   * requests the freeze; read before it, the opening frame would end up in the copy with the
+   * hint row on it. */
+  const bool capturing = ui_freeze_is_capturing();
+  if (!frozen)
+    draw_live_layers(banner_reason);
+  if (!capturing)
+    ui_home_options_draw_popup();
 
+  if (capturing) {
+    s_hints.count = 0;
+  } else {
+    UiHintItem hints[UI_HINT_MAX_ITEMS];
+    ui_hint_row_layout(&s_hints, hints, build_hints(hints));
+    ui_hint_row_draw(&s_hints);
+  }
   return next;
 }

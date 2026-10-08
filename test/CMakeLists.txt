@@ -7,6 +7,7 @@ add_executable(vitarps5_tests
     ../vita/src/config_migration.c
     ../vita/src/config_values.c
     ../vita/src/config_hosts.c
+    ../vita/src/room_icons.c
     ../vita/src/token_crypto.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
@@ -115,6 +116,33 @@ target_include_directories(ui_console_status_tests PRIVATE
 
 add_test(NAME vitarps5_ui_console_status_tests COMMAND ui_console_status_tests)
 
+# pairing_result_tests.c checks the pairing result decision and the result popup copy.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(pairing_result_tests
+    pairing_result_tests.c
+    ../vita/src/host_registration_result.c
+    ../vita/src/ui/ui_result_copy.c
+)
+
+target_include_directories(pairing_result_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_pairing_result_tests COMMAND pairing_result_tests)
+
+# pin_digits_tests.c checks the pure PIN rules (digit stepping, full check, value with leading
+# zeros). Standalone binary with its own main(); run natively (see the file header).
+add_executable(pin_digits_tests
+    pin_digits_tests.c
+    ../vita/src/ui/ui_pin_digits.c
+)
+
+target_include_directories(pin_digits_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_pin_digits_tests COMMAND pin_digits_tests)
+
 # ui_console_rows_tests.c checks the pure Consoles list rules (Filter row, row-to-console
 # mapping, focus, filter match). Standalone binary with its own main(); run natively (see the
 # file header).
@@ -128,3 +156,16 @@ target_include_directories(ui_console_rows_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
+
+# ui_downsample_tests.c checks the pure 2 x 2 pixel averaging behind the popup background freeze.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_downsample_tests
+    ui_downsample_tests.c
+    ../vita/src/ui/ui_downsample.c
+)
+
+target_include_directories(ui_downsample_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_downsample_tests COMMAND ui_downsample_tests)

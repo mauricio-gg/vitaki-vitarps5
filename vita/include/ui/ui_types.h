@@ -147,20 +147,6 @@ typedef struct console_card_cache_t {
 } ConsoleCardCache;
 
 // ============================================================================
-// PIN Entry Types
-// ============================================================================
-
-/**
- * PIN entry state for VitaRPS5-style registration
- */
-typedef struct pin_entry_state_t {
-  uint32_t pin_digits[8];  // Each digit 0-9, or 10 for empty
-  int current_digit;       // Which digit cursor is on (0-7)
-  bool pin_complete;       // All 8 digits entered
-  uint32_t complete_pin;   // Final 8-digit number
-} PinEntryState;
-
-// ============================================================================
 // Connection Overlay Types
 // ============================================================================
 

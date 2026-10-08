@@ -18,6 +18,7 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
+#include "host_feedback.h"
 #include "video.h"
 
 #include <math.h>
@@ -41,12 +42,6 @@ const char *debug_menu_options[] = {
     "Trigger network unstable badge",
     "Spawn fake consoles (x12)",
 };
-
-// PIN digit constants
-#define PIN_DIGIT_WIDTH 60
-#define PIN_DIGIT_HEIGHT 70
-
-// Cursor blink state (for PIN entry) - defined in ui.c, declared in ui_internal.h
 
 // ============================================================================
 // Widget Drawing Functions
@@ -119,42 +114,6 @@ void ui_draw_section_header(int x, int y, int width, const char *title) {
 }
 
 /**
- * Draw a single PIN entry digit box
- */
-void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Enhanced visual feedback for current digit
-  if (is_current) {
-    // Outer glow effect for better visibility
-    ui_draw_rounded_rect(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6,
-                         RGBA8(0x34, 0x90, 0xFF, 60));
-  }
-
-  // Digit box background with shadow
-  int shadow_offset = is_current ? 3 : 2;
-  ui_draw_rounded_rect(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4,
-                       RGBA8(0x00, 0x00, 0x00, 60));
-
-  uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
-  ui_draw_rounded_rect(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
-
-  // Digit text or cursor
-  if (has_value && digit <= 9) {
-    char digit_text[2] = {'0' + digit, '\0'};
-    int text_w = ui_text_width(font, FONT_SIZE_PIN_DIGIT, digit_text);
-    int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
-    int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
-    ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_PIN_DIGIT, digit_text);
-  } else if (is_current && show_cursor) {
-    // Enhanced blinking cursor (wider and more visible)
-    int cursor_w = 3;
-    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
-    int cursor_y1 = y + 15;
-    int cursor_h = PIN_DIGIT_HEIGHT - 30;
-    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
-  }
-}
-
-/**
  * Draw a rounded rectangular text button with selected/disabled states.
  *
  * Background colors mirror the ad-hoc "Add New" button in ui_screens.c:
@@ -184,105 +143,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
   int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
   int text_x = x + (w - text_w) / 2;
   ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
-
-// ============================================================================
-// Error Popup Dialog
-// ============================================================================
-
-/**
- * Show error popup with specified message
- */
-void ui_error_show(const char *message) {
-  context.ui_state.error_popup_active = true;
-  if (message) {
-    sceClibSnprintf(context.ui_state.error_popup_text, sizeof(context.ui_state.error_popup_text),
-                    "%s", message);
-  } else {
-    context.ui_state.error_popup_text[0] = '\0';
-  }
-
-  // Push modal focus once per popup activation.
-  if (!context.ui_state.error_popup_modal_pushed) {
-    ui_focus_push_modal();
-    context.ui_state.error_popup_modal_pushed = true;
-  }
-}
-
-/**
- * Hide the error popup
- */
-void ui_error_hide(void) {
-  context.ui_state.error_popup_active = false;
-  context.ui_state.error_popup_text[0] = '\0';
-
-  // Pop only if this popup owns a modal push.
-  if (context.ui_state.error_popup_modal_pushed) {
-    ui_focus_pop_modal();
-    context.ui_state.error_popup_modal_pushed = false;
-  }
-}
-
-/**
- * Render the error popup
- */
-void ui_error_render(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
-
-  // Popup card
-  const int popup_w = 520;
-  const int popup_h = 280;
-  int popup_x = (VITA_WIDTH - popup_w) / 2;
-  int popup_y = (VITA_HEIGHT - popup_h) / 2;
-  ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16, RGBA8(0x14, 0x16, 0x1C, 240));
-
-  // Error message text — centered horizontally and vertically in the popup box.
-  const char *message =
-      context.ui_state.error_popup_text[0] ? context.ui_state.error_popup_text : "Connection error";
-  int message_w = ui_text_width(font, FONT_SIZE_HEADER, message);
-  int message_x = popup_x + (popup_w - message_w) / 2;
-  ui_text_draw_centered_v(font, message_x, popup_y, popup_h, UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_HEADER, message);
-
-  // Hint text — baseline sits 40 px above popup bottom (below the message, near the edge).
-  const char *hint = "Tap anywhere to dismiss";
-  int hint_w = ui_text_width(font, FONT_SIZE_BODY, hint);
-  int hint_x = popup_x + (popup_w - hint_w) / 2;
-  ui_text_draw(font, hint_x, popup_y + popup_h - 40, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
-}
-
-/**
- * Handle input for error popup
- */
-void ui_error_handle_input(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Get button block mask and touch block pointers
-  uint32_t *button_block_mask = ui_input_get_button_block_mask_ptr();
-  bool *touch_block_active = ui_input_get_touch_block_active_ptr();
-
-  uint32_t dismiss_mask = SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT;
-  bool button_dismiss = (context.ui_state.button_state & dismiss_mask) &&
-                        !(context.ui_state.old_button_state & dismiss_mask);
-  bool touch_dismiss = context.ui_state.touch_state_front.reportNum > 0;
-
-  if (button_dismiss || touch_dismiss) {
-    ui_error_hide();
-    *button_block_mask |= context.ui_state.button_state;
-    *touch_block_active = true;
-  }
-}
-
-/**
- * Check if error popup is currently active
- */
-bool ui_error_is_active(void) {
-  return context.ui_state.error_popup_active;
 }
 
 // ============================================================================
@@ -359,6 +219,9 @@ void ui_hints_render_indicator(void) {
 // Forward declare helper function
 static void ensure_active_host_for_debug(void);
 
+/** How long the debug menu's forced failure stays as the console's status message. */
+#define DEBUG_FAILURE_HINT_DURATION_US (7 * 1000 * 1000ULL)
+
 /**
  * Ensure there's an active host for debug actions
  */
@@ -384,9 +247,16 @@ static void debug_menu_apply_action(int action_index) {
 
   switch (action_index) {
     case 0: {
-      // Show Remote Play error popup
-      ui_error_show("Remote Play already active on console");
-      LOGD("Debug menu: forced Remote Play error popup");
+      // Post a Remote Play failure through the real path: the hint opens the Could not connect
+      // popup on Home.
+      ensure_active_host_for_debug();
+      if (context.active_host) {
+        host_set_hint(context.active_host, "Remote Play already active on console", true,
+                      DEBUG_FAILURE_HINT_DURATION_US);
+        LOGD("Debug menu: forced Remote Play connection failure");
+      } else {
+        LOGE("Debug menu: no console to post a connection failure for");
+      }
       break;
     }
     case 1: {
@@ -658,151 +528,6 @@ bool ui_debug_is_active(void) {
 }
 
 // ============================================================================
-// Connection Method Popup
-// ============================================================================
-
-/* Module-level popup state — all fields are owned by this module. */
-static bool connect_popup_active = false;
-static int connect_popup_selection = 0; /* 0 = Local Network, 1 = Internet */
-static int connect_popup_result = -1;   /* -1 = pending, 0 = LAN, 1 = Internet, 2 = cancelled */
-
-#define CONNECT_POPUP_W 400
-#define CONNECT_POPUP_H 160
-#define CONNECT_POPUP_RADIUS 10
-#define CONNECT_POPUP_ITEM_COUNT 2
-
-/**
- * Show the connection method popup.
- *
- * Resets selection to the first option (Local Network) and pushes a modal
- * focus layer so that background input is suppressed while the popup is open.
- * Call this when a long Cross-press is detected on a dual-source card.
- */
-void ui_connect_popup_show(void) {
-  connect_popup_active = true;
-  connect_popup_selection = 0;
-  connect_popup_result = -1;
-  ui_focus_push_modal();
-  bool *touch_block = ui_input_get_touch_block_active_ptr();
-  *touch_block = true;
-}
-
-/**
- * Update the connection method popup for the current frame.
- *
- * Must be called every frame while the popup is active.  Returns the user's
- * decision as soon as it is made, then marks the popup inactive:
- *   -1 — still open (no action yet)
- *    0 — Local Network selected
- *    1 — Internet selected
- *    2 — cancelled (Circle pressed)
- *
- * @return  Decision code as described above.
- */
-int ui_connect_popup_update(void) {
-  if (!connect_popup_active)
-    return -1;
-
-  /* D-pad navigation: DOWN advances the selection, UP retreats it.
-   * The separate branches give each direction its own wraparound expression so
-   * the two options cycle in the expected visual direction rather than both
-   * toggling with the same modulo — pressing Up on "Internet" correctly returns
-   * to "Local Network" rather than advancing past it.
-   * btn_pressed() applies button_block_mask, preventing double-fires after
-   * block_inputs_for_transition(), and honours the error_popup_active guard
-   * (safe here: connect_popup_active is always cleared before ui_error_show). */
-  if (btn_pressed(SCE_CTRL_DOWN))
-    connect_popup_selection = (connect_popup_selection + 1) % CONNECT_POPUP_ITEM_COUNT;
-  if (btn_pressed(SCE_CTRL_UP))
-    connect_popup_selection =
-        (connect_popup_selection + CONNECT_POPUP_ITEM_COUNT - 1) % CONNECT_POPUP_ITEM_COUNT;
-
-  /* Cross confirms the highlighted option. */
-  if (btn_pressed(SCE_CTRL_CROSS)) {
-    connect_popup_result = connect_popup_selection;
-    connect_popup_active = false;
-    ui_focus_pop_modal();
-    block_inputs_for_transition();
-    return connect_popup_result;
-  }
-
-  /* Circle cancels. */
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    connect_popup_result = 2;
-    connect_popup_active = false;
-    ui_focus_pop_modal();
-    block_inputs_for_transition();
-    return 2;
-  }
-
-  return -1;
-}
-
-/**
- * Draw the connection method popup overlay.
- *
- * Renders a darkened full-screen overlay and a centered card with two
- * selectable options.  Must be called inside a vita2d_start_drawing /
- * vita2d_end_drawing pair, after all other screen content so the popup
- * appears on top.
- */
-void ui_connect_popup_draw(void) {
-  if (!connect_popup_active)
-    return;
-
-  /* Dark overlay to focus attention on the popup. */
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 160));
-
-  /* Centered card. */
-  const int card_x = (VITA_WIDTH - CONNECT_POPUP_W) / 2;
-  const int card_y = (VITA_HEIGHT - CONNECT_POPUP_H) / 2;
-  ui_draw_rounded_rect(card_x, card_y, CONNECT_POPUP_W, CONNECT_POPUP_H, CONNECT_POPUP_RADIUS,
-                       RGBA8(0x20, 0x20, 0x20, 245));
-
-  /* Title — centered horizontally, 30px below card top. */
-  const char *title = "Connect via";
-  int title_w = ui_text_width(font, FONT_SIZE_BODY, title);
-  ui_text_draw(font, card_x + (CONNECT_POPUP_W - title_w) / 2, card_y + 30, UI_COLOR_TEXT_PRIMARY,
-               FONT_SIZE_BODY, title);
-
-  /* Option geometry. */
-  const char *options[CONNECT_POPUP_ITEM_COUNT] = {"Local Network", "Internet"};
-  const int opt_x = card_x + 40;
-  const int opt_y[CONNECT_POPUP_ITEM_COUNT] = {card_y + 60, card_y + 100};
-  const int highlight_w = CONNECT_POPUP_W - 60;
-  const int highlight_h = 32;
-
-  /* Selection highlight behind the active row.
-   * opt_y[] stores the FreeType baseline position, so the visible glyph body
-   * sits mostly ABOVE that coordinate.  Shift the rect up so the baseline
-   * lands near the bottom third of the highlight, visually centering the text. */
-  int sel_y = opt_y[connect_popup_selection] - highlight_h + 10;
-  /* Subtle grey highlight — 20% opacity, no border. */
-  ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(255, 255, 255, 50));
-
-  /* Option labels — all rows use primary text color; the grey highlight bar
-   * behind the selected row is sufficient to indicate selection. */
-  for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
-    ui_text_draw(font, opt_x, opt_y[i], UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, options[i]);
-  }
-
-  /* Button hints — matches the style used by the debug menu. */
-  const char *hint = "D-Pad: Select  |  X: Confirm  |  O: Cancel";
-  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  ui_text_draw(font, card_x + (CONNECT_POPUP_W - hint_w) / 2, card_y + CONNECT_POPUP_H - 20,
-               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
-}
-
-/**
- * Check whether the connection method popup is currently open.
- *
- * @return  true if the popup is active and waiting for user input.
- */
-bool ui_connect_popup_is_active(void) {
-  return connect_popup_active;
-}
-
-// ============================================================================
 // Legacy Compatibility Wrappers (for ui.c internal use)
 // ============================================================================
 
@@ -820,22 +545,6 @@ void draw_status_dot(int x, int y, int radius, int status) {
 
 void draw_section_header(int x, int y, int width, const char *title) {
   ui_draw_section_header(x, y, width, title);
-}
-
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  ui_draw_pin_digit(x, y, digit, is_current, has_value);
-}
-
-void render_error_popup(void) {
-  ui_error_render();
-}
-
-void handle_error_popup_input(void) {
-  ui_error_handle_input();
-}
-
-void render_connect_popup(void) {
-  ui_connect_popup_draw();
 }
 
 void trigger_hints_popup(const char *hint_text) {

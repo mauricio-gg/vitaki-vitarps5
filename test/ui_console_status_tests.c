@@ -73,12 +73,29 @@ static void test_status_precedence(void) {
          UI_CONSOLE_STANDBY);
 }
 
+/** catches: a recovery message the code flags as an error ("Rebuilding stream at safer bitrate")
+ * opening a "Could not connect" dialog on every recovery, or a real failure ("Remote Play already
+ * active on console") showing no dialog at all. */
+static void test_only_error_class_hints_open_the_failure_popup(void) {
+  assert(ui_console_hint_is_failure("Remote Play already active on console", true));
+  assert(ui_console_hint_is_failure("Wake signal failed. Check pairing and network.", true));
+  assert(ui_console_hint_is_failure("Missing console credentials. Re-pair may be required.", true));
+
+  assert(!ui_console_hint_is_failure("Rebuilding stream at safer bitrate", true));
+  assert(!ui_console_hint_is_failure("Persistent video desync - rebuilding session", true));
+  assert(!ui_console_hint_is_failure("Console busy - retrying in 12s...", true));
+  assert(!ui_console_hint_is_failure("Remote Play already active on console", false));
+  assert(!ui_console_hint_is_failure("", true));
+  assert(!ui_console_hint_is_failure(NULL, true));
+}
+
 int main(void) {
   test_retrying_messages_ignore_the_error_flag();
   test_error_messages_stay_error();
   test_unknown_message_keeps_its_flag();
   test_expired_or_empty_message_is_none();
   test_status_precedence();
+  test_only_error_class_hints_open_the_failure_popup();
   printf("ui_console_status_tests: all passed\n");
   return 0;
 }

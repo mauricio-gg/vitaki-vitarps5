@@ -493,6 +493,82 @@ static void test_out_of_range_blur_is_rejected(void) {
   }
 }
 
+/* catches: a console's chosen room icon being lost on save or load (so every console reverts to
+ * the TV after a restart), or one console's choice landing on another console. */
+static void test_room_icons_survive_save_and_load(void) {
+  const uint8_t mac_a[6] = {0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e};
+  const uint8_t mac_b[6] = {0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa};
+  const uint8_t mac_other[6] = {0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5f};
+
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(room_icons_set(&cfg.room_icons, mac_a, ROOM_ICON_BEDROOM));
+  assert(room_icons_set(&cfg.room_icons, mac_b, ROOM_ICON_ANOTHER_PLACE));
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(room_icons_get(&loaded.room_icons, mac_a) == ROOM_ICON_BEDROOM);
+  assert(room_icons_get(&loaded.room_icons, mac_b) == ROOM_ICON_ANOTHER_PLACE);
+  assert(room_icons_get(&loaded.room_icons, mac_other) == ROOM_ICON_TV);
+}
+
+/* catches: a hand-edited or corrupt room_icons entry being trusted: an icon outside the art
+ * (which would index past the textures), a malformed or all-zero MAC, or a repeated MAC
+ * overriding the first. The one good entry must still load. */
+static void test_bad_room_icon_entries_are_ignored(void) {
+  const uint8_t good_mac[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+  reset_config_file();
+  write_config_text(
+      "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\n"
+      "\n[[room_icons]]\nmac = \"010203040506\"\nicon = 4\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = 99\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = -1\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = 0\n"
+      "\n[[room_icons]]\nmac = \"0102\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"zz0203040506\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"000000000000\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"010203040506\"\nicon = 3\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.room_icons.count == 1);
+  assert(room_icons_get(&cfg.room_icons, good_mac) == ROOM_ICON_OFFICE);
+}
+
+/* catches: a console with no MAC being given a stored icon (it has no identity, so the choice
+ * would leak onto every other MAC-less console); an out-of-range choice being stored; choosing
+ * the TV leaving a stale entry that comes back after a restart; and a full table overwriting or
+ * corrupting existing choices. */
+static void test_room_icon_set_rules(void) {
+  const uint8_t no_mac[6] = {0};
+  const uint8_t mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+  RoomIconTable table = {0};
+
+  assert(!room_icons_set(&table, no_mac, ROOM_ICON_DORM));
+  assert(room_icons_get(&table, no_mac) == ROOM_ICON_TV);
+  assert(!room_icons_set(&table, mac, ROOM_ICON_COUNT));
+  assert(!room_icons_set(&table, mac, -1));
+  assert(table.count == 0);
+
+  assert(room_icons_set(&table, mac, ROOM_ICON_DORM));
+  assert(room_icons_set(&table, mac, ROOM_ICON_TV));
+  assert(table.count == 0);
+  assert(room_icons_get(&table, mac) == ROOM_ICON_TV);
+
+  for (int i = 0; i < MAX_ROOM_ICON_ENTRIES; i++) {
+    const uint8_t fill[6] = {0xaa, 0, 0, 0, 0, (uint8_t)(i + 1)};
+    assert(room_icons_set(&table, fill, ROOM_ICON_OFFICE));
+  }
+  assert(!room_icons_set(&table, mac, ROOM_ICON_DORM));
+  assert(room_icons_get(&table, mac) == ROOM_ICON_TV);
+  const uint8_t first[6] = {0xaa, 0, 0, 0, 0, 1};
+  assert(room_icons_set(&table, first, ROOM_ICON_BEDROOM));
+  assert(room_icons_get(&table, first) == ROOM_ICON_BEDROOM);
+  assert(table.count == MAX_ROOM_ICON_ENTRIES);
+}
+
 void run_packet_path_tests(void);
 void run_json_escape_tests(void);
 void run_token_crypto_tests(void);
@@ -508,6 +584,9 @@ int main(void) {
   test_old_config_gets_new_field_defaults();
   test_new_fields_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
+  test_room_icons_survive_save_and_load();
+  test_bad_room_icon_entries_are_ignored();
+  test_room_icon_set_rules();
   run_packet_path_tests();
   run_json_escape_tests();
   run_token_crypto_tests();

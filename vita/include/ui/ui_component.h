@@ -69,6 +69,20 @@ static inline uint32_t ui_color_scale_alpha(uint32_t color, float k) {
   return (color & 0x00FFFFFFu) | (alpha << 24);
 }
 
+/**
+ * ui_layer_set_alpha() - Set the opacity every UI draw helper multiplies into its colours.
+ * @k: 0 (invisible) to 1 (unchanged, the default).
+ *
+ * A screen sets it before drawing the layers that must be dimmed or faded as one (the Home
+ * layers behind the Options column, a popup while it rises) and back to 1 afterwards. It is a
+ * tint on draws that happen anyway, never an extra draw. The text, shape, glow and logo helpers
+ * and the dimmed layers' own texture draws apply it through ui_layer_color().
+ */
+void ui_layer_set_alpha(float k);
+
+/** ui_layer_color() - @color with the current layer opacity multiplied into its alpha. */
+uint32_t ui_layer_color(uint32_t color);
+
 /* ============================================================================
  * Events and input
  * ============================================================================ */

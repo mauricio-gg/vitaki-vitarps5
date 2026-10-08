@@ -35,6 +35,14 @@ typedef enum ui_shape9_t {
   UI_SHAPE9_COUNT
 } UiShape9;
 
+/** Fixed-size shapes, one texture and one draw each. */
+typedef enum ui_shape1_t {
+  UI_SHAPE1_PIN_BOX = 0,    /**< the 56 x 72 PIN box, R_SM corners (C17) */
+  UI_SHAPE1_PIN_BOX_BORDER, /**< its 2 px outline */
+  UI_SHAPE1_GRID_CELL,      /**< the 128 x 104 focused cell of the icon grid, R_SM corners (C12) */
+  UI_SHAPE1_COUNT
+} UiShape1;
+
 /**
  * ui_shapes_init() - Generate every shape texture once. Safe to call twice.
  * Call after vita2d is initialised and before the first frame that draws a shape.
@@ -60,3 +68,10 @@ void ui_shape3_draw(UiShape3 shape, int x, int y, int w, uint32_t color);
  * @color: ABGR tint.
  */
 void ui_shape9_draw(UiShape9 shape, UiRect r, uint32_t color);
+
+/**
+ * ui_shape1_draw() - Draw a fixed-size shape at (@x, @y) (1 draw).
+ * @shape: Which shape.
+ * @color: ABGR tint.
+ */
+void ui_shape1_draw(UiShape1 shape, int x, int y, uint32_t color);

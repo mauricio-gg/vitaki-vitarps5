@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "host.h"
 #include "ui/ui_types.h"
 
 /**
@@ -38,3 +39,11 @@ UIScreenType ui_home_frame(void);
  * Call when the Settings page hands back to Home, so Home shows the group the page was on.
  */
 void ui_home_select_settings_group(int group);
+
+/**
+ * ui_home_focus_console() - Ask Home to focus @host's row the next time it runs, on the Consoles
+ * category. For the PIN screen: a console that has just been paired moves up the list (paired
+ * consoles sort first), and Home should land on it. A console that is not in the list (a
+ * filter hides it) leaves the focus alone.
+ */
+void ui_home_focus_console(const VitaChiakiHost *host);

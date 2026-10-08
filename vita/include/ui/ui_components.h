@@ -63,16 +63,6 @@ void ui_draw_status_dot(int x, int y, int radius, UIStatusType status);
 void ui_draw_section_header(int x, int y, int width, const char *title);
 
 /**
- * Draw a single PIN entry digit box
- * @param x X position of digit box
- * @param y Y position of digit box
- * @param digit The digit value (0-9, or >9 for empty)
- * @param is_current true if this is the currently selected digit (shows cursor)
- * @param has_value true if a digit has been entered
- */
-void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
-
-/**
  * Draw a rounded rectangular text button with selected/disabled states.
  *
  * Styling matches the existing ad-hoc "Add New" button pattern:
@@ -91,74 +81,6 @@ void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_v
  */
 void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
                          bool enabled);
-
-// ============================================================================
-// Error Popup Dialog
-// ============================================================================
-
-/**
- * Show error popup with specified message
- * @param message Error message to display (copied internally)
- */
-void ui_error_show(const char *message);
-
-/**
- * Hide the error popup
- */
-void ui_error_hide(void);
-
-/**
- * Render the error popup (call during draw loop)
- */
-void ui_error_render(void);
-
-/**
- * Handle input for error popup (call during input loop)
- */
-void ui_error_handle_input(void);
-
-/**
- * Check if error popup is currently active
- * @return true if popup is visible
- */
-bool ui_error_is_active(void);
-
-// ============================================================================
-// Connection Method Popup
-// ============================================================================
-
-/**
- * Show the connection method popup.
- *
- * Resets selection to Local Network and pushes a modal focus layer.
- * Call this when a long Cross-press is detected on a dual-source (LAN + PSN)
- * console card.
- */
-void ui_connect_popup_show(void);
-
-/**
- * Update the connection method popup for the current frame.
- *
- * Call every frame while the popup is active.
- *
- * @return  -1 while still open; 0 = Local Network; 1 = Internet; 2 = cancelled.
- */
-int ui_connect_popup_update(void);
-
-/**
- * Draw the connection method popup overlay.
- *
- * Must be called inside a vita2d_start_drawing / vita2d_end_drawing pair,
- * after all other screen content.
- */
-void ui_connect_popup_draw(void);
-
-/**
- * Check whether the connection method popup is currently open.
- *
- * @return  true if the popup is active and awaiting user input.
- */
-bool ui_connect_popup_is_active(void);
 
 // ============================================================================
 // Hints Popup System

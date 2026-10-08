@@ -57,6 +57,9 @@
 #include "ui/ui_animation.h"
 #include "ui/ui_background.h"
 #include "ui/ui_draw_stats.h"
+#include "ui/ui_freeze.h"
+#include "ui/ui_list_popup.h"
+#include "ui/ui_pin.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -68,6 +71,7 @@
 #include "ui/ui_component.h"
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
+#include "ui/ui_room_icons.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_shapes.h"
@@ -125,11 +129,6 @@ static void render_loss_indicator_preview(void);
 
 // Wave navigation sidebar uses simple colored bar (no animation)
 
-// PinEntryState type moved to ui_types.h
-
-// PIN entry state moved to ui_screens.c
-// cursor_blink_timer moved to ui_screens.c
-
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
 // current_focus and last_console_selection moved to ui_navigation.c
 
@@ -157,16 +156,20 @@ char *cancel_btn_str = "Circle";
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings). They draw their own top bar (and hint row with the Network Unstable
+ * Reconnecting, Settings, PIN). They draw their own top bar (and hint row with the Network Unstable
  * pill, where they have one), so the corner logo, the wave sidebar and the old loss indicator are
  * not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS;
+         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
+         screen == UI_SCREEN_TYPE_REGISTER_HOST;
 }
 
 #if VITARPS5_DEBUG_TOOLS
+/** Name logged with the draw counts of a frame drawn over a frozen popup background. */
+#define DRAW_STATS_POPUP_NAME "popup"
+
 /** draw_stats_screen_name() - Name logged with the draw counts of @screen, or NULL for a screen
  * that is not counted. */
 static const char *draw_stats_screen_name(UIScreenType screen) {
@@ -179,6 +182,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "reconnecting";
     case UI_SCREEN_TYPE_SETTINGS:
       return "settings";
+    case UI_SCREEN_TYPE_REGISTER_HOST:
+      return "pin";
     default:
       return NULL;
   }
@@ -383,7 +388,6 @@ bool ui_reload_psn_account_id(void) {
 // - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
-// - ui_screen_draw_registration()
 // - ui_screen_draw_stream()
 // - ui_screen_draw_messages()
 // ============================================================================
@@ -425,9 +429,12 @@ void init_ui() {
   ui_text_init(font, font_mono, font_light);
   ui_glow_init();
   ui_shapes_init();
+  ui_room_icons_init();
   ui_home_init();
   ui_connecting_init();
   ui_settings_init();
+  ui_pin_init();
+  ui_list_popup_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -481,8 +488,6 @@ void draw_ui() {
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
-  context.ui_state.error_popup_modal_pushed = false;
-  context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
   time_t startup_t = time(NULL);
@@ -625,8 +630,6 @@ void draw_ui() {
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
 
-    // Allow popup dismissal to capture inputs before we process other widgets
-    handle_error_popup_input();
     handle_debug_menu_input();
 
     if (debug_menu_enabled && !context.stream.is_streaming && !context.ui_state.debug_menu_active) {
@@ -673,10 +676,16 @@ void draw_ui() {
       /*
        * The background resets vita2d's pool and renders its blur target (a scene of its own)
        * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
-       * which would reset the pool again.
+       * which would reset the pool again. While a popup is open the screen behind it is a frozen
+       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset.
        */
-      ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
-                            screen == UI_SCREEN_TYPE_RECONNECTING);
+      const bool frozen = ui_freeze_is_ready();
+      if (frozen) {
+        vita2d_pool_reset();
+      } else {
+        ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
+                              screen == UI_SCREEN_TYPE_RECONNECTING);
+      }
       vita2d_start_drawing_advanced(NULL, 0);
       vita2d_clear_screen();
 
@@ -694,8 +703,14 @@ void draw_ui() {
 
       UI_DRAW_STATS_FRAME_BEGIN();
 
-      // Wave background under every screen; it updates at half rate while connecting
-      ui_background_draw(screen == UI_SCREEN_TYPE_WAKING || screen == UI_SCREEN_TYPE_RECONNECTING);
+      // Wave background under every screen; it updates at half rate while connecting. Behind a
+      // popup the frozen copy of the screen stands in for the wave and everything on it.
+      if (frozen) {
+        ui_freeze_draw();
+      } else {
+        ui_background_draw(screen == UI_SCREEN_TYPE_WAKING ||
+                           screen == UI_SCREEN_TYPE_RECONNECTING);
+      }
 
       // Wave navigation area removed - nav is a pure overlay with no background
 
@@ -729,10 +744,9 @@ void draw_ui() {
           ui_home_on_enter();
         next_screen = ui_screen_draw_main();
       } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-        context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
-        if (!ui_screen_draw_registration()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
+        if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
+          ui_pin_on_enter();
+        next_screen = ui_pin_frame();
       } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
         if (!ui_screen_draw_messages()) {
           next_screen = UI_SCREEN_TYPE_MAIN;
@@ -758,22 +772,6 @@ void draw_ui() {
       if (next_screen != prev_screen) {
         block_inputs_for_transition();
         // Menu stays in current state - user controls collapse via Triangle or content tap
-
-        // Handle modal focus for PIN entry screen only
-        // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
-        // Pop modal when leaving PIN entry screen
-        if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-            context.ui_state.register_host_modal_pushed) {
-          ui_focus_pop_modal();
-          context.ui_state.register_host_modal_pushed = false;
-        }
-
-        // Push modal when entering PIN entry screen
-        if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-            !context.ui_state.register_host_modal_pushed) {
-          ui_focus_push_modal();
-          context.ui_state.register_host_modal_pushed = true;
-        }
       }
       drawn_screen = prev_screen;
       screen = next_screen;
@@ -794,13 +792,15 @@ void draw_ui() {
       // Home and Connecting show Network Unstable as a pill in their hint row (C06) instead
       if (!screen_has_xmb_chrome(screen))
         render_loss_indicator_preview();
-      render_connect_popup();
       render_debug_menu();
-      render_error_popup();
-      UI_DRAW_STATS_FRAME_END(draw_stats_screen_name(prev_screen));
+      /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */
+      if (next_screen != prev_screen)
+        ui_freeze_release();
+      UI_DRAW_STATS_FRAME_END(frozen ? DRAW_STATS_POPUP_NAME : draw_stats_screen_name(prev_screen));
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();
+      ui_freeze_frame_end();
     } else {
       // Streaming active — render decoded frames from the UI thread.
       // This decouples GPU display from the Takion network receive thread,

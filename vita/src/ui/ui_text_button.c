@@ -27,6 +27,11 @@ void ui_text_button_init(UiTextButton *btn, const char *label, int x, int y) {
   btn->hit = ui_rect_hit_from_visible(btn->visible, UI_TAP_MIN, UI_TAP_MIN);
 }
 
+void ui_text_button_set_width(UiTextButton *btn, int w) {
+  btn->visible.w = w;
+  btn->hit = ui_rect_hit_from_visible(btn->visible, UI_TAP_MIN, UI_TAP_MIN);
+}
+
 /** True for UI_BUTTON_PRESS_MS after the button was activated. */
 static bool is_pressed(const UiTextButton *btn) {
   return btn->press_start_us != 0 &&

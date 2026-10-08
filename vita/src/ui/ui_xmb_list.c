@@ -141,7 +141,7 @@ static void draw_status_line(const UiXmbItem *item, UiFace face, int text_y, flo
 
   if (item->status_dot) {
     vita2d_draw_fill_circle(x + UI_LIST_DOT_R, text_y + line_h / 2, UI_LIST_DOT_R,
-                            ui_color_scale_alpha(item->status_color, k));
+                            ui_layer_color(ui_color_scale_alpha(item->status_color, k)));
     x += UI_LIST_DOT_R * 2 + UI_LIST_DOT_GAP;
   }
   ui_text_draw_face_centered_v(face, x, text_y, line_h, ui_color_scale_alpha(item->status_color, k),
@@ -151,7 +151,7 @@ static void draw_status_line(const UiXmbItem *item, UiFace face, int text_y, flo
     x += ui_text_face_width(face, item->status) + UI_LIST_GLYPH_GAP;
     const float scale = (float)line_h / (float)vita2d_texture_get_height(item->status_glyph);
     vita2d_draw_texture_tint_scale(item->status_glyph, (float)x, (float)text_y, scale, scale,
-                                   ui_color_scale_alpha(item->status_color, k));
+                                   ui_layer_color(ui_color_scale_alpha(item->status_color, k)));
     x += (int)((float)vita2d_texture_get_width(item->status_glyph) * scale) + UI_LIST_GLYPH_GAP;
     if (item->status_tail)
       ui_text_draw_face_centered_v(face, x, text_y, line_h,
@@ -178,16 +178,17 @@ static void draw_row(const UiXmbItem *item, int top, float alpha, float glow_k, 
   if (focused) {
     vita2d_texture *glow = ui_glow_texture();
     if (glow) {
-      vita2d_draw_texture_tint(glow, (float)(UI_LIST_ICON_CX - UI_LIST_GLOW / 2),
-                               (float)(top + UI_LIST_ICON_BOX / 2 - UI_LIST_GLOW / 2),
-                               ui_color_scale_alpha(UI_WHITE_PCT(UI_LIST_GLOW_PCT), k * glow_k));
+      vita2d_draw_texture_tint(
+          glow, (float)(UI_LIST_ICON_CX - UI_LIST_GLOW / 2),
+          (float)(top + UI_LIST_ICON_BOX / 2 - UI_LIST_GLOW / 2),
+          ui_layer_color(ui_color_scale_alpha(UI_WHITE_PCT(UI_LIST_GLOW_PCT), k * glow_k)));
     }
   }
 
   if (item->icon) {
     float icon_k = item->dim_icon ? k * (float)UI_LIST_DIM_PCT / 100.0f : k;
     vita2d_draw_texture_tint(item->icon, (float)icon_x, (float)icon_y,
-                             ui_color_scale_alpha(UI_TEXT, icon_k));
+                             ui_layer_color(ui_color_scale_alpha(UI_TEXT, icon_k)));
   }
 
   UiFace name_face = focused ? UI_FACE_T20 : UI_FACE_T16;

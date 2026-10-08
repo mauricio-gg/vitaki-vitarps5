@@ -114,7 +114,7 @@ static int draw_logo(void) {
     return 0;
   const float scale = (float)UI_TOPBAR_H / (float)vita2d_texture_get_height(vita_rps5_logo);
   vita2d_draw_texture_tint_scale(vita_rps5_logo, (float)UI_MARGIN_X, (float)UI_TOP_Y, scale, scale,
-                                 UI_TEXT);
+                                 ui_layer_color(UI_TEXT));
   return (int)((float)vita2d_texture_get_width(vita_rps5_logo) * scale + 0.5f);
 }
 
@@ -129,15 +129,16 @@ static void draw_status_group(int right) {
                                  s_sys.percent_text);
     x -= UI_TOPBAR_ICON_GAP + UI_TOPBAR_ICON;
     if (s_battery)
-      vita2d_draw_texture_tint(s_battery, (float)x, (float)icon_y, UI_TEXT_2);
+      vita2d_draw_texture_tint(s_battery, (float)x, (float)icon_y, ui_layer_color(UI_TEXT_2));
     x -= UI_TOPBAR_GAP;
   }
   x -= UI_TOPBAR_ICON;
   if (s_wifi) {
     vita2d_draw_texture_tint(
         s_wifi, (float)x, (float)icon_y,
-        s_sys.wifi_up ? UI_TEXT_2
-                      : ui_color_scale_alpha(UI_TEXT_2, (float)UI_TOPBAR_OFFLINE_PCT / 100.0f));
+        ui_layer_color(s_sys.wifi_up ? UI_TEXT_2
+                                     : ui_color_scale_alpha(
+                                           UI_TEXT_2, (float)UI_TOPBAR_OFFLINE_PCT / 100.0f)));
   }
 }
 
