@@ -226,27 +226,17 @@ static void build_preset_rows(int slot) {
  * Profile
  * ============================================================================ */
 
-/** The status word of the reference console, on Home's words (SPEC 3.7), or "None". */
-static const char *connection_status(const VitaChiakiHost *host) {
-  if (!host)
-    return "None";
-  ConsoleCardInfo card;
-  ui_cards_map_host((VitaChiakiHost *)host, &card);
-  UiConsoleState state = ui_cards_classify(&card, psn_auth_token_is_valid((uint64_t)time(NULL)),
-                                           false, UI_CONSOLE_MESSAGE_NONE);
-  return ui_console_status_label(state.status);
-}
-
-/** Rows of the Connection group: the first four of SPEC 3.7's table. */
+/** Rows of the Connection group (SPEC 3.7's table). */
 static void build_connection_rows(void) {
   const VitaChiakiHost *host = ui_profile_reference_host();
+  const UiConnectionWords words = ui_connection_words(host);
   const char *ip = ui_connection_console_ip(host);
 
-  add_row("Network Type", ui_connection_network_type(host), 0);
+  add_row("Network Type", words.network_type, 0);
   add_row("Console", ui_connection_console_name(host), 0);
   if (ip)
     add_row("Console IP", ip, 0);
-  add_row("Status", connection_status(host), 0);
+  add_row("Status", words.status, 0);
   add_row("Quality", ui_label_resolution(context.config.resolution), 0);
 }
 

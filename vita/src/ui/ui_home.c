@@ -40,7 +40,6 @@
 #include "ui/ui_page_frame.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_profile.h"
-#include "ui/ui_profile.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"

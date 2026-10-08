@@ -9,6 +9,8 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "ui/ui_console_status.h"
 
@@ -89,6 +91,59 @@ static void test_only_error_class_hints_open_the_failure_popup(void) {
   assert(!ui_console_hint_is_failure(NULL, true));
 }
 
+static void check_words(const UiConnectionFacts *facts, const char *network, const char *status) {
+  const UiConnectionWords words = ui_console_connection_words(facts);
+  if (strcmp(words.network_type, network) != 0 || strcmp(words.status, status) != 0) {
+    fprintf(stderr, "connection words: got \"%s\" / \"%s\", wanted \"%s\" / \"%s\"\n",
+            words.network_type, words.status, network, status);
+    abort();
+  }
+}
+
+/** One check per row of the SPEC 3.7 Connection table.
+ * catches: a sleeping or unreachable console shown as "Ready" on Profile (flag 4), "None" shown
+ * for a console that is selected, or the Network Type precedence (discovered, then PSN, then
+ * manual) coming out in the wrong order. */
+static void test_connection_words_follow_the_spec_table(void) {
+  const UiConnectionFacts lan = {.selected = true, .registered = true, .discovered = true};
+  check_words(&lan, "Local Wi-Fi", "Ready");
+
+  UiConnectionFacts standby = lan;
+  standby.standby = true;
+  check_words(&standby, "Local Wi-Fi", "Standby");
+
+  UiConnectionFacts unpaired = lan;
+  unpaired.registered = false;
+  check_words(&unpaired, "Local Wi-Fi", "Unpaired");
+
+  const UiConnectionFacts psn = {
+      .selected = true, .registered = true, .psn_source = true, .internet_ok = true};
+  check_words(&psn, "PSN Internet", "Ready");
+
+  UiConnectionFacts psn_no_token = psn;
+  psn_no_token.internet_ok = false;
+  check_words(&psn_no_token, "PSN Internet", "Unavailable");
+
+  const UiConnectionFacts manual = {.selected = true, .registered = true, .manual = true};
+  check_words(&manual, "Manual Host", "Unavailable");
+
+  const UiConnectionFacts unreachable = {.selected = true, .registered = true};
+  check_words(&unreachable, "Unavailable", "Unavailable");
+
+  const UiConnectionFacts none = {0};
+  check_words(&none, "Unavailable", "None");
+  check_words(NULL, "Unavailable", "None");
+
+  UiConnectionFacts psn_on_lan = psn;
+  psn_on_lan.discovered = true;
+  psn_on_lan.manual = true;
+  check_words(&psn_on_lan, "Local Wi-Fi", "Ready");
+
+  UiConnectionFacts psn_manual = psn;
+  psn_manual.manual = true;
+  check_words(&psn_manual, "PSN Internet", "Ready");
+}
+
 int main(void) {
   test_retrying_messages_ignore_the_error_flag();
   test_error_messages_stay_error();
@@ -96,6 +151,7 @@ int main(void) {
   test_expired_or_empty_message_is_none();
   test_status_precedence();
   test_only_error_class_hints_open_the_failure_popup();
+  test_connection_words_follow_the_spec_table();
   printf("ui_console_status_tests: all passed\n");
   return 0;
 }

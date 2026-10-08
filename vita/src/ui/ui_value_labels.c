@@ -6,8 +6,10 @@
 #include "ui/ui_value_labels.h"
 
 #include <stddef.h>
+#include <time.h>
 
 #include "context.h"
+#include "psn_auth.h"
 #include "ui/ui_console_cards.h"
 
 const char *ui_label_resolution(ChiakiVideoResolutionPreset preset) {
@@ -92,17 +94,23 @@ VitaChiakiHost *ui_profile_reference_host(void) {
   return first_host;
 }
 
-const char *ui_connection_network_type(const VitaChiakiHost *host) {
-  if (host && host->discovery_state) {
-    return "Local Wi-Fi";
+UiConnectionWords ui_connection_words(const VitaChiakiHost *host) {
+  UiConnectionFacts facts = {0};
+  if (host) {
+    /* The card mapping decides discovered / standby for Home's list; reuse it. */
+    ConsoleCardInfo card;
+    ui_cards_map_host((VitaChiakiHost *)host, &card);
+    facts = (UiConnectionFacts){
+        .selected = true,
+        .registered = card.is_registered,
+        .discovered = card.is_discovered,
+        .standby = card.state == CONSOLE_CARD_STATE_STANDBY,
+        .psn_source = host->source == VITA_HOST_SOURCE_PSN_REMOTE,
+        .manual = (host->type & MANUALLY_ADDED) != 0,
+        .internet_ok = card.has_internet && psn_auth_token_is_valid((uint64_t)time(NULL)),
+    };
   }
-  if (host && host->source == VITA_HOST_SOURCE_PSN_REMOTE) {
-    return "PSN Internet";
-  }
-  if (host && (host->type & MANUALLY_ADDED)) {
-    return "Manual Host";
-  }
-  return "Unavailable";
+  return ui_console_connection_words(&facts);
 }
 
 /* Read only the host's inline snapshot fields (display_name/hostname) -- never

@@ -3,8 +3,8 @@
  * @brief The XMB Profile page (SPEC.md section 3.7)
  *
  * Rows are data: ProfileRowDef says what a row is called, what kind it is, its description, how to
- * read its value and what it does. A group is a table of rows. The Connection and PlayStation
- * Network groups have no rows yet.
+ * read its value and what it does. A group is a table of rows. The PlayStation Network group has
+ * no rows yet.
  */
 
 #include "ui/ui_profile.h"
@@ -34,6 +34,7 @@
 #include "ui/ui_theme.h"
 #include "ui/ui_toast.h"
 #include "ui/ui_top_bar.h"
+#include "ui/ui_value_labels.h"
 
 /* ============================================================================
  * Row definitions
@@ -50,6 +51,7 @@ typedef struct profile_row_def_t {
   const char *hint;  ///< action: the Confirm hint's verb
   bool small_value;  ///< info: the value is drawn in T16
   const char *(*value_text)(void);
+  bool (*visible)(void);  ///< NULL: always shown
   void (*run)(void);
 } ProfileRowDef;
 
@@ -87,6 +89,45 @@ static void refresh_account_id(void) {
   }
 }
 
+/* Connection (SPEC 3.7). The words come from ui_connection_words(), the one rule Home's info panel
+ * also uses. */
+
+static const char *network_type_text(void) {
+  return ui_connection_words(ui_profile_reference_host()).network_type;
+}
+
+static const char *console_name_text(void) {
+  return ui_connection_console_name(ui_profile_reference_host());
+}
+
+static const char *console_ip_text(void) {
+  return ui_connection_console_ip(ui_profile_reference_host());
+}
+
+/** The Console IP row shows only when an address is known. */
+static bool console_ip_known(void) {
+  return console_ip_text() != NULL;
+}
+
+static const char *status_text(void) {
+  return ui_connection_words(ui_profile_reference_host()).status;
+}
+
+static const char *quality_text(void) {
+  return ui_label_resolution(context.config.resolution);
+}
+
+static const ProfileRowDef CONNECTION_ROWS[] = {
+    {.label = "Network Type", .kind = UI_SETTING_INFO, .value_text = network_type_text},
+    {.label = "Console", .kind = UI_SETTING_INFO, .value_text = console_name_text},
+    {.label = "Console IP",
+     .kind = UI_SETTING_INFO,
+     .value_text = console_ip_text,
+     .visible = console_ip_known},
+    {.label = "Status", .kind = UI_SETTING_INFO, .value_text = status_text},
+    {.label = "Quality", .kind = UI_SETTING_INFO, .value_text = quality_text},
+};
+
 static const ProfileRowDef ACCOUNT_ROWS[] = {
     {.label = "Account ID",
      .kind = UI_SETTING_INFO,
@@ -103,7 +144,8 @@ static const ProfileRowDef ACCOUNT_ROWS[] = {
 static const ProfileGroup GROUPS[UI_PROFILE_GROUP_COUNT] = {
     [UI_PROFILE_GROUP_ACCOUNT] = {ACCOUNT_ROWS,
                                   (int)(sizeof(ACCOUNT_ROWS) / sizeof(ACCOUNT_ROWS[0]))},
-    [UI_PROFILE_GROUP_CONNECTION] = {NULL, 0},
+    [UI_PROFILE_GROUP_CONNECTION] = {CONNECTION_ROWS,
+                                     (int)(sizeof(CONNECTION_ROWS) / sizeof(CONNECTION_ROWS[0]))},
     [UI_PROFILE_GROUP_PSN] = {NULL, 0},
 };
 
@@ -118,6 +160,8 @@ _Static_assert(UI_PROFILE_GROUP_COUNT <= UI_GROUP_MAX, "Profile groups must fit 
 static UiGroupList s_groups;
 static UiSettingList s_pane;
 static UiSettingItem s_items[UI_SETTING_MAX_ROWS];
+/** The definition behind each shown row; hidden rows are skipped, so this is not GROUPS[].rows. */
+static const ProfileRowDef *s_defs[UI_SETTING_MAX_ROWS];
 static int s_group = 0;
 /** The pane has focus; otherwise the group list has. */
 static bool s_pane_focus = false;
@@ -196,27 +240,54 @@ static void draw_identity(void) {
  * Rows and description
  * ============================================================================ */
 
-/** Rewrite the items' values from the config. */
-static void fill_items(void) {
+/**
+ * fill_items() - Rewrite the items' values from the config and the console, skipping rows that
+ * are hidden right now.
+ * @return how many rows are shown
+ */
+static int fill_items(void) {
   const ProfileGroup *group = &GROUPS[s_group];
-  for (int i = 0; i < group->count && i < UI_SETTING_MAX_ROWS; i++) {
+  int shown = 0;
+  for (int i = 0; i < group->count && shown < UI_SETTING_MAX_ROWS; i++) {
     const ProfileRowDef *def = &group->rows[i];
-    s_items[i] = (UiSettingItem){
+    if (def->visible && !def->visible())
+      continue;
+    s_defs[shown] = def;
+    s_items[shown] = (UiSettingItem){
         .label = def->label,
         .kind = def->kind,
         .value_text = def->value_text ? def->value_text() : NULL,
         .small_value = def->small_value,
     };
+    shown++;
   }
+  return shown;
 }
 
 /** Show group @index: its rows, with the pane focus on the first row. */
 static void load_group(int index) {
   s_group = index;
   ui_group_list_set_current(&s_groups, index);
-  fill_items();
-  ui_setting_list_load(&s_pane, s_items, GROUPS[index].count);
+  ui_setting_list_load(&s_pane, s_items, fill_items());
   s_desc_group = -1;
+}
+
+/**
+ * Refill the items; when a row appeared or went away (the console's address became known or
+ * unknown), reload the list and keep the focus on the same row if it is still there.
+ */
+static void refresh_items(void) {
+  const ProfileRowDef *focused = s_pane.count > 0 ? s_defs[s_pane.focus] : NULL;
+  const int count = fill_items();
+  if (count != s_pane.count) {
+    ui_setting_list_load(&s_pane, s_items, count);
+    for (int i = 0; i < count; i++) {
+      if (s_defs[i] == focused)
+        s_pane.focus = i;
+    }
+    s_desc_group = -1;
+  }
+  ui_setting_list_sync(&s_pane);
 }
 
 /** Width function for ui_text_wrap(): the description's face. */
@@ -231,7 +302,7 @@ static void update_description(void) {
     return;
   s_desc_group = s_group;
   s_desc_row = s_pane.focus;
-  const char *text = s_pane.count > 0 ? GROUPS[s_group].rows[s_pane.focus].description : NULL;
+  const char *text = s_pane.count > 0 ? s_defs[s_pane.focus]->description : NULL;
   ui_text_wrap(text ? text : "", UI_PAGE_PANE_W, measure_description, NULL, &s_desc);
 }
 
@@ -261,7 +332,7 @@ void ui_profile_open(int group) {
 
 /** Run the focused action row. */
 static void run_focused_row(void) {
-  const ProfileRowDef *def = &GROUPS[s_group].rows[s_pane.focus];
+  const ProfileRowDef *def = s_defs[s_pane.focus];
   if (def->run)
     def->run();
 }
@@ -321,7 +392,7 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   if (!s_pane_focus) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_OPEN, .dim = s_pane.count == 0};
   } else {
-    const ProfileRowDef *def = &GROUPS[s_group].rows[s_pane.focus];
+    const ProfileRowDef *def = s_defs[s_pane.focus];
     if (def->kind == UI_SETTING_ACTION)
       out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = def->hint};
     out[n++] = (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_GROUP};
@@ -369,8 +440,7 @@ UIScreenType ui_profile_frame(void) {
   const bool back =
       handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
 
-  fill_items();
-  ui_setting_list_sync(&s_pane);
+  refresh_items();
   update_description();
   update_identity();
   s_groups.focused = !s_pane_focus;

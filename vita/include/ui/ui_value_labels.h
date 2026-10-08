@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "host.h"
+#include "ui/ui_console_status.h"
 
 /** ui_label_resolution() - "360p" or "540p" (legacy values show as the Vita preset they use). */
 const char *ui_label_resolution(ChiakiVideoResolutionPreset preset);
@@ -34,11 +35,12 @@ const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur);
 VitaChiakiHost *ui_profile_reference_host(void);
 
 /**
- * ui_connection_network_type() - How the console is reached: "Local Wi-Fi" when it is
- * discovered, else "PSN Internet" for a PSN console, else "Manual Host", else "Unavailable".
- * @host: May be NULL ("Unavailable").
+ * ui_connection_words() - The Network Type and Status words for a console (SPEC.md 3.7).
+ * @host: May be NULL ("Unavailable" and "None").
+ *
+ * Reads the host's facts and hands them to ui_console_connection_words(), the one rule.
  */
-const char *ui_connection_network_type(const VitaChiakiHost *host);
+UiConnectionWords ui_connection_words(const VitaChiakiHost *host);
 
 /**
  * ui_connection_console_name() - The display name, else the hostname, else "Not selected".
