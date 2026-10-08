@@ -55,7 +55,7 @@
 #define PARTICLE_COLOR_ORANGE 0xCC55AAFF  // 80% opaque orange
 
 // ============================================================================
-// Typography (from docs/ai/UI_FINAL_SPECIFICATION.md)
+// Typography
 // ============================================================================
 #define FONT_SIZE_HEADER 28     // Screen titles, primary headers (increased for clarity)
 #define FONT_SIZE_SUBHEADER 18  // Section titles, tab labels

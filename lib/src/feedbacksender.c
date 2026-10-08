@@ -407,7 +407,7 @@ static void *feedback_sender_thread_func(void *user)
 	 * definition near the top of this file for rationale. No CPU affinity mask
 	 * is set here -- there is no spare USER core to dedicate to this thread
 	 * (Vita has exactly 3 usable user cores, USER_0/1/2, already claimed one
-	 * each by recv/decode/audio -- see docs/ai/REMOTE_PLAY_SMOOTHNESS_PLAN.md),
+	 * each by recv/decode/audio),
 	 * so it stays unrestricted, same as host_input.c's
 	 * sceKernelChangeThreadCpuAffinityMask(..., 0) precedent. */
 	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, FEEDBACK_SENDER_THREAD_PRIORITY);

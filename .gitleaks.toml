@@ -1,7 +1,7 @@
 # gitleaks configuration for vitarps5
 #
 # Allowlists the public, reverse-engineered PS App OAuth client credentials that
-# are intentionally committed to this repository. See docs/ai/PSN_OAUTH_CREDENTIALS.md
+# are intentionally committed to this repository. See docs/design/psn.md
 # for the full justification.
 #
 # These are NOT secrets. They identify the client application to Sony's OAuth
@@ -13,12 +13,12 @@
 useDefault = true
 
 [allowlist]
-description = "Public PS-App OAuth client credentials (see docs/ai/PSN_OAUTH_CREDENTIALS.md)"
+description = "Public PS-App OAuth client credentials (see docs/design/psn.md)"
 
 paths = [
     '''\.env\.prod$''',
     '''\.env\.testing$''',
-    '''docs/ai/PSN_OAUTH_CREDENTIALS\.md$''',
+    '''docs/design/psn\.md$''',
     '''vita/src/psn_auth\.c$''',
 ]
 
