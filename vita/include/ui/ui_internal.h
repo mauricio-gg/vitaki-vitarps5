@@ -37,15 +37,10 @@ extern vita2d_font *font;
 extern vita2d_font *font_mono;
 
 // Console icons
-extern vita2d_texture *img_ps4, *img_ps4_off, *img_ps4_rest;
-extern vita2d_texture *img_ps5, *img_ps5_off, *img_ps5_rest;
-extern vita2d_texture *img_discovery_host;
+extern vita2d_texture *img_ps4;
 
 // UI symbols (particles)
 extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
-
-// Wave textures
-extern vita2d_texture *wave_top, *wave_bottom;
 
 // Status ellipses
 extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
@@ -57,7 +52,7 @@ extern vita2d_texture *icon_button_triangle;
 // Other UI textures
 extern vita2d_texture *button_add_new;
 extern vita2d_texture *background_gradient, *vita_rps5_logo;
-extern vita2d_texture *vita_front, *ps5_logo;
+extern vita2d_texture *ps5_logo;
 
 // ============================================================================
 // Shared Global State (defined in ui.c, will be organized into modules)

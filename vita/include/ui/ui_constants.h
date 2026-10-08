@@ -202,12 +202,6 @@
 // ============================================================================
 #define TEXTURE_PATH "app0:/assets/"
 #define IMG_PS4_PATH TEXTURE_PATH "ps4.png"
-#define IMG_PS4_OFF_PATH TEXTURE_PATH "ps4_off.png"
-#define IMG_PS4_REST_PATH TEXTURE_PATH "ps4_rest.png"
-#define IMG_PS5_PATH TEXTURE_PATH "ps5.png"
-#define IMG_PS5_OFF_PATH TEXTURE_PATH "ps5_off.png"
-#define IMG_PS5_REST_PATH TEXTURE_PATH "ps5_rest.png"
-#define IMG_DISCOVERY_HOST TEXTURE_PATH "discovered_host.png"
 
 // ============================================================================
 // Debug Menu
