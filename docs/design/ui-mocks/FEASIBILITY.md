@@ -7,8 +7,8 @@ A short realism check for the chosen direction. Not an implementation plan. Noth
 | Mock element | vita2d |
 |---|---|
 | Flowing wave background (5 ribbons, time-of-day tint, a few dust points) | One `vita2d_draw_array` strip per ribbon fill, plus one line strip per ribbon highlight, vertex colours fade the edges. Updated on the CPU at 30 Hz. Background gradient: 1 `draw_array`. About 12 calls. |
-| Category icons, list icons | The app's own 48 px nav icons (`icon_play`, `icon_settings`, `icon_controller`, `icon_profile`), drawn as quads. Selection is brightness (`vita2d_draw_texture_tint`), scale and a baked soft-glow texture behind it. No boxes. |
-| Console status ring and badge | One baked ring texture per state (ready, standby, PSN, dashed for unregistered) drawn tinted, the console card image inside it, and a small baked badge. The app's existing console card images are inverted for the dark UI; in the app this is a tint or a pre-inverted copy. |
+| Category icons, list icons | The app's own `icon_play` and `icon_settings`, plus four new flat white icons (`icons/controller.svg`, `profile.svg`, `logs.svg`, `add.svg`) baked to PNG at 48 px and drawn as quads. Selection is brightness (`vita2d_draw_texture_tint`), scale and a baked soft-glow texture behind it. No boxes. |
+| Console card and status | Drawn the way `ui_cards_render_single()` already does (ui_console_cards.c): charcoal rounded body 200x205 (`UI_COLOR_CARD_BG`, radius 12), `PS5_logo.png` centred in the space above the name bar at max width 120 (`CARD_LOGO_MAX_WIDTH`, top padding `CARD_LOGO_TOP_PADDING`), name bar 176x40 at `card_h - CARD_NAME_BAR_BOTTOM_OFFSET`, and the status ellipse top-right. PS4 follows the code's PS4 branch, which draws `img_ps4` (`ps4.png`, the PS4 wordmark) the same way. In XMB items it is the same call sequence at scale 0.27 (about 54x55 px, name text omitted since it would be under 16 px), and at 0.78 in the detail view. Our state treatment wraps it: a 3 px ring in the state colour (green ready, amber standby, purple PSN-only, dashed grey not registered) drawn as the existing `ui_draw_rounded_rect` border pass, plus a small baked corner badge (check, moon, globe, lock). |
 | Status dots | The existing `ellipse_green/yellow/red.png`, tinted for PSN and unregistered. |
 | Thin text with a soft shadow | The existing FreeType atlas. Roboto Light, Regular and Medium at 16, 20 and 28 px, plus Roboto Mono at 16 and 28 for numbers. The shadow is the same text drawn once more, offset and dark (doubles the text calls; skip it for small text if the budget needs it). |
 | Hints row | The existing button-symbol PNGs plus text. |
@@ -23,7 +23,7 @@ A short realism check for the chosen direction. Not an implementation plan. Noth
 - This is under the 80-call Home budget. The thin-text shadow is the one thing that can push it over; drawing it only for titles keeps it in.
 
 ## Textures (estimate)
-Nav icons and symbols about 0.1 MB, console cards 0.6 MB (8 PNGs), rings, badges and glow about 0.2 MB, controller diagrams about 2.5 MB at source size (874x396 and 720x327 RGBA; scale down for a saving), background 960x960 palette image about 0.4 MB, 4 covers at 96x128 about 0.2 MB, Roboto atlas about 1.5 MB. **About 5.5 MB total.** The wave itself costs no texture.
+Nav icons, four new icons and symbols about 0.15 MB, PS5 and PS4 logos about 0.05 MB (the card itself is rectangles, no texture), badges and glow about 0.2 MB, controller diagrams about 2.5 MB at source size (874x396 and 720x327 RGBA; scale down for a saving), 4 covers at 96x128 about 0.2 MB, Roboto atlas about 1.5 MB. **About 5 MB total.** The wave itself costs no texture.
 
 ## Reuse
 - `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (three views, preset slots, mapping popup). Only the drawing colours and chrome change.
@@ -38,5 +38,5 @@ Nav icons and symbols about 0.1 MB, console cards 0.6 MB (8 PNGs), rings, badges
 ## Assumptions
 1. The three presets are today's Custom 1/2/3 slots. "Save" copies the active mapping into another slot; "Apply" makes a slot active.
 2. The stream overlay content and Esc/Circle to leave are assumed, as before.
-3. Logs has no existing icon, so the mock draws a simple list glyph.
-4. Console images are the app's existing card art. There is no PS4 "ready" image, so the mock tints the standby one.
+3. Controller, Profile, Logs and Add use the four supplied flat SVGs (they are the only drawn icons; wifi, lock and QR on Profile rows are still simple glyphs).
+4. The ps5/ps4 `_rest`, `_off` and plain images are loaded in `ui.c` but never drawn by the card code, so the mock does not use them.
