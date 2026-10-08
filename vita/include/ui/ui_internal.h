@@ -190,7 +190,6 @@ void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color
 void ui_draw_card_with_shadow(int x, int y, int w, int h, int radius, uint32_t color);
 void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
 void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color);
 void ui_draw_content_focus_overlay(void);
 void ui_draw_loss_indicator(void);
 

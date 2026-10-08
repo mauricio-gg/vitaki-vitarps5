@@ -13,7 +13,6 @@
 #include "controller.h"
 #include "host.h"
 #include "psn_auth.h"
-#include "ui/ui_animation.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
@@ -71,17 +70,15 @@ static void add_toggle_row(const char *label, bool on) {
  * ============================================================================ */
 
 /**
- * The status message of a console: the hint the old cards showed under the status, while it
- * has not expired. Error versus Retrying is ticket #301; until then a hint flagged as an
- * error is ERR and any other is WARN.
+ * The status message of a console, while it has not expired, in ERR for an Error and WARN for
+ * Retrying (the classification the row's status line already shows, not the raw flag).
  */
-static void set_console_message(const VitaChiakiHost *host) {
-  if (!host || !host->status_hint[0])
+static void set_console_message(const ConsoleCardInfo *card) {
+  const UiConsoleMessage kind = ui_cards_message(card);
+  if (kind == UI_CONSOLE_MESSAGE_NONE)
     return;
-  if (host->status_hint_expire_us != 0 && ui_anim_now_us() > host->status_hint_expire_us)
-    return;
-  s_content.message = host->status_hint;
-  s_content.message_color = host->status_hint_is_error ? UI_ERR : UI_WARN;
+  s_content.message = card->host->status_hint;
+  s_content.message_color = kind == UI_CONSOLE_MESSAGE_ERROR ? UI_ERR : UI_WARN;
 }
 
 /** Fill s_content for the console @card whose list row is @item. */
@@ -95,12 +92,12 @@ static void build_console(const UiXmbItem *item, const ConsoleCardInfo *card) {
   s_content.status_color = item->status_color;
   if (card->host && chiaki_target_is_ps5(card->host->target)) {
     s_content.logo = ps5_logo;
-    s_content.logo_kind = UI_DETAIL_LOGO_PS5;
+    s_content.logo_kind = UI_TYPE_LOGO_PS5;
   } else {
     s_content.logo = img_ps4;
-    s_content.logo_kind = UI_DETAIL_LOGO_PS4;
+    s_content.logo_kind = UI_TYPE_LOGO_PS4;
   }
-  set_console_message(card->host);
+  set_console_message(card);
 
   add_row("Address", card->ip_address[0] ? card->ip_address : UNKNOWN_ADDRESS, 0);
   add_row("Route", ui_console_route_label(card->is_discovered, internet_ok), 0);
@@ -233,8 +230,8 @@ static const char *connection_status(const VitaChiakiHost *host) {
     return "None";
   ConsoleCardInfo card;
   ui_cards_map_host((VitaChiakiHost *)host, &card);
-  UiConsoleState state =
-      ui_cards_classify(&card, psn_auth_token_is_valid((uint64_t)time(NULL)), false);
+  UiConsoleState state = ui_cards_classify(&card, psn_auth_token_is_valid((uint64_t)time(NULL)),
+                                           false, UI_CONSOLE_MESSAGE_NONE);
   return ui_console_status_label(state.status);
 }
 

@@ -201,48 +201,6 @@ void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_
   }
 }
 
-/**
- * Draw a rotating spinner arc
- *
- * Renders a 3/4 circle (270 degrees) with thickness for loading indicators.
- * Increment rotation_deg each frame for animation effect.
- */
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg,
-                     uint32_t color) {
-  // Draw a circular arc that rotates continuously
-  // We'll draw 3/4 of a circle (270 degrees) that rotates around
-  float arc_length = 270.0f;                       // 3/4 circle in degrees
-  int arc_segments = UI_SPINNER_SEGMENTS * 3 / 4;  // 3/4 of total segments
-
-  for (int i = 0; i < arc_segments; i++) {
-    float angle1 = rotation_deg + (i * arc_length / arc_segments);
-    float angle2 = rotation_deg + ((i + 1) * arc_length / arc_segments);
-
-    // Convert to radians
-    float rad1 = angle1 * (float)M_PI / 180.0f;
-    float rad2 = angle2 * (float)M_PI / 180.0f;
-
-    // Draw outer arc segment
-    int x1_outer = cx + (int)(cos(rad1) * radius);
-    int y1_outer = cy + (int)(sin(rad1) * radius);
-    int x2_outer = cx + (int)(cos(rad2) * radius);
-    int y2_outer = cy + (int)(sin(rad2) * radius);
-
-    // Draw inner arc segment (for thickness)
-    int x1_inner = cx + (int)(cos(rad1) * (radius - thickness));
-    int y1_inner = cy + (int)(sin(rad1) * (radius - thickness));
-    int x2_inner = cx + (int)(cos(rad2) * (radius - thickness));
-    int y2_inner = cy + (int)(sin(rad2) * (radius - thickness));
-
-    // Draw lines to create filled arc segment
-    vita2d_draw_line(x1_outer, y1_outer, x2_outer, y2_outer, color);
-    vita2d_draw_line(x1_inner, y1_inner, x2_inner, y2_inner, color);
-
-    // Fill between inner and outer arcs
-    vita2d_draw_line(x1_outer, y1_outer, x1_inner, y1_inner, color);
-  }
-}
-
 // ============================================================================
 // Overlay & Effect Drawing
 // ============================================================================

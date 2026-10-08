@@ -5,12 +5,18 @@
 
 #include "ui/ui_console_status.h"
 
+#include <string.h>
+
 UiConsoleState ui_console_classify(bool registered, bool discovered, bool standby, bool internet_ok,
-                                   bool cooldown) {
+                                   bool cooldown, UiConsoleMessage message) {
   UiConsoleState state = {UI_CONSOLE_UNAVAILABLE, false};
 
   if (cooldown) {
     state.status = UI_CONSOLE_COOLDOWN;
+  } else if (message == UI_CONSOLE_MESSAGE_ERROR) {
+    state.status = UI_CONSOLE_ERROR;
+  } else if (message == UI_CONSOLE_MESSAGE_RETRYING) {
+    state.status = UI_CONSOLE_RETRYING;
   } else if (!registered) {
     state.status = discovered ? UI_CONSOLE_UNPAIRED : UI_CONSOLE_UNAVAILABLE;
   } else if (discovered) {
@@ -20,6 +26,33 @@ UiConsoleState ui_console_classify(bool registered, bool discovered, bool standb
     state.internet_route = true;
   }
   return state;
+}
+
+/**
+ * Starts of the messages SPEC flag 12 lists as Retrying, as the code writes them (some end
+ * in a changing number, so only the start is compared).
+ */
+static const char *const RETRYING_PREFIXES[] = {
+    "Wake signal failed; attempting connection anyway",
+    "Console releasing session",
+    "Console busy",
+    "Waiting for console network link",
+    "Video references unstable",
+    "Rebuilding stream at safer bitrate",
+    "Persistent video desync",
+    "Packet loss burst",
+};
+
+UiConsoleMessage ui_console_message_class(const char *msg, bool is_error, uint64_t expire_us,
+                                          uint64_t now_us) {
+  if (!msg || !msg[0] || (expire_us != 0 && now_us > expire_us))
+    return UI_CONSOLE_MESSAGE_NONE;
+
+  for (size_t i = 0; i < sizeof(RETRYING_PREFIXES) / sizeof(RETRYING_PREFIXES[0]); i++) {
+    if (strncmp(msg, RETRYING_PREFIXES[i], strlen(RETRYING_PREFIXES[i])) == 0)
+      return UI_CONSOLE_MESSAGE_RETRYING;
+  }
+  return is_error ? UI_CONSOLE_MESSAGE_ERROR : UI_CONSOLE_MESSAGE_RETRYING;
 }
 
 const char *ui_console_status_label(UiConsoleStatus status) {
@@ -32,6 +65,10 @@ const char *ui_console_status_label(UiConsoleStatus status) {
       return "Unpaired";
     case UI_CONSOLE_COOLDOWN:
       return "Please wait...";
+    case UI_CONSOLE_ERROR:
+      return "Error";
+    case UI_CONSOLE_RETRYING:
+      return "Retrying";
     case UI_CONSOLE_UNAVAILABLE:
     default:
       return "Unavailable";

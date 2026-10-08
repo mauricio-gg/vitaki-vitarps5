@@ -94,6 +94,20 @@ bool ui_connection_is_active(void);
 UIConnectionStage ui_connection_get_stage(void);
 
 /**
+ * Get the flow of the current connect, decided once when it began
+ *
+ * @return Flow (standby, Internet or local ready); only valid if overlay is active
+ */
+UiConnectingFlow ui_connection_get_flow(void);
+
+/**
+ * Get the number of connects begun so far, so a screen can tell a new connect from the last one
+ *
+ * @return Counter that ui_connection_begin() increments
+ */
+uint32_t ui_connection_get_serial(void);
+
+/**
  * Clear waking wait timer
  *
  * Called when wake-up is complete and streaming should begin immediately.
@@ -185,20 +199,6 @@ void ui_text_cache_clear(void);
 // ============================================================================
 
 /**
- * Get waking start time (for timeout tracking)
- *
- * @return Microsecond timestamp when waking started, or 0 if not waking
- */
-uint64_t ui_state_get_waking_start_time_us(void);
-
-/**
- * Set waking start time
- *
- * @param time_us Microsecond timestamp
- */
-void ui_state_set_waking_start_time_us(uint64_t time_us);
-
-/**
  * Get waking wait for stream time
  *
  * @return Microsecond timestamp to wait until before starting stream
@@ -211,31 +211,3 @@ uint64_t ui_state_get_waking_wait_for_stream_us(void);
  * @param time_us Microsecond timestamp
  */
 void ui_state_set_waking_wait_for_stream_us(uint64_t time_us);
-
-/**
- * Get reconnect start time
- *
- * @return Time when reconnect flow started (microseconds)
- */
-uint64_t ui_state_get_reconnect_start_time(void);
-
-/**
- * Set reconnect start time
- *
- * @param time Time value in microseconds (typically sceKernelGetProcessTimeWide())
- */
-void ui_state_set_reconnect_start_time(uint64_t time);
-
-/**
- * Get reconnect animation frame
- *
- * @return Current animation frame for reconnect spinner
- */
-int ui_state_get_reconnect_animation_frame(void);
-
-/**
- * Set reconnect animation frame
- *
- * @param frame Animation frame value
- */
-void ui_state_set_reconnect_animation_frame(int frame);

@@ -20,6 +20,8 @@
 
 #include <vita2d.h>
 
+#include "ui/ui_type_logo.h"
+
 /** Most kv rows a panel shows (a Settings group has five today). */
 #define UI_DETAIL_MAX_ROWS 6
 
@@ -28,12 +30,6 @@ typedef enum ui_detail_kind_t {
   UI_DETAIL_CONSOLE,   ///< type logo, name, status line, optional message, kv rows
   UI_DETAIL_LIST,      ///< title, optional description line, kv rows
 } UiDetailKind;
-
-/** Which wordmark to crop from the logo texture. */
-typedef enum ui_detail_logo_t {
-  UI_DETAIL_LOGO_PS5 = 0,
-  UI_DETAIL_LOGO_PS4,
-} UiDetailLogo;
 
 /** One label and value row. A NULL or empty value draws the label only (an action row). */
 typedef struct ui_detail_row_t {
@@ -51,7 +47,7 @@ typedef struct ui_detail_content_t {
 
   /* UI_DETAIL_CONSOLE */
   vita2d_texture *logo;  ///< PS5_logo.png or ps4.png; NULL draws no logo
-  UiDetailLogo logo_kind;
+  UiTypeLogo logo_kind;
   const char *status;  ///< status label drawn after a dot, in status_color
   uint32_t status_color;
   const char *message;  ///< status message under the status line, or NULL

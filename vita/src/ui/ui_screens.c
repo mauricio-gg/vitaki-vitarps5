@@ -33,7 +33,6 @@
 #include "context.h"
 #include "host.h"
 #include "host_feedback.h"
-#include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "ui.h"
@@ -42,6 +41,8 @@
 #include "ui/ui_screens.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
+#include "ui/ui_connecting.h"
+#include "ui/ui_reconnecting.h"
 #include "ui/ui_input.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_state.h"
@@ -3158,24 +3159,14 @@ bool ui_screen_draw_stream(void) {
   return false;
 }
 
-/// Draw the "Waking up console..." screen with spinner animation
+/// Run the connect for the Connecting / Waking screen and draw it
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
 UIScreenType ui_screen_draw_waking(void) {
   if (!ui_connection_overlay_active()) {
-    ui_state_set_waking_start_time_us(0);
     ui_state_set_waking_wait_for_stream_us(0);
     return UI_SCREEN_TYPE_MAIN;
   }
-
-  // Initialize timer on first call
-  if (ui_state_get_waking_start_time_us() == 0) {
-    ui_state_set_waking_start_time_us(sceKernelGetProcessTimeLow() /
-                                      1000);  // Convert to milliseconds
-  }
-
-  // Get current time for animations
-  uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
 
   // If we're in the wake stage, poll discovery state until the console is ready
   if (ui_connection_stage() == UI_CONNECTION_STAGE_WAKING && context.active_host) {
@@ -3191,122 +3182,21 @@ UIScreenType ui_screen_draw_waking(void) {
         // fields and reads a timestamp -- no logging, so it can't spam -- and the
         // duration is recomputed from next_stream_allowed_us every call, so the
         // countdown stays accurate while this per-frame poll keeps re-entering.
+        // The screen is still drawn below, so Cancel works during the deferral.
         show_cooldown_hint(context.active_host);
-        return UI_SCREEN_TYPE_WAKING;
+      } else {
+        LOGD("Console awake, preparing stream startup");
+        ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
+        if (!start_connection_thread(context.active_host)) {
+          ui_connection_cancel();
+          return UI_SCREEN_TYPE_MAIN;
+        }
+        ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
       }
-      LOGD("Console awake, preparing stream startup");
-      ui_connection_set_stage(UI_CONNECTION_STAGE_CONNECTING);
-      if (!start_connection_thread(context.active_host)) {
-        ui_connection_cancel();
-        return UI_SCREEN_TYPE_MAIN;
-      }
-      ui_state_set_waking_wait_for_stream_us(sceKernelGetProcessTimeWide());
     }
   }
 
-  static const char *stage_titles[] = {
-      "Waking console",        "Authenticating with PSN", "Fetching internet consoles",
-      "Creating PSN session",  "Preparing Remote Play",   "Punching control channel",
-      "Punching data channel", "Starting stream"};
-  static const char *stage_details[] = {"Sending wake signal",
-                                        "Validating account tokens",
-                                        "Loading remote-play capable devices",
-                                        "Creating cloud-assisted session",
-                                        "Negotiating session",
-                                        "Establishing control tunnel",
-                                        "Finalizing media tunnel",
-                                        "Launching video pipeline"};
-  const int stage_count = sizeof(stage_titles) / sizeof(stage_titles[0]);
-  int stage_index = 0;
-  if (ui_connection_stage() >= UI_CONNECTION_STAGE_WAKING)
-    stage_index = ui_connection_stage() - UI_CONNECTION_STAGE_WAKING;
-  if (stage_index < 0)
-    stage_index = 0;
-  if (stage_index >= stage_count)
-    stage_index = stage_count - 1;
-
-  // Draw modern waking/connecting screen with polished UI
-  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
-
-  // Card dimensions (slightly taller for spinner)
-  int card_w = 640;
-  int card_h = 360;
-  int card_x = (VITA_WIDTH - card_w) / 2;
-  int card_y = (VITA_HEIGHT - card_h) / 2;
-
-  // Draw card with enhanced shadow (consistent with Phase 1 & 2 polish)
-  ui_draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
-
-  // Draw PlayStation Blue accent borders (top and bottom)
-  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title (centered)
-  const char *title = (ui_connection_stage() == UI_CONNECTION_STAGE_WAKING)
-                          ? "Waking Console"
-                          : ((ui_connection_stage() == UI_CONNECTION_STAGE_PSN_AUTH ||
-                              ui_connection_stage() == UI_CONNECTION_STAGE_PSN_FETCH_DEVICES ||
-                              ui_connection_stage() == UI_CONNECTION_STAGE_PSN_CREATE_SESSION ||
-                              ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_CTRL ||
-                              ui_connection_stage() == UI_CONNECTION_STAGE_PSN_PUNCH_DATA)
-                                 ? "Starting Internet Remote Play"
-                                 : "Starting Remote Play");
-  int title_size = FONT_SIZE_HEADER;
-  int title_w = ui_text_width(font, title_size, title);
-  int title_x = card_x + (card_w - title_w) / 2;  // Center title
-  ui_text_draw(font, title_x, card_y + 60, UI_COLOR_TEXT_PRIMARY, title_size, title);
-
-  // Console name/IP info
-  bool active_host_has_name = context.active_host && (context.active_host->display_name[0] ||
-                                                      context.active_host->hostname[0]);
-  if (active_host_has_name) {
-    char console_info[128];
-    /* display_name already encodes discovery-name > registered-nickname > hostname
-     * precedence -- never dereference discovery_state->host_name here (upstream heap
-     * struct the discovery thread may free/re-strdup concurrently). */
-    const char *console_name = context.active_host->display_name[0]
-                                   ? context.active_host->display_name
-                                   : context.active_host->hostname;
-
-    snprintf(console_info, sizeof(console_info), "%s", console_name);
-    int info_w = ui_text_width(font, FONT_SIZE_BODY, console_info);
-    int info_x = card_x + (card_w - info_w) / 2;  // Center info
-    ui_text_draw(font, info_x, card_y + 95, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, console_info);
-  }
-
-  // Spinner animation (smooth rotation at 2 rotations per second)
-  int spinner_cx = card_x + card_w / 2;
-  int spinner_cy = card_y + card_h / 2 - 10;
-  int spinner_radius = 40;
-  int spinner_thickness = 6;
-  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
-  ui_draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation,
-                  UI_COLOR_PRIMARY_BLUE);
-
-  // Stage headline
-  const char *stage_headline = stage_titles[stage_index];
-  int stage_headline_size = FONT_SIZE_HOME_HEADER;
-  int stage_headline_w = ui_text_width(font, stage_headline_size, stage_headline);
-  int stage_headline_x = card_x + (card_w - stage_headline_w) / 2;
-  ui_text_draw(font, stage_headline_x, spinner_cy + spinner_radius + 50, UI_COLOR_TEXT_PRIMARY,
-               stage_headline_size, stage_headline);
-
-  // Detail line
-  const char *detail_text = stage_details[stage_index];
-  int detail_w = ui_text_width(font, FONT_SIZE_BODY, detail_text);
-  int detail_x = card_x + (card_w - detail_w) / 2;
-  ui_text_draw(font, detail_x, spinner_cy + spinner_radius + 80, UI_COLOR_TEXT_SECONDARY,
-               FONT_SIZE_BODY, detail_text);
-
-  // Cancel hint at bottom (using FONT_SIZE_SMALL from Phase 1)
-  int cancel_center_y = card_y + card_h - 45;
-  int cancel_center_x = card_x + card_w / 2 - 40;
-  ui_draw_circle_outline(cancel_center_x, cancel_center_y, 12, UI_COLOR_TEXT_TERTIARY);
-  ui_text_draw(font, cancel_center_x + 20, cancel_center_y + 6, UI_COLOR_TEXT_TERTIARY,
-               FONT_SIZE_BODY, "Cancel");
-
-  // Handle Circle button to cancel
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
+  if (ui_connecting_frame()) {
     LOGD("Connection cancelled by user");
     host_cancel_stream_request();
     ui_connection_cancel();
@@ -3316,94 +3206,15 @@ UIScreenType ui_screen_draw_waking(void) {
   return UI_SCREEN_TYPE_WAKING;  // Continue showing waking screen
 }
 
-/// Draw reconnecting screen with modern polished UI
-/// Shows during packet loss recovery with spinner animation
+/// Draw the Reconnecting screen ("Optimizing Stream")
+/// Shows during packet loss recovery; it has no input and cannot be cancelled
 /// @return the next screen type
 UIScreenType ui_screen_draw_reconnecting(void) {
   // Check if we should still be showing this screen
-  if (!context.stream.reconnect_overlay_active) {
-    ui_state_set_reconnect_start_time(0);
+  if (!context.stream.reconnect_overlay_active)
     return UI_SCREEN_TYPE_MAIN;
-  }
 
-  // Initialize timer on first call
-  if (ui_state_get_reconnect_start_time() == 0) {
-    ui_state_set_reconnect_start_time(sceKernelGetProcessTimeLow() / 1000);
-  }
-
-  // Get current time for animations
-  uint32_t current_time = sceKernelGetProcessTimeLow() / 1000;
-
-  // Draw modern reconnecting screen (consistent with Waking screen)
-  vita2d_set_clear_color(UI_COLOR_BACKGROUND);
-
-  // Card dimensions (taller to accommodate all info + spinner)
-  int card_w = 640;
-  int card_h = 380;
-  int card_x = (VITA_WIDTH - card_w) / 2;
-  int card_y = (VITA_HEIGHT - card_h) / 2;
-
-  // Draw card with enhanced shadow (Phase 1 & 2 style)
-  ui_draw_card_with_shadow(card_x, card_y, card_w, card_h, 12, UI_COLOR_CARD_BG);
-
-  // PlayStation Blue accent borders
-  vita2d_draw_rectangle(card_x, card_y, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-  vita2d_draw_rectangle(card_x, card_y + card_h - 2, card_w, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title (centered)
-  const char *title = "Optimizing Stream";
-  int title_size = FONT_SIZE_HEADER;
-  int title_w = ui_text_width(font, title_size, title);
-  int title_x = card_x + (card_w - title_w) / 2;
-  ui_text_draw(font, title_x, card_y + 50, UI_COLOR_TEXT_PRIMARY, title_size, title);
-
-  // Subtitle explaining what's happening (centered)
-  const char *subtitle = "Recovering from packet loss";
-  int subtitle_w = ui_text_width(font, FONT_SIZE_BODY, subtitle);
-  int subtitle_x = card_x + (card_w - subtitle_w) / 2;
-  ui_text_draw(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
-
-  // Retry bitrate info (centered)
-  float retry_mbps = context.stream.recovery_bitrate_kbps > 0
-                         ? (float)context.stream.recovery_bitrate_kbps / 1000.0f
-                         : 0.8f;
-  char detail[64];
-  snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);
-  int detail_w = ui_text_width(font, FONT_SIZE_BODY, detail);
-  int detail_x = card_x + (card_w - detail_w) / 2;
-  ui_text_draw(font, detail_x, card_y + 115, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, detail);
-
-  // Spinner animation (matching Waking screen style)
-  int spinner_cx = card_x + card_w / 2;
-  int spinner_cy = card_y + card_h / 2 + 20;
-  int spinner_radius = 32;
-  int spinner_thickness = 5;
-  float rotation = (float)((current_time * 720) % 360000) / 1000.0f;  // 2 rotations/sec
-  ui_draw_spinner(spinner_cx, spinner_cy, spinner_radius, spinner_thickness, rotation,
-                  UI_COLOR_PRIMARY_BLUE);
-
-  // Attempt count below spinner (centered)
-  char attempt_text[64];
-  snprintf(attempt_text, sizeof(attempt_text), "Attempt %u", context.stream.loss_retry_attempts);
-  int attempt_w = ui_text_width(font, FONT_SIZE_SMALL, attempt_text);
-  int attempt_x = card_x + (card_w - attempt_w) / 2;
-  ui_text_draw(font, attempt_x, card_y + card_h - 60, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-               attempt_text);
-
-  // Status message at bottom (centered)
-  const char *status_msg = "Please wait...";
-  int status_w = ui_text_width(font, FONT_SIZE_SMALL, status_msg);
-  int status_x = card_x + (card_w - status_w) / 2;
-  ui_text_draw(font, status_x, card_y + card_h - 30, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL,
-               status_msg);
-
-  // Handle Circle button to cancel (mirrors the waking screen above)
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    host_recovery_cancel_by_user();
-    ui_state_set_reconnect_start_time(0);
-    return UI_SCREEN_TYPE_MAIN;
-  }
-
+  ui_reconnecting_frame();
   return UI_SCREEN_TYPE_RECONNECTING;
 }
 

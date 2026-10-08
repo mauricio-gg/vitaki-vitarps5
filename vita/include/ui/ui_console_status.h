@@ -9,15 +9,25 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
-/** The status a console row shows. Error and Retrying arrive with ticket #301. */
+/** The status a console row shows. */
 typedef enum ui_console_status_t {
   UI_CONSOLE_READY = 0,
   UI_CONSOLE_STANDBY,
   UI_CONSOLE_UNPAIRED,
   UI_CONSOLE_UNAVAILABLE,
   UI_CONSOLE_COOLDOWN,
+  UI_CONSOLE_ERROR,
+  UI_CONSOLE_RETRYING,
 } UiConsoleStatus;
+
+/** What a console's status message currently counts as (SPEC.md section 6, flag 12). */
+typedef enum ui_console_message_t {
+  UI_CONSOLE_MESSAGE_NONE = 0,  ///< no message, or it has expired
+  UI_CONSOLE_MESSAGE_ERROR,     ///< a failure the user must act on
+  UI_CONSOLE_MESSAGE_RETRYING,  ///< the app is retrying or waiting
+} UiConsoleMessage;
 
 /** Classification result: the status plus whether the row carries the "Internet" route label. */
 typedef struct ui_console_state_t {
@@ -32,13 +42,28 @@ typedef struct ui_console_state_t {
  * @standby:     Discovery reports it in rest mode (only meaningful when @discovered).
  * @internet_ok: A PSN route exists and the PSN token is valid.
  * @cooldown:    The post-stream cooldown is active for this console.
+ * @message:     What the console's live status message counts as (ui_console_message_class()).
  *
- * Cooldown wins. Otherwise: not paired is Unpaired when seen on the network and
- * Unavailable when not; paired and seen is Ready or Standby; paired and not seen is
- * Ready with the Internet label when a valid PSN route exists, else Unavailable.
+ * Cooldown wins, then a live status message (Error or Retrying). Otherwise: not paired is Unpaired
+ * when seen on the network and Unavailable when not; paired and seen is Ready or Standby; paired
+ * and not seen is Ready with the Internet label when a valid PSN route exists, else Unavailable.
  */
 UiConsoleState ui_console_classify(bool registered, bool discovered, bool standby, bool internet_ok,
-                                   bool cooldown);
+                                   bool cooldown, UiConsoleMessage message);
+
+/**
+ * ui_console_message_class() - Classify a console's status message as Error or Retrying.
+ * @msg:       The message text (host->status_hint); NULL or empty means none.
+ * @is_error:  The flag the message was set with (host->status_hint_is_error).
+ * @expire_us: When the message expires, 0 for never.
+ * @now_us:    The current time, on the same clock as @expire_us.
+ *
+ * An expired or empty message is NONE. The messages SPEC flag 12 names as Retrying are
+ * Retrying whatever their flag says (some are flagged as errors for the popup). Any other
+ * message keeps the flag's meaning: flagged is Error, otherwise Retrying.
+ */
+UiConsoleMessage ui_console_message_class(const char *msg, bool is_error, uint64_t expire_us,
+                                          uint64_t now_us);
 
 /** ui_console_status_label() - The word a status goes by on Home: "Ready", "Standby", ... */
 const char *ui_console_status_label(UiConsoleStatus status);

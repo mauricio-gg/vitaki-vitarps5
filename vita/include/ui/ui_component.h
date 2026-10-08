@@ -145,3 +145,14 @@ void ui_glow_init(void);
 
 /** ui_glow_texture() - The shared glow texture, or NULL if ui_glow_init() failed. */
 struct vita2d_texture *ui_glow_texture(void);
+
+/**
+ * ui_glow_draw_rect() - Draw the shared glow stretched behind a rectangle (one draw).
+ * @around: The rect (text box, button) the glow lights.
+ * @pad:    How far the glow reaches past @around on every side.
+ * @color:  ABGR tint; its alpha is the glow's strength.
+ *
+ * For glows behind text and buttons, where the art is wider than it is tall. Drawn before the
+ * art; the texture's transparent border keeps it from ever showing an edge.
+ */
+void ui_glow_draw_rect(UiRect around, int pad, uint32_t color);

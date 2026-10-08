@@ -47,3 +47,12 @@ void ui_glow_init(void) {
 vita2d_texture *ui_glow_texture(void) {
   return s_glow;
 }
+
+void ui_glow_draw_rect(UiRect around, int pad, uint32_t color) {
+  if (!s_glow)
+    return;
+  const float scale_x = (float)(around.w + 2 * pad) / (float)UI_LIST_GLOW;
+  const float scale_y = (float)(around.h + 2 * pad) / (float)UI_LIST_GLOW;
+  vita2d_draw_texture_tint_scale(s_glow, (float)(around.x - pad), (float)(around.y - pad), scale_x,
+                                 scale_y, color);
+}

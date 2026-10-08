@@ -252,6 +252,12 @@ static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state)
       item.status_color = UI_WARN;
       item.dim_row = true;
       break;
+    case UI_CONSOLE_ERROR:
+      item.status_color = UI_ERR;
+      break;
+    case UI_CONSOLE_RETRYING:
+      item.status_color = UI_WARN;
+      break;
   }
   return item;
 }
@@ -310,8 +316,8 @@ static int fill_console_items(const VitaChiakiHost *cooldown_host, bool filter_r
     s_items[0] = filter_item();
   for (int i = 0; i < count; i++) {
     const ConsoleCardInfo *card = ui_cards_get_card(i);
-    UiConsoleState state =
-        ui_cards_classify(card, token_ok, cooldown_host && card->host == cooldown_host);
+    UiConsoleState state = ui_cards_classify(
+        card, token_ok, cooldown_host && card->host == cooldown_host, ui_cards_message(card));
     s_items[first + i] = console_item(card, state);
     s_console_status[first + i] = state.status;
   }

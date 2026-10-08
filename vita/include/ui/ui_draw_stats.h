@@ -20,7 +20,6 @@
 
 #if VITARPS5_DEBUG_TOOLS
 
-#include <stdbool.h>
 #include <stdint.h>
 
 /** Raw sceGxmDraw count since the process started. */
@@ -33,13 +32,14 @@ void ui_draw_stats_text_done(uint32_t raw_before);
 void ui_draw_stats_frame_begin(void);
 
 /**
- * Ends a frame. When @p log_this_frame is true the frame is a candidate for the once-a-second
- * log line (the heaviest candidate frame of the second, with the number of frames seen).
+ * Ends a frame. When @p screen is not NULL the frame is a candidate for the once-a-second log
+ * line (the heaviest candidate frame of the second, with its screen name and the number of
+ * frames seen).
  */
-void ui_draw_stats_frame_end(bool log_this_frame);
+void ui_draw_stats_frame_end(const char *screen);
 
 #define UI_DRAW_STATS_FRAME_BEGIN() ui_draw_stats_frame_begin()
-#define UI_DRAW_STATS_FRAME_END(log_this_frame) ui_draw_stats_frame_end(log_this_frame)
+#define UI_DRAW_STATS_FRAME_END(screen) ui_draw_stats_frame_end(screen)
 
 /** Runs one text-drawing call and counts it as one text run with its glyph quads. */
 #define UI_DRAW_STATS_TEXT(draw_call)                    \
@@ -52,7 +52,7 @@ void ui_draw_stats_frame_end(bool log_this_frame);
 #else
 
 #define UI_DRAW_STATS_FRAME_BEGIN() ((void)0)
-#define UI_DRAW_STATS_FRAME_END(log_this_frame) ((void)0)
+#define UI_DRAW_STATS_FRAME_END(screen) ((void)0)
 #define UI_DRAW_STATS_TEXT(draw_call) draw_call
 
 #endif /* VITARPS5_DEBUG_TOOLS */

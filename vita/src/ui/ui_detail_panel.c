@@ -101,16 +101,8 @@ static const UiWrapped *wrapped_message(const char *message) {
 
 /** Draw the wordmark of the type logo with its top at @y, white at opacity @k. */
 static void draw_logo(const UiDetailContent *c, int y, float k) {
-  if (!c->logo)
-    return;
-  const bool ps5 = c->logo_kind == UI_DETAIL_LOGO_PS5;
-  const float scale = ps5 ? (float)UI_DETAIL_LOGO_PS5_W / (float)UI_DETAIL_PS5_SRC_W
-                          : (float)UI_DETAIL_LOGO_PS4_W / (float)UI_DETAIL_PS4_SRC_W;
-  vita2d_draw_texture_tint_part_scale(c->logo, (float)UI_DETAIL_X, (float)y, 0.0f,
-                                      (float)(ps5 ? UI_DETAIL_PS5_SRC_Y : UI_DETAIL_PS4_SRC_Y),
-                                      (float)(ps5 ? UI_DETAIL_PS5_SRC_W : UI_DETAIL_PS4_SRC_W),
-                                      (float)(ps5 ? UI_DETAIL_PS5_SRC_H : UI_DETAIL_PS4_SRC_H),
-                                      scale, scale, ui_color_scale_alpha(UI_TEXT, k));
+  ui_type_logo_draw(c->logo, c->logo_kind, UI_DETAIL_X, y, UI_DETAIL_LOGO_H,
+                    ui_color_scale_alpha(UI_TEXT, k));
 }
 
 /** Draw the title (T28) with its line top at @y. */

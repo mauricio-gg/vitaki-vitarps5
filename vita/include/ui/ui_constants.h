@@ -199,8 +199,7 @@
 // ============================================================================
 // Graphics Primitives (ui_graphics.c)
 // ============================================================================
-#define UI_SHADOW_OFFSET_PX 4   // Drop shadow offset in pixels
-#define UI_SPINNER_SEGMENTS 32  // Segments for smooth spinner arc
+#define UI_SHADOW_OFFSET_PX 4  // Drop shadow offset in pixels
 #define UI_CIRCLE_OUTLINE_SEGMENTS \
   16  // Segments for circle outlines (reduced from 48 for PS Vita GPU performance)
 #define UI_OFFSCREEN_MARGIN 100  // Margin for offscreen culling

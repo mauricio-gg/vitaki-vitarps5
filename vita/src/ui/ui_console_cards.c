@@ -148,10 +148,19 @@ void ui_cards_init(void) {
 // Host Mapping
 // ============================================================================
 
-UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown) {
+UiConsoleState ui_cards_classify(const ConsoleCardInfo *card, bool token_ok, bool cooldown,
+                                 UiConsoleMessage message) {
   return ui_console_classify(card->is_registered, card->is_discovered,
                              card->state == CONSOLE_CARD_STATE_STANDBY,
-                             card->has_internet && token_ok, cooldown);
+                             card->has_internet && token_ok, cooldown, message);
+}
+
+UiConsoleMessage ui_cards_message(const ConsoleCardInfo *card) {
+  const VitaChiakiHost *host = card->host;
+  if (!host)
+    return UI_CONSOLE_MESSAGE_NONE;
+  return ui_console_message_class(host->status_hint, host->status_hint_is_error,
+                                  host->status_hint_expire_us, sceKernelGetProcessTimeWide());
 }
 
 void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {

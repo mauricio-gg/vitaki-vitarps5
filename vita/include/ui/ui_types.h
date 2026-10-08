@@ -10,6 +10,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "ui_connecting_flow.h"
+#include "ui_connection_stage.h"
 #include "ui_constants.h"
 
 // Forward declaration for host reference
@@ -67,26 +69,6 @@ typedef enum nav_sidebar_state_t {
   NAV_STATE_COLLAPSED,     // Pill visible at top-left
   NAV_STATE_EXPANDING      // Animation: pill -> 0px -> 130px sidebar
 } NavSidebarState;
-
-// ============================================================================
-// Connection Types
-// ============================================================================
-
-/**
- * Connection overlay stages
- *
- * Note: This is also defined in ui.h for backwards compatibility.
- * During refactoring, if ui.h is included (via context.h), we skip this definition.
- */
-#ifndef UI_CONNECTION_STAGE_DEFINED
-#define UI_CONNECTION_STAGE_DEFINED
-typedef enum ui_connection_stage_t {
-  UI_CONNECTION_STAGE_NONE = 0,
-  UI_CONNECTION_STAGE_WAKING,
-  UI_CONNECTION_STAGE_CONNECTING,
-  UI_CONNECTION_STAGE_STARTING_STREAM,
-} UIConnectionStage;
-#endif
 
 // ============================================================================
 // Animation State Structures
@@ -197,6 +179,8 @@ typedef struct pin_entry_state_t {
 typedef struct connection_overlay_state_t {
   bool active;
   UIConnectionStage stage;
+  UiConnectingFlow flow;  // decided once when the connect begins
+  uint32_t serial;        // connects begun so far
   uint64_t stage_updated_us;
 } ConnectionOverlayState;
 

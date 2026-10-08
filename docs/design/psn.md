@@ -8,7 +8,7 @@ Internet play **is implemented and works on hardware** (first end-to-end session
 
 1. **Turn it on.** Settings has a `psn_remoteplay_enabled` toggle (`vita/src/config.c:404`, `vita/src/ui/ui_screens.c:1119`). It defaults to off (`config.c:40`).
 2. **Sign in.** On the Profile screen, X on the Connection card starts login. The Vita shows a QR code (`vita/src/ui/ui_qr.c`, drawn by `draw_profile_login_assist_panel` in `ui_screens.c`) that opens Sony's sign-in page on a phone. After signing in, the browser lands on a redirect page; the user copies that full URL (or the code in it) and pastes it into the Vita's on-screen keyboard (`open_psn_auth_code_ime`, `poll_psn_auth_code_ime`).
-3. **Pick a console.** After login, and at every app start, the client fetches the list of consoles on the account (`psn_remote_refresh_hosts`, `vita/src/psn_remote.c:442`; called from `vita/src/ui.c:475`). Each console that has Remote Play enabled and a registered seed host (next section) appears as a card with an internet badge.
+3. **Pick a console.** After login, and at every app start, the client fetches the list of consoles on the account (`psn_remote_refresh_hosts`, `vita/src/psn_remote.c:442`; called from `vita/src/ui.c:498`). Each console that has Remote Play enabled and a registered seed host (next section) appears as a card with an internet badge.
 4. **Connect.** Choosing the card (or "Connect via" internet on a console that is also seen on the LAN) runs `host_stream` (`vita/src/host.c`), which takes the PSN path when the host's source is `VITA_HOST_SOURCE_PSN_REMOTE` (`host.c:218`).
 
 Note on naming: the code and older notes call the login a "device flow" (`psn_auth_begin_device_login`, `VITARPS5_PSN_OAUTH_DEVICE_CODE_URL`). It is not Sony's device-code flow. The device-code URL is empty by default, and `psn_auth_poll_device_login` does nothing (`psn_auth.c:1078`). The real flow is a normal OAuth authorization-code grant: build an authorize URL, the user signs in elsewhere, the user pastes the result back (`psn_auth_submit_authorization_response`, `psn_auth.c:1182`).
@@ -19,7 +19,7 @@ Internet play needs all of these:
 
 - **PSN login** on the Vita (tokens present and refreshable). Checked in `host_stream`: `host.c:325-343`.
 - **A console registered on the LAN first (the "seed host").** Internet play does not register consoles itself. See below.
-- **A PSN account id on the Vita**, read from the Vita system registry (`load_psn_id_from_registry`, `vita/src/ui.c:314`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
+- **A PSN account id on the Vita**, read from the Vita system registry (`load_psn_id_from_registry`, `vita/src/ui.c:337`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
 - **The console must have Remote Play enabled** in its settings; devices without it are skipped (`psn_remote.c:181`).
 - **A holepunch build.** The default build has it. If it is compiled out, `psn_remote_prepare_connect_host` fails with "stack is unavailable" (`psn_remote.c`, `#else` branch).
 - **A network that allows UDP hole punching** (see Known limits).
@@ -55,7 +55,7 @@ Auth and device-list calls use `web.np.playstation.com` and `auth.api.sonyentert
 | Step | Thread | Code |
 |---|---|---|
 | Login, startup and idle token refresh, host-list refresh | UI thread (blocking) | `psn_auth.c`, `psn_remote.c`, `ui.c` |
-| Connect steps 1-5 (token check/refresh, retry gate, UPnP, `session_create`, `session_start`, control punch) | `VitaConnWorker`, which runs `host_stream` | `vita/src/ui/ui_state.c:173,180-187`, `host.c:346`, `holepunch.c:977,1140` |
+| Connect steps 1-5 (token check/refresh, retry gate, UPnP, `session_create`, `session_start`, control punch) | `VitaConnWorker`, which runs `host_stream` | `vita/src/ui/ui_state.c:179,186-193`, `host.c:346`, `holepunch.c:977,1140` |
 | Push WebSocket: pings, console messages | "Chiaki Holepunch WS" | `holepunch.c:990`, `websocket_thread_func` at `:2286` |
 | RUDP, session request, data punch, Takion | the normal session thread | `lib/src/session.c:536-736` |
 
@@ -64,7 +64,7 @@ Auth and device-list calls use `web.np.playstation.com` and `auth.api.sonyentert
 - Access and refresh tokens, expiry and the client duid live in `chiaki.toml` (`vita/src/config.c`).
 - **At rest, tokens are encrypted** with AES-256-GCM. The key is derived from an app salt plus the Vita's hardware OpenPsID (`vita/src/token_crypto.c`, header comment). A blob that fails to decrypt is dropped and the user must log in again; there is no fallback to plaintext (`config.c:250-253`, `312-315`). Old plaintext tokens are migrated on first load (`config.c:298-330`).
 - **Exception:** builds made with `--env testing` turn on `VITARPS5_PLAINTEXT_TOKEN_STORAGE` and also write plaintext (`tools/build.sh:~203-206`, `vita/CMakeLists.txt:150`). Never use that for release.
-- **Refresh:** `psn_auth_refresh_token_if_needed` (`psn_auth.c:1266`) uses the refresh token. It runs at app start (`ui.c:~468`), once a minute while idle (`ui.c:~576-588`) and before each connect (`host.c:338`, `psn_remote.c`; this one runs on the `VitaConnWorker` thread). The startup and idle refreshes block the UI thread (issue #163).
+- **Refresh:** `psn_auth_refresh_token_if_needed` (`psn_auth.c:1266`) uses the refresh token. It runs at app start (`ui.c:~491`), once a minute while idle (`ui.c:~599-611`) and before each connect (`host.c:338`, `psn_remote.c`; this one runs on the `VitaConnWorker` thread). The startup and idle refreshes block the UI thread (issue #163).
 - All Sony HTTPS calls (OAuth, device list, push server name, WebSocket) verify against a bundled CA file, `assets/psn-ca-bundle.pem`, loaded from `app0:/assets/` (`psn_auth.c:50`, `holepunch.c:107,166`).
 
 ## Invariants worth protecting
