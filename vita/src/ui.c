@@ -56,6 +56,7 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_background.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -661,6 +662,8 @@ void draw_ui() {
         LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
       }
 
+      UI_DRAW_STATS_FRAME_BEGIN();
+
       // Wave background under every screen; it updates at half rate while connecting
       ui_background_draw(screen == UI_SCREEN_TYPE_WAKING || screen == UI_SCREEN_TYPE_RECONNECTING);
 
@@ -765,6 +768,7 @@ void draw_ui() {
       render_connect_popup();
       render_debug_menu();
       render_error_popup();
+      UI_DRAW_STATS_FRAME_END(prev_screen == UI_SCREEN_TYPE_MAIN);
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();

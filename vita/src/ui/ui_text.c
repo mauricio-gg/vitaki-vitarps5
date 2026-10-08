@@ -17,6 +17,7 @@
 
 #include "ui/ui_text.h"
 #include "ui/ui_constants.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_theme.h"
 
 /* ============================================================================
@@ -521,7 +522,7 @@ void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int
     warn_unknown_size("ui_text_draw", pt_size);
     return;
   }
-  vita2d_font_draw_text(f, x, baseline_y, color, (unsigned int)pt_size, s);
+  UI_DRAW_STATS_TEXT(vita2d_font_draw_text(f, x, baseline_y, color, (unsigned int)pt_size, s));
 }
 
 /**
