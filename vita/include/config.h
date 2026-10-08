@@ -6,6 +6,7 @@
 #include "host.h"
 #include "logging.h"
 #include "controller.h"
+#include "room_icons.h"
 
 #ifndef CFG_VERSION
 #define CFG_VERSION 1
@@ -86,7 +87,8 @@ typedef struct vita_chiaki_config_t {
   bool show_nav_labels;   // Show text labels below navigation icons when selected
   bool show_only_paired;  // Only show registered/paired consoles on main screen
   VitaChiakiBackgroundBlur background_blur;  // Menu background treatment, default None
-  bool show_button_hints;  // Draw the button hint row on menus (not the in-stream exit hint)
+  bool show_button_hints;    // Draw the button hint row on menus (not the in-stream exit hint)
+  RoomIconTable room_icons;  // Per-console room icon choices, keyed by console MAC
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig *cfg);

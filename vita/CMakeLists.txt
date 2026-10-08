@@ -10,6 +10,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c
+    src/room_icons.c
     src/context.c
     src/discovery.c
     src/discovery_host.c
