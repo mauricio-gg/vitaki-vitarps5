@@ -8,34 +8,39 @@ const S={
  pin:{d:Array(8).fill(null),cur:0,ci:4},
  conn:{ci:0,flow:[0,4,7],cur:0,play:false,all:false},
  rec:{attempt:2},
- pop:null,toast:null,kb:null,tod:'auto',unst:false,streaming:false,
- psn:'auth',qr:true,logout:false,exitStart:0,zoom:1
+ pop:null,toast:null,kb:null,unst:false,
+ psn:'auth',pconn:'wifi',qr:true,logout:false,exitStart:0,zoom:1
 };
 let stageTimer=null,toastTimer=null,logoutTimer=null;
 const STAGES=[['Waking console','Sending wake signal'],['Authenticating with PSN','Validating account tokens'],['Fetching internet consoles','Loading remote-play capable devices'],['Creating PSN session','Creating cloud-assisted session'],['Preparing Remote Play','Negotiating session'],['Punching control channel','Establishing control tunnel'],['Punching data channel','Finalizing media tunnel'],['Starting stream','Launching video pipeline']];
-const INTERNET_STAGES=[1,2,3,5,6];
-const connTitle=st=>st===0?'Waking Console':INTERNET_STAGES.includes(st)?'Starting Internet Remote Play':'Starting Remote Play';
-const visCons=()=>CONSOLES.filter(c=>(!S.flt||c.name.toLowerCase().includes(S.flt.toLowerCase()))&&(!SET('paired').v||c.reg));
+const connTitle=(flow,st)=>flow.includes(1)?'Starting Internet Remote Play':st===0?'Waking Console':'Starting Remote Play';
+const visCons=()=>S.noConsoles?[]:CONSOLES.filter(c=>(!S.flt||c.name.toLowerCase().includes(S.flt.toLowerCase()))&&(!SET('paired').v||c.reg));
 const hhmm=()=>{const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
 const slide=(el,x,y,extra='')=>{el.style.transform=`translate3d(${x}px,${y}px,0) ${extra}`;};
 
 /* ---------------- chrome: layers, top bar, hint row ---------------- */
 const LAYERS=['home','page','ctrl','pin','conn','strm'];
 function showOnly(id){
- LAYERS.forEach(n=>$('#'+n).style.display=n===id?'block':'none');
+ LAYERS.forEach(n=>$('#ly-'+n).style.display=n===id?'block':'none');
  const pageish=id==='page'||id==='ctrl'||id==='pin'||id==='conn';
  $('#rib').style.opacity=id==='strm'?0:1;
  $('.vig').style.opacity=id==='home'?1:0;
  $('.wash').style.opacity=pageish?1:0;
  $('#top').style.display=id==='strm'?'none':'flex';
- $('#hints').style.display=id==='strm'?'none':'block';
+ $('#hintbar').style.display=id==='strm'?'none':'block';
 }
 function paintTop(){
  const ban=S.screen==='home'&&S.cat===0&&CONSOLES.some(c=>c.cool);
- $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5">${ban?pill(COOLDOWN_BANNER,'warn'):''}<span class="r"><span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span><span class="clk">${hhmm()}</span></span>`;
+ $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
 }
 const unstExtra=()=>S.unst&&SET('net').v?unstPill():'';
-function paintHints(items){ $('#hints').innerHTML=hintRow(items,unstExtra()); }
+function paintHints(items){ $('#hintbar').innerHTML=hintRow(items,unstExtra()); fitHints(); }
+/* hint row collapse rule: a right slot of 200 px is reserved when the alert pill shows; if the hints no longer fit, items flagged low are dropped from the right until they do */
+function fitHints(){
+ const hl=$('#hintbar .hl');if(!hl)return;
+ const low=[...hl.children].filter(c=>c.dataset.low);
+ while(hl.scrollWidth>hl.clientWidth&&low.length){low.pop().remove();}
+}
 
 /* ---------------- toast, keyboard stand-in, popups ---------------- */
 function toast(text,tone='',icon=''){
@@ -49,8 +54,17 @@ function paintPop(){
  const p=S.pop;
  $('#popLayer').innerHTML=p?popupHTML(p):'';
  $('#popLayer').style.pointerEvents=p?'auto':'none';
- if(p){const L=[['confirm',p.okLabel||'Select',{key:'ok'}],['cancel',p.cancelLabel||'Cancel',{key:'back'}]];$('#hints').innerHTML=hintRow(L);}
+ if(p)paintHints(popHints(p));
  else refreshHints();
+}
+function popHints(p){
+ const cl=p.cancelLabel||'Cancel';
+ if(p.buttons){
+  if(p.buttons.length===1)return [['confirm',p.buttons[0].label,{key:'ok'}]];
+  const f=p.buttons[p.sel].label;
+  return f===cl?[['confirm',f,{key:'ok'}]]:[['confirm',f,{key:'ok'}],['cancel',cl,{key:'back'}]];
+ }
+ return [['confirm',p.okLabel||'Select',{key:'ok'}],['cancel',cl,{key:'back'}]];
 }
 function popKey(k){
  const p=S.pop,n=(p.rows||p.buttons).length;
@@ -69,7 +83,7 @@ function keyboard(o){S.kb=o;paintKb();}
 function paintKb(){
  const k=S.kb;
  $('#kbLayer').innerHTML=k?`<div class="kbd" data-do="kbok"><div class="cap">System keyboard</div><h3>${k.title}</h3><div class="fld">${k.text||''}<span class="cursor" style="height:16px;margin-left:2px"></span></div><div class="keys">The Vita system keyboard opens here</div></div>`:'';
- if(k)$('#hints').innerHTML=hintRow([['confirm','Done',{key:'ok'}],['cancel','Cancel',{key:'back'}]]);else refreshHints();
+ if(k)paintHints([['confirm','Done',{key:'ok'}],['cancel','Cancel',{key:'back'}]]);else refreshHints();
 }
 function kbKey(k){const o=S.kb;if(k==='ok'){S.kb=null;paintKb();o.done&&o.done();}else if(k==='back'){S.kb=null;paintKb();}}
 
@@ -84,6 +98,10 @@ function items(ci){
 let cache=[];
 const psnState=()=>SET('psnmode').v?S.psn:'disabled';
 const selItem=()=>cache[S.sel[S.cat]];
+/* status hints wrap to at most 2 lines in the 288 px text column; every copy-deck hint fits (checked by measuring) */
+const mctx=document.createElement('canvas').getContext('2d');
+function hintLines(t){mctx.font='400 16px Roboto, sans-serif';return Math.min(3,Math.ceil(mctx.measureText(t).width/288));}
+const hintH=t=>24*hintLines(t);
 function buildCats(){$('#cats').innerHTML=CATS.map((c,i)=>`<div class="cat" data-do="cat" data-arg="${i}" role="tab" aria-label="${c[0]}"><div class="ci"><img src="${c[1]}" alt=""></div><div class="cl">${c[0]}</div></div>`).join('');}
 function itemIcon(it){return it.k==='console'?ring(it.c,56):`<img class="nav" src="${it.img}" alt="">`;}
 function buildList(anim){
@@ -91,7 +109,7 @@ function buildList(anim){
  S.sel[S.cat]=Math.max(0,Math.min(S.sel[S.cat],cache.length-1));
   if(S.cat===0&&!cache.length){
   $('#list').innerHTML='';
-  $('#empty').innerHTML=CONSOLES.length?'No consoles match filter':`<span class="sp"></span>Searching for consoles...`;
+  $('#empty').innerHTML=(CONSOLES.length&&!S.noConsoles)?'No consoles match filter':`<span class="sp"></span>Searching for consoles...`;
  } else $('#empty').innerHTML='';
  $('#list').innerHTML=cache.map((it,i)=>{
   let sub=it.s||'',hint='';
@@ -107,7 +125,7 @@ function layout(){
   slide(el,x,72,d<0?'scale(.75)':'');el.classList.toggle('on',d===0);
  });
  const sel=S.sel[S.cat],rows=$$('#list .xi');
- const hOf=(i,f)=>(f?88:56)+(cache[i]&&cache[i].c&&cache[i].c.hint?24:0);
+ const hOf=(i,f)=>(f?88:56)+(cache[i]&&cache[i].c&&cache[i].c.hint?hintH(HINT[cache[i].c.hint]):0);
  let y=192;
  rows.forEach((el,i)=>{
   let top;
@@ -128,9 +146,9 @@ function paintDetail(){
  if(!it){P.innerHTML='';return;}
  if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
   h=`${typeLogo(c)}<h4>${c.name}</h4><p class="st">${K.t?sdot(k)+K.t:sdot(k)+'Not reachable'}</p>${kv('Address',c.ip||'Unknown')}${kv('Route',routeOf(c))}${kv('Pairing',c.reg?'Paired':'Unpaired')}`;
- } else if(it.k==='grp'){const rs=SETTINGS.filter(s=>s.g===it.gi);h=`<h4>${it.t}</h4><p class="st" style="margin-bottom:16px">&nbsp;</p>${rs.map(s=>kv(s.label.replace(' (artifacts) (Experimental)',' (Experimental)'),setVal(s))).join('')}`;}
- else if(it.k==='preset'){const m=MAPS[it.i];h=`<h4>${it.t}</h4><p class="st" style="margin-bottom:16px">${S.ct.slot===it.i?'Selected':'&nbsp;'}</p>${kv('L1',m.L1)}${kv('R1',m.R1)}${kv('Front touch',nz(m.front)+' zones')}${kv('Rear touch',nz(m.back)+' zones')}`;}
- else {const rs=pageRows('profile',it.gi);h=`<h4>${it.t}</h4><p class="st" style="margin-bottom:16px">&nbsp;</p>${rs.slice(0,4).map(r=>kv(r.label,r.plain||'')).join('')}`;}
+ } else if(it.k==='grp'){const rs=SETTINGS.filter(s=>s.g===it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.map(s=>kv(s.label.replace(' (artifacts) (Experimental)',' (Experimental)'),setVal(s))).join('')}`;}
+ else if(it.k==='preset'){const m=MAPS[it.i];h=`<h4>${it.t}</h4><p class="st">${PDESC[it.i]}</p>${kv('L1',m.L1)}${kv('R1',m.R1)}${kv('Front touch',nz(m.front)+' zones')}${kv('Rear touch',nz(m.back)+' zones')}`;}
+ else {const rs=pageRows('profile',it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.slice(0,4).map(r=>kv(r.label,r.plain||'')).join('')}`;}
  P.innerHTML=h;P.style.animation='none';void P.offsetWidth;P.style.animation='';
 }
 function consoleVerb(c){const k=kindOf(c);return k==='unpaired'?'Pair':k==='standby'?'Wake':k==='cool'?'Please wait':'Connect';}
@@ -145,7 +163,7 @@ function optsList(){
 function paintOpts(){
  const it=selItem(),L=optsList();
  $('#opts').innerHTML=it&&it.k==='console'?`<h4>${it.c.name}</h4><div class="sub">Options</div>`+L.map((o,i)=>`<div class="oi ${i===S.os&&S.opts?'sel':''} ${o.dis?'dis':''}" data-do="oi" data-arg="${i}">${o.l}</div>`).join(''):'';
- $('#opts').classList.toggle('open',S.opts);$('#home').classList.toggle('oo',S.opts);
+ $('#opts').classList.toggle('open',S.opts);$('#ly-home').classList.toggle('oo',S.opts);
  refreshHints();
 }
 function homeHints(){
@@ -155,7 +173,7 @@ function homeHints(){
   if(it&&it.k==='console')L.push(['confirm',consoleVerb(it.c),{key:'ok',dim:kindOf(it.c)==='cool'}],['tri','Options',{key:'tri'}]);
   if(CONSOLES.length>4||S.flt)L.push(['start',S.flt?'Clear filter':'Filter',{key:'start'}]);
  } else L.push(['confirm','Open',{key:'ok'}]);
- L.push(['LR','Category']);
+ L.push(['LR','Category',{low:1}]);
  return L;
 }
 function openHome(anim=true){S.screen='home';showOnly('home');S.opts=false;paintTop();buildList(anim);paintOpts();}
@@ -173,23 +191,27 @@ function resultPop(r){
  popup(Object.assign({size:'s',sel:0,okLabel:'OK',cancelLabel:'Close'},r));
 }
 const pairOk=c=>resultPop({tone:'ok',icon:'check',title:'Console paired',body:`${c.name} is paired. You can connect to it now.`,buttons:[{label:'OK'}],onSel:()=>{c.reg=true;CONSOLES.sort((a,b)=>b.reg-a.reg);S.sel[0]=CONSOLES.indexOf(c);openHome(false);}});
-const pairFail=c=>resultPop({tone:'err',icon:'warn',title:'Pairing failed',body:`${c.name} did not accept the PIN. Check the code on the console and try again.`,sel:1,buttons:[{label:'Close'},{label:'Try again'}],onSel:i=>{if(i===1)startPin(c);else openHome(false);}});
+const PAIR_FAIL={pin:'did not accept the PIN. Check the code on the console and try again.',unreachable:'could not be reached. Check that it is on and on the same network.',timeout:'did not answer in time. Open Link Device on the console again and retry.'};
+const pairFail=(c,why='pin')=>resultPop({tone:'err',icon:'warn',title:'Pairing failed',body:`${c.name} ${PAIR_FAIL[why]}`,sel:1,buttons:[{label:'Close'},{label:'Try again'}],onSel:i=>{if(i===1)startPin(c);else openHome(false);}});
 const connFail=(c,why)=>resultPop({tone:'err',icon:'warn',title:'Could not connect',body:`${c.name}: ${why}`,sel:1,buttons:[{label:'Close'},{label:'Try again'}],onSel:i=>{if(i===1)connect(c);}});
 
 /* ---------------- PAGES: Settings and Profile (C07 PageShell, C08 SettingRow) ---------------- */
 const PG={settings:{title:'Settings',icon:'assets/icon_settings.png',groups:GROUPS},profile:{title:'Profile',icon:'icons/profile.svg',groups:['Account','Connection','PlayStation Network']}};
 const ACCT='dGhlX3BsYXllcl9vbmU=';
+/* Profile > Connection by situation: rows shown (Console IP only with a local address, Quality only for a paired reachable console) */
+const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready',q:'540p'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready',q:'540p'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready',q:'540p'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'None',q:null},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Not Registered',q:null},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None',q:null}};
 function pageRows(kind,g){
  if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>({label:s.label,type:s.type,s,desc:s.desc,plain:setVal(s)}));
- const stream=S.streaming;
  if(g===0)return [{label:'Account ID',type:'info',val:`<span class="mono">${ACCT}</span>`,plain:ACCT.slice(0,10)+'...'},{label:'Refresh Account ID',type:'action',desc:'Read the Account ID again from the system profile.',act:'acct',plain:''}];
  if(g===1){
-  const r=[{label:'Network Type',type:'info',val:'Local Wi-Fi',plain:'Local Wi-Fi'},{label:'Console',type:'info',val:'Living Room',plain:'Living Room'},{label:'Console IP',type:'info',val:'<span class="mono">192.168.1.20</span>',plain:'192.168.1.20'},{label:'Status',type:'info',val:stream?'Streaming':'Ready',plain:stream?'Streaming':'Ready'},{label:'Quality',type:'info',val:'540p',plain:'540p'}];
-  if(stream&&SET('lat').v)r.push({label:'Latency',type:'info',val:'38 ms'},{label:'Bitrate',type:'info',val:'2.6 Mbps'},{label:'Packet Loss',type:'info',val:'<span class="on">Stable</span>'});
+  const c=PCONN[S.pconn],r=[{label:'Network Type',type:'info',val:c.net,plain:c.net},{label:'Console',type:'info',val:c.con,plain:c.con}];
+  if(c.ip)r.push({label:'Console IP',type:'info',val:`<span class="mono">${c.ip}</span>`,plain:c.ip});
+  r.push({label:'Status',type:'info',val:c.st,plain:c.st});
+  if(c.q)r.push({label:'Quality',type:'info',val:c.q,plain:c.q});
   return r;
  }
  const ps=psnState(),st={label:'PSN Auth',type:'info',val:PSN_STATES[ps],plain:PSN_STATES[ps],tone:ps==='auth'?'':ps==='disabled'?'':'' ,cls:ps==='auth'?'on':ps==='none'||ps==='expired'||ps==='error'?'bad':ps==='refresh'?'mid':''};
- st.val=`<span class="${st.cls||''}">${st.val}</span>`;
+ st.val=`<span class="${st.cls||''}" style="display:inline-flex;align-items:center;gap:8px">${st.cls==='bad'?ico('warn',20):''}${st.val}</span>`;st.tone=st.cls==='bad'?'err':'';
  if(ps==='disabled'){st.desc='Enable PSN internet mode in Settings';}
  if(ps==='disabled')return [st,{label:'Log in',type:'action',dis:true,desc:'Enable PSN internet mode in Settings',act:'login'}];
  if(ps==='auth')return [st,{label:'Refresh hosts',type:'action',desc:'Reload your internet-capable consoles.',act:'hosts'},{label:S.logout?`Press ${inl('confirm')} again to confirm log out`:'Log out',type:'action',tone:S.logout?'warn':'',desc:'Remove the saved PSN login from this Vita.',act:'logout'}];
@@ -207,7 +229,7 @@ function rowVal(r,i){
 function paintPage(full){
  const P=S.pg,cfg=PG[P.kind],{rs,i:s,k}=curRow();P.row[k]=s;
  const login=P.kind==='profile'&&P.g===2&&psnState()==='await';
- $('#page').innerHTML=`<div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>
+ $('#ly-page').innerHTML=`<div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>${P.kind==='profile'?`<div class="ident"><span class="av"><img src="icons/profile.svg" alt=""></span><span class="it"><b>${ACCT}</b><i>PlayStation Network</i></span></div>`:''}
  <div id="groups">${cfg.groups.map((n,i)=>`<div class="grp ${i===P.g?'on':''} ${i===P.g&&P.focus==='g'?'act':''}" data-do="pgg" data-arg="${i}">${n}</div>`).join('')}</div>
  ${login?loginHTML():`<div id="pane"><div id="rows" ${full?'':'style="animation:none"'}>${rs.map((r,i)=>srow({i,label:r.label,val:rowVal(r,i),sel:i===s,act:i===s&&P.focus==='r',dis:r.dis,tone:r.tone})).join('')}</div></div>
  <div id="pdesc">${rs[s].desc||''}</div>`}
@@ -227,10 +249,10 @@ function pageHints(){
  return L;
 }
 function loginHTML(){
- const urlA='https://my.account.sony.com/sso/ca/authorize?client_id=ba495a24-818c-472b-b12d-ff231c1b5745',urlB='&redirect_uri=https%3A%2F%2Fremoteplay.dl.playstation.net%2Fremoteplay%2Fredirect';
- const qr=S.qr?`<div class="qr"><svg viewBox="0 0 25 25" width="160" height="160" shape-rendering="crispEdges">${qrSvg()}</svg></div>`:`<div class="qr hid">QR hidden</div>`;
+ const SHORT_URL='my.account.sony.com/sso/ca/authorize'; /* display only; the full authorize URL stays in memory for the QR and the browser */
+ const qr=S.qr?`<div class="qr" data-do="qrtog"><svg viewBox="0 0 25 25" width="160" height="160" shape-rendering="crispEdges">${qrSvg()}</svg></div>`:`<div class="qr hid" data-do="qrtog">QR hidden</div>`;
  return `<div class="lgn"><h3>Phone Login Assist</h3><div class="cols">${qr}<div class="st"><div>1&nbsp; Press ${inl('start')} to show or hide the QR code</div><div>2&nbsp; Scan the QR code with your phone and sign in</div><div>3&nbsp; Press ${inl('confirm')} and paste the redirect URL or code</div><div>4&nbsp; ${inl('select')} opens the Vita browser instead</div></div></div>
- <div class="st" style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:0 16px"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="font-size:16px;line-height:24px;max-height:48px;overflow:hidden;color:var(--text-2)">${urlA}${urlB}</b></div></div>`;
+ <div class="st" style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:0 16px"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div>`;
 }
 function qrSvg(){let s='';const f=(x,y)=>`<rect x="${x}" y="${y}" width="7" height="7" fill="#0a0a0a"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#0a0a0a"/>`;s+=f(0,0)+f(18,0)+f(0,18);let r=7;for(let y=0;y<25;y++)for(let x=0;x<25;x++){if((x<8&&y<8)||(x>16&&y<8)||(x<8&&y>16))continue;r=(r*9301+49297)%233280;if(r%3===0)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#0a0a0a"/>`;}return s;}
 function openPage(kind,g,focus='r'){
@@ -275,12 +297,12 @@ function paintCtrl(){
    const txt=`${n} &rarr; ${o}`,w=i?136:136,x=i?896-w:64,py=FRONT.y+.1*H,px=FRONT.x+(i?.9:.1)*FRONT.w;
    h+=`<div class="callout ${C.sh===i?'on':''}" data-do="callout" data-arg="${i}" style="left:${x}px;top:136px;width:${w}px;justify-content:${i?'flex-end':'flex-start'}">${txt}</div>`;
    const x1=i?x+w*.5:x+w*.5,y1=168,dx=px-x1,dy=py-y1,len=Math.hypot(dx,dy),ang=Math.atan2(dy,dx);
-   h+=`<div class="cl-line" style="left:${x1}px;top:${y1}px;width:${len}px;transform:rotate(${ang}rad)"></div>`;
+   h+=`<div class="cl-line" style="left:${x1}px;top:${y1}px;width:${len}px;transform:rotate(${ang}rad)"></div><div class="cl-dot" style="left:${px-3}px;top:${py-3}px"></div>`;
   });
   h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" style="right:48px">Page 1/2 &middot; Buttons</div>`;
  } else if(v==='summary'){
   const H=BACK.w*327/720;
-  h+=`<div class="dg back" data-do="dg" style="left:${BACK.x}px;top:${BACK.y}px;width:${BACK.w}px;height:${H}px"><img src="assets/controller_back.png" alt="Vita back"></div>`+zones(backRect(BACK),m.back,false);
+  h+=`<div class="dg back" data-do="dg" style="left:${BACK.x}px;top:${BACK.y}px;width:${BACK.w}px;height:${H}px"><img src="assets/controller_back_clean.png" alt="Vita back"></div>`+zones(backRect(BACK),m.back,false);
   h+=`<div class="cfoot" style="left:48px">${PDESC[C.slot]}</div><div class="cfoot" style="right:48px">Page 2/2 &middot; Back Touch &middot; <b>${nz(m.back)}</b> zones</div>`;
  } else if(v==='front'){
   const H=ZF.w*396/874;
@@ -288,17 +310,17 @@ function paintCtrl(){
   h+=`<div class="cfoot" style="left:48px">${C.pick.length>1?C.pick.length+' Zones Selected':'Zone '+zoneName(C.cur)}</div>`;
  } else {
   const H=ZB.w*327/720;
-  h+=`<div class="dg back" style="left:${ZB.x}px;top:${ZB.y}px;width:${ZB.w}px;height:${H}px"><img src="assets/controller_back.png" alt=""></div>`+zones(backRect(ZB),m.back,true);
+  h+=`<div class="dg back" style="left:${ZB.x}px;top:${ZB.y}px;width:${ZB.w}px;height:${H}px"><img src="assets/controller_back_clean.png" alt=""></div>`+zones(backRect(ZB),m.back,true);
   h+=`<div class="cfoot" style="left:48px">${C.pick.length>1?C.pick.length+' Zones Selected':'Zone '+zoneName(C.cur)}</div>`;
  }
- $('#ctrl').innerHTML=h;refreshHints();
+ $('#ly-ctrl').innerHTML=h;refreshHints();
 }
 function ctrlHints(){
  const C=S.ct;
  if(C.view==='summary'){
-  const L=[['dpadh','Preset'],['LR','Page']];
+  const L=[['dpadh','Preset',{low:1}],['LR','Page']];
   if(C.page===0)L.push(['dpadv','L1 / R1'],['confirm','Shoulder']);
-  L.push(['tri','Zones'],['sq','Clear'],['cancel','Back']);return L;
+  L.push(['tri','Zones'],['sq','Clear',{low:1}],['cancel','Back']);return L;
  }
  return [['dpad','Move'],['confirm','Assign'],['tri','Whole surface'],['sq','Clear'],['cancel','Back']];
 }
@@ -309,34 +331,55 @@ function mapPop(title,sub,cur,apply){
 function zonePop(idxs){
  const C=S.ct,arr=C.view==='front'?MAPS[C.slot].front:MAPS[C.slot].back,side=C.view==='front'?'Front':'Rear';
  const sub=idxs.length>1?idxs.length+' Zones Selected':side+' '+zoneName(idxs[0]);
- mapPop(side+' Touch Mapping',sub,arr[idxs[0]],o=>idxs.forEach(i=>arr[i]=o));
+ const same=idxs.every(i=>arr[i]===arr[idxs[0]]);
+ mapPop(side+' Touch Mapping',sub+(idxs.length>1?` &middot; ${same?arr[idxs[0]]:'Mixed'}`:''),same?arr[idxs[0]]:null,o=>idxs.forEach(i=>arr[i]=o));
 }
 function shoulderPop(which){
  const m=MAPS[S.ct.slot];mapPop('Shoulder Mapping',which==='L1'?'Left Shoulder (L1)':'Right Shoulder (R1)',m[which],o=>{m[which]=o;});
 }
 function fullPop(){
  const C=S.ct,key=C.view==='front'?'front':'back',m=MAPS[C.slot];
- mapPop(C.view==='front'?'Front Touch Mapping':'Rear Touch Mapping',C.view==='front'?'Full Front Touch':'Full Rear Touch','None',o=>{m[key]=Array(18).fill(o);});
+ const arr=m[key],same=arr.every(o=>o===arr[0]);
+ mapPop(C.view==='front'?'Front Touch Mapping':'Rear Touch Mapping',(C.view==='front'?'Full Front Touch':'Full Rear Touch')+` &middot; ${same?arr[0]:'Mixed'}`,same?arr[0]:null,o=>{m[key]=Array(18).fill(o);});
 }
 
 /* ---------------- PIN (C17 PinField) ---------------- */
-function startPin(c){S.pin={d:Array(8).fill(null),cur:0,ci:CONSOLES.indexOf(c)};S.screen='pin';showOnly('pin');paintTop();paintPin();}
+function startPin(c){S.pin={d:Array(8).fill(null),cur:0,ci:CONSOLES.indexOf(c),zone:'d',b:2};S.screen='pin';showOnly('pin');paintTop();paintPin();}
+/* one focus at a time: zone d = digit boxes, zone b = the three buttons. Right on the last digit (when all 8 are filled) or Down moves to the buttons (Register when ready); Up returns to the last digit. */
 function paintPin(){
- const P=S.pin,c=CONSOLES[P.ci],full=P.d.every(x=>x!==null);
- $('#pin').innerHTML=`<div class="ptitle"><h1>${c.model} Console Registration</h1><span class="sub">${c.name}${c.ip?` (${c.ip})`:''}</span></div><div class="prule"></div>
+ const P=S.pin,c=CONSOLES[P.ci],full=P.d.every(x=>x!==null),zb=P.zone==='b';
+ $('#ly-pin').innerHTML=`<div class="ptitle">${ico('lock',32)}<h1>${c.model} Console Registration</h1><span class="sub">${c.name}${c.ip?` (${c.ip})`:''}</span></div><div class="prule"></div>
  <div class="pmsg" style="top:160px">Enter the 8-digit session PIN displayed on your ${c.model}:</div>
- <div class="pinwrap">${P.d.map((d,i)=>`<div class="pind ${i===P.cur?'sel':''}" data-do="pdig" data-arg="${i}"><span class="cv" data-do="pup" data-arg="${i}">${ico('up',20)}</span><span class="bx ${d===null&&i!==P.cur?'empty0':''}">${d!==null?d:(i===P.cur?'<span class="cursor"></span>':'')}</span><span class="cv" data-do="pdn" data-arg="${i}">${ico('down',20)}</span></div>`).join('')}</div>
- <div class="pbtns">${tbtn('Clear digit',{do:'pclr'})}${tbtn('Cancel',{do:'pcancel'})}${tbtn('Register',{do:'pok',dis:!full,sel:full})}</div>`;
+ <div class="pinwrap">${P.d.map((d,i)=>`<div class="pind ${i===P.cur&&!zb?'sel':''}" data-do="pdig" data-arg="${i}"><span class="cv" data-do="pup" data-arg="${i}">${ico('up',20)}</span><span class="bx ${d===null&&(i!==P.cur||zb)?'empty0':''}">${d!==null?d:(i===P.cur&&!zb?'<span class="cursor"></span>':'')}</span><span class="cv" data-do="pdn" data-arg="${i}">${ico('down',20)}</span></div>`).join('')}</div>
+ <div class="pbtns">${tbtn('Clear digit',{do:'pclr',sel:zb&&P.b===0})}${tbtn('Cancel',{do:'pcancel',sel:zb&&P.b===1})}${tbtn('Register',{do:'pok',dis:!full,sel:zb&&P.b===2})}</div>`;
  refreshHints();
 }
-function pinHints(){const full=S.pin.d.every(x=>x!==null);return [['dpadh','Digit'],['dpadv','Change'],['sq','Clear digit'],['confirm','Register',{key:'ok',dim:!full}],['cancel','Cancel',{key:'back'}]];}
-function pinKey(k){
+function pinHints(){
+ const P=S.pin,full=P.d.every(x=>x!==null);
+ if(P.zone==='b'){const f=['Clear digit','Cancel','Register'][P.b];return [['dpadh','Button'],['dpadv','Digits'],['confirm',f,{key:'ok',dim:P.b===2&&!full}],['cancel','Cancel',{key:'back'}]];}
+ return [['dpadh','Digit'],['dpadv','Change'],['sq','Clear digit',{low:1}],['confirm','Register',{key:'ok',dim:!full}],['cancel','Cancel',{key:'back'}]];
+}
+function pinRegister(){
  const P=S.pin,c=CONSOLES[P.ci];
- if(k==='left'&&P.cur>0)P.cur--;else if(k==='right'&&P.cur<7)P.cur++;
+ /* mock trigger only: first digit 0 = PIN rejected, 9 = timeout, anything else = paired. The build needs real results, see SPEC 3.3 */
+ const d=P.d[0];if(d===0)pairFail(c,'pin');else if(d===9)pairFail(c,'timeout');else pairOk(c);
+}
+function pinKey(k){
+ const P=S.pin,full=P.d.every(x=>x!==null);
+ if(P.zone==='b'){
+  if(k==='left'&&P.b>0)P.b--;else if(k==='right'&&P.b<2)P.b++;
+  else if(k==='up'){P.zone='d';P.cur=7;}
+  else if(k==='back'){openHome(false);return;}
+  else if(k==='ok'){if(P.b===0){P.zone='d';P.d[P.cur]=null;}else if(P.b===1){openHome(false);return;}else if(full){pinRegister();return;}}
+  return paintPin();
+ }
+ if(k==='left'&&P.cur>0)P.cur--;
+ else if(k==='right'){if(P.cur<7)P.cur++;else if(full){P.zone='b';P.b=2;}}
  else if(k==='up'||k==='down'){const d=P.d[P.cur];P.d[P.cur]=d===null?(k==='up'?0:9):(d+(k==='up'?1:9))%10;}
  else if(k==='sq')P.d[P.cur]=null;
  else if(k==='back'){openHome(false);return;}
- else if(k==='ok'){if(P.d.every(x=>x!==null)){const ok=P.d[0]!==0;ok?pairOk(c):pairFail(c);return;}}
+ else if(k==='ok'){if(full){pinRegister();return;}}
+ else if(k==='start'){}
  paintPin();
 }
 
@@ -358,14 +401,14 @@ function openConn(){
 function paintConn(){
  const C=S.conn,c=CONSOLES[C.ci],st=C.flow[Math.min(C.cur,C.flow.length-1)],list=C.flow.map(i=>STAGES[i]);
  const via=C.flow.includes(1)?'via Internet':'via Local Network';
- $('#conn').innerHTML=`<div class="ptitle"><h1>${connTitle(st)}</h1></div><div class="prule"></div>
+ $('#ly-conn').innerHTML=`<div class="ptitle">${ico(C.flow.includes(1)?'globe':st===0?'moon':'lan',32)}<h1>${connTitle(C.flow,st)}</h1></div><div class="prule"></div>
  <div class="wk"><div class="art"><div class="halo"></div><div class="spin"></div>${ring(c,128)}</div><div class="who"><div class="tlw">${typeLogo(c,32)}</div><h2>${c.name}</h2><p>${via}</p></div>
  <div class="steps">${stepsHTML(list,Math.min(C.cur,list.length-1))}</div><div style="position:absolute;right:48px;top:440px">${tbtn('Cancel',{do:'ccancel'})}</div></div>`;
  refreshHints();
 }
 function openReconnect(){
  S.screen='conn';showOnly('conn');paintTop();
- $('#conn').innerHTML=`<div class="ptitle"><h1>Optimizing Stream</h1></div><div class="prule"></div>
+ $('#ly-conn').innerHTML=`<div class="ptitle">${ico('wifi',32)}<h1>Optimizing Stream</h1></div><div class="prule"></div>
  <div class="wk"><div class="art"><div class="halo"></div><div class="spin"></div></div><div class="rc">Recovering from packet loss<b>Retrying at 1.80 Mbps</b><small>Attempt ${S.rec.attempt}<br>Please wait...</small></div></div>`;
  refreshHints();
 }
@@ -373,7 +416,7 @@ function openReconnect(){
 /* ---------------- STREAM (C19 Pill, C25 StatsPanel) ---------------- */
 function openStream(){
  S.screen='strm';showOnly('strm');S.exitStart=Date.now();
- $('#strm').innerHTML=`<div class="scene"><div class="drift"></div></div><div class="hud"><div class="exit" id="exitPill"></div><div class="panel" id="statPanel"></div><div class="unst" id="unstB"></div></div>`;
+ $('#ly-strm').innerHTML=`<div class="scene"><div class="drift"></div></div><div class="hud"><div class="exit" id="exitPill"></div><div class="panel" id="statPanel"></div><div class="unst" id="unstB"></div></div>`;
  paintHud();
 }
 function paintHud(){
@@ -504,24 +547,48 @@ function act(a,arg,el){
  else if(a==='kbflt')openFilter();
  else if(a==='fltclr'){S.flt='';buildList(true);}
  else if(a==='pgg'){S.pg.g=i;S.pg.focus='g';paintPage(true);}
- else if(a==='row'){const {rs,i:s,k}=curRow();S.pg.focus='r';if(s!==i){S.pg.row[k]=i;paintPage(false);}else pageAct(rs[i]);}
+ else if(a==='row'){const {rs,k}=curRow();S.pg.focus='r';S.pg.row[k]=i;if(rs[i].type==='info')paintPage(false);else{paintPage(false);pageAct(rs[i]);}}
  else if(a==='dec'||a==='inc'){const {k}=curRow();S.pg.focus='r';S.pg.row[k]=i;pageChange(a==='inc'?1:-1);}
  else if(a==='preset'){S.ct.slot=(S.ct.slot+i+3)%3;paintCtrl();}
  else if(a==='callout'){S.ct.sh=i;shoulderPop(i?'R1':'L1');}
  else if(a==='dg'){S.ct.view=S.ct.page===0?'front':'back';S.ct.cur=0;S.ct.pick=[];paintCtrl();}
  else if(a==='cell'){if(S.ct.view==='summary'){S.ct.view='back';S.ct.page=1;paintCtrl();}else{S.ct.cur=i;zonePop([i]);}}
- else if(a==='pdig'){S.pin.cur=i;paintPin();}
- else if(a==='pup'){S.pin.cur=i;pinKey('up');}
- else if(a==='pdn'){S.pin.cur=i;pinKey('down');}
- else if(a==='pclr')pinKey('sq');
+ else if(a==='qrtog')key('start');
+ else if(a==='pdig'){S.pin.cur=i;S.pin.zone='d';paintPin();}
+ else if(a==='pup'){S.pin.cur=i;S.pin.zone='d';pinKey('up');}
+ else if(a==='pdn'){S.pin.cur=i;S.pin.zone='d';pinKey('down');}
+ else if(a==='pclr'){S.pin.zone='d';pinKey('sq');}
  else if(a==='pcancel')pinKey('back');
- else if(a==='pok')pinKey('ok');
+ else if(a==='pok'){if(S.pin.d.every(x=>x!==null))pinRegister();}
  else if(a==='ccancel'){clearTimeout(stageTimer);openHome(false);}
  else if(a==='pop'){S.pop.sel=i;popPress(i);}
  else if(a==='scrim')key('back');
  else if(a==='kbok')key('ok');
 }
+/* touch swipe: vertical on the list, page pane and list popups; horizontal on the category row. One step per 56 px (list, categories) or 48 px (rows); focus follows the finger like the D-pad. */
+let sw=null,suppressUntil=0;
+const zoomNow=()=>parseFloat(getComputedStyle($('#wrap')).getPropertyValue('--z'))||1;
+document.addEventListener('pointerdown',e=>{
+ if(S.kb||!$('#stage').contains(e.target))return;
+ let t=null;
+ if(S.pop){if(e.target.closest('.lp')&&S.pop.rows&&!S.pop.grid)t=['v',48];}
+ else if(S.screen==='home'&&!S.opts){if(e.target.closest('#listvp'))t=['v',56];else if(e.target.closest('#catstrip,.cat'))t=['h',56];}
+ else if(S.screen==='page'&&e.target.closest('#pane'))t=['v',48];
+ if(t)sw={dir:t[0],size:t[1],x:e.clientX,y:e.clientY,done:0,moved:false};
+});
+document.addEventListener('pointermove',e=>{
+ if(!sw)return;
+ const d=(sw.dir==='v'?e.clientY-sw.y:e.clientX-sw.x)/zoomNow();
+ if(Math.abs(d)>8)sw.moved=true;
+ if(!sw.moved)return;
+ if(S.screen==='page'&&!S.pop)S.pg.focus='r';
+ const steps=Math.trunc(-d/sw.size);
+ while(steps>sw.done){key(sw.dir==='v'?'down':'right');sw.done++;}
+ while(steps<sw.done){key(sw.dir==='v'?'up':'left');sw.done--;}
+});
+document.addEventListener('pointerup',()=>{if(sw&&sw.moved)suppressUntil=Date.now()+80;sw=null;});
 document.addEventListener('click',e=>{
+ if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
  if(S.opts&&!S.pop&&!e.target.closest('#opts')&&!e.target.closest('[data-do=btn]')&&!e.target.closest('[data-do=item]')){S.opts=false;paintOpts();return;}
  const p=e.target.closest('[data-pop]');if(p&&S.pop){S.pop.sel=+p.dataset.pop;popPress(+p.dataset.pop);return;}
@@ -540,11 +607,11 @@ document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint
 const JUMPS=[
  ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Per-console status hints'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter','Filter active'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
  ['XMB categories','xmb-settings','Settings category'],['XMB categories','xmb-controller','Controller category'],['XMB categories','xmb-profile','Profile category'],
- ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: pairing failed'],['Pairing','result-connect-failed','Result: could not connect'],
+ ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
  ['Stream','stream','Stream overlay'],['Stream','stream-stats','Stream with stats'],['Stream','unstable','Network unstable'],['Stream','stream-quiet','Overlay after hint faded'],
  ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
- ['Profile','profile','Account'],['Profile','profile-connection','Connection (idle)'],['Profile','profile-streaming','Connection (streaming)'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
+ ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-unpaired','Connection: unpaired console'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
 const DL={};
@@ -560,7 +627,7 @@ Object.assign(DL,{
  'consoles-cooldown':()=>{mockConsole();CONSOLES[1].cool=true;C0(0,1);},
  hints:()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,0);},
  'home-unstable':()=>{mockConsole();S.unst=true;$('#bUn').classList.add('on');$('#bUn').textContent='Network unstable: on';C0(0,0);},
- 'empty-searching':()=>{mockConsole();S.noConsoles=true;const keep=CONSOLES.slice();CONSOLES.length=0;C0(0,0);window.__keep=keep;},
+ 'empty-searching':()=>{mockConsole();S.noConsoles=true;C0(0,0);},
  'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);},
  filter:()=>{mockConsole();S.flt='den';C0(0,0);},
  keyboard:()=>{mockConsole();C0(0,0);openFilter();},
@@ -572,8 +639,10 @@ Object.assign(DL,{
  'xmb-settings':()=>C0(1,0),'xmb-controller':()=>C0(2,0),'xmb-profile':()=>C0(3,2),
  pin:()=>{mockConsole();startPin(CONSOLES[4]);},
  'pin-partial':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[4,8,2,null,null,null,null,null];S.pin.cur=3;paintPin();},
- 'pin-full':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[4,8,2,7,1,9,3,6];S.pin.cur=7;paintPin();},
+ 'pin-full':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[4,8,2,7,1,9,3,6];S.pin.cur=7;S.pin.zone='b';S.pin.b=2;paintPin();},
  'result-paired':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[4,8,2,7,1,9,3,6];S.pin.cur=7;paintPin();pairOk(CONSOLES[4]);},
+ 'result-pair-timeout':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[9,8,2,7,1,9,3,6];S.pin.cur=7;S.pin.zone='b';paintPin();pairFail(CONSOLES[4],'timeout');},
+ 'result-pair-unreachable':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[4,8,2,7,1,9,3,6];S.pin.cur=7;S.pin.zone='b';paintPin();pairFail(CONSOLES[4],'unreachable');},
  'result-pair-failed':()=>{mockConsole();startPin(CONSOLES[4]);S.pin.d=[0,8,2,7,1,9,3,6];S.pin.cur=7;paintPin();pairFail(CONSOLES[4]);},
  'result-connect-failed':()=>{mockConsole();C0(0,3);connFail(CONSOLES[3],'Console disconnected. Please wait a few moments and try again.');},
  waking:()=>{S.conn={ci:1,flow:[0,4,7],cur:0,play:false};openConn();},
@@ -588,8 +657,11 @@ Object.assign(DL,{
  settings:()=>openPage('settings',0,'r'),'settings-network':()=>openPage('settings',1,'r'),'settings-display':()=>openPage('settings',2,'r'),'settings-controls':()=>openPage('settings',3,'r'),'settings-advanced':()=>openPage('settings',4,'r'),
  'settings-circle':()=>{SET('cc').v=true;openPage('settings',3,'r');},
  profile:()=>{S.psn='auth';openPage('profile',0,'r');},
- 'profile-connection':()=>{S.streaming=false;openPage('profile',1,'r');},
- 'profile-streaming':()=>{S.streaming=true;SET('lat').v=true;openPage('profile',1,'r');},
+ 'profile-connection':()=>{S.pconn='wifi';openPage('profile',1,'r');},
+ 'profile-connection-psn':()=>{S.pconn='psn';openPage('profile',1,'r');},
+ 'profile-connection-unavailable':()=>{S.pconn='unavail';openPage('profile',1,'r');},
+ 'profile-connection-unpaired':()=>{S.pconn='unreg';openPage('profile',1,'r');},
+ 'profile-connection-none':()=>{S.pconn='none';openPage('profile',1,'r');},
  'profile-psn':()=>{S.psn='auth';SET('psnmode').v=true;openPage('profile',2,'r');},
  'profile-psn-disabled':()=>{SET('psnmode').v=false;openPage('profile',2,'r');},
  'profile-psn-none':()=>{SET('psnmode').v=true;S.psn='none';openPage('profile',2,'r');},
@@ -612,20 +684,19 @@ Object.assign(DL,{
  'mapping-multi':()=>{S.ct.slot=0;openCtrl('front');S.ct.pick=[7,8,9,10];S.ct.cur=10;paintCtrl();zonePop([7,8,9,10]);},
  'mapping-shoulder':()=>{S.ct.slot=0;openCtrl();shoulderPop('L1');}
 });
-['consoles-unregistered'].forEach(a=>DL[a]=DL['consoles-unpaired']);DL.waking=DL.waking;DL.error=DL['result-connect-failed'];DL.register=DL.pin;DL.chooser=DL['connect-via'];DL.options=DL.options;
+DL['consoles-unregistered']=DL['consoles-unpaired'];DL.error=DL['result-connect-failed'];DL.register=DL.pin;DL.chooser=DL['connect-via'];
 function jump(id){
  closePop();S.kb=null;paintKb();S.toast=null;paintToast();clearTimeout(stageTimer);
- if(window.__keep){CONSOLES.length=0;window.__keep.forEach(c=>CONSOLES.push(c));window.__keep=null;}
  SET('cc').v=id==='settings-circle';$('#bCc').textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');
  if(id!=='home-unstable'&&id!=='unstable'){S.unst=false;$('#bUn').classList.remove('on');$('#bUn').textContent='Network unstable: off';}
- if(!id.startsWith('profile')&&!id.startsWith('toast')&&!id.startsWith('keyboard-paste')){S.streaming=false;S.logout=false;}
+ if(!id.startsWith('profile')&&!id.startsWith('toast')&&!id.startsWith('keyboard-paste')){S.logout=false;}
  const f=DL[id]||DL.home;f();$('#jump').value=DL[id]?id:'home';
 }
 function init(){
  const skel=`<canvas id="rib" width="960" height="544"></canvas><div class="vig"></div><div class="wash" style="opacity:0"></div>
- <div class="layer" id="home"><div id="cats"></div><div id="flt"></div><div id="listvp"><div id="list"></div></div><div id="empty" class="empty"></div><div id="detail"></div><div id="opts"></div></div>
- <div class="layer" id="page" style="display:none"></div><div class="layer" id="ctrl" style="display:none"></div><div class="layer" id="pin" style="display:none"></div><div class="layer" id="conn" style="display:none"></div><div class="layer" id="strm" style="display:none"></div>
- <div class="topbar" id="top"></div><div id="hints"></div><div id="popLayer" style="position:absolute;inset:0;pointer-events:none;z-index:30"></div><div id="toastLayer"></div><div id="kbLayer"></div>`;
+ <div class="layer" id="ly-home"><div id="catstrip" style="position:absolute;left:0;top:64px;width:960px;height:112px"></div><div id="cats"></div><div id="flt"></div><div id="listvp"><div id="list"></div></div><div id="empty" class="empty"></div><div id="detail"></div><div id="opts"></div></div>
+ <div class="layer" id="ly-page" style="display:none"></div><div class="layer" id="ly-ctrl" style="display:none"></div><div class="layer" id="ly-pin" style="display:none"></div><div class="layer" id="ly-conn" style="display:none"></div><div class="layer" id="ly-strm" style="display:none"></div>
+ <div class="topbar" id="top"></div><div id="hintbar"></div><div id="popLayer" style="position:absolute;inset:0;pointer-events:none;z-index:30"></div><div id="toastLayer"></div><div id="kbLayer"></div>`;
  $('#screen').innerHTML=skel;$('#screen').style.cssText='position:absolute;inset:0';
  $('#empty').className='empty';
  cv=$('#rib');g=cv.getContext('2d');loop(0);
@@ -635,7 +706,6 @@ function init(){
  sel.addEventListener('change',()=>{location.hash=sel.value;sel.blur();});
  $('#bCc').addEventListener('click',e=>{SET('cc').v=!SET('cc').v;e.target.textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');e.target.classList.toggle('on',SET('cc').v);refreshHints();if(S.screen==='page')paintPage(false);});
  $('#bUn').addEventListener('click',e=>{S.unst=!S.unst;e.target.classList.toggle('on',S.unst);e.target.textContent='Network unstable: '+(S.unst?'on':'off');refreshHints();paintHud();});
- $('#bTod').addEventListener('click',e=>{const o=['auto','night','dawn','day','dusk'];S.tod=o[(o.indexOf(S.tod)+1)%o.length];e.target.textContent='Time of day: '+S.tod;if(reduce)paintRibbons(0);});
  $('#bZoom').addEventListener('click',e=>{S.zoom=S.zoom===1?2:1;fit();e.target.classList.toggle('on',S.zoom===2);});
  $('#bDev').addEventListener('click',e=>{const on=$('#wrap').classList.toggle('dev');e.target.classList.toggle('on',on);e.target.setAttribute('aria-pressed',on);e.target.textContent=on?'Plain screen':'View on device';fit();});
  addEventListener('resize',fit);fit();
@@ -644,6 +714,7 @@ function init(){
 }
 function fit(){const dev=$('#wrap').classList.contains('dev'),w=dev?1260:960,f=Math.min(1,(innerWidth-32)/w);$('#wrap').style.setProperty('--z',+(S.zoom*f).toFixed(3));}
 init();
-function route(){const h=(location.hash||'#home').slice(1);jump(h);}
+function route(){const h=(location.hash||'#home').slice(1);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
 addEventListener('hashchange',route);
 if(location.hash)setTimeout(route,60);else jump('home');
+document.addEventListener('dragstart',e=>e.preventDefault());

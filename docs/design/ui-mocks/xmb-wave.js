@@ -1,10 +1,11 @@
-/* Wave background (C27). Five ribbons, time-of-day palette, dust; CPU vertex update at 30 Hz on the Vita. */
+/* Wave background (C27). Fixed palette from tokens (--wave-*), five ribbons, 36 dust points; CPU vertex update at 30 Hz on the Vita. */
 let cv,g,reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const TOD={night:{a:'#04081a',m:'#0b1634',b:'#16275a',r:[[90,130,255],[60,200,230],[150,110,255]],h:'rgba(70,110,230,.3)'},dawn:{a:'#150d2c',m:'#321a4a',b:'#6a2d5c',r:[[255,140,170],[255,190,110],[190,130,255]],h:'rgba(255,150,130,.35)'},day:{a:'#06204a',m:'#0f4585',b:'#245f9c',r:[[150,205,255],[100,180,240],[190,220,255]],h:'rgba(160,210,255,.28)'},dusk:{a:'#1a0c1c',m:'#4a2018',b:'#a8502a',r:[[255,170,90],[255,120,70],[255,200,140]],h:'rgba(255,150,80,.4)'}};
-const todNow=()=>{if(S.tod!=='auto')return S.tod;const h=new Date().getHours();return h<5?'night':h<9?'dawn':h<17?'day':h<21?'dusk':'night';};
+const tok=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+let P=null;const palette=()=>P||(P={a:tok('--wave-top'),m:tok('--wave-mid'),b:tok('--wave-bot'),r:[tok('--wave-r1'),tok('--wave-r2'),tok('--wave-r3')].map(rgb),h:tok('--wave-horizon')});
 const DUST=Array.from({length:36},(_,i)=>{const r=(i*9301+49297)%233280/233280,q=(i*7919+1013)%233280/233280;return{x:r*960,y:q*544,s:.5+((i*37)%10)/12,p:i*1.3};});
 function paintRibbons(t){
- const P=TOD[todNow()];
+ const P=palette();
  const gr=g.createLinearGradient(0,0,0,544);gr.addColorStop(0,P.a);gr.addColorStop(.55,P.m);gr.addColorStop(1,P.b);
  g.globalCompositeOperation='source-over';g.fillStyle=gr;g.fillRect(0,0,960,544);
  const hz=g.createRadialGradient(560,520,10,560,520,520);hz.addColorStop(0,P.h);hz.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=hz;g.fillRect(0,0,960,544);

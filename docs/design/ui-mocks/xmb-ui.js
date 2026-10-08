@@ -42,7 +42,7 @@ const inl=(k)=>{ // inline glyph inside running text
 };
 
 /* C06 HintRow. items: [glyph, label, {key, dim}] ; key makes the hint tappable like the button */
-const hintRow=(items,extra='')=>`<div class="hintrow">${items.map(i=>`<span class="h ${i[2]&&i[2].dim?'dim':''}" ${i[2]&&i[2].key?`data-do="btn" data-arg="${i[2].key}"`:''}>${gl(i[0])}${i[1]}</span>`).join('')}${extra?`<span class="sp">${extra}</span>`:''}</div>`;
+const hintRow=(items,extra='')=>`<div class="hintrow"><div class="hl">${items.map(i=>`<span class="h ${i[2]&&i[2].dim?'dim':''}" ${i[2]&&i[2].low?'data-low="1"':''} ${i[2]&&i[2].key?`data-do="btn" data-arg="${i[2].key}"`:''}>${gl(i[0])}${i[1]}</span>`).join('')}</div>${extra?`<div class="hr">${extra}</div>`:''}</div>`;
 
 /* C19 Pill */
 const pill=(html,cls='')=>`<span class="pill ${cls}">${html}</span>`;
@@ -73,7 +73,7 @@ function popupHTML(p){
  let inner=`<h3>${p.icon?ico(p.icon,32):''}${p.title}</h3>${p.sub?`<div class="psub">${p.sub}</div>`:''}`;
  if(p.body)inner+=`<div class="body">${p.body}</div>`;
  if(p.grid){
-  inner+=`<div class="lgrid">${p.rows.map((r,i)=>`<div class="lg ${i===p.sel?'sel':''} ${r.cur?'cur':''}" data-pop="${i}"><img src="${r.img}" alt="">${r.label}</div>`).join('')}</div>`;
+  inner+=`<div class="lgrid">${p.rows.map((r,i)=>`<div class="lg ${i===p.sel?'sel':''} ${r.cur?'cur':''}" data-pop="${i}"><span class="mk">${r.cur?ico('check',16):''}</span><img src="${r.img}" alt="">${r.label}</div>`).join('')}</div>`;
  } else if(p.rows){
   const vis=p.size==='l'?6:p.rows.length,n=p.rows.length,off=Math.max(0,Math.min(n-vis,p.sel-Math.floor(vis/2)+1))*48;
   inner+=`<div class="lp ${p.size==='l'?'l6':''}"><div style="transform:translateY(${-off}px);transition:transform var(--d1) var(--ease)">${p.rows.map((r,i)=>`<div class="lr ${i===p.sel?'sel':''} ${r.dis?'dis':''}" data-pop="${i}">${r.img?`<img src="${r.img}" width="32" height="32" alt="">`:''}${r.label}${r.sub?`<small>${r.sub}</small>`:''}${r.cur?`<span class="ck">${ico('check',20)}</span>`:''}</div>`).join('')}</div>${n>vis?`<div class="lscr"><i style="top:${(off/48)/n*100}%;height:${vis/n*100}%"></i></div>`:''}</div>`;

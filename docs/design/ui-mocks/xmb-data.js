@@ -29,7 +29,7 @@ const HINT={
  busy:'Console busy - retrying in 3s...',
  psn:'PSN session expired. Re-authenticate in Profile.'
 };
-const COOLDOWN_BANNER='Streaming stopped: Console entered sleep mode - Please wait a few moments';
+const bannerPill=r=>`<span class="pill warn ban"><span>Streaming stopped:</span><span class="rsn">${r}</span><span>- Please wait a few moments</span></span>`;
 
 /* ---------- settings (inventory: all 16 minus Show Navigation Labels) ---------- */
 const GROUPS=['Video','Network','Display','Controls','Advanced'];
@@ -43,7 +43,7 @@ const SETTINGS=[
  {id:'disc',g:1,label:'Auto Discovery',type:'toggle',v:true,desc:'Find consoles on your network automatically. Takes effect the next time the app starts.'},
  {id:'psnmode',g:1,label:'Enable PSN Internet Mode',type:'toggle',v:true,desc:'Connect to your consoles over the internet with your PSN account.'},
  {id:'paired',g:1,label:'Show Only Paired',type:'toggle',v:false,desc:'Hide consoles that are not paired.'},
- {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate during a stream, and live metrics on Profile.'},
+ {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate in the stream overlay.'},
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},
  {id:'cc',g:3,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},

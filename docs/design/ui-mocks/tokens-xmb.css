@@ -25,7 +25,6 @@
   --psn: #a9b2ff;        /* STATUS_INTERNET: internet route label */
   --idle: #c9d0df;       /* STATUS_IDLE: unpaired ring and dot */
   --accent: #6db4ff;     /* ACCENT: mapped touch zones only */
-  --glow: #ffffff;       /* GLOW: focus glow colour (alpha .7, radius 12) */
 
   /* SURFACES (alpha) */
   --panel: rgba(6, 12, 28, 0.92);     /* popup / toast / options / stats panel */
@@ -38,6 +37,27 @@
   --line: rgba(255, 255, 255, 0.26);        /* dividers, popup border, strong */
   --line-faint: rgba(255, 255, 255, 0.14);  /* row dividers */
   --zone-mapped: rgba(109, 180, 255, 0.28); /* ACCENT at 28% */
+
+  /* EFFECT COLOURS (all alpha-bearing colours the components use) */
+  --glow: rgba(255,255,255,0.70);        /* focus glow, radius 12 */
+  --glow-soft: rgba(255,255,255,0.35);   /* logo glow, diagram halo */
+  --glow-inner: rgba(255,255,255,0.45);  /* inner glow of picked/cursor zone */
+  --shadow: rgba(0,0,0,0.55);            /* text and icon drop shadow */
+  --leader: rgba(255,255,255,0.55);      /* callout leader lines and underlines */
+  --zone-line: rgba(255,255,255,0.22);   /* idle zone border */
+  --zone-mapped-line: rgba(160,205,255,0.60); /* mapped zone border (ACCENT family) */
+  --ring-fill: rgba(255,255,255,0.10);   /* status ring inner wash */
+  --halo: rgba(130,170,255,0.28);        /* Connecting halo */
+  --badge-bg: #071022;                   /* ring badge disc */
+  --qr-plate: #FAFAFA; --qr-ink: #0A0A0A; --qr-hidden: rgba(26,26,26,0.55);
+  --edge-0: rgba(4,8,20,0); --panel-edge: rgba(4,8,20,0.92); /* options column ramp */
+  --vig-1: rgba(2,5,14,0.50); --vig-2: rgba(2,5,14,0.34); --vig-3: rgba(2,5,14,0.38);
+  --vig-strong: rgba(2,5,14,0.55); --vig-top: rgba(0,0,0,0.32); --vig-bottom: rgba(0,0,0,0.40); /* Home vignette */
+  --stage-bg: #060B1C; --scene-bg: #10102A;
+
+  /* WAVE (fixed palette, no time-of-day) */
+  --wave-top: #06204A; --wave-mid: #0F4585; --wave-bot: #245F9C;
+  --wave-r1: #96CDFF; --wave-r2: #64B4F0; --wave-r3: #BEDCFF; --wave-horizon: rgba(160,210,255,0.28);
 
   /* SPACING: one 8 px grid */
   --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px;
