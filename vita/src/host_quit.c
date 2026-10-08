@@ -17,10 +17,19 @@
 
 #define STREAM_RETRY_COOLDOWN_US (3 * 1000 * 1000ULL)
 #define RETRY_HOLDOFF_RP_IN_USE_MS 9000
-// GH #272: how long after a session ends the console is assumed to still hold it. RP_IN_USE
-// holdoff already encodes the measured release time, so recovery waits the same 9 s before
-// every hard-fallback connect (a 3 s wait raced the console and drew RP_IN_USE).
+// GH #272: how long after a transport death the console is assumed to still hold the dead
+// session. RP_IN_USE holdoff already encodes the measured release time, so recovery waits the
+// same 9 s before the connect (a 3 s wait raced the console and drew RP_IN_USE). A resync after
+// an acked DISCONNECT skips this wait and uses the release polls below instead.
 #define RECOVERY_CONSOLE_RELEASE_DELAY_US ((uint64_t)RETRY_HOLDOFF_RP_IN_USE_MS * 1000ULL)
+// GH #277: inside a recovery episode an RP_IN_USE refusal means the console has not released the
+// old session yet, and the real release time is unknown (somewhere between ~2.2 s and ~11.3 s
+// after the DISCONNECT ack on hardware). Instead of the 9 s holdoff the refused connect is
+// re-probed every second (a refused probe itself costs ~250 ms, so ~1.25 s per poll). 8 polls
+// after the 2 s post-stop guard cover ~12 s from the stop, past where the old single 9 s holdoff
+// succeeded, so the worst case is no slower than before. Polls do not consume the attempt budget.
+#define RECOVERY_RELEASE_POLL_INTERVAL_US (1000 * 1000ULL)
+#define RECOVERY_RELEASE_POLL_MAX 8
 #define RECOVERY_FAILED_MESSAGE "Could not reconnect to console"
 #define POST_STOP_GUARD_DISCONNECT_ACKED_US (2 * 1000 * 1000ULL)
 #define POST_STOP_GUARD_DISCONNECT_UNACKED_US (8 * 1000 * 1000ULL)
@@ -79,6 +88,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
   // The budget and bitrate are only meaningful inside one recovery episode; a drop after a
   // successful recovery starts a fresh episode with the full budget.
   uint32_t retry_attempts = recovery_was_active ? context.stream.loss_retry_attempts : 0;
+  uint32_t release_polls = recovery_was_active ? context.stream.recovery_release_polls : 0;
   // The reconnect always starts at the normal connect bitrate (host_default_video_profile), never
   // the dying session's: after a vita-initiated soft restart that session carries the lowered
   // restart profile, and a lowered renegotiation preceded a console wedging into repeated
@@ -99,6 +109,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
                             (recovery_was_active && (remote_in_use || retry_allowed_reason))));
   bool schedule_recovery = recovery_trigger && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
   bool recovery_exhausted = recovery_trigger && !schedule_recovery;
+  // GH #277: a fallback connect refused with RP_IN_USE inside a recovery episode is re-probed
+  // after a short interval (a "release poll") until the console lets go or the polls run out.
+  bool release_poll = schedule_recovery && recovery_was_active && remote_in_use &&
+                      release_polls < RECOVERY_RELEASE_POLL_MAX;
   if (recovery_was_active && user_stop_requested) {
     LOGD("Recovery cancelled by user (attempt %u/%u)", retry_attempts, LOSS_RETRY_MAX_ATTEMPTS);
   } else if (recovery_was_active && !schedule_recovery) {
@@ -177,10 +191,12 @@ void host_handle_quit_event(ChiakiEvent *event) {
     host_set_hint(context.active_host, hint, true, HINT_DURATION_ERROR_US);
   }
   uint64_t retry_delay = STREAM_RETRY_COOLDOWN_US;
-  if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
+  if (release_poll) {
+    retry_delay = RECOVERY_RELEASE_POLL_INTERVAL_US;
+  } else if (!context.stream.stop_requested && (remote_in_use || remote_crash)) {
     retry_delay = RETRY_FAIL_DELAY_US;
   }
-  bool arm_retry_holdoff = !context.stream.stop_requested && remote_in_use &&
+  bool arm_retry_holdoff = !release_poll && !context.stream.stop_requested && remote_in_use &&
                            (restart_context || context.stream.restart_failure_active);
   if (arm_retry_holdoff) {
     context.stream.retry_holdoff_ms = RETRY_HOLDOFF_RP_IN_USE_MS;
@@ -193,7 +209,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
          context.stream.retry_holdoff_ms);
   }
   uint64_t throttle_until = now_us + retry_delay;
-  if (context.stream.retry_holdoff_active &&
+  if (!release_poll && context.stream.retry_holdoff_active &&
       context.stream.retry_holdoff_until_us > throttle_until) {
     throttle_until = context.stream.retry_holdoff_until_us;
   }
@@ -320,10 +336,34 @@ void host_handle_quit_event(ChiakiEvent *event) {
     // (ui.c) once it has joined and finalized this session and loss_retry_ready_us has passed.
     // A resync reconnects as soon as the post-stop guard (set above for the acked/unacked
     // DISCONNECT) allows: the session was ended cleanly, so the console is not holding it.
-    uint64_t ready_us = resync_quit ? now_us : now_us + RECOVERY_CONSOLE_RELEASE_DELAY_US;
+    // A release poll (GH #277) re-probes one interval from now; next_stream_allowed_us was set to
+    // exactly that above (no 5 s RP_IN_USE delay, no holdoff), so nothing delays or blocks it.
+    uint64_t ready_us = now_us + RECOVERY_CONSOLE_RELEASE_DELAY_US;
+    if (resync_quit)
+      ready_us = now_us;
+    else if (release_poll)
+      ready_us = now_us + RECOVERY_RELEASE_POLL_INTERVAL_US;
     if (context.stream.next_stream_allowed_us > ready_us)
       ready_us = context.stream.next_stream_allowed_us;
-    context.stream.loss_retry_attempts = retry_attempts + 1;
+    uint64_t since_start_ms =
+        recovery_was_active ? (now_us - context.stream.reconnect_overlay_start_us) / 1000ULL : 0ULL;
+    if (release_poll) {
+      release_polls++;
+      LOGD(
+          "Release wait: RP_IN_USE poll %u/%u, %llu ms since recovery start, next probe in %llu ms",
+          release_polls, RECOVERY_RELEASE_POLL_MAX, (unsigned long long)since_start_ms,
+          (unsigned long long)((ready_us - now_us) / 1000ULL));
+    } else if (recovery_was_active && remote_in_use) {
+      LOGD(
+          "Release wait: RP_IN_USE polls exhausted (%u/%u), %llu ms since recovery start, "
+          "falling back to %u ms holdoff",
+          release_polls, RECOVERY_RELEASE_POLL_MAX, (unsigned long long)since_start_ms,
+          RETRY_HOLDOFF_RP_IN_USE_MS);
+    }
+    context.stream.recovery_release_polls = release_polls;
+    // A release poll is not a new attempt: the budget and the Reconnecting screen's "Attempt N"
+    // stay where they are.
+    context.stream.loss_retry_attempts = release_poll ? retry_attempts : retry_attempts + 1;
     ChiakiConnectVideoProfile reconnect_profile = {};
     host_default_video_profile(&reconnect_profile, context.stream.last_connect_used_psn_holepunch);
     context.stream.recovery_bitrate_kbps = reconnect_profile.bitrate;
@@ -335,7 +375,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
     LOGD(
         "Recovery attempt %u/%u scheduled in %llu ms at %u kbps (reason=%d fast_restart=%d "
         "continuing=%d)",
-        retry_attempts + 1, LOSS_RETRY_MAX_ATTEMPTS,
+        context.stream.loss_retry_attempts, LOSS_RETRY_MAX_ATTEMPTS,
         (unsigned long long)((ready_us - now_us) / 1000ULL), context.stream.recovery_bitrate_kbps,
         event->quit.reason, restart_failed ? 1 : 0, recovery_was_active ? 1 : 0);
     // Compiler/CPU barrier: session_finalize_pending (set above) must be visible to the UI
@@ -344,6 +384,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
     __sync_synchronize();
     context.stream.loss_retry_pending = true;
   } else {
+    context.stream.recovery_release_polls = 0;
     context.stream.reconnect_overlay_active = false;
 #if VITARPS5_DEBUG_TOOLS
     // No further attempt is coming, so no new stream will report the resync figures.
@@ -364,6 +405,7 @@ static void recovery_clear_state(void) {
   context.stream.recovery_active = false;
   context.stream.loss_retry_pending = false;
   context.stream.loss_retry_attempts = 0;
+  context.stream.recovery_release_polls = 0;
   context.stream.recovery_bitrate_kbps = 0;
   context.stream.recovery_cause = NULL;
   context.stream.loss_retry_ready_us = 0;
