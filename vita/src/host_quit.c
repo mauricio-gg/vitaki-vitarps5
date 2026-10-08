@@ -69,11 +69,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
   // The budget and bitrate are only meaningful inside one recovery episode; a drop after a
   // successful recovery starts a fresh episode with the full budget.
   uint32_t retry_attempts = recovery_was_active ? context.stream.loss_retry_attempts : 0;
-  uint32_t retry_bitrate = recovery_was_active ? context.stream.loss_retry_bitrate_kbps : 0;
-  // Same bitrate as the session that just died, never a lowered one: a lowered renegotiation
-  // preceded a console wedging into repeated "Remote Play crashed" refusals on hardware.
-  if (retry_bitrate == 0 && context.stream.session_init)
-    retry_bitrate = context.stream.session.connect_info.video_profile.bitrate;
+  // The reconnect always starts at the normal connect bitrate (host_default_video_profile), never
+  // the dying session's: after a vita-initiated soft restart that session carries the lowered
+  // restart profile, and a lowered renegotiation preceded a console wedging into repeated
+  // "Remote Play crashed" refusals on hardware.
   uint32_t retry_holdoff_ms = context.stream.retry_holdoff_ms;
   uint64_t retry_holdoff_until = context.stream.retry_holdoff_until_us;
   bool retry_holdoff_active = context.stream.retry_holdoff_active;
@@ -84,7 +83,7 @@ void host_handle_quit_event(ChiakiEvent *event) {
       event->quit.reason == CHIAKI_QUIT_REASON_STREAM_CONNECTION_TRANSPORT_FAILED;
   // Recovery (a full teardown + fresh connect, run from the UI thread) starts or continues when
   // transport died, a vita-initiated soft restart failed, or a fallback connect itself failed.
-  bool recovery_trigger = !user_stop_requested && context.active_host && retry_bitrate > 0 &&
+  bool recovery_trigger = !user_stop_requested && context.active_host &&
                           (transport_death || (restart_failed && retry_allowed_reason) ||
                            (recovery_was_active && (remote_in_use || retry_allowed_reason)));
   bool schedule_recovery = recovery_trigger && retry_attempts < LOSS_RETRY_MAX_ATTEMPTS;
@@ -304,7 +303,6 @@ void host_handle_quit_event(ChiakiEvent *event) {
     context.stream.retry_holdoff_until_us = 0;
   }
   context.stream.loss_retry_pending = false;
-  context.stream.loss_retry_active = false;
 
   if (schedule_recovery) {
     // Nothing connects from this (dying) session thread: the UI thread starts the next attempt
@@ -313,14 +311,19 @@ void host_handle_quit_event(ChiakiEvent *event) {
     if (context.stream.next_stream_allowed_us > ready_us)
       ready_us = context.stream.next_stream_allowed_us;
     context.stream.loss_retry_attempts = retry_attempts + 1;
-    context.stream.loss_retry_bitrate_kbps = retry_bitrate;
+    ChiakiConnectVideoProfile reconnect_profile = {};
+    host_default_video_profile(&reconnect_profile, context.stream.last_connect_used_psn_holepunch);
+    context.stream.recovery_bitrate_kbps = reconnect_profile.bitrate;
+    context.stream.recovery_cause = recovery_was_active ? "follow-up after failed reconnect"
+                                    : transport_death   ? "transport death"
+                                                        : "failed packet-loss soft restart";
     context.stream.loss_retry_ready_us = ready_us;
     LOGD(
         "Recovery attempt %u/%u scheduled in %llu ms at %u kbps (reason=%d fast_restart=%d "
         "continuing=%d)",
         retry_attempts + 1, LOSS_RETRY_MAX_ATTEMPTS,
-        (unsigned long long)((ready_us - now_us) / 1000ULL), retry_bitrate, event->quit.reason,
-        restart_failed ? 1 : 0, recovery_was_active ? 1 : 0);
+        (unsigned long long)((ready_us - now_us) / 1000ULL), context.stream.recovery_bitrate_kbps,
+        event->quit.reason, restart_failed ? 1 : 0, recovery_was_active ? 1 : 0);
     // Compiler/CPU barrier: session_finalize_pending (set above) must be visible to the UI
     // thread before loss_retry_pending, so it can never start the connect before the old
     // session has been finalized.
@@ -342,9 +345,9 @@ void host_handle_quit_event(ChiakiEvent *event) {
 static void recovery_clear_state(void) {
   context.stream.recovery_active = false;
   context.stream.loss_retry_pending = false;
-  context.stream.loss_retry_active = false;
   context.stream.loss_retry_attempts = 0;
-  context.stream.loss_retry_bitrate_kbps = 0;
+  context.stream.recovery_bitrate_kbps = 0;
+  context.stream.recovery_cause = NULL;
   context.stream.loss_retry_ready_us = 0;
   context.stream.reconnect_overlay_active = false;
 }

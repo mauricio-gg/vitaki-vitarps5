@@ -276,7 +276,8 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     context.stream.reconnect_overlay_active = false;
     if (!context.stream.recovery_active) {
       context.stream.loss_retry_attempts = 0;
-      context.stream.loss_retry_bitrate_kbps = 0;
+      context.stream.recovery_bitrate_kbps = 0;
+      context.stream.recovery_cause = NULL;
     }
   }
 

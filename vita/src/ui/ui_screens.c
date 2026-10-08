@@ -3787,8 +3787,8 @@ UIScreenType ui_screen_draw_reconnecting(void) {
   ui_text_draw(font, subtitle_x, card_y + 85, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, subtitle);
 
   // Retry bitrate info (centered)
-  float retry_mbps = context.stream.loss_retry_bitrate_kbps > 0
-                         ? (float)context.stream.loss_retry_bitrate_kbps / 1000.0f
+  float retry_mbps = context.stream.recovery_bitrate_kbps > 0
+                         ? (float)context.stream.recovery_bitrate_kbps / 1000.0f
                          : 0.8f;
   char detail[64];
   snprintf(detail, sizeof(detail), "Retrying at %.2f Mbps", retry_mbps);

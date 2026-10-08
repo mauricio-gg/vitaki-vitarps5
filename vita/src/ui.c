@@ -544,13 +544,12 @@ void draw_ui() {
       if (!context.active_host) {
         host_recovery_abort("no active host for fallback connect");
       } else {
-        // Applies the fallback bitrate in host_stream(); restores the PSN-vs-LAN choice of the
-        // connect that just ended (host_stream() consumes force_psn_holepunch every call).
-        context.stream.loss_retry_active = true;
+        // Restores the PSN-vs-LAN choice of the connect that just ended (host_stream()
+        // consumes force_psn_holepunch every call).
         context.stream.force_psn_holepunch = context.stream.last_connect_used_psn_holepunch;
         LOGD("Restarting stream after transport/packet-loss fallback attempt %u/%u at %u kbps",
              context.stream.loss_retry_attempts, LOSS_RETRY_MAX_ATTEMPTS,
-             context.stream.loss_retry_bitrate_kbps);
+             context.stream.recovery_bitrate_kbps);
         if (!start_connection_thread(context.active_host)) {
           context.stream.force_psn_holepunch = false;
           host_recovery_abort("could not start connection thread for fallback connect");

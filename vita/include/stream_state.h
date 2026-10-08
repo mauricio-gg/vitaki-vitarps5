@@ -152,10 +152,13 @@ typedef struct vita_chiaki_stream_t {
   uint64_t disconnect_banner_until_us;
   volatile bool
       loss_retry_pending;        // Whether a fallback connect is scheduled (UI thread starts it)
-  bool loss_retry_active;        // Apply fallback bitrate on next host_stream
   uint32_t loss_retry_attempts;  // Number of fallback retries used
-  uint32_t loss_retry_bitrate_kbps;  // Override bitrate for fallback sessions
-  uint64_t loss_retry_ready_us;      // When the fallback retry is allowed to start
+  // Bitrate the pending/in-flight recovery reconnect will start at (host_default_video_profile):
+  // display only (Reconnecting screen); host_stream() always recomputes it, never reads it.
+  uint32_t recovery_bitrate_kbps;
+  // Why the current recovery episode started (string literal, set when it is scheduled); log only.
+  const char *recovery_cause;
+  uint64_t loss_retry_ready_us;  // When the fallback retry is allowed to start
   // GH #272: hard-fallback recovery is in progress, from the quit that started it until the
   // fallback session reports CONNECTED or recovery ends. Survives host_stream() (unlike the
   // loss_retry_* fields it guards); written by the session thread and the UI thread.
