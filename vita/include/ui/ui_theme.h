@@ -342,6 +342,64 @@ typedef enum ui_face_t {
 #define UI_HOME_LONG_PRESS_MS 600
 
 /* ============================================================================
+ * C05 OptionsColumn (ui_options_column.c): x 608 to the right edge, the console's Triangle menu
+ * ============================================================================ */
+
+#define UI_OPTS_X 608
+#define UI_OPTS_W 352
+/** The column's content (title, labels, dividers) sits this far from its left and right edges. */
+#define UI_OPTS_PAD UI_MARGIN_X
+#define UI_OPTS_TITLE_Y 88
+#define UI_OPTS_SUB_Y 120
+#define UI_OPTS_ROW_Y 160
+#define UI_OPTS_ROW_H UI_ROW_H_LARGE
+/** The focus bar reaches this far into the column's padding on each side; the label sits inside it.
+ */
+#define UI_OPTS_BAR_INSET UI_S4
+#define UI_OPTS_LABEL_PAD UI_S2
+#define UI_OPTS_GLOW UI_ROW_GLOW
+#define UI_OPTS_GLOW_PCT UI_ROW_GLOW_PCT
+/** The left edge fades from EDGE_0 to PANEL_EDGE over this share of the column's width. */
+#define UI_OPTS_FEATHER_PCT 18
+#define UI_OPTS_SLIDE_MS UI_D2_MS
+#define UI_OPTS_DISABLED_PCT 45
+/** Opacity of the Home layers (top bar, categories, list, detail) while the column is open. */
+#define UI_OPTS_BEHIND_PCT 25
+/** Most rows the column holds (Connect, Connect via, Re-pair, and room for Change icon). */
+#define UI_OPTS_MAX_ROWS 4
+/** Bytes kept of the console name shown as the column's title. */
+#define UI_OPTS_NAME_MAX 64
+
+/* ============================================================================
+ * C11 Popup (ui_popup.c): the one modal frame. Sizes S, M and L are 480 wide at x 240.
+ * ============================================================================ */
+
+#define UI_POPUP_X 240
+#define UI_POPUP_W 480
+#define UI_POPUP_PAD UI_S4
+#define UI_POPUP_S_Y 144
+#define UI_POPUP_S_H 256
+#define UI_POPUP_M_Y 96
+#define UI_POPUP_M_H 352
+#define UI_POPUP_L_Y 56
+#define UI_POPUP_L_H 432
+#define UI_POPUP_ICON 32
+#define UI_POPUP_ICON_GAP UI_S2
+/** Space between the last header line (title or subtitle) and the body. */
+#define UI_POPUP_BODY_GAP UI_S1
+#define UI_POPUP_BODY_LINES 3
+#define UI_POPUP_BUTTON_GAP UI_S2
+#define UI_POPUP_BUTTON_MAX_W 208
+#define UI_POPUP_MAX_BUTTONS 2
+#define UI_POPUP_ENTER_MS UI_D2_MS
+/** Bytes kept of the title and of the subtitle (UTF-8). */
+#define UI_POPUP_TEXT_MAX 96
+
+/* The background freeze (ui_freeze.c): a half-resolution copy of the screen behind a popup. */
+#define UI_FREEZE_W 480
+#define UI_FREEZE_H 272
+
+/* ============================================================================
  * Rounded shapes (SPEC 1.3): fixed heights of the baked 3-slice shapes
  * ============================================================================ */
 
