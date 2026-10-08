@@ -66,18 +66,16 @@
 
 vita2d_font *font;
 vita2d_font *font_mono;
-vita2d_texture *img_ps4, *img_ps4_off, *img_ps4_rest, *img_ps5, *img_ps5_off, *img_ps5_rest,
-    *img_discovery_host;
+vita2d_texture *img_ps4;
 
 // VitaRPS5 UI textures
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
-vita2d_texture *wave_top, *wave_bottom;
 vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
 vita2d_texture *icon_button_triangle;
 vita2d_texture *background_gradient, *vita_rps5_logo;
-vita2d_texture *vita_front, *ps5_logo;
+vita2d_texture *ps5_logo;
 
 // Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
 static uint32_t *button_block_mask = NULL;
@@ -238,20 +236,12 @@ static void render_loss_indicator_preview(void) {
  */
 void load_textures() {
   img_ps4 = ui_load_png_linear(IMG_PS4_PATH);
-  img_ps4_off = ui_load_png_linear(IMG_PS4_OFF_PATH);
-  img_ps4_rest = ui_load_png_linear(IMG_PS4_REST_PATH);
-  img_ps5 = ui_load_png_linear(IMG_PS5_PATH);
-  img_ps5_off = ui_load_png_linear(IMG_PS5_OFF_PATH);
-  img_ps5_rest = ui_load_png_linear(IMG_PS5_REST_PATH);
-  img_discovery_host = ui_load_png_linear(IMG_DISCOVERY_HOST);
 
   // Load VitaRPS5 UI assets
   symbol_triangle = ui_load_png_linear("app0:/assets/symbol_triangle.png");
   symbol_circle = ui_load_png_linear("app0:/assets/symbol_circle.png");
   symbol_ex = ui_load_png_linear("app0:/assets/symbol_ex.png");
   symbol_square = ui_load_png_linear("app0:/assets/symbol_square.png");
-  wave_top = ui_load_png_linear("app0:/assets/wave_top.png");
-  wave_bottom = ui_load_png_linear("app0:/assets/wave_bottom.png");
   ellipse_green = ui_load_png_linear("app0:/assets/ellipse_green.png");
   ellipse_yellow = ui_load_png_linear("app0:/assets/ellipse_yellow.png");
   ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
@@ -267,7 +257,6 @@ void load_textures() {
   // Load new professional assets
   background_gradient = ui_load_png_linear("app0:/assets/background.png");
   vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
-  vita_front = ui_load_png_linear("app0:/assets/Vita_Front.png");
   ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
   // Controller diagram textures are managed separately by the controller

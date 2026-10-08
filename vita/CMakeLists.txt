@@ -231,12 +231,7 @@ if(CHIAKI_IS_VITA)
         FILE res/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
         FILE res/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
         # Textures, other assets
-        FILE res/assets/ps4_off.png assets/ps4_off.png
         FILE res/assets/ps4.png assets/ps4.png
-        FILE res/assets/ps4_rest.png assets/ps4_rest.png
-        FILE res/assets/ps5_off.png assets/ps5_off.png
-        FILE res/assets/ps5.png assets/ps5.png
-        FILE res/assets/ps5_rest.png assets/ps5_rest.png
         FILE res/assets/controller_front.png assets/controller_front.png
         FILE res/assets/controller_back.png assets/controller_back.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
@@ -246,8 +241,6 @@ if(CHIAKI_IS_VITA)
         FILE assets/symbol_circle.png assets/symbol_circle.png
         FILE assets/symbol_ex.png assets/symbol_ex.png
         FILE assets/symbol_square.png assets/symbol_square.png
-        FILE assets/wave_top.png assets/wave_top.png
-        FILE assets/wave_bottom.png assets/wave_bottom.png
         FILE assets/ellipse_green.png assets/ellipse_green.png
         FILE assets/ellipse_yellow.png assets/ellipse_yellow.png
         FILE assets/ellipse_red.png assets/ellipse_red.png
@@ -261,7 +254,6 @@ if(CHIAKI_IS_VITA)
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
-        FILE assets/Vita_Front.png assets/Vita_Front.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
         FILE ../assets/psn-ca-bundle.pem assets/psn-ca-bundle.pem
         # Controller layout screen now uses procedural rendering - PNG outlines removed
