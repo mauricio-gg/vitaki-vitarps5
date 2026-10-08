@@ -79,13 +79,6 @@ UIScreenType ui_screen_draw_waking(void);
 UIScreenType ui_screen_draw_reconnecting(void);
 
 /**
- * Render the registration dialog (PIN entry)
- * 8-digit PIN entry with visual feedback
- * @return true if registration should continue, false if canceled
- */
-bool ui_screen_draw_registration(void);
-
-/**
  * Render the stream overlay (during active streaming)
  * Shows latency stats, network indicators, and stream info
  * @return true to continue streaming, false to exit

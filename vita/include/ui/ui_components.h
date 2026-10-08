@@ -63,16 +63,6 @@ void ui_draw_status_dot(int x, int y, int radius, UIStatusType status);
 void ui_draw_section_header(int x, int y, int width, const char *title);
 
 /**
- * Draw a single PIN entry digit box
- * @param x X position of digit box
- * @param y Y position of digit box
- * @param digit The digit value (0-9, or >9 for empty)
- * @param is_current true if this is the currently selected digit (shows cursor)
- * @param has_value true if a digit has been entered
- */
-void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
-
-/**
  * Draw a rounded rectangular text button with selected/disabled states.
  *
  * Styling matches the existing ad-hoc "Add New" button pattern:

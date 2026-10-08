@@ -58,6 +58,7 @@
 #include "ui/ui_background.h"
 #include "ui/ui_draw_stats.h"
 #include "ui/ui_freeze.h"
+#include "ui/ui_pin.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -127,11 +128,6 @@ static void render_loss_indicator_preview(void);
 
 // Wave navigation sidebar uses simple colored bar (no animation)
 
-// PinEntryState type moved to ui_types.h
-
-// PIN entry state moved to ui_screens.c
-// cursor_blink_timer moved to ui_screens.c
-
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
 // current_focus and last_console_selection moved to ui_navigation.c
 
@@ -159,13 +155,14 @@ char *cancel_btn_str = "Circle";
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings). They draw their own top bar (and hint row with the Network Unstable
+ * Reconnecting, Settings, PIN). They draw their own top bar (and hint row with the Network Unstable
  * pill, where they have one), so the corner logo, the wave sidebar and the old loss indicator are
  * not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS;
+         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
+         screen == UI_SCREEN_TYPE_REGISTER_HOST;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -184,6 +181,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "reconnecting";
     case UI_SCREEN_TYPE_SETTINGS:
       return "settings";
+    case UI_SCREEN_TYPE_REGISTER_HOST:
+      return "pin";
     default:
       return NULL;
   }
@@ -388,7 +387,6 @@ bool ui_reload_psn_account_id(void) {
 // - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
-// - ui_screen_draw_registration()
 // - ui_screen_draw_stream()
 // - ui_screen_draw_messages()
 // ============================================================================
@@ -434,6 +432,7 @@ void init_ui() {
   ui_home_init();
   ui_connecting_init();
   ui_settings_init();
+  ui_pin_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -488,7 +487,6 @@ void draw_ui() {
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
   context.ui_state.error_popup_modal_pushed = false;
-  context.ui_state.register_host_modal_pushed = false;
 
   load_psn_id_if_needed();
   time_t startup_t = time(NULL);
@@ -747,10 +745,9 @@ void draw_ui() {
           ui_home_on_enter();
         next_screen = ui_screen_draw_main();
       } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-        context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
-        if (!ui_screen_draw_registration()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
+        if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
+          ui_pin_on_enter();
+        next_screen = ui_pin_frame();
       } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
         if (!ui_screen_draw_messages()) {
           next_screen = UI_SCREEN_TYPE_MAIN;
@@ -776,22 +773,6 @@ void draw_ui() {
       if (next_screen != prev_screen) {
         block_inputs_for_transition();
         // Menu stays in current state - user controls collapse via Triangle or content tap
-
-        // Handle modal focus for PIN entry screen only
-        // Connection screens (WAKING/RECONNECTING) are handled by ui_state.c
-        // Pop modal when leaving PIN entry screen
-        if (prev_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-            context.ui_state.register_host_modal_pushed) {
-          ui_focus_pop_modal();
-          context.ui_state.register_host_modal_pushed = false;
-        }
-
-        // Push modal when entering PIN entry screen
-        if (next_screen == UI_SCREEN_TYPE_REGISTER_HOST &&
-            !context.ui_state.register_host_modal_pushed) {
-          ui_focus_push_modal();
-          context.ui_state.register_host_modal_pushed = true;
-        }
       }
       drawn_screen = prev_screen;
       screen = next_screen;

@@ -93,6 +93,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_freeze.c
     src/ui/ui_popup.c
     src/ui/ui_result_popup.c
+    src/ui/ui_pin.c
     src/ui/ui_pin_field.c
     src/ui/ui_pin_digits.c
     src/ui/ui_options_column.c

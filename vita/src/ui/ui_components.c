@@ -42,12 +42,6 @@ const char *debug_menu_options[] = {
     "Spawn fake consoles (x12)",
 };
 
-// PIN digit constants
-#define PIN_DIGIT_WIDTH 60
-#define PIN_DIGIT_HEIGHT 70
-
-// Cursor blink state (for PIN entry) - defined in ui.c, declared in ui_internal.h
-
 // ============================================================================
 // Widget Drawing Functions
 // ============================================================================
@@ -116,42 +110,6 @@ void ui_draw_section_header(int x, int y, int width, const char *title) {
   // Title text (centered vertically in header).
   ui_text_draw_centered_v(font, x + 15, y, header_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
                           title);
-}
-
-/**
- * Draw a single PIN entry digit box
- */
-void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Enhanced visual feedback for current digit
-  if (is_current) {
-    // Outer glow effect for better visibility
-    ui_draw_rounded_rect(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6,
-                         RGBA8(0x34, 0x90, 0xFF, 60));
-  }
-
-  // Digit box background with shadow
-  int shadow_offset = is_current ? 3 : 2;
-  ui_draw_rounded_rect(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4,
-                       RGBA8(0x00, 0x00, 0x00, 60));
-
-  uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
-  ui_draw_rounded_rect(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
-
-  // Digit text or cursor
-  if (has_value && digit <= 9) {
-    char digit_text[2] = {'0' + digit, '\0'};
-    int text_w = ui_text_width(font, FONT_SIZE_PIN_DIGIT, digit_text);
-    int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
-    int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
-    ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_PIN_DIGIT, digit_text);
-  } else if (is_current && show_cursor) {
-    // Enhanced blinking cursor (wider and more visible)
-    int cursor_w = 3;
-    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
-    int cursor_y1 = y + 15;
-    int cursor_h = PIN_DIGIT_HEIGHT - 30;
-    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
-  }
 }
 
 /**
@@ -820,10 +778,6 @@ void draw_status_dot(int x, int y, int radius, int status) {
 
 void draw_section_header(int x, int y, int width, const char *title) {
   ui_draw_section_header(x, y, width, title);
-}
-
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  ui_draw_pin_digit(x, y, digit, is_current, has_value);
 }
 
 void render_error_popup(void) {

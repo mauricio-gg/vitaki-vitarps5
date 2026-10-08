@@ -21,7 +21,6 @@ typedef struct vita_chiaki_ui_state_t {
   char error_popup_text[128];
   bool debug_menu_active;
   bool debug_menu_modal_pushed;
-  bool register_host_modal_pushed;
   int debug_menu_selection;
 } VitaChiakiUIState;
 
