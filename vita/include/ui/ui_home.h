@@ -4,7 +4,8 @@
  *
  * Owns a CategoryBar and an XmbList and forwards input to them. Consoles come from
  * the console card cache (ui_console_cards.c); Settings, Controller and Profile are
- * fixed lists whose Confirm opens the existing screen for that area.
+ * fixed lists whose Confirm opens the screen for that area: the Settings page for a Settings
+ * item, the existing screens for Controller and Profile.
  */
 
 #pragma once
@@ -31,3 +32,9 @@ void ui_home_on_enter(void);
  * @return the screen to show next (UI_SCREEN_TYPE_MAIN to stay on Home)
  */
 UIScreenType ui_home_frame(void);
+
+/**
+ * ui_home_select_settings_group() - Put Home on the Settings category with @group's item focused.
+ * Call when the Settings page hands back to Home, so Home shows the group the page was on.
+ */
+void ui_home_select_settings_group(int group);

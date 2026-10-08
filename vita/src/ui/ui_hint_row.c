@@ -9,6 +9,7 @@
 #include <psp2/kernel/processmgr.h>
 
 #include "context.h"
+#include "ui/ui_bake.h"
 #include "ui/ui_chrome_layout.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_pill.h"
@@ -19,12 +20,68 @@
 
 static const char ALERT_TEXT[] = "Network Unstable";
 
+/** The combined D-pad Left/Right hint ("Change"). */
+#define ACTION_DPAD_H (UI_BTN_LEFT | UI_BTN_RIGHT)
+
+/** The D-pad left-right glyph is drawn in a 24 x 24 grid (the mock's dpadh icon): two triangles. */
+#define DPAD_GRID 24
+#define DPAD_TRIANGLES 2
+#define DPAD_SUBSAMPLES 4
+
+typedef struct dpad_point_t {
+  float x;
+  float y;
+} DpadPoint;
+
+static const DpadPoint DPAD_TRIANGLE[DPAD_TRIANGLES][3] = {
+    {{9.0f, 7.0f}, {3.0f, 12.0f}, {9.0f, 17.0f}},
+    {{15.0f, 7.0f}, {21.0f, 12.0f}, {15.0f, 17.0f}},
+};
+
 static vita2d_texture *s_badge_l = NULL;
 static vita2d_texture *s_badge_r = NULL;
+static vita2d_texture *s_badge_dpad_h = NULL;
+
+/** True when (@px, @py) lies inside triangle @t (either winding). */
+static bool in_triangle(const DpadPoint t[3], float px, float py) {
+  float sign[3];
+  for (int i = 0; i < 3; i++) {
+    const DpadPoint a = t[i];
+    const DpadPoint b = t[(i + 1) % 3];
+    sign[i] = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+  }
+  const bool has_neg = sign[0] < 0.0f || sign[1] < 0.0f || sign[2] < 0.0f;
+  const bool has_pos = sign[0] > 0.0f || sign[1] > 0.0f || sign[2] > 0.0f;
+  return !(has_neg && has_pos);
+}
+
+/** Alpha of the D-pad left-right glyph: triangle coverage, supersampled DPAD_SUBSAMPLES^2. */
+static float dpad_h_alpha(float px, float py, const void *ctx) {
+  (void)ctx;
+  const float cell = (float)DPAD_GRID / (float)UI_HINT_GLYPH_H;
+  const float x0 = (px - 0.5f) * cell;
+  const float y0 = (py - 0.5f) * cell;
+  int hits = 0;
+  for (int sy = 0; sy < DPAD_SUBSAMPLES; sy++) {
+    for (int sx = 0; sx < DPAD_SUBSAMPLES; sx++) {
+      const float sample_x = x0 + ((float)sx + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
+      const float sample_y = y0 + ((float)sy + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
+      for (int t = 0; t < DPAD_TRIANGLES; t++) {
+        if (in_triangle(DPAD_TRIANGLE[t], sample_x, sample_y)) {
+          hits++;
+          break;
+        }
+      }
+    }
+  }
+  return (float)hits / (float)(DPAD_SUBSAMPLES * DPAD_SUBSAMPLES);
+}
 
 void ui_hint_row_init(void) {
   s_badge_l = ui_load_png_linear(BADGE_DIR "hint_l.png");
   s_badge_r = ui_load_png_linear(BADGE_DIR "hint_r.png");
+  if (!s_badge_dpad_h)
+    s_badge_dpad_h = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_h_alpha, NULL);
 }
 
 /**
@@ -57,6 +114,8 @@ static vita2d_texture *glyph_texture(uint32_t action) {
       return s_badge_l;
     case UI_BTN_R:
       return s_badge_r;
+    case ACTION_DPAD_H:
+      return s_badge_dpad_h;
     default:
       return NULL;
   }

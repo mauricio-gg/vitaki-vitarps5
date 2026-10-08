@@ -39,6 +39,7 @@
 #include "util.h"
 #include "video.h"
 #include "ui/ui_screens.h"
+#include "ui/ui_settings_actions.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
 #include "ui/ui_connecting.h"
@@ -121,7 +122,6 @@ static void update_cursor_blink(void);
 static bool is_pin_complete(void);
 static uint32_t pin_to_number(void);
 static inline void open_mapping_popup_single(VitakiCtrlIn input, bool is_front);
-static void persist_config_or_warn(void);
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
                                               bool continue_on_failure);
 static bool open_url_in_vita_browser(const char *url);
@@ -131,12 +131,6 @@ static void draw_profile_login_assist_panel(int x, int y, int width, int height,
 static void profile_refresh_login_qr(const char *url);
 static void execute_psn_logout(void);
 static void show_cooldown_hint(VitaChiakiHost *host);
-
-static void persist_config_or_warn(void) {
-  if (!config_serialize(&context.config)) {
-    LOGE("Failed to persist config changes");
-  }
-}
 
 static bool request_host_wakeup_with_feedback(VitaChiakiHost *host, const char *reason,
                                               bool continue_on_failure) {
@@ -457,7 +451,7 @@ static void poll_psn_auth_code_ime(uint64_t now_unix) {
   }
 
   if (psn_auth_submit_authorization_response(auth_input, now_unix)) {
-    persist_config_or_warn();
+    ui_settings_persist_config();
     trigger_hints_popup("PSN login complete");
     if (psn_remote_refresh_hosts() == 0)
       ui_cards_update_cache(true);
@@ -592,7 +586,7 @@ UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
   }
 
   host->type &= ~REGISTERED;
-  persist_config_or_warn();
+  ui_settings_persist_config();
   LOGD("Registration data deleted for console: %s", host->hostname);
 
   context.active_host = host;
@@ -664,55 +658,31 @@ static void settings_update_scroll_for_selection(void) {
   }
 }
 
-static void apply_force_30fps_runtime(void) {
-  if (!context.stream.session_init)
-    return;
-  uint32_t clamp = context.stream.negotiated_fps ? context.stream.negotiated_fps : 60;
-  if (context.config.force_30fps && clamp > 30)
-    clamp = 30;
-  context.stream.target_fps = clamp;
-  context.stream.pacing_accumulator = 0;
-}
-
 static void settings_toggle_bool(bool *value, int anim_index) {
   *value = !(*value);
   start_toggle_animation(anim_index, *value);
-  persist_config_or_warn();
+  ui_settings_persist_config();
 }
 
 static void settings_activate_selected_item(void) {
   switch (settings_state.selected_item) {
     case UI_SETTINGS_ITEM_QUALITY_PRESET:
-      switch (context.config.resolution) {
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-        case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-          break;
-        default:
-          context.config.resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-          break;
-      }
-      persist_config_or_warn();
+      context.config.resolution = ui_settings_next_resolution(context.config.resolution);
+      ui_settings_persist_config();
       break;
     case UI_SETTINGS_ITEM_LATENCY_MODE:
       context.config.latency_mode = (context.config.latency_mode + 1) % VITA_LATENCY_MODE_COUNT;
-      persist_config_or_warn();
+      ui_settings_persist_config();
       break;
     case UI_SETTINGS_ITEM_FPS_TARGET:
       context.config.fps = (context.config.fps == CHIAKI_VIDEO_FPS_PRESET_30)
                                ? CHIAKI_VIDEO_FPS_PRESET_60
                                : CHIAKI_VIDEO_FPS_PRESET_30;
-      persist_config_or_warn();
+      ui_settings_persist_config();
       break;
     case UI_SETTINGS_ITEM_FORCE_30_FPS:
       settings_toggle_bool(&context.config.force_30fps, SETTINGS_TOGGLE_ANIM_FORCE_30FPS);
-      apply_force_30fps_runtime();
+      ui_settings_apply_force_30fps();
       break;
     case UI_SETTINGS_ITEM_AUTO_DISCOVERY:
       settings_toggle_bool(&context.config.auto_discovery, SETTINGS_TOGGLE_ANIM_AUTO_DISCOVERY);
@@ -1009,7 +979,7 @@ static bool profile_screen_initialized = false;
 static void execute_psn_logout(void) {
   psn_auth_clear_tokens();
   psn_remote_clear_cached_hosts();
-  persist_config_or_warn();
+  ui_settings_persist_config();
   ui_cards_update_cache(true);
   trigger_hints_popup("PSN login removed");
   s_logout_confirm_until_us = 0;
@@ -1495,7 +1465,7 @@ UIScreenType ui_screen_draw_profile(void) {
    * body flow rather than attempting a logout with invalid state. */
   if (btn_pressed(SCE_CTRL_CROSS) && profile_state.current_section == PROFILE_SECTION_INFO) {
     if (ui_reload_psn_account_id()) {
-      persist_config_or_warn();
+      ui_settings_persist_config();
       trigger_hints_popup("Account ID refreshed from system profile");
     } else {
       trigger_hints_popup("Could not refresh Account ID");
@@ -2460,7 +2430,7 @@ static void handle_mapping_popup_input(void) {
     apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
     ctrl_last_mapping_output = output;
     // BUG FIX: Persist mapping changes immediately
-    persist_config_or_warn();
+    ui_settings_persist_config();
     ctrl_popup_active = false;
     ctrl_popup_input_count = 0;
     ctrl_popup_touch_down = false;
@@ -2522,7 +2492,7 @@ static void handle_mapping_popup_input(void) {
       apply_mapping_change_multi(ctrl_popup_inputs, ctrl_popup_input_count, output);
       ctrl_last_mapping_output = output;
       // BUG FIX: Persist mapping changes immediately
-      persist_config_or_warn();
+      ui_settings_persist_config();
       ctrl_popup_active = false;
       ctrl_popup_input_count = 0;
     }
@@ -2697,11 +2667,11 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_LEFT)) {
         cycle_controller_preset(-1);
         // BUG FIX: Persist preset selection immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       } else if (btn_pressed(SCE_CTRL_RIGHT)) {
         cycle_controller_preset(1);
         // BUG FIX: Persist preset selection immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
       if (btn_pressed(SCE_CTRL_LTRIGGER)) {
         change_callout_page(-1);
@@ -2726,7 +2696,7 @@ UIScreenType ui_screen_draw_controller(void) {
           controller_front_clear_all_mappings();
         }
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
     }
 
@@ -2833,7 +2803,7 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_SQUARE)) {
         controller_front_clear_all_mappings();
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
 
       if (btn_pressed(SCE_CTRL_CROSS)) {
@@ -2902,7 +2872,7 @@ UIScreenType ui_screen_draw_controller(void) {
       if (btn_pressed(SCE_CTRL_SQUARE)) {
         controller_back_clear_all_mappings();
         // BUG FIX: Persist mapping changes immediately
-        persist_config_or_warn();
+        ui_settings_persist_config();
       }
 
       if (btn_pressed(SCE_CTRL_CROSS)) {

@@ -57,6 +57,12 @@ void ui_category_bar_init(UiCategoryBar *bar, vita2d_texture *const icons[UI_CAT
   layout_rects(bar);
 }
 
+void ui_category_bar_set_focus(UiCategoryBar *bar, int index) {
+  bar->focus = index < 0 ? 0 : (index >= UI_CAT_COUNT ? UI_CAT_COUNT - 1 : index);
+  bar->slide_start_us = 0;
+  layout_rects(bar);
+}
+
 /** Settled pose of icon @index while @focus is focused. */
 static CatPose pose_target(int index, int focus) {
   bool on = index == focus;

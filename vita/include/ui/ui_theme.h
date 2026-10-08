@@ -426,6 +426,77 @@ typedef enum ui_face_t {
 #define UI_PAGE_TITLE_X 96
 #define UI_PAGE_TITLE_H 48
 
+/* Page body: the group list on the left, the setting pane on the right, a description line under
+ * both (SPEC C07). The pane shows UI_PAGE_PANE_ROWS rows of UI_ROW_H. */
+#define UI_PAGE_BODY_Y UI_BODY_Y
+#define UI_PAGE_GROUP_X UI_MARGIN_X
+#define UI_PAGE_GROUP_W 256
+#define UI_PAGE_PANE_X 336
+#define UI_PAGE_PANE_W 576
+#define UI_PAGE_PANE_ROWS 6
+#define UI_PAGE_PANE_H (UI_PAGE_PANE_ROWS * UI_ROW_H)
+#define UI_PAGE_DESC_Y 440
+#define UI_PAGE_DESC_H 48
+#define UI_PAGE_DESC_LINES 2
+#define UI_PAGE_SCROLL_X 920
+
+/* ============================================================================
+ * C07 GroupList (ui_group_list.c): the left list of a page
+ * ============================================================================ */
+
+#define UI_GROUP_MAX 8
+#define UI_GROUP_ROW_H UI_ROW_H_LARGE
+/** The label sits this far from the list's left edge. */
+#define UI_GROUP_PAD UI_S2
+/** The current group's marker: a UI_LW2 wide bar at the left edge, inset from the row's top and
+ * bottom. */
+#define UI_GROUP_BAR_W UI_LW2
+#define UI_GROUP_BAR_INSET UI_S2
+#define UI_GROUP_GLOW 14
+#define UI_GROUP_GLOW_PCT 20
+
+/* ============================================================================
+ * C08 SettingRow list, C09 Toggle, C10 ChoiceValue (ui_setting_list.c)
+ * ============================================================================ */
+
+#define UI_SETTING_MAX_ROWS 16
+/** Most bytes of a choice's value text kept (longer values are shortened with an ellipsis). */
+#define UI_SETTING_VALUE_MAX 48
+#define UI_ROW_PAD UI_S2
+#define UI_ROW_GLOW 12
+#define UI_ROW_GLOW_PCT 20
+/** The row shows FILL_ON for this long after it acted. */
+#define UI_ROW_PRESS_MS UI_D1_MS
+/** A vertical swipe on the pane moves the focus one row per this many pixels from touch-down. */
+#define UI_ROW_SWIPE_PX UI_ROW_H
+
+/* Toggle: a pill track with a UI_TOGGLE_BORDER border and a round knob inset UI_TOGGLE_INSET
+ * from the track's inner edge; the knob travels UI_TOGGLE_TRAVEL; "On" or "Off" sits
+ * UI_TOGGLE_TEXT_GAP after the track in a box UI_TOGGLE_TEXT_W wide. */
+#define UI_TOGGLE_W 48
+#define UI_TOGGLE_H UI_SHAPE_H_TRACK
+#define UI_TOGGLE_KNOB 16
+#define UI_TOGGLE_BORDER UI_LW2
+#define UI_TOGGLE_INSET UI_LW2
+#define UI_TOGGLE_TRAVEL 24
+#define UI_TOGGLE_TEXT_GAP UI_S2
+#define UI_TOGGLE_TEXT_W 24
+
+/* Choice: a chevron box, the centred value, a chevron box. */
+#define UI_CHOICE_VALUE_W 224
+#define UI_CHOICE_ARROW 48
+#define UI_CHOICE_ARROW_ART 16
+/** The chevron is drawn as a line this thick (in art pixels) with round ends. */
+#define UI_CHOICE_ARROW_STROKE 1.5f
+/** Chevrons of a row that is not focused. */
+#define UI_CHOICE_ARROW_DIM_PCT 50
+
+/* ============================================================================
+ * C24 ScrollIndicator (ui_scroll_indicator.c)
+ * ============================================================================ */
+
+#define UI_SCROLL_W UI_LW2
+
 /* ============================================================================
  * C03 ConnectingRing (ui_connecting_ring.c)
  * ============================================================================ */

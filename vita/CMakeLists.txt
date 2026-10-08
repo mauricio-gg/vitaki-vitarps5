@@ -78,6 +78,11 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_text_button.c
     src/ui/ui_connecting_flow.c
     src/ui/ui_connecting.c
+    src/ui/ui_group_list.c
+    src/ui/ui_setting_list.c
+    src/ui/ui_scroll_indicator.c
+    src/ui/ui_settings_actions.c
+    src/ui/ui_settings.c
     src/ui/ui_reconnecting.c
 
     third_party/tomlc99/toml.c
@@ -303,6 +308,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_globe.png assets/icons/page_globe.png
         FILE assets/icons/page_moon.png assets/icons/page_moon.png
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
+        FILE assets/icons/page_gear.png assets/icons/page_gear.png
         FILE assets/icons/tv_64.png assets/icons/tv_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png

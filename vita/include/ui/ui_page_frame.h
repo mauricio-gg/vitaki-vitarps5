@@ -2,8 +2,8 @@
  * @file ui_page_frame.h
  * @brief C07 PageShell frame: wash, title icon, title and rule (SPEC.md C07)
  *
- * Display-only draw helper for the pages that are not Home (Connecting, Reconnecting, and the
- * Settings, Profile, Controller and PIN pages later). Draw it after the wave and before the
+ * Display-only draw helper for the pages that are not Home (Connecting, Reconnecting, Settings, and
+ * the Profile, Controller and PIN pages later). Draw it after the wave and before the
  * top bar and the page body. Paper cost: 4 draws (wash, icon, title, rule).
  */
 
@@ -15,6 +15,7 @@ typedef enum ui_page_icon_t {
   UI_PAGE_ICON_GLOBE,
   UI_PAGE_ICON_MOON,
   UI_PAGE_ICON_WIFI,
+  UI_PAGE_ICON_GEAR,
   UI_PAGE_ICON_COUNT
 } UiPageIcon;
 

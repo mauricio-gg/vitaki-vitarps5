@@ -68,6 +68,7 @@
 #include "ui/ui_component.h"
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
+#include "ui/ui_settings.h"
 #include "ui/ui_shapes.h"
 
 vita2d_font *font;
@@ -158,13 +159,13 @@ char *cancel_btn_str = "Circle";
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting). They draw their own top bar (and hint row with the Network Unstable pill, where
- * they have one), so the corner
- * logo, the wave sidebar and the old loss indicator are not drawn over them.
+ * Reconnecting, Settings). They draw their own top bar (and hint row with the Network Unstable
+ * pill, where they have one), so the corner logo, the wave sidebar and the old loss indicator are
+ * not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING;
+         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -178,6 +179,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "connecting";
     case UI_SCREEN_TYPE_RECONNECTING:
       return "reconnecting";
+    case UI_SCREEN_TYPE_SETTINGS:
+      return "settings";
     default:
       return NULL;
   }
@@ -427,6 +430,7 @@ void init_ui() {
   ui_shapes_init();
   ui_home_init();
   ui_connecting_init();
+  ui_settings_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -741,10 +745,7 @@ void draw_ui() {
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
         next_screen = ui_screen_draw_reconnecting();
       } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
-        if (context.ui_state.active_item != (UI_MAIN_WIDGET_TEXT_INPUT | 2)) {
-          context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 1);
-        }
-        next_screen = ui_screen_draw_settings();
+        next_screen = ui_settings_frame();
       } else if (screen == UI_SCREEN_TYPE_PROFILE) {
         // Phase 2: Profile & Registration screen
         next_screen = ui_screen_draw_profile();
