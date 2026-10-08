@@ -51,11 +51,25 @@ void ui_screens_init(void);
 // ============================================================================
 
 /**
- * Render the main menu screen with console cards and wave navigation
- * Handles D-pad navigation, touch input, and console connection logic
+ * Render the main menu (Home) screen: background particles plus the XMB Home (ui_home.c)
  * @return next screen to display
  */
 UIScreenType ui_screen_draw_main(void);
+
+/**
+ * Run the Confirm flow for a console: PIN screen, wake or connect
+ * (cooldown gate, RP_IN_USE retry reset and force_psn_holepunch handling included).
+ * @param host Console to act on (NULL is ignored)
+ * @return screen to show next (UI_SCREEN_TYPE_MAIN when nothing started)
+ */
+UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
+
+/**
+ * Unregister a paired console and send the user to the PIN screen to pair it again.
+ * @param host Console to re-pair (NULL or unpaired is ignored)
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
+ */
+UIScreenType ui_screens_repair_host(VitaChiakiHost *host);
 
 /**
  * Render the settings screen with streaming/quality controls

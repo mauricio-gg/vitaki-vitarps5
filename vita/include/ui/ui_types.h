@@ -127,17 +127,6 @@ typedef struct toggle_animation_state_t {
 } ToggleAnimationState;
 
 /**
- * Card focus animation state
- */
-typedef struct card_focus_anim_state_t {
-  int focused_card_index;           // Which card is currently focused (-1 = none)
-  float current_scale;              // Current scale (0.95 to 1.0)
-  uint64_t focus_start_us;          // When focus started
-  int previous_focused_card_index;  // Previous focused card for scale-down
-  uint64_t unfocus_start_us;        // When unfocus animation started
-} CardFocusAnimState;
-
-/**
  * Hints popup state
  */
 typedef struct hints_popup_state_t {

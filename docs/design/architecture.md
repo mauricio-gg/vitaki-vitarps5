@@ -51,7 +51,7 @@ Layering rule: `vita/` calls into `lib/`, never the other way round. Where `vita
 **Other**
 - `logging.c`: asynchronous file logger (a queue drained by its own thread). `message_log.c`: in-app message log. `debug_tools.c`: debug-only tools, compiled when `VITARPS5_DEBUG_TOOLS` is set. `util.c`: small helpers.
 
-**UI modules (`vita/src/ui/`)**: `ui_screens.c` (full screens), `ui_components.c` (widgets and dialogs), `ui_console_cards.c` (console card grid), `ui_navigation.c` (wave sidebar), `ui_state.c` (connection overlay and the connection worker thread), `ui_input.c`, `ui_focus.c`, `ui_graphics.c` (drawing primitives), `ui_text.c` (font cache), `ui_animation.c` (background particles), `ui_controller_diagram.c`, `ui_qr.c`.
+**UI modules (`vita/src/ui/`)**: `ui_screens.c` (full screens), `ui_components.c` (widgets and dialogs), `ui_home.c` (the XMB Home screen: category bar plus item list, the only screen on `UI_SCREEN_TYPE_MAIN`), `ui_category_bar.c` and `ui_xmb_list.c` (its interactive components, built on `ui_component.h` and the tokens in `ui_theme.h`), `ui_console_status.c` (console status and ordering rules), `ui_console_cards.c` (console list cache, sorting and filter), `ui_navigation.c` (wave sidebar, now used only by Settings, Profile and Controller), `ui_state.c` (connection overlay and the connection worker thread), `ui_input.c`, `ui_focus.c`, `ui_graphics.c` (drawing primitives), `ui_text.c` (font cache), `ui_animation.c` (background particles), `ui_controller_diagram.c`, `ui_qr.c`.
 
 ## Threads during a stream
 

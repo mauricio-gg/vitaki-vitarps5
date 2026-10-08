@@ -53,6 +53,11 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_qr.c
     src/ui/ui_controller_diagram.c
     src/ui/ui_text.c
+    src/ui/ui_component.c
+    src/ui/ui_console_status.c
+    src/ui/ui_category_bar.c
+    src/ui/ui_xmb_list.c
+    src/ui/ui_home.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -235,6 +240,7 @@ if(CHIAKI_IS_VITA)
         FILE res/assets/controller_front.png assets/controller_front.png
         FILE res/assets/controller_back.png assets/controller_back.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
+        FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory
         FILE assets/symbol_triangle.png assets/symbol_triangle.png
@@ -251,6 +257,21 @@ if(CHIAKI_IS_VITA)
         FILE assets/icon_profile.png assets/icon_profile.png
         FILE assets/icon_play.png assets/icon_play.png
         FILE assets/icon_button_triangle.png assets/icon_button_triangle.png
+        # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
+        FILE assets/icons/controller.png assets/icons/controller.png
+        FILE assets/icons/profile.png assets/icons/profile.png
+        FILE assets/icons/tv.png assets/icons/tv.png
+        FILE assets/icons/video.png assets/icons/video.png
+        FILE assets/icons/network.png assets/icons/network.png
+        FILE assets/icons/display.png assets/icons/display.png
+        FILE assets/icons/controls.png assets/icons/controls.png
+        FILE assets/icons/advanced.png assets/icons/advanced.png
+        FILE assets/icons/account.png assets/icons/account.png
+        FILE assets/icons/connection.png assets/icons/connection.png
+        FILE assets/icons/psn.png assets/icons/psn.png
+        FILE assets/icons/slot1.png assets/icons/slot1.png
+        FILE assets/icons/slot2.png assets/icons/slot2.png
+        FILE assets/icons/slot3.png assets/icons/slot3.png
         # Professional UI assets (gradient background, logo, controller diagrams)
         FILE assets/background.png assets/background.png
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png

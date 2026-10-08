@@ -63,6 +63,8 @@
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
 #include "ui/ui_text.h"
+#include "ui/ui_component.h"
+#include "ui/ui_home.h"
 
 vita2d_font *font;
 vita2d_font *font_mono;
@@ -395,7 +397,10 @@ void init_ui() {
 
   /* Initialize text helper: measures per-size metrics from the loaded fonts.
    * Must happen after font load and before the first draw_ui() frame. */
-  ui_text_init(font, font_mono);
+  vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
+  ui_text_init(font, font_mono, font_light);
+  ui_glow_init();
+  ui_home_init();
 
   vita2d_set_vblank_wait(true);
 
@@ -446,6 +451,9 @@ void draw_ui() {
   memset(&ctrl, 0, sizeof(ctrl));
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
+  /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
+   * sidebar when it becomes active again. Starts as STREAM so the first frame counts as entry. */
+  UIScreenType drawn_screen = UI_SCREEN_TYPE_STREAM;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
@@ -590,9 +598,6 @@ void draw_ui() {
     context.ui_state.button_state = ctrl.buttons;
     *button_block_mask &= context.ui_state.button_state;
 
-    // Update Cross button hold timing before any input handler runs
-    ui_input_update_hold_tracking();
-
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
 
@@ -638,6 +643,8 @@ void draw_ui() {
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
         screen = UI_SCREEN_TYPE_MAIN;
       }
+
+      ui_input_update_snapshot();
 
       vita2d_start_drawing();
       vita2d_clear_screen();
@@ -689,6 +696,8 @@ void draw_ui() {
 
       // Render the current screen
       if (screen == UI_SCREEN_TYPE_MAIN) {
+        if (drawn_screen != UI_SCREEN_TYPE_MAIN)
+          ui_home_on_enter();
         next_screen = ui_screen_draw_main();
       } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
         context.ui_state.next_active_item = (UI_MAIN_WIDGET_TEXT_INPUT | 0);
@@ -740,13 +749,17 @@ void draw_ui() {
           context.ui_state.register_host_modal_pushed = true;
         }
       }
+      drawn_screen = prev_screen;
       screen = next_screen;
 
-      // Render focus overlay after all screen content (correct z-order)
-      ui_nav_render_content_overlay();
+      // The wave sidebar belongs to the old screens only; Home has its own category bar.
+      if (screen != UI_SCREEN_TYPE_MAIN) {
+        // Render focus overlay after all screen content (correct z-order)
+        ui_nav_render_content_overlay();
 
-      // Render navigation menu overlay (on top of tint)
-      render_wave_navigation();
+        // Render navigation menu overlay (on top of tint)
+        render_wave_navigation();
+      }
 
       // Render hints system (indicator + popup)
       render_hints_indicator();
