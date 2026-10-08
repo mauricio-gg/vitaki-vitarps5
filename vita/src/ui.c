@@ -57,6 +57,7 @@
 #include "ui/ui_animation.h"
 #include "ui/ui_background.h"
 #include "ui/ui_draw_stats.h"
+#include "ui/ui_freeze.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -167,6 +168,9 @@ static bool screen_has_xmb_chrome(UIScreenType screen) {
 }
 
 #if VITARPS5_DEBUG_TOOLS
+/** Name logged with the draw counts of a frame drawn over a frozen popup background. */
+#define DRAW_STATS_POPUP_NAME "popup"
+
 /** draw_stats_screen_name() - Name logged with the draw counts of @screen, or NULL for a screen
  * that is not counted. */
 static const char *draw_stats_screen_name(UIScreenType screen) {
@@ -673,10 +677,16 @@ void draw_ui() {
       /*
        * The background resets vita2d's pool and renders its blur target (a scene of its own)
        * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
-       * which would reset the pool again.
+       * which would reset the pool again. While a popup is open the screen behind it is a frozen
+       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset.
        */
-      ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
-                            screen == UI_SCREEN_TYPE_RECONNECTING);
+      const bool frozen = ui_freeze_is_ready();
+      if (frozen) {
+        vita2d_pool_reset();
+      } else {
+        ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
+                              screen == UI_SCREEN_TYPE_RECONNECTING);
+      }
       vita2d_start_drawing_advanced(NULL, 0);
       vita2d_clear_screen();
 
@@ -694,8 +704,14 @@ void draw_ui() {
 
       UI_DRAW_STATS_FRAME_BEGIN();
 
-      // Wave background under every screen; it updates at half rate while connecting
-      ui_background_draw(screen == UI_SCREEN_TYPE_WAKING || screen == UI_SCREEN_TYPE_RECONNECTING);
+      // Wave background under every screen; it updates at half rate while connecting. Behind a
+      // popup the frozen copy of the screen stands in for the wave and everything on it.
+      if (frozen) {
+        ui_freeze_draw();
+      } else {
+        ui_background_draw(screen == UI_SCREEN_TYPE_WAKING ||
+                           screen == UI_SCREEN_TYPE_RECONNECTING);
+      }
 
       // Wave navigation area removed - nav is a pure overlay with no background
 
@@ -797,10 +813,14 @@ void draw_ui() {
       render_connect_popup();
       render_debug_menu();
       render_error_popup();
-      UI_DRAW_STATS_FRAME_END(draw_stats_screen_name(prev_screen));
+      /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */
+      if (next_screen != prev_screen)
+        ui_freeze_release();
+      UI_DRAW_STATS_FRAME_END(frozen ? DRAW_STATS_POPUP_NAME : draw_stats_screen_name(prev_screen));
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();
+      ui_freeze_frame_end();
     } else {
       // Streaming active — render decoded frames from the UI thread.
       // This decouples GPU display from the Takion network receive thread,

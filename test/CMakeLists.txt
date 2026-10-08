@@ -128,3 +128,16 @@ target_include_directories(ui_console_rows_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
+
+# ui_downsample_tests.c checks the pure 2 x 2 pixel averaging behind the popup background freeze.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_downsample_tests
+    ui_downsample_tests.c
+    ../vita/src/ui/ui_downsample.c
+)
+
+target_include_directories(ui_downsample_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_downsample_tests COMMAND ui_downsample_tests)
