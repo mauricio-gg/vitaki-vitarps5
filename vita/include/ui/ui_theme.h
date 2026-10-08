@@ -334,14 +334,6 @@ typedef enum ui_face_t {
 #define UI_LIST_MAX_ITEMS 64
 
 /* ============================================================================
- * Home screen (ui_home.c)
- * ============================================================================ */
-
-/** Holding Confirm this long on a console with both a local and an Internet route opens "Connect
- * via". */
-#define UI_HOME_LONG_PRESS_MS 600
-
-/* ============================================================================
  * C05 OptionsColumn (ui_options_column.c): x 608 to the right edge, the console's Triangle menu
  * ============================================================================ */
 

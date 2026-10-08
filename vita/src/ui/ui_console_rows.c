@@ -49,6 +49,23 @@ static bool contains_nocase(const char *haystack, const char *needle) {
   return false;
 }
 
+int ui_console_option_rows(UiConsoleStatus status, bool both_routes,
+                           UiConsoleOptionRow out[UI_CONSOLE_OPTION_ROWS_MAX]) {
+  int n = 0;
+  if (status == UI_CONSOLE_UNPAIRED) {
+    out[n++] = (UiConsoleOptionRow){UI_CONSOLE_OPTION_PAIR, false};
+    return n;
+  }
+  const bool cooldown = status == UI_CONSOLE_COOLDOWN;
+  out[n++] = (UiConsoleOptionRow){
+      status == UI_CONSOLE_STANDBY ? UI_CONSOLE_OPTION_WAKE_CONNECT : UI_CONSOLE_OPTION_CONNECT,
+      cooldown};
+  if (both_routes)
+    out[n++] = (UiConsoleOptionRow){UI_CONSOLE_OPTION_CONNECT_VIA, cooldown};
+  out[n++] = (UiConsoleOptionRow){UI_CONSOLE_OPTION_REPAIR, false};
+  return n;
+}
+
 bool ui_console_matches_filter(const char *name, const char *ip, const char *filter) {
   if (!filter || !*filter)
     return true;

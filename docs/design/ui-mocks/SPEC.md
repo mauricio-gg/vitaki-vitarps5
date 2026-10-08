@@ -131,7 +131,7 @@ Text is drawn from the 5 pre-rendered atlas entries (Light 20, 28, 40; Regular 1
 | Purpose | Horizontal Consoles / Settings / Controller / Profile row. Replaces the wave sidebar. |
 | Constants | `UI_CAT_BOX` 64 (art 48), `UI_CAT_Y` 104 (centre), `UI_CAT_X0` 256, `UI_CAT_FAR` 128 (first right neighbour), `UI_CAT_STEP` 112, `UI_CAT_SCALE_ON` 1.25, `UI_CAT_SCALE_LEFT` 0.75, `UI_CAT_STRIP` y 64 h 112 full width (swipe zone) |
 | Anatomy | Focused centre x 256, scale 1.25, glow, label T16 centred 16 below the box (y 152-176). Right neighbours at x 384, 496, 608. Left neighbours at 256 - 112 per step, scale 0.75. Unfocused opacity 62%. Icons: `icon_play.png`, `icon_settings.png`, `icons/controller.svg`, `icons/profile.svg`. |
-| States | focused, unfocused, dimmed to 12% while Options column is open |
+| States | focused, unfocused, dimmed to 25% while Options column is open (as C05 and the mock) |
 | Input | Left/Right or L/R changes category (slide 300 ms). Touch: tap an icon focuses it (hit 64 x 64); horizontal swipe on the strip moves one category per 56 px. |
 | Used by | Home |
 | Replaces | `ui_navigation.c` wave sidebar and `NAV_*` |
