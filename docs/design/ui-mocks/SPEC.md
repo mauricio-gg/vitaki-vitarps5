@@ -52,8 +52,11 @@ Effect colours (every other alpha-bearing colour the components use, all in `tok
 | `QR_PLATE`, `QR_INK`, `QR_HIDDEN` | #FAFAFA, #0A0A0A, #1A1A1A @ 55% | QR panel |
 | `PANEL_EDGE`, `EDGE_0` | rgba(4,8,20) @ 92% / 0% | Options column feathered edge |
 | `VIG_*` | black/navy @ 32-55% | Home vignette (gradients) |
+| `GLASS_VEIL` | #02050E @ 14% | Background Blur Soft veil; also the dark part of Strong |
+| `GLASS_FROST` | white @ 5% | Background Blur Strong, drawn under the 14% veil |
+| `GLASS_VEIL_DARK` | #02050E @ 20% | Background Blur Dark (no white) |
 
-Alpha levels in use (the whole set): 10, 12, 14, 22, 26, 28, 32, 34, 35, 38, 40, 45, 50, 55, 60, 70, 82, 92 percent, always via a token above.
+Alpha levels in use (the whole set): 5, 10, 12, 14, 20, 22, 26, 28, 32, 34, 35, 38, 40, 45, 50, 55, 60, 70, 82, 92 percent, always via a token above.
 
 Wave palette (one fixed set, no time of day): top #06204A, mid #0F4585, bottom #245F9C, ribbons #96CDFF / #64B4F0 / #BEDCFF, horizon glow rgba(160,210,255,.28). Tokens `--wave-*`; geometry and speeds in `xmb-wave.js`.
 
@@ -122,6 +125,8 @@ UiEvent ui_thing_input(UiThing*, const UiInput*);        // NONE / MOVED / ACTIV
 
 Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked textures tinted at draw time (FEASIBILITY.md).
 
+**Glow rule.** Every baked glow texture is padded by at least its glow radius on all sides (texture size = art size + 2 x radius, with a fully transparent border). A glow is its own padded texture, centred on the art, drawn **before** the art, and never clipped to the art's box or to the row's rect. Scaling or animating the art must not scale or clip the glow's texture. List viewports and scissor rects leave room for the glow of the focused item (the Home list viewport starts 24 px above the focus row and 32 px left of the icon column for exactly this reason). The mock's earlier square cut-off came from putting the ring's `box-shadow` inside the scaled icon box, where the compositor clipped it to that box.
+
 ### C01 CategoryBar (interactive)
 | | |
 |---|---|
@@ -150,7 +155,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 |---|---|
 | Purpose | Console identity and state in one glyph: user room icon inside a status ring plus corner badge. `ui_draw_status_ring(x, y, size, room, state)`. |
 | Constants | `UI_RING_W` 2, `UI_RING_GLOW` 12, `UI_RING_ICON` 50% of size, `UI_RING_BADGE` 40% of size at (-4, -4), badge glyph 70% |
-| Anatomy | Sizes in use: 56 (rows), 128 (Connecting). Ring in the state colour, soft glow in the state colour at 45%, room icon (`icons/tv|sofa|bed|bunk|desk|house.svg`, default tv), badge disc `BADGE_BG` with a 2 px state-colour border. Unpaired ring is dashed with no glow. |
+| Anatomy | Sizes in use: 56 (rows), 128 (Connecting). Ring in the state colour. **Glow**: its own padded texture (art 64 + 2 x 24 radius = 112 square, fully transparent border), state colour at 55% fading radially to 0, centred on the ring, drawn before it, 45% strength on unfocused rows and 100% on the focused row; never part of the scaled icon box (Glow rule, 2.0). room icon (`icons/tv|sofa|bed|bunk|desk|house.svg`, default tv), badge disc `BADGE_BG` with a 2 px state-colour border. Unpaired ring is dashed with no glow. |
 | States | Ready (OK, check), Standby (WARN, moon), Unpaired (IDLE dashed, lock), Internet (OK, globe), Unavailable (ERR, warning), Cooldown (ERR, clock; row dimmed) |
 | Used by | Home list, Connecting art |
 | Replaces | card status dot, "internet" badge, PS5/PS4 logo on card |
@@ -288,7 +293,16 @@ y 16, h 32, x 48..912. Three slots: logo (h 32, `Vita_RPS5_Logo.png`) left; cent
 Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searching. Used by: Home consoles.
 
 ### C27 Background (display-only, one static ribbon state)
-5 ribbons, 36 dust points, one fixed palette (section 1.1), CPU vertex update at 30 Hz (freeze or halve while Connecting). **Option pending CEO choice:** the mock has a switchable "Glass" exploration (soft blur with a light veil; strong blur at 1/16 size in a frost or dark variant; frosted panels, rejected); default and spec stay as designed. See FEASIBILITY.md section 8. FEASIBILITY.md has the costing. Replaces: `ui_particles`.
+5 ribbons, 36 dust points, one fixed palette (section 1.1). The user setting **Background Blur** (Settings > Display, choice, default Soft; applies live, saved immediately) picks one of four modes:
+
+| Mode | Method | Veil on top |
+|---|---|---|
+| None | today's full-resolution wave | none |
+| Soft (default) | wave rendered into a 240 x 136 render target (1/4), drawn upscaled to 960 x 544 with bilinear filtering; the upscale is the blur | `GLASS_VEIL`, 14% dark |
+| Strong | wave rendered into a 60 x 34 target (1/16), bilinear upscale | `GLASS_FROST` 5% white, then `GLASS_VEIL` 14% dark |
+| Dark | same 60 x 34 target | `GLASS_VEIL_DARK`, 20% dark, no white |
+
+The ribbons may be updated into the small target at 15 to 30 Hz while the upscaled quad is drawn every frame (the result is soft enough that the lower rate is invisible); None keeps the 30 Hz CPU vertex update. Freeze or halve updates while Connecting. Measurements, cost and the decision are in FEASIBILITY.md section 8. Replaces: `ui_particles`.
 
 ### C28 FilterLine (interactive)
 x 608, y 144, h 32, T16 TEXT_2. Either `[Start] Filter` (more than 4 consoles) or `Filter: "text" (N found)` plus a clear box. The line (visible h 32) and the clear box (visible 32 px) both have a **hit rect of at least 48 x 48**. Tap the line opens the keyboard; tap the clear box clears.
@@ -399,6 +413,7 @@ Page shell, title "Settings". Left: groups. Pane: C08 rows; description line for
 | Display | Show Latency | toggle | off (shows the stats panel in the stream overlay only; default pending CEO, see Flags) |
 | Display | Show Network Alerts | toggle | on |
 | Display | Show Exit Shortcut Hint | toggle | on |
+| Display | Background Blur | choice | None, Soft, Strong, Dark (Soft; new) |
 | Controls | Circle Button Confirm | toggle | system default (Cross on a Western unit) |
 | Advanced | Clamp Soft Restart Bitrate | toggle | on |
 | Advanced | Motion during loss (artifacts) (Experimental) | toggle | off |
@@ -515,7 +530,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 **Stream**: Back to menu: Hold L + R + Start ; Stream Stats, Latency, FPS (N ms, in / target, N/A) ; Network Unstable
 
-**Settings**: group names Video, Network, Display, Controls, Advanced; row labels and values in section 3.6; descriptions (new, draft for sign-off): Quality Preset "Video resolution requested from the console."; Latency Mode "Sets the target bitrate. Higher looks better but needs a stronger connection."; FPS Target "Frame rate requested from the console."; Force 30 FPS Output "Output video at 30 FPS."; Fill Screen "Stretch the video to fill the whole screen."; Auto Discovery "Find consoles on your network automatically. Takes effect the next time the app starts."; Enable PSN Internet Mode "Connect to your consoles over the internet with your PSN account."; Show Only Paired "Hide consoles that are not paired."; Show Latency "Show latency and frame rate in the stream overlay."; Show Network Alerts "Show a badge when the connection becomes unstable."; Show Exit Shortcut Hint "Show how to leave the stream when it starts."; Circle Button Confirm "Use Circle to confirm and Cross to go back, on every screen."; Clamp Soft Restart Bitrate "Limit the bitrate when the stream restarts after packet loss."; Motion during loss "Keep motion going while packets are lost. May show visual artifacts."; Enable Logging "Write diagnostic logs on the Vita for troubleshooting."; On, Off; hints Toggle, Next, Change, Group, Back, Open
+**Settings**: group names Video, Network, Display, Controls, Advanced; row labels and values in section 3.6; descriptions (new, draft for sign-off): Quality Preset "Video resolution requested from the console."; Latency Mode "Sets the target bitrate. Higher looks better but needs a stronger connection."; FPS Target "Frame rate requested from the console."; Force 30 FPS Output "Output video at 30 FPS."; Fill Screen "Stretch the video to fill the whole screen."; Auto Discovery "Find consoles on your network automatically. Takes effect the next time the app starts."; Enable PSN Internet Mode "Connect to your consoles over the internet with your PSN account."; Show Only Paired "Hide consoles that are not paired."; Show Latency "Show latency and frame rate in the stream overlay."; Show Network Alerts "Show a badge when the connection becomes unstable."; Show Exit Shortcut Hint "Show how to leave the stream when it starts."; Circle Button Confirm "Use Circle to confirm and Cross to go back, on every screen."; Clamp Soft Restart Bitrate "Limit the bitrate when the stream restarts after packet loss."; Motion during loss "Keep motion going while packets are lost. May show visual artifacts."; Enable Logging "Write diagnostic logs on the Vita for troubleshooting."; Background Blur (new) "Blur the background waves behind menus. Strong and Dark are softer and calmer." with values None, Soft, Strong, Dark; On, Off; hints Toggle, Next, Change, Group, Back, Open
 
 **Profile**: Account, Connection, PlayStation Network; identity block: PSN Account ID, PlayStation Network; Account ID, Not Set, Refresh Account ID ("Read the Account ID again from the system profile." new); Network Type (Local Wi-Fi, PSN Internet, Manual Host, Unavailable), Console (Not selected), Console IP, Status (Ready, Standby, Unpaired, Unavailable, None), Quality; PSN Auth; Disabled, Authenticated, Refreshing token, Awaiting browser sign-in, Token expired, Not authenticated, <error text>; Log in, Log out, Refresh hosts; Press [Confirm] again to confirm log out ; Phone Login Assist; 1 Press [Start] to show or hide the QR code; 2 Scan the QR code with your phone and sign in; 3 Press [Confirm] and paste the redirect URL or code; 4 [Select] opens the Vita browser instead; Code: Paste redirect URL/code; URL: my.account.sony.com/sso/ca/authorize (short form) ; QR hidden ; hints Enter code, QR, Browser, Cancel login, Confirm log out, Refresh
 - Descriptions: "Enable PSN internet mode in Settings" (today); "Sign in with your phone. Needed for internet Remote Play." (new); "Reload your internet-capable consoles." (new); "Remove the saved PSN login from this Vita." (new)
@@ -543,4 +558,5 @@ Open:
 10. **Console type is only in the detail panel**, not on list rows (locked). The earlier "Last session" line is removed (the app has no such data).
 11. **System reads for the top bar**: Wi-Fi state, battery percent, local time, polled about once per second.
 12. **Status hints are never truncated**: they wrap to two lines and rows grow. All 16 current messages fit; a longer future message needs rewording.
-13. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the fictional stream picture; the illustrative QR; the stand-in for the system keyboard.
+13. **Build note: one new config field.** Background Blur needs a small integer in the config TOML (for example `background_blur`, 0 None, 1 Soft, 2 Strong, 3 Dark; default 1), read at startup and written on change like every setting. Soft is the default by PM call (best legibility-for-look trade, see FEASIBILITY.md section 8); the CEO can change it.
+14. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the fictional stream picture; the illustrative QR; the stand-in for the system keyboard.

@@ -26,21 +26,16 @@ function paintRibbons(t){
  }
  DUST.forEach(d=>{const tw=.3+.3*Math.sin(t*.0012+d.p);g.fillStyle=`rgba(255,255,255,${tw*.5})`;g.beginPath();g.arc((d.x+t*.004*d.s)%960,d.y+Math.sin(t*.0004+d.p)*6,d.s,0,6.3);g.fill();});
 }
-/* Glass options. The wave is rendered into a small render target and drawn upscaled with bilinear filtering; the upscale is the blur (the Vita does the same).
-   soft = 1/4 (240x136). strong = 1/GSTRONG (default "16" = 60x34; "8" = 120x68, "2step" = 1/4 target downsampled into a 1/8 one (two bilinear passes, smoother than a single 1/8). */
-const GLASS_DIV=4;
-let GSTRONG='16';
+/* Background Blur setting (None / Soft / Strong / Dark). The wave is rendered into a small render target and drawn upscaled with bilinear filtering; the upscale is the blur (same on the Vita).
+   Soft = 240x136 (1/4). Strong and Dark = 60x34 (1/16). None = today's full-resolution wave. */
 const mkc=d=>{const c=document.createElement('canvas');c.width=960/d;c.height=544/d;return c;};
-const cv4=mkc(4),cv8=mkc(8),cv16=mkc(16);
+const cv4=mkc(4),cv16=mkc(16);
 function viaTarget(t,target,div){const sg=target.getContext('2d'),main=g;g=sg;sg.setTransform(1/div,0,0,1/div,0,0);paintRibbons(t);g=main;return target;}
 function blit(src){g.globalCompositeOperation='source-over';g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(src,0,0,960,544);}
 function paintWave(t){
  const m=S.glass;
  if(m==='soft')blit(viaTarget(t,cv4,4));
- else if(m==='strong'||m==='strongdark'){
-  if(GSTRONG==='16')blit(viaTarget(t,cv16,16));
-  else if(GSTRONG==='2step'){const a=viaTarget(t,cv4,4),c=cv8.getContext('2d');c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';c.clearRect(0,0,cv8.width,cv8.height);c.drawImage(a,0,0,cv8.width,cv8.height);blit(cv8);}
-  else blit(viaTarget(t,cv8,8));
- } else paintRibbons(t);
+ else if(m==='strong'||m==='dark')blit(viaTarget(t,cv16,16));
+ else paintRibbons(t);
 }
 function loop(t){if(!window.__freeze)paintWave(t);if(!reduce)setTimeout(()=>requestAnimationFrame(loop),33);}

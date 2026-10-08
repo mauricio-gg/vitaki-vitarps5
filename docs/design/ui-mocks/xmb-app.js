@@ -8,7 +8,7 @@ const S={
  pin:{d:Array(8).fill(null),cur:0,ci:4},
  conn:{ci:0,flow:[0,4,7],cur:0,play:false,all:false},
  rec:{attempt:2},
- glass:'off',pop:null,toast:null,kb:null,unst:false,
+ glass:'soft',pop:null,toast:null,kb:null,unst:false,
  psn:'auth',pconn:'wifi',qr:true,logout:false,exitStart:0,zoom:1
 };
 let stageTimer=null,toastTimer=null,logoutTimer=null;
@@ -28,19 +28,16 @@ function showOnly(id){
  $('.wash').style.opacity=pageish?1:0;
  $('#top').style.display=id==='strm'?'none':'flex';
  $('#hintbar').style.display=id==='strm'?'none':'block';
- paintGlass(id);
 }
-/* glass panels: static rects per screen (x, y, w, h). Home: list column and detail panel; pages: group list and pane. */
-const GPANELS={home:[[200,176,384,312],[592,176,344,288]],page:[[40,128,272,312],[328,128,592,304]]};
-function paintGlass(id){
- $('#glassLayer').innerHTML=(GPANELS[id]||[]).map(r=>`<div class="gpanel" style="left:${r[0]}px;top:${r[1]}px;width:${r[2]}px;height:${r[3]}px"></div>`).join('');
-}
-function setGlass(m){
- S.glass=m;['soft','strong','strongdark','panels'].forEach(k=>$('#screen').classList.toggle('glass-'+k,m===k));
- $('#bGlass').textContent='Glass: '+({strong:'strong (frost)',strongdark:'strong (dark)'}[m]||m);$('#bGlass').classList.toggle('on',m!=='off');
+/* Background Blur setting (Settings > Display). The four values map to the wave method (xmb-wave.js) and the veil class. */
+const GLASS=['none','soft','strong','dark'];
+function applyGlass(){
+ const m=GLASS[SET('blur').v];S.glass=m;
+ GLASS.forEach(k=>$('#screen').classList.toggle('glass-'+k,m===k));
  if(reduce)paintWave(0);
 }
-function paintTop(){
+/* deep-link param ?glass=none|soft|strong|dark (old names off and strongdark still work) */
+function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexOf(m);if(i<0)return;SET('blur').v=i;applyGlass();}function paintTop(){
  const ban=S.screen==='home'&&S.cat===0&&CONSOLES.some(c=>c.cool);
  $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
 }
@@ -126,7 +123,7 @@ function buildList(anim){
   let sub=it.s||'',hint='';
   if(it.k==='console'){const k=kindOf(it.c),K=KIND[k];sub=`${sdot(k)}${K.t}${k==='psn'?' <span class="net">&middot; Internet</span>':''}`;
    hint=it.c.hint?HINT[it.c.hint]:'';}
-  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''}" data-do="item" data-arg="${i}"><div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div>${hint?`<div class="h">${hint}</div>`:''}</div></div></div>`;
+  return `<div class="xi ${it.c&&kindOf(it.c)==='cool'?'dimmed':''}" data-do="item" data-arg="${i}">${it.c?`<span class="gl ${kindOf(it.c)}"></span>`:''}<div class="itc" style="--i:${anim?Math.min(i,6):0}"><div class="ic">${itemIcon(it)}</div><div class="tx"><div class="n">${it.t}</div><div class="s">${sub}</div>${hint?`<div class="h">${hint}</div>`:''}</div></div></div>`;
  }).join('');
  layout();
 }
@@ -281,7 +278,7 @@ function pageAct(r){
  }
 }
 function pageChange(d){
- const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc')refreshHints();}else return;
+ const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur')applyGlass();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc')refreshHints();}else return;
  paintPage(false);
 }
 
@@ -705,7 +702,7 @@ function jump(id){
  const f=DL[id]||DL.home;f();$('#jump').value=DL[id]?id:'home';
 }
 function init(){
- const skel=`<canvas id="rib" width="960" height="544"></canvas><div class="vig"></div><div class="wash" style="opacity:0"></div><div class="glassveil"></div><div id="glassLayer"></div>
+ const skel=`<canvas id="rib" width="960" height="544"></canvas><div class="vig"></div><div class="wash" style="opacity:0"></div><div class="glassveil"></div>
  <div class="layer" id="ly-home"><div id="catstrip" style="position:absolute;left:0;top:64px;width:960px;height:112px"></div><div id="cats"></div><div id="flt"></div><div id="listvp"><div id="list"></div></div><div id="empty" class="empty"></div><div id="detail"></div><div id="opts"></div></div>
  <div class="layer" id="ly-page" style="display:none"></div><div class="layer" id="ly-ctrl" style="display:none"></div><div class="layer" id="ly-pin" style="display:none"></div><div class="layer" id="ly-conn" style="display:none"></div><div class="layer" id="ly-strm" style="display:none"></div>
  <div class="topbar" id="top"></div><div id="hintbar"></div><div id="popLayer" style="position:absolute;inset:0;pointer-events:none;z-index:30"></div><div id="toastLayer"></div><div id="kbLayer"></div>`;
@@ -716,7 +713,6 @@ function init(){
  const sel=$('#jump');let grp='';
  sel.innerHTML=JUMPS.map(j=>{const o=(j[0]!==grp?(grp?'</optgroup>':'')+`<optgroup label="${j[0]}">`:'')+`<option value="${j[1]}">${j[2]}</option>`;grp=j[0];return o;}).join('')+'</optgroup>';
  sel.addEventListener('change',()=>{location.hash=sel.value;sel.blur();});
- $('#bGlass').addEventListener('click',()=>setGlass({off:'soft',soft:'strong',strong:'strongdark',strongdark:'panels',panels:'off'}[S.glass]));
  $('#bCc').addEventListener('click',e=>{SET('cc').v=!SET('cc').v;e.target.textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');e.target.classList.toggle('on',SET('cc').v);refreshHints();if(S.screen==='page')paintPage(false);});
  $('#bUn').addEventListener('click',e=>{S.unst=!S.unst;e.target.classList.toggle('on',S.unst);e.target.textContent='Network unstable: '+(S.unst?'on':'off');refreshHints();paintHud();});
  $('#bZoom').addEventListener('click',e=>{S.zoom=S.zoom===1?2:1;fit();e.target.classList.toggle('on',S.zoom===2);});
@@ -726,8 +722,8 @@ function init(){
  $('#legend').innerHTML=`<span><kbd>Arrows</kbd>D-pad</span><span><kbd>Enter</kbd>Cross</span><span><kbd>Esc</kbd>Circle</span><span><kbd>T</kbd>Triangle</span><span><kbd>S</kbd>Square</span><span><kbd>Q</kbd><kbd>E</kbd>L / R</span><span><kbd>Space</kbd>Start</span><span><kbd>Z</kbd>Select</span><span><kbd>Click</kbd>touch (drag paints zones)</span><span>Stream: hold <kbd>Q</kbd><kbd>E</kbd><kbd>Space</kbd> or <kbd>Esc</kbd></span><span>Keys are the physical buttons: with Circle Button Confirm on, Esc confirms and Enter goes back.</span>`;
 }
 function fit(){const dev=$('#wrap').classList.contains('dev'),w=dev?1260:960,f=Math.min(1,(innerWidth-32)/w);$('#wrap').style.setProperty('--z',+(S.zoom*f).toFixed(3));}
-init();
-function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),gm=q&&(new URLSearchParams(q).get('glass'));const gd=q&&(new URLSearchParams(q).get('gdiv'));if(gd)GSTRONG=gd;if(gm&&['off','soft','strong','strongdark','panels'].includes(gm))setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
+init();applyGlass();
+function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),gm=q&&(new URLSearchParams(q).get('glass'));if(gm)setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
 addEventListener('hashchange',route);
 if(location.hash)setTimeout(route,60);else jump('home');
 document.addEventListener('dragstart',e=>e.preventDefault());

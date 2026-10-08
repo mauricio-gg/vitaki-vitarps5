@@ -77,8 +77,8 @@ img.g{height:24px}
 .cat:not(.on):hover{opacity:1}
 
 /* C02 XmbList + ListRow: x224 w352, focused top192, pitch gap 24 */
-#listvp{position:absolute;left:224px;top:184px;width:384px;height:312px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 0,#000 calc(100% - 48px),transparent);mask-image:linear-gradient(#000 0,#000 calc(100% - 48px),transparent)}
-#list{position:absolute;left:0;top:-184px;width:368px}
+#listvp{position:absolute;left:192px;top:160px;width:416px;height:336px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 0,#000 calc(100% - 48px),transparent);mask-image:linear-gradient(#000 0,#000 calc(100% - 48px),transparent)}
+#list{position:absolute;left:32px;top:-160px;width:368px}
 .xi{position:absolute;left:0;top:0;width:368px;transition:transform var(--d2) var(--ease),opacity var(--d2) var(--ease);cursor:pointer}
 .xi .itc{display:flex;align-items:flex-start;gap:var(--s2);animation:rise var(--d3) var(--ease) both;animation-delay:calc(var(--i)*45ms)}
 .xi .ic{width:64px;height:64px;display:flex;align-items:center;justify-content:center;flex:none;transition:all var(--d2) var(--ease);transform:scale(.8)}
@@ -92,7 +92,11 @@ img.g{height:24px}
 .xi .h{color:var(--err)}
 .xi .s .net{color:var(--psn)}
 .xi.sel .ic img.nav{filter:drop-shadow(0 0 12px var(--glow)) brightness(1.2)}
-.xi.sel .ring{box-shadow:0 0 24px color-mix(in srgb,var(--rc) 70%,transparent)}
+.xi .ring{box-shadow:none}
+/* glow of a list ring: its own padded element (art 64 + 2 x 24 radius = 112), outside the scaled icon box, drawn first, never clipped to the row */
+.xi .gl{position:absolute;left:-24px;top:-24px;width:112px;height:112px;border-radius:50%;pointer-events:none;--rc:var(--idle);background:radial-gradient(closest-side,color-mix(in srgb,var(--rc) 55%,transparent),transparent);opacity:.45;transition:opacity var(--d2) var(--ease)}
+.xi.sel .gl{opacity:1}
+.xi .gl.ready,.xi .gl.psn{--rc:var(--ok)}.xi .gl.standby{--rc:var(--warn)}.xi .gl.unavail,.xi .gl.cool{--rc:var(--err)}.xi .gl.unpaired{opacity:0}
 .xi.sel .n{font-size:var(--t28);line-height:32px;color:var(--text)}
 .xi.sel .s{color:var(--text)}
 .xi.dimmed{opacity:.55}
@@ -308,11 +312,8 @@ img.g{height:24px}
 #flt [data-do=kbflt]::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}
 .toast-on #pdesc{visibility:hidden}
 
-/* ---- Glass option (default off). soft = veil over the blurred wave; panels = frosted rects behind content zones ---- */
+/* ---- Background Blur setting: veil over the blurred wave (None draws no veil) ---- */
 .glassveil{position:absolute;inset:0;background:var(--glass-veil);pointer-events:none;opacity:0;transition:opacity var(--d2)}
 .glass-soft .glassveil{opacity:1}
 .glass-strong .glassveil{opacity:1;background:linear-gradient(var(--glass-frost),var(--glass-frost)),var(--glass-veil)}
-.glass-strongdark .glassveil{opacity:1;background:var(--glass-veil-dark)}
-#glassLayer{position:absolute;inset:0;pointer-events:none}
-.gpanel{position:absolute;display:none;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));background:var(--glass-tint);border:var(--lw1) solid var(--line-faint)}
-.glass-panels .gpanel{display:block}
+.glass-dark .glassveil{opacity:1;background:var(--glass-veil-dark)}

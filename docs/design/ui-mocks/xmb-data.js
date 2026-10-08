@@ -46,6 +46,7 @@ const SETTINGS=[
  {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate in the stream overlay.'},
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},
+ {id:'blur',g:2,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:1,desc:'Blur the background waves behind menus. Strong and Dark are softer and calmer.'},
  {id:'cc',g:3,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},
  {id:'clamp',g:4,label:'Clamp Soft Restart Bitrate',type:'toggle',v:true,desc:'Limit the bitrate when the stream restarts after packet loss.'},
  {id:'motion',g:4,label:'Motion during loss (artifacts) (Experimental)',type:'toggle',v:false,desc:'Keep motion going while packets are lost. May show visual artifacts.'},

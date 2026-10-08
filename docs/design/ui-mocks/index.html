@@ -129,44 +129,43 @@ code{font-family:var(--font-mono);color:var(--text-3);margin-left:8px;font-size:
 <a href="xmb.html#mapping-multi"><img src="screens/mapping-multi.png" alt="Mapping popup, several zones" width="960" height="544" loading="lazy"><span>Mapping popup, several zones<code>#mapping-multi</code></span></a>
 <a href="xmb.html#mapping-shoulder"><img src="screens/mapping-shoulder.png" alt="Mapping popup, L1" width="960" height="544" loading="lazy"><span>Mapping popup, L1<code>#mapping-shoulder</code></span></a>
 </div>
-<h2>Glass exploration (CEO question, default is off)</h2>
-<p class="lede" style="margin-bottom:var(--s2)">Does a glassy blur between the UI and the waves help? Toolbar button &ldquo;Glass&rdquo; in the mock, or add <code>?glass=soft</code>, <code>?glass=strong</code> (frost) or <code>?glass=strongdark</code> to any deep link. <b>soft</b>: wave rendered at 1/4 size and upscaled, plus a 14% dark veil. <b>strong frost</b>: the whole wave at 1/16 size and upscaled (a very heavy blur), white 5% tint plus the 14% veil. <b>strong dark</b>: same blur, 20% dark veil, no white. Numbers, cost and verdict: <a href="FEASIBILITY.md" style="color:#9cc7ff">FEASIBILITY.md, Glass option</a>. The wave is frozen at the same instant in every image.</p>
+<h2>Background Blur (a Settings option, default Soft)</h2>
+<p class="lede" style="margin-bottom:var(--s2)">Settings &gt; Display &gt; Background Blur: <b>None</b> (today&rsquo;s full-resolution wave), <b>Soft</b> (wave at 1/4 size upscaled, 14% dark veil; the default), <b>Strong</b> (1/16 size, 5% white + 14% dark veil), <b>Dark</b> (1/16 size, 20% dark veil). It applies live behind the menus. In the mock add <code>?glass=none|soft|strong|dark</code> to any deep link. Numbers, cost and decision: <a href="FEASIBILITY.md" style="color:#9cc7ff">FEASIBILITY.md, section 8</a>. The wave is frozen at the same instant in every image; the setting itself is at <a href="xmb.html#settings-display" style="color:#9cc7ff">#settings-display</a>.</p>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Home</h3>
 <div class="grid g4">
-<a href="xmb.html#home?glass=off"><img src="screens/glass/home-off.png" alt="Home, glass off" width="960" height="544" loading="lazy"><span>off<code>#home?glass=off</code></span></a>
-<a href="xmb.html#home?glass=soft"><img src="screens/glass/home-soft.png" alt="Home, glass soft" width="960" height="544" loading="lazy"><span>soft<code>#home?glass=soft</code></span></a>
-<a href="xmb.html#home?glass=strong"><img src="screens/glass/home-strong.png" alt="Home, glass strong (frost)" width="960" height="544" loading="lazy"><span>strong (frost)<code>#home?glass=strong</code></span></a>
-<a href="xmb.html#home?glass=strongdark"><img src="screens/glass/home-strongdark.png" alt="Home, glass strong (dark)" width="960" height="544" loading="lazy"><span>strong (dark)<code>#home?glass=strongdark</code></span></a>
+<a href="xmb.html#home?glass=none"><img src="screens/glass/home-none.png" alt="Home, blur None" width="960" height="544" loading="lazy"><span>None<code>#home?glass=none</code></span></a>
+<a href="xmb.html#home?glass=soft"><img src="screens/glass/home-soft.png" alt="Home, blur Soft" width="960" height="544" loading="lazy"><span>Soft<code>#home?glass=soft</code></span></a>
+<a href="xmb.html#home?glass=strong"><img src="screens/glass/home-strong.png" alt="Home, blur Strong" width="960" height="544" loading="lazy"><span>Strong<code>#home?glass=strong</code></span></a>
+<a href="xmb.html#home?glass=dark"><img src="screens/glass/home-dark.png" alt="Home, blur Dark" width="960" height="544" loading="lazy"><span>Dark<code>#home?glass=dark</code></span></a>
 </div>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Home with red status hints</h3>
 <div class="grid g4">
-<a href="xmb.html#hints?glass=off"><img src="screens/glass/hints-off.png" alt="Home with red status hints, glass off" width="960" height="544" loading="lazy"><span>off<code>#hints?glass=off</code></span></a>
-<a href="xmb.html#hints?glass=soft"><img src="screens/glass/hints-soft.png" alt="Home with red status hints, glass soft" width="960" height="544" loading="lazy"><span>soft<code>#hints?glass=soft</code></span></a>
-<a href="xmb.html#hints?glass=strong"><img src="screens/glass/hints-strong.png" alt="Home with red status hints, glass strong (frost)" width="960" height="544" loading="lazy"><span>strong (frost)<code>#hints?glass=strong</code></span></a>
-<a href="xmb.html#hints?glass=strongdark"><img src="screens/glass/hints-strongdark.png" alt="Home with red status hints, glass strong (dark)" width="960" height="544" loading="lazy"><span>strong (dark)<code>#hints?glass=strongdark</code></span></a>
+<a href="xmb.html#hints?glass=none"><img src="screens/glass/hints-none.png" alt="Home with red status hints, blur None" width="960" height="544" loading="lazy"><span>None<code>#hints?glass=none</code></span></a>
+<a href="xmb.html#hints?glass=soft"><img src="screens/glass/hints-soft.png" alt="Home with red status hints, blur Soft" width="960" height="544" loading="lazy"><span>Soft<code>#hints?glass=soft</code></span></a>
+<a href="xmb.html#hints?glass=strong"><img src="screens/glass/hints-strong.png" alt="Home with red status hints, blur Strong" width="960" height="544" loading="lazy"><span>Strong<code>#hints?glass=strong</code></span></a>
+<a href="xmb.html#hints?glass=dark"><img src="screens/glass/hints-dark.png" alt="Home with red status hints, blur Dark" width="960" height="544" loading="lazy"><span>Dark<code>#hints?glass=dark</code></span></a>
 </div>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Settings</h3>
 <div class="grid g4">
-<a href="xmb.html#settings?glass=off"><img src="screens/glass/settings-off.png" alt="Settings, glass off" width="960" height="544" loading="lazy"><span>off<code>#settings?glass=off</code></span></a>
-<a href="xmb.html#settings?glass=soft"><img src="screens/glass/settings-soft.png" alt="Settings, glass soft" width="960" height="544" loading="lazy"><span>soft<code>#settings?glass=soft</code></span></a>
-<a href="xmb.html#settings?glass=strong"><img src="screens/glass/settings-strong.png" alt="Settings, glass strong (frost)" width="960" height="544" loading="lazy"><span>strong (frost)<code>#settings?glass=strong</code></span></a>
-<a href="xmb.html#settings?glass=strongdark"><img src="screens/glass/settings-strongdark.png" alt="Settings, glass strong (dark)" width="960" height="544" loading="lazy"><span>strong (dark)<code>#settings?glass=strongdark</code></span></a>
+<a href="xmb.html#settings?glass=none"><img src="screens/glass/settings-none.png" alt="Settings, blur None" width="960" height="544" loading="lazy"><span>None<code>#settings?glass=none</code></span></a>
+<a href="xmb.html#settings?glass=soft"><img src="screens/glass/settings-soft.png" alt="Settings, blur Soft" width="960" height="544" loading="lazy"><span>Soft<code>#settings?glass=soft</code></span></a>
+<a href="xmb.html#settings?glass=strong"><img src="screens/glass/settings-strong.png" alt="Settings, blur Strong" width="960" height="544" loading="lazy"><span>Strong<code>#settings?glass=strong</code></span></a>
+<a href="xmb.html#settings?glass=dark"><img src="screens/glass/settings-dark.png" alt="Settings, blur Dark" width="960" height="544" loading="lazy"><span>Dark<code>#settings?glass=dark</code></span></a>
 </div>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Profile, red error state</h3>
 <div class="grid g4">
-<a href="xmb.html#profile-psn-error?glass=off"><img src="screens/glass/profile-psn-error-off.png" alt="Profile, red error state, glass off" width="960" height="544" loading="lazy"><span>off<code>#profile-psn-error?glass=off</code></span></a>
-<a href="xmb.html#profile-psn-error?glass=soft"><img src="screens/glass/profile-psn-error-soft.png" alt="Profile, red error state, glass soft" width="960" height="544" loading="lazy"><span>soft<code>#profile-psn-error?glass=soft</code></span></a>
-<a href="xmb.html#profile-psn-error?glass=strong"><img src="screens/glass/profile-psn-error-strong.png" alt="Profile, red error state, glass strong (frost)" width="960" height="544" loading="lazy"><span>strong (frost)<code>#profile-psn-error?glass=strong</code></span></a>
-<a href="xmb.html#profile-psn-error?glass=strongdark"><img src="screens/glass/profile-psn-error-strongdark.png" alt="Profile, red error state, glass strong (dark)" width="960" height="544" loading="lazy"><span>strong (dark)<code>#profile-psn-error?glass=strongdark</code></span></a>
+<a href="xmb.html#profile-psn-error?glass=none"><img src="screens/glass/profile-psn-error-none.png" alt="Profile, red error state, blur None" width="960" height="544" loading="lazy"><span>None<code>#profile-psn-error?glass=none</code></span></a>
+<a href="xmb.html#profile-psn-error?glass=soft"><img src="screens/glass/profile-psn-error-soft.png" alt="Profile, red error state, blur Soft" width="960" height="544" loading="lazy"><span>Soft<code>#profile-psn-error?glass=soft</code></span></a>
+<a href="xmb.html#profile-psn-error?glass=strong"><img src="screens/glass/profile-psn-error-strong.png" alt="Profile, red error state, blur Strong" width="960" height="544" loading="lazy"><span>Strong<code>#profile-psn-error?glass=strong</code></span></a>
+<a href="xmb.html#profile-psn-error?glass=dark"><img src="screens/glass/profile-psn-error-dark.png" alt="Profile, red error state, blur Dark" width="960" height="544" loading="lazy"><span>Dark<code>#profile-psn-error?glass=dark</code></span></a>
 </div>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Controller</h3>
 <div class="grid g4">
-<a href="xmb.html#controller?glass=off"><img src="screens/glass/controller-off.png" alt="Controller, glass off" width="960" height="544" loading="lazy"><span>off<code>#controller?glass=off</code></span></a>
-<a href="xmb.html#controller?glass=soft"><img src="screens/glass/controller-soft.png" alt="Controller, glass soft" width="960" height="544" loading="lazy"><span>soft<code>#controller?glass=soft</code></span></a>
-<a href="xmb.html#controller?glass=strong"><img src="screens/glass/controller-strong.png" alt="Controller, glass strong (frost)" width="960" height="544" loading="lazy"><span>strong (frost)<code>#controller?glass=strong</code></span></a>
-<a href="xmb.html#controller?glass=strongdark"><img src="screens/glass/controller-strongdark.png" alt="Controller, glass strong (dark)" width="960" height="544" loading="lazy"><span>strong (dark)<code>#controller?glass=strongdark</code></span></a>
+<a href="xmb.html#controller?glass=none"><img src="screens/glass/controller-none.png" alt="Controller, blur None" width="960" height="544" loading="lazy"><span>None<code>#controller?glass=none</code></span></a>
+<a href="xmb.html#controller?glass=soft"><img src="screens/glass/controller-soft.png" alt="Controller, blur Soft" width="960" height="544" loading="lazy"><span>Soft<code>#controller?glass=soft</code></span></a>
+<a href="xmb.html#controller?glass=strong"><img src="screens/glass/controller-strong.png" alt="Controller, blur Strong" width="960" height="544" loading="lazy"><span>Strong<code>#controller?glass=strong</code></span></a>
+<a href="xmb.html#controller?glass=dark"><img src="screens/glass/controller-dark.png" alt="Controller, blur Dark" width="960" height="544" loading="lazy"><span>Dark<code>#controller?glass=dark</code></span></a>
 </div>
-<p class="note">For reference only (rejected): <a href="xmb.html#home?glass=panels" style="color:#9cc7ff">frosted panels behind the content zones</a>, <a href="screens/glass/home-panels.png" style="color:#9cc7ff">home image</a>.</p>
 <div class="cols">
 <div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): PS5 and PS4 logos, Vita RPS5 logo, category icons, button symbols, controller diagrams.</li><li>Flat white icons (<code>icons/</code>): Controller pad, Profile and six room icons.</li><li>All labels, values, defaults and messages come from the app inventory; wording changes are listed in SPEC.md.</li><li>The app shows no game information. The one image in <code>img/</code> is a fictional generated scene standing in for the video.</li></ul></div>
 <div><h2>Notes</h2><ul><li>Theme tokens live in <code>tokens-xmb.css</code> (one source of truth, documented in SPEC.md section 1).</li><li>Glow and blur become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>The QR code is illustrative and not scannable. The device frame is a generic handheld.</li></ul></div>
