@@ -383,7 +383,8 @@ typedef enum ui_face_t {
 #define UI_HINT_ALERT_GAP UI_S2
 /** The most hints one row can hold. */
 #define UI_HINT_MAX_ITEMS 8
-=======
+
+/* ============================================================================
  * C04 DetailPanel
  * ============================================================================ */
 

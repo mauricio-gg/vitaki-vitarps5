@@ -5,10 +5,12 @@
 
 #include "ui/ui_text_wrap.h"
 
+#include "ui/ui_chrome_layout.h"
+
 #include <stddef.h>
 #include <string.h>
 
-static const char WRAP_ELLIPSIS[] = "...";
+static const char WRAP_ELLIPSIS[] = UI_ELLIPSIS;
 
 /** Length of the word that starts at @s (up to the next space or the end). */
 static size_t word_length(const char *s) {

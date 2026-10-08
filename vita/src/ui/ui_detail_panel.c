@@ -8,6 +8,8 @@
 #include <string.h>
 
 #include "ui/ui_animation.h"
+#include "ui/ui_chrome_layout.h"
+#include "ui/ui_component.h"
 #include "ui/ui_motion.h"
 #include "ui/ui_text.h"
 #include "ui/ui_text_wrap.h"
@@ -15,8 +17,6 @@
 
 /** Bytes of a fitted text, with its terminator. Longer texts are cut at a character boundary. */
 #define FIT_MAX 64
-
-static const char FIT_ELLIPSIS[] = "...";
 
 /** A text fitted to a width, kept until the text changes. */
 typedef struct fit_cache_t {
@@ -56,20 +56,21 @@ static void copy_utf8(char *dst, size_t size, const char *src) {
   dst[n] = '\0';
 }
 
-/** Remove the last UTF-8 character of @s. */
-static void drop_last_char(char *s) {
-  size_t n = strlen(s);
-  if (n == 0)
-    return;
-  n--;
-  while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80)
-    n--;
-  s[n] = '\0';
+/** Width of @s in the face that @ctx points to (a UiFace). */
+static int measure_face(const char *s, void *ctx) {
+  return ui_text_face_width(*(const UiFace *)ctx, s);
+}
+
+/** Width function for ui_text_wrap(): the T16 face the message is drawn in. */
+static int measure_t16(const char *s, void *ctx) {
+  (void)ctx;
+  return ui_text_face_width(UI_FACE_T16, s);
 }
 
 /**
- * fit_cached() - The text @src in @face, ended with "..." when it is wider than @max_w.
- * The measuring is redone only when @src differs from what @cache was made for.
+ * fit_cached() - The text @src in @face, ended with "..." when it is wider than @max_w
+ * (the shared ui_ellipsize_to_fit rule). The measuring is redone only when @src differs from
+ * what @cache was made for.
  *
  * @return the text to draw; its width is in cache->width
  */
@@ -78,26 +79,10 @@ static const char *fit_cached(FitCache *cache, UiFace face, const char *src, int
     return cache->out;
 
   copy_utf8(cache->src, sizeof(cache->src), src);
-  strcpy(cache->out, cache->src);
+  ui_ellipsize_to_fit(cache->src, max_w, measure_face, &face, cache->out, sizeof(cache->out));
   cache->width = ui_text_face_width(face, cache->out);
-
-  char body[FIT_MAX];
-  strcpy(body, cache->src);
-  while (cache->width > max_w && body[0]) {
-    drop_last_char(body);
-    size_t room = sizeof(cache->out) - sizeof(FIT_ELLIPSIS);
-    copy_utf8(cache->out, room + 1, body);
-    strcat(cache->out, FIT_ELLIPSIS);
-    cache->width = ui_text_face_width(face, cache->out);
-  }
   cache->valid = true;
   return cache->out;
-}
-
-/** Width function for ui_text_wrap(): the T16 face the message is drawn in. */
-static int measure_t16(const char *s, void *ctx) {
-  (void)ctx;
-  return ui_text_face_width(UI_FACE_T16, s);
 }
 
 /** The status message wrapped to the panel; rewrapped only when the message text changed. */
