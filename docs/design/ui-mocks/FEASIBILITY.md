@@ -1,47 +1,42 @@
-# UI mocks: feasibility notes (issue #271, round 2)
+# XMB mock: feasibility notes (issue #271, round 3)
 
-A short realism check per direction. Not an implementation plan. Nothing was built or measured on a Vita; draw-call counts and memory are estimates from the mocks. Budget: about 80 draw calls for Home, 15 MB textures in total.
+A short realism check for the chosen direction. Not an implementation plan. Nothing was built or measured on a Vita; counts and sizes are estimates. Budget: about 80 draw calls for Home, 15 MB of textures.
 
-Common to all four:
-- Rounded shapes, chips, tiles and bubbles are baked PNGs drawn tinted (1 call each). Variable-size panels are 9-slice (9 calls).
-- Backdrop blur ("glass") is a pre-blurred copy of the background, baked once per background change.
-- Gradients, ribbons and shades are `vita2d_draw_array` strips with per-vertex colour (1 call each).
-- Fonts: FreeType and the existing `ui_text.c` atlas. Each mock uses one family with 3 weights at 4 sizes. Only the chosen direction's font would ship.
-- Covers: optional fetch by title ID, cached to `ux0:data/vitarps5/covers/`, decoded once at about 244x326. The mocks use 4 covers (about 1.3 MB). The no-art fallback is a baked tile with a monogram.
-- Focus, input and popups reuse `ui_focus.c` (zones and modal stack), `ui_input.c` and the IME dialog. I did not verify that `ui_focus.c` handles 2-D movement; LiveArea's honeycomb needs a small neighbour table.
-- The "View on device" frame is mock-only.
+## What the mock uses, and what it becomes on the Vita
 
-## 1. XMB "Remote Play Bar" (CEO's pick so far)
-- **Elements to calls.** Background gradient: 1 `draw_array`. 6 ribbons: each a fill strip plus a highlight line, about 12 `draw_array` calls, updated on the CPU (30 Hz is enough). Dust: one baked star texture. Icons: duotone icon atlas, 1 quad each. Panels and options: tinted glass 9-slice. Selected-row size change is a swap between two pre-rendered font sizes, not a scale. Trail categories are small scaled icon quads.
-- **Draw calls.** Home about 95 as drawn, about 78 with the detail panel's rows joined into two text strings. Settings about 85. Options panel open +25. Connecting about 60. Overlay about 14.
-- **Textures.** Icon atlas 1.0 MB, covers 1.3 MB, console art 0.3 MB, star layer 0.5 MB, 9-slices 0.15 MB, fonts 2 MB. About 5 MB.
-- **Reuse.** `ui_focus.c` zones map to category row, list, value panel and options panel. `ui_navigation.c` wave sidebar is deleted.
-- **Build risk: low.** Watch the CPU cost of ribbon vertices while a stream starts (freeze them while connecting). True XMB lets categories slide off the left edge; this mock keeps them as a small tappable trail, which is our own addition.
+| Mock element | vita2d |
+|---|---|
+| Flowing wave background (5 ribbons, time-of-day tint, a few dust points) | One `vita2d_draw_array` strip per ribbon fill, plus one line strip per ribbon highlight, vertex colours fade the edges. Updated on the CPU at 30 Hz. Background gradient: 1 `draw_array`. About 12 calls. |
+| Category icons, list icons | The app's own 48 px nav icons (`icon_play`, `icon_settings`, `icon_controller`, `icon_profile`), drawn as quads. Selection is brightness (`vita2d_draw_texture_tint`), scale and a baked soft-glow texture behind it. No boxes. |
+| Console status ring and badge | One baked ring texture per state (ready, standby, PSN, dashed for unregistered) drawn tinted, the console card image inside it, and a small baked badge. The app's existing console card images are inverted for the dark UI; in the app this is a tint or a pre-inverted copy. |
+| Status dots | The existing `ellipse_green/yellow/red.png`, tinted for PSN and unregistered. |
+| Thin text with a soft shadow | The existing FreeType atlas. Roboto Light, Regular and Medium at 16, 20 and 28 px, plus Roboto Mono at 16 and 28 for numbers. The shadow is the same text drawn once more, offset and dark (doubles the text calls; skip it for small text if the budget needs it). |
+| Hints row | The existing button-symbol PNGs plus text. |
+| Settings and Profile pages | Flat `background.png`, text, 1 px lines as `vita2d_draw_rectangle`, selection as a translucent rectangle. Toggle is two rectangles. No 9-slice at all. |
+| Controller screen | The existing `controller_front.png` and `controller_back.png` (already how today's screen works), with the 3x6 touch grid as rectangles over the diagram and short labels as text. Callouts are text and a line. |
+| Popups and the options column | A dark translucent rectangle with a 1 px border, text rows, a gradient strip for selection. The blur behind a popup is a pre-blurred copy of the last frame, or just a darker scrim. |
+| Cover art | Optional fetch by title ID, cached to `ux0:data/vitarps5/covers/`, one texture at about 96x128 for the detail view. The fallback is a baked tile with a monogram. |
 
-## 2. LiveArea Modern
-- **Elements to calls.** Wallpaper: one quad plus a vignette `draw_array`. Bubbles: a baked glass orb texture, tinted ring per state (ready, standby, PSN, dashed for unregistered), console art quad, badge, 2 text lines. Floating bob is a position offset. The gate page: blurred cover background (pre-blurred), a Start orb, three glass frames (9-slice), the cover quad. The circular page reveal cannot be a true clip (no stencil in vita2d); it becomes a scaled disc sprite that grows to fill the screen, then a crossfade. Settings list: pill rows as baked tinted quads.
-- **Draw calls.** Home about 56. Gate about 65. Settings about 50. Connecting about 35 (8 ring segments as one `draw_array`). Overlay: 3 round stat bubbles, about 14.
-- **Textures.** Wallpaper 2.1 MB (960x544 RGBA; a 480x272 upscaled copy would be 0.5 MB), orb and ring variants 0.6 MB, covers 1.3 MB, blurred gate backgrounds 0.4 MB, icons 1.0 MB, fonts 2 MB. About 8 MB.
-- **Reuse.** `ui_console_cards.c` data model; zone focus for the two levels (home, gate); touch maps directly to bubbles.
-- **Build risk: medium.** The reveal and peel are bespoke animation code; honeycomb navigation needs 2-D focus. Wallpaper memory is the largest single item.
+## Draw-call estimates (paper)
+- Home about 70: ribbons and gradient 12, category row 6, list rows 4 x 6 = 24 (ring, art, badge, dot, two texts), detail view about 18, hints and top bar about 10.
+- Settings and Profile pages about 30 (groups, rows, lines, hints). Controller summary about 25. Mapping view about 45 (18 zones plus labels). Connecting about 28. Stream overlay about 8. Popups about 12.
+- This is under the 80-call Home budget. The thin-text shadow is the one thing that can push it over; drawing it only for titles keeps it in.
 
-## 3. Editorial
-- **Elements to calls.** Flat paper clear colour; optional baked grain tile (1 call). Hairlines and the accent block are `vita2d_draw_rectangle`. Selected row is an inverted rectangle plus text. Console names are text at 104 px (a new glyph size); the rest at 16/20/36. Cover has an accent rectangle behind it and a 2 px rectangle outline. Hard offset shadows are one more rectangle. No 9-slice, no blur.
-- **Draw calls.** Home about 48. Settings about 40. Connecting about 38. Overlay about 12 (paper panel plus text).
-- **Textures.** Covers 1.3 MB, icons 0.3 MB, console art 0.3 MB, fonts about 2.5 MB (the 104 px set is a small subset: digits and the letters in console names). About 4 MB.
-- **Reuse.** `ui_focus.c` list zones fit directly. Everything is rectangles and text.
-- **Build risk: low.** Smallest and fastest build. Product risks, not technical ones: a light theme costs power on an OLED Vita and may feel bright in the dark; text rows are smaller touch targets (mitigate with tall hit boxes).
+## Textures (estimate)
+Nav icons and symbols about 0.1 MB, console cards 0.6 MB (8 PNGs), rings, badges and glow about 0.2 MB, controller diagrams about 2.5 MB at source size (874x396 and 720x327 RGBA; scale down for a saving), background 960x960 palette image about 0.4 MB, 4 covers at 96x128 about 0.2 MB, Roboto atlas about 1.5 MB. **About 5.5 MB total.** The wave itself costs no texture.
 
-## 4. Cover-flow
-- **Elements to calls.** Room: 2 gradient `draw_array`. Floor grid: one baked 512x256 texture. Spotlight: baked radial quad. Cards: **vita2d has no perspective-textured quad** (`draw_array` is colour only; textured draws support scale and rotate, not skew). Plan: when a cover loads, bake two pre-warped copies (left-turned and right-turned) on the CPU with the reflection and a fade included, then draw each card as 1 quad. Alternative is a custom GXM vertex path using vita2d's texture program, which is not part of the public API. Focused card is the flat texture, scaled. Settings drum rows are baked tinted pills with a vertical scale to fake the tilt; the tilted detail card is a pre-warped 9-slice or a flat panel.
-- **Draw calls.** Home about 70. Settings about 55. Connecting about 40. Overlay about 12.
-- **Textures.** Covers 1.3 MB, 8 warped variants with reflections about 2.4 MB, floor and spot 0.6 MB, icons 1.0 MB, fonts 2 MB. About 7 MB.
-- **Reuse.** `ui_focus.c` as a one-axis list zone; the same zone for the drum.
-- **Build risk: high.** The warp bake is new code and the only direction that needs it; without covers the carousel falls back to plainer cards. The CSS 3-D transforms in the mock are exact; the Vita version is an approximation, so judge its final look from a prototype before committing.
+## Reuse
+- `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (three views, preset slots, mapping popup). Only the drawing colours and chrome change.
+- `ui_focus.c` zones: category row, list, options column, Settings groups and rows, controller views, popup. I did not verify that nothing in the focus manager assumes the wave sidebar.
+- `ui_input.c`, the IME dialog and `ui_text.c` atlas: reused. The wave sidebar in `ui_navigation.c` is deleted.
+
+## Build risk: low
+- The wave needs a CPU vertex update each frame; freeze or halve it while a stream is starting.
+- The glow is a baked texture drawn behind the selected icon; confirm it looks right on the Vita's OLED (the mock uses CSS drop-shadow).
+- Touch: the mock keeps left categories as a small tappable trail. True XMB lets them slide off; that is our addition for touch.
 
 ## Assumptions
-1. Stream overlay content (latency, FPS, bitrate, "Network Unstable") and Esc/Circle to leave the stream are assumed.
-2. Controller, Profile and Logs content is placeholder, to show structure.
-3. All counts are paper estimates. Texture sizes assume RGBA8 at the stated resolutions.
-4. Fonts are open-licence families per direction: Manrope, Nunito, Space Grotesk and Outfit (OFL). The licence file would ship with the winner.
-5. Art: covers, scene and wallpaper are AI-generated fictional images (checked by eye for logos and text; none found). Total image weight is under 0.3 MB.
+1. The three presets are today's Custom 1/2/3 slots. "Save" copies the active mapping into another slot; "Apply" makes a slot active.
+2. The stream overlay content and Esc/Circle to leave are assumed, as before.
+3. Logs has no existing icon, so the mock draws a simple list glyph.
+4. Console images are the app's existing card art. There is no PS4 "ready" image, so the mock tints the standby one.

@@ -1,59 +1,31 @@
-/* VitaRPS5 UI mocks - XMB direction tokens (issue #271).
-   Dark-first. Native target: 960x544 px on a 5" 220 ppi OLED/LCD.
-   Every value below maps to a constant in a future ui_theme.h. */
+/* VitaRPS5 UI mock - XMB tokens (issue #271, round 3).
+   True-XMB restraint: bare icons, thin type, light, almost no rounded corners.
+   Native target 960x544. Font: the app's own Roboto and Roboto Mono (fonts/). */
+@font-face{font-family:"Roboto";font-weight:100;src:url(fonts/Roboto-Thin.ttf)}
+@font-face{font-family:"Roboto";font-weight:300;src:url(fonts/Roboto-Light.ttf)}
+@font-face{font-family:"Roboto";font-weight:400;src:url(fonts/Roboto-Regular.ttf)}
+@font-face{font-family:"Roboto";font-weight:500;src:url(fonts/Roboto-Medium.ttf)}
+@font-face{font-family:"Roboto Mono";font-weight:400;src:url(fonts/RobotoMono-Regular.ttf)}
 :root {
-  /* Font: Manrope (SIL OFL). Three weights only: 500 / 700 / 800. */
-  --font: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --w-regular: 500;
-  --w-strong: 700;
-  --w-heavy: 800;
+  --font: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
+  --w-thin: 100; --w-light: 300; --w-regular: 400; --w-strong: 500; --w-heavy: 500;
 
-  /* Type scale, 4 steps (px at native 960x544). Nothing below 16. */
-  --t-cap: 16px;    /* captions, hints, tags */
-  --t-body: 20px;   /* list rows, buttons, body */
-  --t-title: 28px;  /* headings, selected item */
-  --t-display: 48px;/* hero names, step numbers */
+  /* 4-step type scale (px at native). Nothing below 16. */
+  --t-cap: 16px; --t-body: 20px; --t-title: 28px; --t-display: 48px;
 
-  /* Colour: surfaces */
-  --bg-0: #070a12;
-  --bg-1: #0d1322;
-  --surface: #151d31;
-  --surface-2: #1f2a45;
-  --line: rgba(255, 255, 255, 0.10);
-  --scrim: rgba(4, 7, 14, 0.72);
+  --bg-0: #060a16; --bg-1: #0a1020; --surface: rgba(8, 14, 30, 0.82); --surface-2: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.26); --scrim: rgba(3, 6, 16, 0.55);
 
-  /* Colour: text (all pass AA on --bg-1 and --surface-2) */
-  --text: #f3f6fc;      /* 16.9:1 on bg-1 */
-  --text-2: #bcc6da;    /* 10.0:1 on bg-1 */
-  --text-3: #93a0ba;    /* 6.4:1 on bg-1, 4.9:1 on surface-2 */
+  --text: #ffffff; --text-2: #dde3f0; --text-3: #b3bdd2;
+  --accent: #6db4ff; --accent-ink: #04101f;
+  --ok: #4ee09a; --warn: #ffbe4d; --err: #ff8080; --psn: #a9b2ff; --focus-ring: #ffffff;
+  --hud-bg: rgba(6, 10, 22, 0.6);
 
-  /* Colour: brand + semantic */
-  --accent: #4da3ff;        /* primary action, focus */
-  --accent-ink: #04101f;    /* text on accent: 8.3:1 */
-  --ok: #3ddc97;
-  --warn: #ffb547;
-  --err: #ff7a7a;
-  --psn: #9aa6ff;           /* PSN / remote route */
-  --focus-ring: #ffffff;
-  --hud-bg: rgba(10, 16, 34, 0.72); /* stream overlay panels */
-
-  /* Per-page colours (Launcher uses all three, others use --accent) */
-  --c-home: #5ab0ff;
-  --c-settings: #ffc247;
-  --c-profile: #b794ff;
-
-  /* Spacing: 8 px grid */
   --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px;
+  /* radii: almost none, true XMB is square */
+  --r-sm: 0px; --r-md: 2px; --r-lg: 4px; --r-pill: 0px;
 
-  /* Radii: 3 sizes (+ --r-pill for full pills). 9-slice PNG panels are cut at these. */
-  --r-sm: 8px;
-  --r-md: 16px;
-  --r-lg: 28px;
-  --r-pill: 999px; /* pills and circles: shape, not a size step */
-
-  /* Motion: one curve, three durations */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --d-fast: 120ms;  /* focus, press */
-  --d-base: 240ms;  /* selection move, panel slide */
-  --d-slow: 480ms;  /* screen change, carousel jump */
+  --ease: cubic-bezier(0.22, 0.7, 0.2, 1);
+  --d-fast: 150ms; --d-base: 300ms; --d-slow: 600ms;
 }

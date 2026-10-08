@@ -1,97 +1,76 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VitaRPS5 UI Directions</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<title>VitaRPS5 XMB Mock</title>
 <link rel="stylesheet" href="tokens-xmb.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:radial-gradient(90% 40% at 50% 0,#111a2c,var(--bg-0));color:var(--text);font-family:var(--font);font-weight:var(--w-regular);line-height:1.5;-webkit-font-smoothing:antialiased}
-main{max-width:1280px;margin:0 auto;padding:var(--s6) var(--s3)}
-h1{font-size:var(--t-display);font-weight:var(--w-heavy);line-height:1.05;margin-bottom:var(--s2)}
-.lede{font-size:var(--t-body);color:var(--text-2);max-width:820px;margin-bottom:var(--s5)}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4)}
-@media (max-width:900px){.grid{grid-template-columns:1fr}}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column;position:relative}
-.card.pick{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 20px 60px rgba(77,163,255,.18)}
-.badge{position:absolute;left:16px;top:16px;z-index:2;background:var(--accent);color:var(--accent-ink);font-weight:var(--w-heavy);font-size:var(--t-cap);padding:4px 14px;border-radius:var(--r-pill);box-shadow:0 6px 18px rgba(0,0,0,.4)}
-.card a.th{display:block;line-height:0;border-bottom:1px solid var(--line);overflow:hidden}
-.card img{width:100%;height:auto;display:block;transition:transform var(--d-slow) var(--ease)}
-.card a.th:hover img{transform:scale(1.02)}
-.body{padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);flex:1}
-.num{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
-h2{font-size:var(--t-title);font-weight:var(--w-heavy);line-height:1.15}
-.card p{color:var(--text-2)}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
-@media (max-width:600px){.two{grid-template-columns:1fr}}
-h3{font-size:var(--t-cap);font-weight:var(--w-heavy);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
-.pros h3{color:var(--ok)} .cons h3{color:var(--warn)}
-ul{padding-left:20px;color:var(--text-2);font-size:var(--t-cap);line-height:1.5} li{margin-bottom:4px}
-.open{margin-top:auto;display:inline-flex;align-self:flex-start;align-items:center;height:48px;padding:0 var(--s3);border-radius:var(--r-pill);background:var(--accent);color:var(--accent-ink);font-weight:var(--w-heavy);text-decoration:none;font-size:var(--t-body);white-space:nowrap}
-.open:hover{filter:brightness(1.1)}
-.open:focus-visible,.card a:focus-visible{outline:3px solid var(--focus-ring);outline-offset:3px}
-.calls{font-size:var(--t-cap);color:var(--text-3)}
-.rec{background:var(--surface-2);border-left:6px solid var(--accent);border-radius:var(--r-md);padding:var(--s3);margin-top:var(--s5);color:var(--text-2)}
-.rec b{color:var(--text)}
-section{margin-top:var(--s5)}
-code{background:var(--bg-1);padding:1px 6px;border-radius:var(--r-sm);font-size:.92em;color:var(--text)}
-footer{margin-top:var(--s5);font-size:var(--t-cap);color:var(--text-3)}
+body{background:radial-gradient(90% 50% at 50% 0,#14203c,#060a16);color:var(--text);font-family:var(--font);font-weight:var(--w-light);line-height:1.5;-webkit-font-smoothing:antialiased}
+main{max-width:1200px;margin:0 auto;padding:var(--s5) var(--s3) var(--s6)}
+header{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3)}
+header img{height:56px}
+h1{font-size:var(--t-display);font-weight:var(--w-thin);letter-spacing:-.01em;line-height:1.05}
+.lede{font-size:var(--t-body);color:var(--text-2);max-width:780px;margin-bottom:var(--s4)}
+.open{display:inline-block;margin:0 var(--s2) var(--s4) 0;padding:12px var(--s3);border:1px solid #fff;color:#fff;text-decoration:none;font-size:var(--t-body);font-weight:var(--w-light);letter-spacing:.02em;transition:background var(--d-fast)}
+.open:hover,.open:focus-visible{background:rgba(255,255,255,.18);outline:none}
+.hero{display:grid;grid-template-columns:1fr;gap:var(--s3);margin-bottom:var(--s5)}
+.hero img{width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,.18)}
+h2{font-size:var(--t-title);font-weight:var(--w-light);margin:var(--s5) 0 var(--s2);padding-bottom:8px;border-bottom:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:var(--s3) var(--s2)}
+.grid a{color:inherit;text-decoration:none;display:block}
+.grid img{width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,.16);transition:border-color var(--d-fast),filter var(--d-fast);filter:brightness(.92)}
+.grid a:hover img,.grid a:focus-visible img{border-color:#fff;filter:brightness(1.1)}
+.grid a:focus-visible{outline:none}
+.grid span{display:block;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2);margin-top:6px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+ul{padding-left:20px;font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-2)} li{margin-bottom:6px}
+p.note{font-size:var(--t-cap);font-weight:var(--w-regular);color:var(--text-3);margin-top:var(--s2)}
+kbd{font-family:var(--font-mono);color:#fff;border:1px solid var(--line);padding:0 6px}
 </style></head><body><main>
-<h1>VitaRPS5: four UI directions</h1>
-<p class="lede">Issue #271, round 2. Four finished-looking mocks at the Vita's native 960&times;544. Keys: arrows = D-pad, Enter = Cross, Esc = Circle, T = Triangle, Q/E = L/R, Space = Start; clicks act as touch. Each has a <b>View on device</b> toggle that frames the screen in a generic handheld, and covers Home, Settings, Connecting (8 steps), the in-stream overlay, network unstable, Connect via, Register PIN, the error popup, and ready / standby / not registered / PSN-only consoles. Game covers are fictional, generated art. Everything is drawable with vita2d; see <code>FEASIBILITY.md</code>.</p>
+<header><img src="assets/Vita_RPS5_Logo.png" alt="Vita RPS5"><h1>XMB mock</h1></header>
+<p class="lede">The chosen direction for issue #271: a true XMB. Bare icons and thin type on a flowing wave, focus shown by brightness and glow, almost no rounded corners, hints in a quiet bottom row. Click any screen below to open it at that point. Everything is 960&times;544 and driven like the Vita: <kbd>arrows</kbd> D-pad, <kbd>Enter</kbd> Cross, <kbd>Esc</kbd> Circle, <kbd>T</kbd> Triangle, <kbd>S</kbd> Square, <kbd>Q</kbd>/<kbd>E</kbd> L/R, <kbd>Space</kbd> Start; clicks act as touch.</p>
+<a class="open" href="xmb.html">Open the mock</a><a class="open" href="xmb.html#device">Open on device</a>
+<div class="hero"><img src="screens/device.jpg" alt="XMB Home inside a generic handheld frame" width="1100" height="621"></div>
 
+<h2>Home: the XMB bar</h2>
 <div class="grid">
-<article class="card pick">
- <span class="badge">CEO's pick so far</span>
- <a class="th" href="xmb.html" aria-label="Open XMB mock"><img src="thumb-xmb.png" alt="XMB Home: category row, console list and detail panel over animated ribbons" width="960" height="544"></a>
- <div class="body">
-  <div class="num">Direction 1</div><h2>XMB &ldquo;Remote Play Bar&rdquo;</h2>
-  <p>A row of categories over a vertical list, on silk ribbons tinted by the time of day. Settings are items with a value panel that previews each choice, and Triangle slides in an options panel. This round adds ribbon depth and dust, a custom duotone icon set, real cover art, staggered transitions, and a compressed trail so categories left of the selected one stay on screen and tappable.</p>
-  <div class="two"><div class="pros"><h3>Pros</h3><ul><li>Most controller-native: left/right category, up/down item.</li><li>One pattern covers all five areas; new screens are cheap.</li><li>Ribbons are about 12 draw calls and no big texture.</li><li>Settings panel shows what each option means.</li></ul></div>
-  <div class="cons"><h3>Cons</h3><ul><li>The running game is a small thumbnail, no hero moment.</li><li>Fifteen settings in one vertical list.</li><li>Home is about 95 draw calls as drawn, over the 80 target until trimmed.</li><li>Trail of small icons on the left is our own variation, not true XMB.</li></ul></div></div>
-  <div class="calls">Home about 95 draw calls (about 78 trimmed) &middot; about 5 MB textures</div>
-  <a class="open" href="xmb.html">Open XMB mock</a>
- </div>
-</article>
-
-<article class="card">
- <a class="th" href="livearea.html" aria-label="Open LiveArea Modern mock"><img src="thumb-livearea.png" alt="LiveArea Modern Home: honeycomb of glass console bubbles over a wallpaper" width="960" height="544"></a>
- <div class="body">
-  <div class="num">Direction 2</div><h2>LiveArea Modern</h2>
-  <p>The Vita's own idea, grown up. Consoles are glass bubbles in a honeycomb on a soft wallpaper, with a ring that shows state. Opening one peels into its own gate page: a big Start bubble, the game cover, and floating frames for route and last session. Tools (Settings, Controller, Profile, Logs) sit on a second page. Round bubbles also drive the stream overlay.</p>
-  <div class="two"><div class="pros"><h3>Pros</h3><ul><li>Feels native to the device and to Vita owners.</li><li>Great touch: big round targets, page peel to go back.</li><li>Gate page uses the cover and shows state at a glance.</li><li>Friendly and warm; easy to extend with more bubbles.</li></ul></div>
-  <div class="cons"><h3>Cons</h3><ul><li>Two levels: open the gate, then Start. One more press to play.</li><li>Needs a wallpaper texture (about 2 MB) and glass bubbles baked per state.</li><li>The circular reveal becomes a scaled disc and a fade, not a true clip.</li><li>Bubbles hold few details, so busy consoles need the gate page.</li></ul></div></div>
-  <div class="calls">Home about 56 draw calls, gate about 65 &middot; about 8 MB textures</div>
-  <a class="open" href="livearea.html">Open LiveArea mock</a>
- </div>
-</article>
-
-<article class="card">
- <a class="th" href="editorial.html" aria-label="Open Editorial mock"><img src="thumb-editorial.png" alt="Editorial Home: huge console name in black type on paper with an orange accent" width="960" height="544"></a>
- <div class="body">
-  <div class="num">Direction 3</div><h2>Editorial</h2>
-  <p>Type first. A paper-coloured screen, black ink, one orange accent, and the selected console name set at 104 px, with the rest of the list in a quiet index. Motion is in the type: names rise and swap, and in Settings the giant group title changes as you scroll. Selection is an inverted bar. Almost no images are needed, so it works with or without covers.</p>
-  <div class="two"><div class="pros"><h3>Pros</h3><ul><li>Cheapest to draw: rectangles and text, about 48 calls.</li><li>Best legibility on a 5 inch screen; the most distinctive look.</li><li>No dependency on covers or console art quality.</li><li>Quick to build and easy to localise.</li></ul></div>
-  <div class="cons"><h3>Cons</h3><ul><li>A light theme uses more power on an OLED Vita and can feel bright in a dark room.</li><li>Least game-like; the cover is small and decorative.</li><li>Text rows are smaller touch targets than tiles or bubbles.</li><li>Needs a 104 px glyph set (small atlas, but another size to load).</li></ul></div></div>
-  <div class="calls">Home about 48 draw calls &middot; about 4 MB textures</div>
-  <a class="open" href="editorial.html">Open Editorial mock</a>
- </div>
-</article>
-
-<article class="card">
- <a class="th" href="coverflow.html" aria-label="Open Cover-flow mock"><img src="thumb-coverflow.png" alt="Cover-flow Home: perspective carousel of game covers with reflections and a spotlight floor" width="960" height="544"></a>
- <div class="body">
-  <div class="num">Direction 4</div><h2>Cover-flow</h2>
-  <p>A spatial shelf. Each console is a game cover in a perspective carousel with a spotlight, floor grid and reflections; side cards turn away, the focused one steps forward. Settings are a rotating drum of rows next to a tilted detail card, and Connecting stacks the eight steps in depth. It puts the game art first.</p>
-  <div class="two"><div class="pros"><h3>Pros</h3><ul><li>Shows game art best; the most premium and the biggest wow.</li><li>Depth makes focus obvious without extra chrome.</li><li>The drum and step stack keep the spatial idea through every screen.</li><li>Works well with few consoles.</li></ul></div>
-  <div class="cons"><h3>Cons</h3><ul><li>Highest build risk: vita2d has no perspective textured quad, so side cards need warped textures baked at load.</li><li>About 7 MB of textures with the baked angles and reflections.</li><li>Leans on cover art; fallback cards look plainer.</li><li>The drum list is the least efficient for 15 settings.</li></ul></div></div>
-  <div class="calls">Home about 70 draw calls &middot; about 7 MB textures</div>
-  <a class="open" href="coverflow.html">Open Cover-flow mock</a>
- </div>
-</article>
+<a href="xmb.html#home"><img src="screens/home.jpg" alt="Consoles, Living Room ready" width="720" height="408"><span>Consoles: ready, with game and cover</span></a>
+<a href="xmb.html#consoles-standby"><img src="screens/consoles-standby.jpg" alt="Den on standby" width="720" height="408"><span>Console on standby (amber ring, moon badge)</span></a>
+<a href="xmb.html#consoles-unregistered"><img src="screens/consoles-unregistered.jpg" alt="Bedroom not registered" width="720" height="408"><span>Not registered (dashed ring, lock badge, no cover art)</span></a>
+<a href="xmb.html#consoles-psn"><img src="screens/consoles-psn.jpg" alt="Office PSN only" width="720" height="408"><span>PSN-only route (purple ring, globe badge)</span></a>
+<a href="xmb.html#options"><img src="screens/options.jpg" alt="Options column" width="720" height="408"><span>Triangle options column</span></a>
+<a href="xmb.html#xmb-settings"><img src="screens/xmb-settings.jpg" alt="Settings category lists five groups" width="720" height="408"><span>Settings category: five groups</span></a>
+<a href="xmb.html#xmb-controller"><img src="screens/xmb-controller.jpg" alt="Controller category lists presets" width="720" height="408"><span>Controller category: three presets</span></a>
+<a href="xmb.html#xmb-logs"><img src="screens/xmb-logs.jpg" alt="Logs category" width="720" height="408"><span>Logs category</span></a>
 </div>
 
-<div class="rec"><b>Designer's recommendation.</b> Keep XMB as the base, since it is your pick and the cheapest to get right. If you want one more ingredient, take LiveArea's gate page for a console (big Start button, cover, last session) as the screen that opens when you press Cross on a console, then keep XMB for everything else. Editorial is the best choice if build time and legibility matter most; Cover-flow is the one to pick only if you accept the perspective-texture risk for the sake of the wow.</div>
+<h2>Settings and Profile pages</h2>
+<div class="grid">
+<a href="xmb.html#settings"><img src="screens/settings.jpg" alt="Settings page" width="720" height="408"><span>Settings: groups left, rows with values right</span></a>
+<a href="xmb.html#profile"><img src="screens/profile.jpg" alt="Profile page" width="720" height="408"><span>Profile: same page pattern</span></a>
+</div>
 
-<footer>Game covers and the stream scene are AI-generated fictional art with no marks. Console renders are generic placeholders. Blur and glow in the mocks become pre-blurred textures and 9-slice panels on the Vita. Each direction has its own token file (<code>tokens-*.css</code>). Open files directly in a browser; no build step. Fonts load from Google Fonts.</footer>
+<h2>Controller</h2>
+<div class="grid">
+<a href="xmb.html#controller"><img src="screens/controller.jpg" alt="Controller summary" width="720" height="408"><span>Summary: Vita diagram with L1 / R1 callouts</span></a>
+<a href="xmb.html#controller-back"><img src="screens/controller-back.jpg" alt="Controller summary page 2" width="720" height="408"><span>Summary page 2: rear touch zones</span></a>
+<a href="xmb.html#controller-front"><img src="screens/controller-front.jpg" alt="Front touch mapping" width="720" height="408"><span>Front touch mapping (3&times;6 zones)</span></a>
+<a href="xmb.html#controller-rear"><img src="screens/controller-rear.jpg" alt="Rear touch mapping" width="720" height="408"><span>Rear touch mapping</span></a>
+<a href="xmb.html#mapping-popup"><img src="screens/mapping-popup.jpg" alt="Assign output popup" width="720" height="408"><span>Assign an output to a zone</span></a>
+</div>
+
+<h2>Connecting, streaming and popups</h2>
+<div class="grid">
+<a href="xmb.html#waking"><img src="screens/waking.jpg" alt="Connecting, 8 steps" width="720" height="408"><span>Connecting: 8 steps</span></a>
+<a href="xmb.html#stream"><img src="screens/stream.jpg" alt="In-stream overlay" width="720" height="408"><span>In-stream overlay</span></a>
+<a href="xmb.html#unstable"><img src="screens/unstable.jpg" alt="Network unstable" width="720" height="408"><span>Network unstable</span></a>
+<a href="xmb.html#chooser"><img src="screens/chooser.jpg" alt="Connect via" width="720" height="408"><span>Connect via LAN or PSN</span></a>
+<a href="xmb.html#register"><img src="screens/register.jpg" alt="Register PIN" width="720" height="408"><span>Register with an 8-digit PIN</span></a>
+<a href="xmb.html#error"><img src="screens/error.jpg" alt="Error popup" width="720" height="408"><span>Error popup</span></a>
+</div>
+
+<div class="cols">
+<div><h2>What is real</h2><ul><li>Fonts: the app's own Roboto and Roboto Mono (<code>fonts/</code>).</li><li>Images from the app's assets (<code>assets/</code>): console cards, logos, nav icons, button symbols, status ellipses, controller diagrams, background.</li><li>Game covers and the stream scene are fictional generated art (<code>img/</code>).</li></ul></div>
+<div><h2>Notes</h2><ul><li>Glow and blur here become baked textures on the Vita; see <code>FEASIBILITY.md</code>.</li><li>PS4 images only exist as standby and off, so the ready PS4 colour is a tint in the mock.</li><li>The device frame is a generic handheld.</li></ul></div>
+</div>
 </main></body></html>
