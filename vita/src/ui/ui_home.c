@@ -36,6 +36,7 @@
 #include "ui/ui_input.h"
 #include "ui/ui_options_column.h"
 #include "ui/ui_popup.h"
+#include "ui/ui_room_icons.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -55,8 +56,7 @@ typedef enum home_category_t {
 
 /** Item icons, in the order of HOME_ICON_FILES. */
 typedef enum home_icon_t {
-  HOME_ICON_TV = 0,
-  HOME_ICON_VIDEO,
+  HOME_ICON_VIDEO = 0,
   HOME_ICON_NETWORK,
   HOME_ICON_DISPLAY,
   HOME_ICON_CONTROLS,
@@ -74,8 +74,8 @@ typedef enum home_icon_t {
 #define HOME_ICON_DIR "app0:/assets/icons/"
 
 static const char *const HOME_ICON_FILES[HOME_ICON_COUNT] = {
-    "tv",         "video", "network", "display", "controls", "advanced", "account",
-    "connection", "psn",   "slot1",   "slot2",   "slot3",    "search",
+    "video",      "network", "display", "controls", "advanced", "account",
+    "connection", "psn",     "slot1",   "slot2",    "slot3",    "search",
 };
 
 /** A non-console row: name, optional second line, icon. */
@@ -255,7 +255,7 @@ static int fill_static_items(const HomeEntry *entries, int count) {
 /** Row appearance for a classified console. */
 static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state) {
   UiXmbItem item = {
-      .icon = s_item_icons[HOME_ICON_TV],
+      .icon = ui_room_icons_get(ui_room_icon_for_host(card->host), ROOM_ICON_SIZE_ROW),
       .name = card->name,
       .status = ui_console_status_label(state.status),
       .status_dot = true,

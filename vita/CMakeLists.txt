@@ -10,6 +10,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c
+    src/room_icons.c
+    src/ui/ui_room_icons.c
     src/context.c
     src/discovery.c
     src/discovery_host.c
@@ -295,7 +297,6 @@ if(CHIAKI_IS_VITA)
         # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
         FILE assets/icons/controller.png assets/icons/controller.png
         FILE assets/icons/profile.png assets/icons/profile.png
-        FILE assets/icons/tv.png assets/icons/tv.png
         FILE assets/icons/video.png assets/icons/video.png
         FILE assets/icons/network.png assets/icons/network.png
         FILE assets/icons/display.png assets/icons/display.png
@@ -310,13 +311,30 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/search.png assets/icons/search.png
         FILE assets/icons/wifi.png assets/icons/wifi.png
         FILE assets/icons/battery.png assets/icons/battery.png
-        # Connecting screen: 32 px page-title icons and the 64 px room icon inside the ring
+        # Connecting screen: 32 px page-title icons. Room icons (list rows 38, picker 48, ring 64)
         FILE assets/icons/page_lan.png assets/icons/page_lan.png
         FILE assets/icons/page_globe.png assets/icons/page_globe.png
         FILE assets/icons/page_moon.png assets/icons/page_moon.png
         FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
-        FILE assets/icons/tv_64.png assets/icons/tv_64.png
+        FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
+        FILE assets/icons/room_tv_48.png assets/icons/room_tv_48.png
+        FILE assets/icons/room_tv_64.png assets/icons/room_tv_64.png
+        FILE assets/icons/room_sofa_38.png assets/icons/room_sofa_38.png
+        FILE assets/icons/room_sofa_48.png assets/icons/room_sofa_48.png
+        FILE assets/icons/room_sofa_64.png assets/icons/room_sofa_64.png
+        FILE assets/icons/room_bed_38.png assets/icons/room_bed_38.png
+        FILE assets/icons/room_bed_48.png assets/icons/room_bed_48.png
+        FILE assets/icons/room_bed_64.png assets/icons/room_bed_64.png
+        FILE assets/icons/room_bunk_38.png assets/icons/room_bunk_38.png
+        FILE assets/icons/room_bunk_48.png assets/icons/room_bunk_48.png
+        FILE assets/icons/room_bunk_64.png assets/icons/room_bunk_64.png
+        FILE assets/icons/room_desk_38.png assets/icons/room_desk_38.png
+        FILE assets/icons/room_desk_48.png assets/icons/room_desk_48.png
+        FILE assets/icons/room_desk_64.png assets/icons/room_desk_64.png
+        FILE assets/icons/room_house_38.png assets/icons/room_house_38.png
+        FILE assets/icons/room_house_48.png assets/icons/room_house_48.png
+        FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         # Professional UI assets (gradient background, logo, controller diagrams)

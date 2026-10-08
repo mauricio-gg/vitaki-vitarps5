@@ -9,6 +9,7 @@
 #include "config_hosts.h"
 #include "context.h"
 #include "host.h"
+#include "room_icons.h"
 #include "token_crypto.h"
 #include "util.h"
 
@@ -59,6 +60,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->show_only_paired = false;
   cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
   cfg->show_button_hints = true;
+  cfg->room_icons.count = 0;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
   vita_logging_config_set_defaults(&cfg->logging);
 }
@@ -564,6 +566,7 @@ void config_parse(VitaChiakiConfig *cfg) {
 
   config_parse_registered_hosts(cfg, parsed);
   config_parse_manual_hosts(cfg, parsed);
+  room_icons_parse(&cfg->room_icons, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
                                     migrated_resolution_policy, migrated_plaintext_tokens,
@@ -768,6 +771,7 @@ bool config_serialize(VitaChiakiConfig *cfg) {
 
   config_serialize_manual_hosts(fp, cfg);
   config_serialize_registered_hosts(fp, cfg);
+  room_icons_serialize(fp, &cfg->room_icons);
   bool write_ok = (ferror(fp) == 0) && (fclose(fp) == 0);
   if (!write_ok) {
     LOGE("Failed to flush %s", CFG_FILENAME);

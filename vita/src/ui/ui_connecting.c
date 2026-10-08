@@ -21,6 +21,7 @@
 #include "ui/ui_input.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_page_frame.h"
+#include "ui/ui_room_icons.h"
 #include "ui/ui_spinner.h"
 #include "ui/ui_state.h"
 #include "ui/ui_steps.h"
@@ -29,8 +30,6 @@
 #include "ui/ui_theme.h"
 #include "ui/ui_top_bar.h"
 #include "ui/ui_type_logo.h"
-
-#define ROOM_ICON_PATH "app0:/assets/icons/tv_64.png"
 
 /** Centre of the art box (halo, spinner and ring are centred on it). */
 #define ART_CX (UI_CONN_ART_X + UI_CONN_ART_W / 2)
@@ -42,7 +41,6 @@
 /** Longest console name kept (display_name is shorter); the name is ellipsized to the art box. */
 #define NAME_MAX 96
 
-static vita2d_texture *s_room_icon;
 static UiTextButton s_cancel;
 static UiHintLayout s_hints;
 static const char CANCEL_LABEL[] = "Cancel";
@@ -63,7 +61,6 @@ static UiConnectingFlow s_route_flow = UI_FLOW_COUNT;
 static int s_route_w;
 
 void ui_connecting_init(void) {
-  s_room_icon = ui_load_png_linear(ROOM_ICON_PATH);
   ui_connecting_ring_init();
   ui_spinner_init();
   ui_page_frame_init();
@@ -210,7 +207,8 @@ bool ui_connecting_frame(void) {
                      ui_connecting_flow_title(flow, step));
   ui_top_bar_draw(NULL);
   ui_draw_connecting_ring(ART_CX - UI_RING_SIZE / 2, ART_CY - UI_RING_SIZE / 2, UI_RING_SIZE,
-                          s_room_icon, ring_state(host));
+                          ui_room_icons_get(ui_room_icon_for_host(host), ROOM_ICON_SIZE_RING),
+                          ring_state(host));
   ui_spinner_draw(UI_SPINNER_LARGE, ART_CX, ART_CY);
   draw_who(host, flow);
   ui_draw_steps(UI_STEPS_X, UI_STEPS_Y, steps, step_count, step);
