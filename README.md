@@ -109,7 +109,7 @@ If you enjoy VitaRPS5, you can support its development.
 
 ## Credits
 
-VitaRPS5 is built on the [Chiaki](https://git.sr.ht/~thestr4ng3r/chiaki) Remote Play stack, created by Florian Märkl. PS Vita support was pioneered by [AAGaming](https://github.com/AAGaming00) and significantly enhanced by [ywnico](https://github.com/ywnico) in [vitaki-fork](https://github.com/ywnico/vitaki-fork). Special thanks to [Epicpkmn11](https://github.com/Epicpkmn11) for motion control contributions.
+VitaRPS5 is its own project now. It was originally based on Vitaki, [ywnico's vitaki-fork](https://github.com/ywnico/vitaki-fork), which is itself a fork of [Chiaki](https://git.sr.ht/~thestr4ng3r/chiaki) by Florian Märkl, by way of [AAGaming's](https://github.com/AAGaming00) Chiaki Vita port. Special thanks to [Epicpkmn11](https://github.com/Epicpkmn11) for motion control contributions.
 
 Thanks also to the open-source tools that made reverse engineering possible: [Rizin](https://rizin.re), [Cutter](https://cutter.re), [Frida](https://www.frida.re) and [x64dbg](https://x64dbg.com), and to [delroth](https://github.com/delroth) for registration and wakeup protocol analysis, [grill2010](https://github.com/grill2010) for PSN OAuth analysis, and [FioraAeterna](https://github.com/FioraAeterna) for FEC and error correction insights.
 
