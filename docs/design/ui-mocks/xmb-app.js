@@ -47,7 +47,7 @@ function toast(text,tone='',icon=''){
  S.toast={text,tone,icon};paintToast();
  clearTimeout(toastTimer);toastTimer=setTimeout(()=>{S.toast=null;paintToast();},3000);
 }
-const paintToast=()=>{$('#toastLayer').innerHTML=S.toast?toastHTML(S.toast):'';};
+const paintToast=()=>{$('#screen').classList.toggle('toast-on',!!S.toast);$('#toastLayer').innerHTML=S.toast?toastHTML(S.toast):'';};
 function popup(p){S.pop=Object.assign({size:'s',sel:0},p);paintPop();}
 function closePop(){S.pop=null;paintPop();}
 function paintPop(){
@@ -590,7 +590,7 @@ document.addEventListener('pointerup',()=>{if(sw&&sw.moved)suppressUntil=Date.no
 document.addEventListener('click',e=>{
  if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
- if(S.opts&&!S.pop&&!e.target.closest('#opts')&&!e.target.closest('[data-do=btn]')){S.opts=false;paintOpts();e.stopPropagation();return;}
+ if(S.opts&&!S.pop&&!e.target.closest('#opts')){S.opts=false;paintOpts();e.stopPropagation();return;}
  const p=e.target.closest('[data-pop]');if(p&&S.pop){S.pop.sel=+p.dataset.pop;popPress(+p.dataset.pop);return;}
  const el=e.target.closest('[data-do]');if(el){
   if(S.pop&&!['pop','scrim'].includes(el.dataset.do)&&el.dataset.do!=='btn')return;

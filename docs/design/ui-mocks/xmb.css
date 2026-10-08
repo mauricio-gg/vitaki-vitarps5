@@ -304,5 +304,6 @@ img.g{height:24px}
 .lgn .qr{cursor:pointer}
 .stage img{-webkit-user-drag:none}
 
-#flt [data-do=kbflt]{position:relative}
+#flt [data-do=kbflt]{position:relative;display:flex;align-items:center;height:32px}
 #flt [data-do=kbflt]::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px}
+.toast-on #pdesc{visibility:hidden}

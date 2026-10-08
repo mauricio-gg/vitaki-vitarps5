@@ -172,7 +172,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Constants | `UI_OPTS_X` 608 (w 352 to the right edge), `UI_OPTS_PAD` 48, `UI_OPTS_ROW_H` 56, first row y 160 |
 | Anatomy | Slides in from the right 300 ms, left edge feathered into `PANEL_EDGE`. Console name T28 at y 88, "Options" T16 at y 120, rows T20 with 1 px `LINE_FAINT` divider. Focused row: TEXT, 2 px white underline, glow. Home dims behind it. |
 | Items | Connect (Wake and connect on standby) / Connect via (only when Local and Internet both exist) / Re-pair / Change icon. Unpaired consoles get Pair / Change icon. Cooldown disables Connect and Connect via. |
-| Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); a tap anywhere outside closes the column and is consumed (it never also acts on what is underneath). While open, the category bar, list, detail panel, filter line and top bar dim to 25%; the column and the hint row stay bright. |
+| Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); every tap outside the column, including the hint-row buttons, closes it and is consumed (nothing else runs). While open, the category bar, list, detail panel, filter line and top bar dim to 25%; the column and the hint row stay bright. |
 
 ### C06 HintRow (display-only, with hit test)
 | | |
@@ -184,7 +184,7 @@ Text is drawn from the 6 pre-rendered faces; focus glow and rings are baked text
 | Alert slot and collapse rule | When Network Unstable is active on a menu, the right 200 px (x 712..912) are reserved for the alert pill and never overlap hints. Hints use x 48..696. If they do not fit, items flagged **low priority** are dropped from the right until they do (low priority: L R Category on Home, Clear and Preset on the Controller summary, Clear digit on PIN). Confirm, Cancel and the main action are never dropped. |
 | Popups | While a popup is open the row shows the popup's hints. The Confirm hint carries the label of the **focused button** (for example "Re-pair", "Try again"); Cancel shows the popup's cancel label. A one-button popup shows Confirm only. If the focused button is the cancel button, only Confirm shows. |
 | States | normal, dim (45%, action not available) |
-| Input | Touch: tapping a hint triggers the same logical action (hit = hint width x 48). |
+| Input | Touch: tapping a hint triggers the same logical action (hit = hint width x 48), except while the Options column is open, where any tap outside the column only closes it. A popup owns the hint row: its hints act on the popup. The Account description under a toast is hidden while a toast shows. |
 | Replaces | Select hints toast, per-screen hint strings, `NAV_TOAST_*` |
 
 ### C07 PageShell (frame is display-only, GroupList is interactive)
