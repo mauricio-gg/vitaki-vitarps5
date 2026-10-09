@@ -268,3 +268,19 @@ target_include_directories(redact_tests PRIVATE
 )
 
 add_test(NAME vitarps5_redact_tests COMMAND redact_tests)
+
+# ui_splash_particles_tests.c checks the splash particle sampler: targets only on bright opaque
+# logo pixels, the row stride, the output capacity. Standalone binary with its own main(); run
+# natively (see the file header).
+add_executable(ui_splash_particles_tests
+    ui_splash_particles_tests.c
+    ../vita/src/ui/ui_splash_particles.c
+)
+
+target_include_directories(ui_splash_particles_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+target_link_libraries(ui_splash_particles_tests m)
+
+add_test(NAME vitarps5_ui_splash_particles_tests COMMAND ui_splash_particles_tests)
