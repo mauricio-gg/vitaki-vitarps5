@@ -245,3 +245,15 @@ target_include_directories(ui_gesture_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_gesture_tests COMMAND ui_gesture_tests)
+
+# psn_auth_rules_tests.c has its own main() and tests the pure PSN auth decision rules (refresh
+# refused during a phone login, errors keep a login pending, a rejected refresh token is not
+# retried). Cross-compiled but never run by ./tools/build.sh test; the native command is at the
+# top of the file.
+add_executable(psn_auth_rules_tests psn_auth_rules_tests.c ../vita/src/psn_auth_rules.c)
+
+target_include_directories(psn_auth_rules_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_psn_auth_rules_tests COMMAND psn_auth_rules_tests)

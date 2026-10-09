@@ -15,6 +15,7 @@
 #include "config.h"
 #include "context.h"
 #include "psn_auth.h"
+#include "psn_auth_rules.h"
 #include "psn_remote.h"
 #include "vita_dns.h"
 
@@ -58,6 +59,9 @@ typedef struct {
   uint64_t device_code_expires_at_unix;
   uint64_t next_poll_unix;
   uint32_t poll_interval_sec;
+  /* Sony answered the stored refresh token with HTTP 400. In memory only: cleared by the next
+   * successful code exchange, so a rejected token is retried once per app launch (GH #360). */
+  bool refresh_token_rejected;
 } PsnAuthRuntime;
 
 typedef struct {
@@ -149,7 +153,7 @@ static void psn_auth_clear_error(void) {
 }
 
 static void psn_auth_set_error(const char *msg) {
-  g_psn_auth.state = PSN_AUTH_STATE_ERROR;
+  g_psn_auth.state = psn_auth_rules_state_after_error(g_psn_auth.state);
   if (!msg)
     msg = "Unknown PSN authentication error";
   snprintf(g_psn_auth.last_error, sizeof(g_psn_auth.last_error), "%s", msg);
@@ -960,8 +964,7 @@ const char *psn_auth_state_label(void) {
 }
 
 bool psn_auth_device_login_active(void) {
-  return g_psn_auth.state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING ||
-         g_psn_auth.state == PSN_AUTH_STATE_DEVICE_LOGIN_POLLING;
+  return psn_auth_rules_login_in_progress(g_psn_auth.state);
 }
 
 const char *psn_auth_device_user_code(void) {
@@ -1226,7 +1229,6 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
        oauth_redirect_uri(), oauth_client_id(), (unsigned)strlen(form));
   if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(), oauth_client_secret(),
                        &http_code, &response)) {
-    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
     psn_auth_set_error("Authorization code exchange failed");
     return false;
   }
@@ -1245,6 +1247,7 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
      * background refresh would silently clear the cooldown regardless of
      * whether the underlying grant actually changed (GH #204). */
     psn_remote_reset_retry_gate();
+    g_psn_auth.refresh_token_rejected = false;
     ok = true;
   } else {
     LOGE("PSN auth token exchange rejected status=%ld response_len=%u", http_code,
@@ -1256,7 +1259,6 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
     } else {
       psn_auth_set_error("Authorization code was rejected");
     }
-    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
   }
 
   free(response);
@@ -1264,6 +1266,14 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
 }
 
 bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
+  /* A refresh during a phone login would replace the pending state and kill the login; a
+   * rejected refresh token would only be rejected again, once a minute, on the UI thread. */
+  if (!psn_auth_rules_refresh_allowed(g_psn_auth.state, g_psn_auth.refresh_token_rejected)) {
+    LOGD("PSN auth refresh skipped: %s", g_psn_auth.refresh_token_rejected
+                                             ? "stored refresh token was rejected"
+                                             : "phone login in progress");
+    return false;
+  }
   if (!psn_auth_enabled())
     return false;
   if (!force && psn_auth_token_is_valid(now_unix))
@@ -1313,6 +1323,16 @@ bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
   } else {
     LOGE("PSN auth refresh rejected status=%ld response_len=%u", http_code,
          (unsigned)(response ? strlen(response) : 0));
+    if (psn_auth_rules_status_rejects_refresh_token(http_code)) {
+      char error_code[64] = "";
+      if (response)
+        json_get_string(response, "error", error_code, sizeof(error_code));
+      g_psn_auth.refresh_token_rejected = true;
+      LOGE(
+          "PSN auth: Sony rejected the stored refresh token (status=%ld error=%s); not retrying "
+          "until the next login",
+          http_code, error_code[0] ? error_code : "none");
+    }
     char error_desc[160];
     if (response &&
         json_get_string(response, "error_description", error_desc, sizeof(error_desc))) {
