@@ -5,9 +5,11 @@
  * UI_PAGE_PANE_ROWS rows of UI_ROW_H at UI_PAGE_PANE_X. Each row has a T20 label on the left and a
  * control on the right: a toggle (pill track, round knob, "On"/"Off"), a choice (chevron, value,
  * chevron), an info value (right-aligned text that only takes focus) or an action (a chevron
- * pointing right; it runs when activated). The focused row has a FILL_FOCUS bar, TEXT colours and,
- * while the pane has focus, a glow on the label; the other rows have a LINE_FAINT divider. The
- * pane scrolls to keep the focused row visible.
+ * pointing right; it runs when activated). While the pane has focus (@active) the focused row has
+ * a FILL_FOCUS bar, TEXT colours and a glow on the label; the other rows have a LINE_FAINT
+ * divider. While the pane is not active no row has a focus look (the group list holds the page's
+ * one focus bar); @focus and @scroll are kept, so the bar returns to the same row. The pane
+ * scrolls to keep the focused row visible.
  *
  * The screen owns the items array and rewrites the values from the config each frame, then calls
  * ui_setting_list_sync(); the list never touches the config. When input asks for a change it
@@ -17,10 +19,11 @@
  * a row that acted shows FILL_ON for UI_ROW_PRESS_MS. Art that is not text (chevrons, knob, toggle
  * track) is baked once by ui_setting_list_init().
  *
- * Paper cost, per row: label 1; unfocused rows add a divider 1, the focused row a bar 3 and, while
- * the pane has focus, a glow 1. A toggle adds track 1 (2 when on), knob 1, text 1; a choice adds
- * 2 chevrons and the value text; an info row adds its value text (an error row 2 more: icon and
- * rule); an enabled action adds 1 chevron; a label glyph and its tail add 2.
+ * Paper cost, per row: label 1; unfocused rows (all rows while the pane is not active) add a
+ * divider 1; the focused row of an active pane adds a bar 3 and a glow 1. A toggle adds track 1 (2
+ * when on), knob 1, text 1; a choice adds 2 chevrons and the value text; an info row adds its value
+ * text (an error row 2 more: icon and rule); an enabled action adds 1 chevron; a label glyph and
+ * its tail add 2.
  */
 
 #pragma once

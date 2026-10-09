@@ -329,7 +329,9 @@ void ui_setting_list_draw(const UiSettingList *list) {
       break;
     const UiSettingItem *item = &list->items[i];
     const UiRect row = list->row[slot];
-    const bool focused = i == list->focus;
+    /* Only the active pane shows a focused row; otherwise the remembered row looks like the rest.
+     */
+    const bool focused = list->active && i == list->focus;
     const bool disabled = item->kind == UI_SETTING_ACTION && item->disabled;
     uint32_t text_color = focused ? UI_TEXT : UI_TEXT_2;
     uint32_t label_color =
@@ -341,12 +343,10 @@ void ui_setting_list_draw(const UiSettingList *list) {
     const int label_x = row.x + UI_ROW_PAD;
 
     if (focused) {
-      if (list->active) {
-        const UiRect label = {label_x, row.y + (row.h - UI_T20_LINE) / 2, list->label_w[i],
-                              UI_T20_LINE};
-        ui_glow_draw_rect(label, UI_ROW_GLOW,
-                          ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
-      }
+      const UiRect label = {label_x, row.y + (row.h - UI_T20_LINE) / 2, list->label_w[i],
+                            UI_T20_LINE};
+      ui_glow_draw_rect(label, UI_ROW_GLOW,
+                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
       ui_shape3_draw(UI_SHAPE3_BAR_48, row.x, row.y, row.w,
                      row_pressed(list) ? UI_FILL_ON : UI_FILL_FOCUS);
     } else {
