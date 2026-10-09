@@ -926,6 +926,11 @@ typedef enum ui_face_t {
 #define UI_CTRL_ZONE_REAR_W 695
 #define UI_CTRL_ZONE_REAR_H 316
 
+/** The "Left" and "Right" labels beside the rear diagram (Summary page 2 and the Rear Touch zone
+ * view): each sits UI_CTRL_SIDE_LABEL_GAP outside its side of the diagram box, vertically centred
+ * on the box. "Left" is the side of columns A to C (a low touch x, under the user's left hand). */
+#define UI_CTRL_SIDE_LABEL_GAP UI_S2
+
 /** The footers: the preset description at the left margin, the page label at the right. The page
  * label's hit rect reaches UI_CTRL_FOOT_HIT_PAD_X to each side and UI_CTRL_FOOT_HIT_PAD_Y above
  * and below, to UI_TAP_MIN high. */

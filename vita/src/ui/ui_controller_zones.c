@@ -32,12 +32,24 @@ typedef struct view_t {
 
 static View s_views[UI_CTRL_VIEW_COUNT];
 
+/** True for the two views that lie over the front touch screen. */
+static bool is_front_view(UiCtrlZoneView view) {
+  return view == UI_CTRL_VIEW_FRONT || view == UI_CTRL_VIEW_SUMMARY_FRONT;
+}
+
+/** True for the two Summary views: read-only, no input. */
+static bool is_summary_view(UiCtrlZoneView view) {
+  return view == UI_CTRL_VIEW_SUMMARY_REAR || view == UI_CTRL_VIEW_SUMMARY_FRONT;
+}
+
 UiCtrlSide ui_controller_zones_side(UiCtrlZoneView view) {
-  return view == UI_CTRL_VIEW_FRONT ? UI_CTRL_SIDE_FRONT : UI_CTRL_SIDE_REAR;
+  return is_front_view(view) ? UI_CTRL_SIDE_FRONT : UI_CTRL_SIDE_REAR;
 }
 
 UiRect ui_controller_zones_diagram_rect(UiCtrlZoneView view) {
   switch (view) {
+    case UI_CTRL_VIEW_SUMMARY_FRONT:
+      return (UiRect){UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y, UI_CTRL_FRONT_W, UI_CTRL_FRONT_H};
     case UI_CTRL_VIEW_FRONT:
       return (UiRect){UI_CTRL_ZONE_FRONT_X, UI_CTRL_ZONE_FRONT_Y, UI_CTRL_ZONE_FRONT_W,
                       UI_CTRL_ZONE_FRONT_H};
@@ -105,9 +117,9 @@ static void ensure_grid(UiCtrlZoneView view, View *v) {
   if (v->ready || v->failed)
     return;
   const UiRect diagram = ui_controller_zones_diagram_rect(view);
-  const UiZoneSide side = view == UI_CTRL_VIEW_FRONT ? UI_ZONE_SIDE_FRONT : UI_ZONE_SIDE_REAR;
+  const UiZoneSide side = is_front_view(view) ? UI_ZONE_SIDE_FRONT : UI_ZONE_SIDE_REAR;
   const UiRect area = ui_zone_grid_rect_from_diagram(side, diagram.x, diagram.y, diagram.w);
-  if (!ui_zone_grid_init(&v->grid, area, view == UI_CTRL_VIEW_SUMMARY_REAR)) {
+  if (!ui_zone_grid_init(&v->grid, area, is_summary_view(view))) {
     LOGE("Controller zones: could not create the grid of view %d", (int)view);
     v->failed = true;
     return;
@@ -125,11 +137,14 @@ void ui_controller_zones_sync(UiCtrlZoneView view) {
   if (!v->ready)
     return;
   const UiCtrlSide side = ui_controller_zones_side(view);
+  /* The Summary front grid shows blocks only: 19 draws instead of 37 keeps page 1 under budget. */
+  const bool labelled = view != UI_CTRL_VIEW_SUMMARY_FRONT;
   for (int i = 0; i < UI_ZONE_COUNT; i++) {
     const int output = ui_controller_model_zone_output(side, i);
     if (output == v->shown[i])
       continue;
-    ui_zone_grid_set_cell(&v->grid, i, cell_label(output), output != VITAKI_CTRL_OUT_NONE);
+    ui_zone_grid_set_cell(&v->grid, i, labelled ? cell_label(output) : "",
+                          output != VITAKI_CTRL_OUT_NONE);
     v->shown[i] = output;
   }
 }

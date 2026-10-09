@@ -42,6 +42,8 @@
 static const char TITLE[] = "Controller";
 static const char TITLE_FRONT[] = "Front Touch";
 static const char TITLE_REAR[] = "Rear Touch";
+static const char SIDE_LEFT[] = "Left";
+static const char SIDE_RIGHT[] = "Right";
 static const char PAGE_LABEL_BUTTONS[] = "Page 1/2 \xC2\xB7 Buttons";
 static const char PAGE_LABEL_REAR_FORMAT[] = "Page 2/2 \xC2\xB7 Back Touch \xC2\xB7 %d %s";
 static const char ZONES_ONE[] = "zone";
@@ -113,6 +115,10 @@ static vita2d_texture *s_dot = NULL;
 static vita2d_texture *s_arrow = NULL;
 
 static Callout s_callouts[SHOULDER_COUNT];
+
+/** The widths of the two rear side labels, measured once in ui_controller_page_init(). */
+static int s_side_left_w = 0;
+static int s_side_right_w = 0;
 static Shoulder s_focus = SHOULDER_L1;
 
 /** Which view is showing: a Summary page, or the zone view of that page's side. */
@@ -164,11 +170,12 @@ static UiRect s_chevron_right_hit;
  * Views
  * ============================================================================ */
 
-/** The zone grid shown by the current view: the zone view's, or Summary page 2's read-only one. */
+/** The zone grid shown by the current view: the zone view's, or the read-only one of the Summary
+ * page. */
 static UiCtrlZoneView zone_view(void) {
   if (s_in_zones)
     return s_page == PAGE_BUTTONS ? UI_CTRL_VIEW_FRONT : UI_CTRL_VIEW_REAR;
-  return UI_CTRL_VIEW_SUMMARY_REAR;
+  return s_page == PAGE_BUTTONS ? UI_CTRL_VIEW_SUMMARY_FRONT : UI_CTRL_VIEW_SUMMARY_REAR;
 }
 
 /** The touch surface the current Summary page, or zone view, is about. */
@@ -242,6 +249,9 @@ void ui_controller_page_init(void) {
                          UI_TITLE_Y, UI_CTRL_PRESET_LABEL_W, UI_TAP_MIN};
   s_chevron_left_hit =
       (UiRect){s_label_hit.x - UI_CTRL_PRESET_GAP - UI_TAP_MIN, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
+
+  s_side_left_w = ui_text_face_width(UI_FACE_T20, SIDE_LEFT);
+  s_side_right_w = ui_text_face_width(UI_FACE_T20, SIDE_RIGHT);
 
   for (int i = 0; i < SHOULDER_COUNT; i++)
     s_callouts[i].output = NO_OUTPUT;
@@ -360,6 +370,7 @@ static void layout_all(void) {
   } else if (s_page == PAGE_BUTTONS) {
     for (int i = 0; i < SHOULDER_COUNT; i++)
       layout_callout(i);
+    ui_controller_zones_sync(UI_CTRL_VIEW_SUMMARY_FRONT);
   } else {
     ui_controller_zones_sync(UI_CTRL_VIEW_SUMMARY_REAR);
   }
@@ -399,9 +410,8 @@ static void open_selection_popup(void) {
 
 /** The box a tap on the diagram of the current Summary page opens the zone view from. */
 static UiRect summary_diagram_rect(void) {
-  if (s_page == PAGE_BUTTONS)
-    return (UiRect){UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y, UI_CTRL_FRONT_W, UI_CTRL_FRONT_H};
-  return ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_REAR);
+  return ui_controller_zones_diagram_rect(s_page == PAGE_BUTTONS ? UI_CTRL_VIEW_SUMMARY_FRONT
+                                                                 : UI_CTRL_VIEW_SUMMARY_REAR);
 }
 
 /**
@@ -596,21 +606,37 @@ static void draw_left_footer(const char *text) {
                                text);
 }
 
-/** Draw Summary page 1: preset switcher, front art, callouts and footers. */
+/**
+ * Draw the "Left" and "Right" labels beside the rear diagram in @box, outside it and centred on
+ * its height. The rear panel reports a touch's x in the same direction as the front screen and
+ * the grid's column A is the lowest x (host_input.c), so the side of columns A to C is the user's
+ * left hand and is drawn at the diagram's left. Paper cost 2.
+ */
+static void draw_rear_side_labels(UiRect box) {
+  ui_text_draw_face_centered_v(UI_FACE_T20, box.x - UI_CTRL_SIDE_LABEL_GAP - s_side_left_w, box.y,
+                               box.h, UI_TEXT_2, SIDE_LEFT);
+  ui_text_draw_face_centered_v(UI_FACE_T20, box.x + box.w + UI_CTRL_SIDE_LABEL_GAP, box.y, box.h,
+                               UI_TEXT_2, SIDE_RIGHT);
+}
+
+/** Draw Summary page 1: preset switcher, front art with the read-only blocks, callouts, footers. */
 static void draw_buttons_page(void) {
   draw_preset_switcher();
-  draw_diagram(CTRL_VIEW_FRONT,
-               (UiRect){UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y, UI_CTRL_FRONT_W, UI_CTRL_FRONT_H});
+  draw_diagram(CTRL_VIEW_FRONT, ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_FRONT));
+  ui_controller_zones_draw(UI_CTRL_VIEW_SUMMARY_FRONT);
   for (int i = 0; i < SHOULDER_COUNT; i++)
     draw_callout(i);
   draw_left_footer(g_controller_presets[s_label_preset].description);
 }
 
-/** Draw Summary page 2: preset switcher, rear art with the read-only zone grid, footers. */
+/** Draw Summary page 2: preset switcher, rear art with the read-only zone grid, the side labels
+ * and the footers. */
 static void draw_back_touch_page(void) {
   draw_preset_switcher();
-  draw_diagram(CTRL_VIEW_BACK, ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_REAR));
+  const UiRect box = ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_REAR);
+  draw_diagram(CTRL_VIEW_BACK, box);
   ui_controller_zones_draw(UI_CTRL_VIEW_SUMMARY_REAR);
+  draw_rear_side_labels(box);
   draw_left_footer(g_controller_presets[s_label_preset].description);
 }
 
@@ -624,6 +650,8 @@ static void draw_zone_view(void) {
                ui_controller_zones_diagram_rect(view));
   ui_controller_zones_set_cursor_visible(view, s_footer_focus == FOOT_NONE);
   ui_controller_zones_draw(view);
+  if (s_page == PAGE_BACK_TOUCH)
+    draw_rear_side_labels(ui_controller_zones_diagram_rect(view));
   draw_left_footer(s_zone_foot);
 }
 

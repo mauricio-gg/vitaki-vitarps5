@@ -66,6 +66,8 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 
 **As built (#305), draw counts per frame:** Controller Summary page 1 draws 56, page 2 draws 44 to 80 (by how many zones are mapped) and a zone view draws 79. Page 1 and the zone view are over the paper budgets above (49 and 70) by the touch controls of SPEC 4.1 (the back chevron, the small Clear and Whole surface buttons) and, in the zone view, because the grid is a baked grid-lines texture plus a baked state texture per mapped, cursor or picked cell instead of one baked grid. All stay at or under the ~80 call budget of Home.
 
+**As built (#340), Controller draw counts.** Summary page 1 adds the read-only front grid: the grid-lines texture plus one fill per mapped or Mixed zone and no labels, so 1 to 19 draws. Worst case with all 18 zones mapped: 79 with Clear focused (the #305 figure 56 + 4 for the focused Clear + 19), 76 with a callout focused. Both rear views gain the "Left" and "Right" labels (+2): Summary page 2 is 46 to 82, the Rear Touch zone view 81. The page 2 and zone view worst cases are 1 to 2 over the ~80 call budget on paper; hardware `UI/DRAWS` readings are still to be taken.
+
 **As built (#307), touch parity.** The shared back chevron adds 1 draw to Settings and Profile (Controller already counted it). The swipes and the long-press add no draws. This ticket added no instrumentation: the testing build's `UI/DRAWS` line is how each screen is measured on hardware, and the last column below is filled in from it. Phone login + toast (87) is the only screen over the ~80 budget on paper. The as-built paper counts from #300 to #306:
 
 | Screen | FEASIBILITY paper | As built paper | Measured on hardware |
