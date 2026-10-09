@@ -222,7 +222,6 @@ void ui_input_update_snapshot(void) {
       {UI_BTN_OPTIONS, SCE_CTRL_TRIANGLE},
       {UI_BTN_CLEAR, SCE_CTRL_SQUARE},
       {UI_BTN_FILTER, SCE_CTRL_START},
-      {UI_BTN_BROWSER, SCE_CTRL_SELECT},
       {UI_BTN_L, SCE_CTRL_LTRIGGER},
       {UI_BTN_R, SCE_CTRL_RTRIGGER},
       {UI_BTN_UP, SCE_CTRL_UP},

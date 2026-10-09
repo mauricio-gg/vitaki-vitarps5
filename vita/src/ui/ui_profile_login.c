@@ -9,7 +9,6 @@
 #include <string.h>
 #include <time.h>
 
-#include <psp2/appmgr.h>
 #include <psp2/common_dialog.h>
 #include <psp2/ime_dialog.h>
 
@@ -31,22 +30,17 @@ static const char LABEL_CODE[] = "Code";
 static const char LABEL_URL[] = "URL";
 static const char CODE_PLACEHOLDER[] = "Paste redirect URL/code";
 /** The URL line is a deliberate short display form; the full authorize URL stays in psn_auth for
- * the QR code and the browser (SPEC 6, flag 3). */
+ * the QR code (SPEC 6, flag 3). */
 static const char URL_DISPLAY[] = "my.account.sony.com/sso/ca/authorize";
 static const char BUTTON_ENTER[] = "Enter code";
-static const char BUTTON_BROWSER[] = "Open browser";
 static const char BUTTON_CANCEL[] = "Cancel login";
 static const char HINT_ENTER[] = "Enter code";
 static const char HINT_QR[] = "QR";
-static const char HINT_BROWSER[] = "Browser";
 static const char HINT_CANCEL[] = "Cancel login";
 static const char KEYBOARD_TITLE[] = "Paste full redirect URL";
 static const char TOAST_QR_SHOWN[] = "QR shown. Scan it with your phone.";
 static const char TOAST_QR_HIDDEN[] = "QR hidden. Press Start to show it again.";
-static const char TOAST_QR_FAILED[] = "Could not draw the QR code. Use Open browser.";
-static const char TOAST_BROWSER_OPENED[] =
-    "Opened browser fallback. Phone QR is still recommended.";
-static const char TOAST_BROWSER_FAILED[] = "Could not open browser. Use the phone QR.";
+static const char TOAST_QR_FAILED[] = "Could not draw the QR code. Cancel and try again.";
 static const char TOAST_NO_INPUT[] = "No URL/code entered";
 static const char TOAST_KEYBOARD_FAILED[] = "Could not open text input";
 static const char TOAST_COMPLETE[] = "PSN login complete";
@@ -56,8 +50,6 @@ static const char TOAST_CANCELED[] = "PSN login canceled";
 /** Characters the keyboard returns at most, and bytes of the UTF-8 text made from them. */
 #define KEYBOARD_CHARS 1024
 #define KEYBOARD_TEXT_MAX 1200
-/** The Vita browser's launch id for sceAppMgrLaunchAppByUri(). */
-#define BROWSER_LAUNCH_ID 0x20000
 /** Longest Code the login can hold (psn_auth's user_code buffer). */
 #define CODE_MAX 64
 
@@ -73,9 +65,10 @@ static const LoginStep STEPS[] = {
     {"1", "Press", UI_BTN_FILTER, "to show or hide the QR code"},
     {"2", "Scan the QR code with your phone and sign in", 0, NULL},
     {"3", "Press", UI_BTN_CONFIRM, "and paste the redirect URL or code"},
-    {"4", "", UI_BTN_BROWSER, "opens the Vita browser instead"},
 };
-#define STEP_COUNT ((int)(sizeof(STEPS) / sizeof(STEPS[0])))
+#define STEP_COUNT UI_LOGIN_STEP_COUNT
+_Static_assert(UI_LOGIN_STEP_COUNT == (int)(sizeof(STEPS) / sizeof(STEPS[0])),
+               "UI_LOGIN_STEP_COUNT must match STEPS");
 
 /* ============================================================================
  * State
@@ -95,7 +88,6 @@ static int s_glyph_x[STEP_COUNT];
 static int s_tail_x[STEP_COUNT];
 static int s_value_x = 0;
 static UiTextButton s_btn_enter;
-static UiTextButton s_btn_browser;
 static UiTextButton s_btn_cancel;
 
 /** The Code the line shows and the part of it that fits, shortened when the code changes. */
@@ -133,12 +125,12 @@ static void ensure_layout(void) {
   layout_steps();
   const int code_w = ui_text_face_width(UI_FACE_T16, LABEL_CODE);
   const int url_w = ui_text_face_width(UI_FACE_T16, LABEL_URL);
-  s_value_x = UI_PAGE_PANE_X + (code_w > url_w ? code_w : url_w) + UI_LOGIN_INFO_GAP;
+  s_value_x = UI_LOGIN_STEPS_X + (code_w > url_w ? code_w : url_w) + UI_LOGIN_INFO_GAP;
   if (!s_layout_ready) {
     int x = UI_PAGE_PANE_X;
-    UiTextButton *buttons[] = {&s_btn_enter, &s_btn_browser, &s_btn_cancel};
-    const char *labels[] = {BUTTON_ENTER, BUTTON_BROWSER, BUTTON_CANCEL};
-    for (int i = 0; i < 3; i++) {
+    UiTextButton *buttons[] = {&s_btn_enter, &s_btn_cancel};
+    const char *labels[] = {BUTTON_ENTER, BUTTON_CANCEL};
+    for (int i = 0; i < 2; i++) {
       ui_text_button_init(buttons[i], labels[i], x, UI_LOGIN_BUTTONS_Y);
       x += buttons[i]->visible.w + UI_LOGIN_BUTTON_GAP;
     }
@@ -170,7 +162,7 @@ static void update_code_line(void) {
   if (strncmp(s_code_raw, code, sizeof(s_code_raw) - 1) == 0)
     return;
   snprintf(s_code_raw, sizeof(s_code_raw), "%s", code);
-  fit_tail(s_code_raw, UI_PAGE_PANE_X + UI_PAGE_PANE_W - s_value_x, s_code_fit, sizeof(s_code_fit));
+  fit_tail(s_code_raw, UI_LOGIN_COLUMN_RIGHT - s_value_x, s_code_fit, sizeof(s_code_fit));
 }
 
 /* ============================================================================
@@ -248,23 +240,6 @@ static void toggle_qr(void) {
   ui_toast_show(s_qr_shown ? TOAST_QR_SHOWN : TOAST_QR_HIDDEN, UI_TOAST_PLAIN);
 }
 
-/** Open the authorize URL in the Vita browser and say how it went. */
-static void open_browser(void) {
-  const char *url = psn_auth_device_verification_url();
-  if (!url[0]) {
-    LOGE("PSN login: no authorize URL to open in the browser");
-    ui_toast_show(TOAST_BROWSER_FAILED, UI_TOAST_ERR);
-    return;
-  }
-  const int ret = sceAppMgrLaunchAppByUri(BROWSER_LAUNCH_ID, url);
-  if (ret < 0) {
-    LOGE("PSN login: the browser did not open: 0x%08x", (unsigned int)ret);
-    ui_toast_show(TOAST_BROWSER_FAILED, UI_TOAST_ERR);
-    return;
-  }
-  ui_toast_show(TOAST_BROWSER_OPENED, UI_TOAST_PLAIN);
-}
-
 static void cancel_login(void) {
   psn_auth_cancel_device_login();
   ui_toast_show(TOAST_CANCELED, UI_TOAST_PLAIN);
@@ -288,7 +263,6 @@ void ui_profile_login_update(void) {
 void ui_profile_login_input(const UiInput *in) {
   ensure_layout();
   const bool enter_tapped = ui_text_button_input(&s_btn_enter, in) == UI_EVENT_ACTIVATED;
-  const bool browser_tapped = ui_text_button_input(&s_btn_browser, in) == UI_EVENT_ACTIVATED;
   const bool cancel_tapped = ui_text_button_input(&s_btn_cancel, in) == UI_EVENT_ACTIVATED;
   const UiRect qr_rect = {UI_PAGE_PANE_X, UI_LOGIN_QR_Y, UI_QR_BOX, UI_QR_BOX};
   const bool qr_tapped = ui_touch_tap(in) && ui_rect_contains(qr_rect, in->touch.x, in->touch.y);
@@ -297,8 +271,6 @@ void ui_profile_login_input(const UiInput *in) {
     open_keyboard();
   else if (qr_tapped || (in->pressed & UI_BTN_FILTER))
     toggle_qr();
-  else if (browser_tapped || (in->pressed & UI_BTN_BROWSER))
-    open_browser();
   else if (cancel_tapped || (in->pressed & UI_BTN_CLEAR))
     cancel_login();
 }
@@ -306,9 +278,8 @@ void ui_profile_login_input(const UiInput *in) {
 int ui_profile_login_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   out[0] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_ENTER};
   out[1] = (UiHintItem){.action = UI_BTN_FILTER, .label = HINT_QR};
-  out[2] = (UiHintItem){.action = UI_BTN_BROWSER, .label = HINT_BROWSER};
-  out[3] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CANCEL};
-  return 4;
+  out[2] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CANCEL};
+  return 3;
 }
 
 /** Draw step @index: its number, its words and its glyph, on its own line of the steps column. */
@@ -327,9 +298,9 @@ static void draw_step(int index) {
   ui_text_draw_face_centered_v(UI_FACE_T16, s_tail_x[index], y, UI_T16_LINE, UI_TEXT_2, step->tail);
 }
 
-/** Draw one "Code" or "URL" line: its label and value, with the top of the line at @y. */
+/** Draw one "Code" or "URL" line of the text column: label and value, the line top at @y. */
 static void draw_info_line(int y, const char *label, uint32_t value_color, const char *value) {
-  ui_text_draw_face_centered_v(UI_FACE_T16, UI_PAGE_PANE_X, y, UI_T16_LINE, UI_TEXT_3, label);
+  ui_text_draw_face_centered_v(UI_FACE_T16, UI_LOGIN_STEPS_X, y, UI_T16_LINE, UI_TEXT_3, label);
   ui_text_draw_face_centered_v(UI_FACE_T16, s_value_x, y, UI_T16_LINE, value_color, value);
 }
 
@@ -344,6 +315,5 @@ void ui_profile_login_draw(void) {
   draw_info_line(UI_LOGIN_INFO_Y, LABEL_CODE, UI_TEXT, s_code_fit);
   draw_info_line(UI_LOGIN_INFO_Y + UI_T16_LINE, LABEL_URL, UI_TEXT_2, URL_DISPLAY);
   ui_text_button_draw(&s_btn_enter);
-  ui_text_button_draw(&s_btn_browser);
   ui_text_button_draw(&s_btn_cancel);
 }

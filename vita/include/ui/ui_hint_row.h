@@ -25,8 +25,8 @@
  * UI_BTN_LEFT | UI_BTN_RIGHT for the D-pad left-right hint, UI_BTN_UP | UI_BTN_DOWN for the
  * up-down hint, UI_BTN_UP alone for the D-pad up hint. CONFIRM and CANCEL resolve to Cross or
  * Circle from the setting. Only the glyphs a screen uses are baked: Confirm, Cancel, Options,
- * Clear (Square), Start (UI_BTN_FILTER), Select (UI_BTN_BROWSER), L, R, D-pad left-right,
- * up-down and up; an action without a glyph draws its label alone.
+ * Clear (Square), Start (UI_BTN_FILTER), L, R, D-pad left-right, up-down and up; an action without
+ * a glyph draws its label alone.
  */
 typedef struct ui_hint_item_t {
   uint32_t action;

@@ -14,7 +14,7 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | Status dot | none | list rows | flat circle `vita2d_draw_fill_circle` in a token colour (the ellipse PNGs are no longer used) |
 | `PS5_logo.png` (132 x 49), `ps4.png` (100 x 100) | existing in the app | detail panel, Connecting | cropped to the wordmark, drawn large in white |
 | Button symbols `symbol_ex, circle, square, triangle` | existing in the app | hint row, inline text | 28 px, scaled to 20 in the hint row, 20 inline |
-| Flat hint glyphs: D-pad (all, left-right, up-down, and up only for the Pair new device hint, #330), L, R, Start, Select | new, baked | hint row, login steps, stream exit pill | 20 px high in the hint row (the 4 existing symbol PNGs are scaled from 28 to 20); L, R, Start, Select are pill badges; white |
+| Flat hint glyphs: D-pad (all, left-right, up-down, and up only for the Pair new device hint, #330), L, R, Start | new, baked | hint row, login steps, stream exit pill | 20 px high in the hint row (the 4 existing symbol PNGs are scaled from 28 to 20); L, R, Start are pill badges; white |
 | Rounded shape textures | new, baked once | focus bars, buttons, toggles, popups, toast, pills, PIN boxes, icon cells | **One rule (SPEC 1.3):** fixed-height shapes are a 3-slice baked at their own height: focus bars 48 and 56 high, buttons and toast 48, pills 32, toggle track 24 (caps 8 px or half the height, stretched middle; 3 draws). Large or variable shapes are a 9-slice: popups (`R_MD` 16, with a 1 px border variant), icon cells and the QR plate (`R_SM` 8; 9 draws). Plus a 16 px round knob and the 56 x 72 PIN box (idle and focused, 1 draw each). All white, tinted at draw time. About 0.05 MB in total |
 | Wi-Fi, battery, check, warning, lock, globe, moon, clock, chevrons, close | new, simple strokes | top bar, badges, rows, popups | one small glyph atlas |
 | `controller_front.png` (874 x 396), `controller_back.png` (720 x 327) | existing in the app | Controller screens | unchanged; the mock uses `controller_back_clean.png` (the tiny "Sony Computer Entertainment Inc" line erased), ship that copy |
@@ -68,7 +68,7 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 
 **As built (#340), Controller draw counts.** Summary page 1 adds the read-only front grid: the grid-lines texture plus one fill per mapped or Mixed zone and no labels, so 1 to 19 draws. Worst case with all 18 zones mapped: 79 with Clear focused (the #305 figure 56 + 4 for the focused Clear + 19), 76 with a callout focused. Both rear views gain the "Left" and "Right" labels (+2): Summary page 2 is 46 to 82, the Rear Touch zone view 81. The page 2 and zone view worst cases are 1 to 2 over the ~80 call budget on paper; hardware `UI/DRAWS` readings are still to be taken.
 
-**As built (#307), touch parity.** The shared back chevron adds 1 draw to Settings and Profile (Controller already counted it). The swipes and the long-press add no draws. This ticket added no instrumentation: the testing build's `UI/DRAWS` line is how each screen is measured on hardware, and the last column below is filled in from it. Phone login + toast (87) is the only screen over the ~80 budget on paper. The as-built paper counts from #300 to #306:
+**As built (#307), touch parity.** The shared back chevron adds 1 draw to Settings and Profile (Controller already counted it). The swipes and the long-press add no draws. This ticket added no instrumentation: the testing build's `UI/DRAWS` line is how each screen is measured on hardware, and the last column below is filled in from it. Phone login + toast was 87; #346 removed step 4 and the Open browser button (-7), so it is 80, at the budget. The as-built paper counts from #300 to #306:
 
 | Screen | FEASIBILITY paper | As built paper | Measured on hardware |
 |---|---|---|---|
@@ -80,7 +80,7 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 | Profile Connection | 55 | about 58 | |
 | Profile PSN | - | 49-52 | |
 | Profile phone login | - | 79 | |
-| Profile phone login + toast | - | 87 | |
+| Profile phone login + toast | - | 80 | |
 | Controller summary | 49 | 56 (page 2: 44-80) | |
 | Controller zone view | 70 | 79 | |
 | PIN | 62 | 61-63 | |
