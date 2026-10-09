@@ -27,6 +27,13 @@ typedef enum ui_gesture_kind_t {
   UI_GESTURE_SWIPE, /**< moved past UI_TOUCH_DRAG_PX; stays a swipe for the rest of the touch */
 } UiGestureKind;
 
+/** The axis a swipe is locked to for the rest of its touch. */
+typedef enum ui_gesture_axis_t {
+  UI_GESTURE_AXIS_NONE = 0, /**< the touch has not become a swipe yet */
+  UI_GESTURE_AXIS_HORIZONTAL,
+  UI_GESTURE_AXIS_VERTICAL,
+} UiGestureAxis;
+
 /** One frame of one touch, as the classifier needs it. */
 typedef struct ui_gesture_touch_t {
   bool released;    /**< the finger lifted this frame (otherwise it is still down) */
@@ -48,6 +55,17 @@ typedef struct ui_gesture_touch_t {
  * touch (it acted on the long-press), in which case the release is nothing.
  */
 UiGestureKind ui_gesture_classify(const UiGestureTouch *touch);
+
+/**
+ * ui_gesture_swipe_axis() - Pick the axis a swipe locks to, from its movement since touch-down.
+ * @dx: Horizontal movement since touch-down.
+ * @dy: Vertical movement since touch-down.
+ *
+ * Horizontal when |dx| is strictly greater than |dy|, otherwise vertical (a perfect diagonal
+ * scrolls the list). Called once, on the frame the touch first becomes a swipe; the caller
+ * keeps the answer until the finger lifts, so a diagonal swipe never moves both axes.
+ */
+UiGestureAxis ui_gesture_swipe_axis(float dx, float dy);
 
 /**
  * ui_gesture_swipe_steps() - Whole swipe steps in a displacement along one axis.

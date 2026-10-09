@@ -311,8 +311,6 @@ typedef enum ui_face_t {
 #define UI_CAT_SCALE_LEFT 0.75f
 #define UI_CAT_UNFOCUSED_PCT 62
 #define UI_CAT_LABEL_GAP UI_S2
-#define UI_CAT_STRIP_Y 64
-#define UI_CAT_STRIP_H 112
 #define UI_CAT_HIT 64
 #define UI_CAT_SWIPE_PX 56 /* horizontal swipe distance per category step (SPEC C01) */
 

@@ -18,6 +18,12 @@ UiGestureKind ui_gesture_classify(const UiGestureTouch *touch) {
   return UI_GESTURE_NONE;
 }
 
+UiGestureAxis ui_gesture_swipe_axis(float dx, float dy) {
+  const float abs_dx = dx < 0.0f ? -dx : dx;
+  const float abs_dy = dy < 0.0f ? -dy : dy;
+  return abs_dx > abs_dy ? UI_GESTURE_AXIS_HORIZONTAL : UI_GESTURE_AXIS_VERTICAL;
+}
+
 int ui_gesture_swipe_steps(float displacement, int step_px) {
   if (step_px <= 0)
     return 0;
