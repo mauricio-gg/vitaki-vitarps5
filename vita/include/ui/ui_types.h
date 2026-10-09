@@ -29,11 +29,10 @@ typedef enum ui_screen_type_t {
   UI_SCREEN_TYPE_MAIN = 0,
   UI_SCREEN_TYPE_REGISTER,
   UI_SCREEN_TYPE_REGISTER_HOST,
-  UI_SCREEN_TYPE_STREAM,
+  UI_SCREEN_TYPE_NONE,          // Sentinel: no screen drawn yet (never a real screen)
   UI_SCREEN_TYPE_WAKING,        // Waking up console screen
   UI_SCREEN_TYPE_RECONNECTING,  // Reconnecting after packet loss
   UI_SCREEN_TYPE_SETTINGS,
-  UI_SCREEN_TYPE_MESSAGES,
   UI_SCREEN_TYPE_PROFILE,     // Phase 2: Profile & Registration screen
   UI_SCREEN_TYPE_CONTROLLER,  // Phase 2: Controller Configuration screen
 } UIScreenType;

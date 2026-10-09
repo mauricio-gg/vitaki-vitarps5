@@ -58,8 +58,6 @@ extern vita2d_texture *ps5_logo;
 // ============================================================================
 
 // Button configuration (set during init)
-extern int SCE_CTRL_CONFIRM;
-extern int SCE_CTRL_CANCEL;
 extern char *confirm_btn_str;
 extern char *cancel_btn_str;
 

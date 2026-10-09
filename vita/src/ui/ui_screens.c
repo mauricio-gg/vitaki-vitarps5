@@ -7,8 +7,6 @@
  * - Waking/connecting overlay
  * - Reconnecting overlay
  * - Registration dialog (PIN entry)
- * - Stream overlay
- * - Messages screen
  *
  * This is Phase 7 of the UI refactoring - the largest extraction.
  */
@@ -233,16 +231,6 @@ UIScreenType ui_screen_draw_main(void) {
   return ui_home_frame();
 }
 
-/// Render the current frame of an active stream
-/// @return whether the stream should keep rendering
-bool ui_screen_draw_stream(void) {
-  // Match ywnico: immediately return false, let video callback handle everything
-  // UI loop will skip rendering when is_streaming is true
-  if (context.stream.is_streaming)
-    context.stream.is_streaming = false;
-  return false;
-}
-
 /// Run the connect for the Connecting / Waking screen and draw it
 /// Waits indefinitely for console to wake, then auto-transitions to streaming
 /// @return the next screen to show
@@ -300,128 +288,6 @@ UIScreenType ui_screen_draw_reconnecting(void) {
 
   ui_reconnecting_frame();
   return UI_SCREEN_TYPE_RECONNECTING;
-}
-
-/// Draw the debug messages screen
-/// @return whether the dialog should keep rendering
-bool ui_screen_draw_messages(void) {
-  vita2d_set_clear_color(RGBA8(0x00, 0x00, 0x00, 0xFF));
-  context.ui_state.next_active_item = -1;
-
-  // initialize mlog_line_offset
-  if (!context.ui_state.mlog_last_update)
-    context.ui_state.mlog_line_offset = -1;
-  if (context.ui_state.mlog_last_update != context.mlog->last_update) {
-    context.ui_state.mlog_last_update = context.mlog->last_update;
-    context.ui_state.mlog_line_offset = -1;
-  }
-
-  int w = VITA_WIDTH;
-  int h = VITA_HEIGHT;
-
-  int left_margin = 12;
-  int top_margin = 20;
-  int bottom_margin = 20;
-  int font_size = FONT_SIZE_SUBHEADER;
-  int line_height = font_size + 2;
-
-  // compute lines to print
-  // TODO enable scrolling etc
-  int max_lines = (h - top_margin - bottom_margin) / line_height;
-  bool overflow = (context.mlog->lines > max_lines);
-
-  int max_line_offset = 0;
-  if (overflow) {
-    max_line_offset = context.mlog->lines - max_lines + 1;
-  } else {
-    max_line_offset = 0;
-    context.ui_state.mlog_line_offset = -1;
-  }
-  int line_offset = max_line_offset;
-
-  // update line offset according to mlog_line_offset
-  if (context.ui_state.mlog_line_offset >= 0) {
-    if (context.ui_state.mlog_line_offset <= max_line_offset) {
-      line_offset = context.ui_state.mlog_line_offset;
-    }
-  }
-
-  int y = top_margin;
-  int i_y = 0;
-  if (overflow && (line_offset > 0)) {
-    char note[100];
-    if (line_offset == 1) {
-      snprintf(note, 100, "<%d line above>", line_offset);
-    } else {
-      snprintf(note, 100, "<%d lines above>", line_offset);
-    }
-    ui_text_draw(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
-    y += line_height;
-    i_y++;
-  }
-
-  int j;
-  for (j = line_offset; j < context.mlog->lines; j++) {
-    if (i_y > max_lines - 1)
-      break;
-    if (overflow && (i_y == max_lines - 1)) {
-      if (j < context.mlog->lines - 1)
-        break;
-    }
-    ui_text_draw(font_mono, left_margin, y, COLOR_WHITE, font_size,
-                 get_message_log_line(context.mlog, j));
-    y += line_height;
-    i_y++;
-  }
-  if (overflow && (j < context.mlog->lines - 1)) {
-    char note[100];
-    int lines_below = context.mlog->lines - j - 1;
-    if (lines_below == 1) {
-      snprintf(note, 100, "<%d line below>", lines_below);
-    } else {
-      snprintf(note, 100, "<%d lines below>", lines_below);
-    }
-    ui_text_draw(font_mono, left_margin, y, COLOR_GRAY50, font_size, note);
-    y += line_height;
-    i_y++;
-  }
-
-  if (btn_pressed(SCE_CTRL_UP)) {
-    if (overflow) {
-      int next_offset = line_offset - 1;
-
-      if (next_offset == 1)
-        next_offset = 0;
-      if (next_offset == max_line_offset - 1)
-        next_offset = max_line_offset - 2;
-
-      if (next_offset < 0)
-        next_offset = line_offset;
-      context.ui_state.mlog_line_offset = next_offset;
-    }
-  }
-  if (btn_pressed(SCE_CTRL_DOWN)) {
-    if (overflow) {
-      int next_offset = line_offset + 1;
-
-      if (next_offset == max_line_offset - 1)
-        next_offset = max_line_offset;
-      if (next_offset == 1)
-        next_offset = 2;
-
-      if (next_offset > max_line_offset)
-        next_offset = max_line_offset;
-      context.ui_state.mlog_line_offset = next_offset;
-    }
-  }
-
-  if (btn_pressed(SCE_CTRL_CANCEL)) {
-    // TODO abort connection if connecting
-    vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
-    context.ui_state.next_active_item = UI_MAIN_WIDGET_MESSAGES_BTN;
-    return false;
-  }
-  return true;
 }
 
 // ============================================================================

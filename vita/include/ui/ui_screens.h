@@ -61,17 +61,3 @@ UIScreenType ui_screen_draw_waking(void);
  * @return next screen to display
  */
 UIScreenType ui_screen_draw_reconnecting(void);
-
-/**
- * Render the stream overlay (during active streaming)
- * Shows latency stats, network indicators, and stream info
- * @return true to continue streaming, false to exit
- */
-bool ui_screen_draw_stream(void);
-
-/**
- * Render the messages screen (log viewer)
- * Scrollable message log with timestamps
- * @return true to stay on messages screen, false to exit
- */
-bool ui_screen_draw_messages(void);

@@ -14,8 +14,6 @@ typedef struct vita_chiaki_ui_state_t {
   uint32_t old_button_state;
   int active_item;
   int next_active_item;
-  int mlog_line_offset;
-  uint64_t mlog_last_update;
   bool debug_menu_active;
   bool debug_menu_modal_pushed;
   int debug_menu_selection;

@@ -30,9 +30,9 @@ void ui_settings_apply_force_30fps(void);
 
 /**
  * ui_settings_apply_circle_confirm() - Make the Circle Button Confirm setting take effect: the
- * legacy SCE_CTRL_CONFIRM / SCE_CTRL_CANCEL globals and their button names follow the config
- * (the UiInput snapshot already reads the config every frame). When a face button is held, it is
- * blocked until released, so the press that flipped the setting is not read again as the swapped
- * button. Also called once at startup, to set the globals from the loaded config.
+ * legacy button names follow the config (the UiInput snapshot already reads the config every
+ * frame). When a face button is held, it is blocked until released, so the press that flipped the
+ * setting is not read again as the swapped button. Also called once at startup, to set the names
+ * from the loaded config.
  */
 void ui_settings_apply_circle_confirm(void);

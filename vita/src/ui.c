@@ -124,8 +124,6 @@ char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
 // UIScreenType enum moved to ui_types.h (included via ui_state.h)
 
 // Initialize Yes and No button from settings (will be updated in init_ui)
-int SCE_CTRL_CONFIRM = SCE_CTRL_CROSS;
-int SCE_CTRL_CANCEL = SCE_CTRL_CIRCLE;
 char *confirm_btn_str = "Cross";
 char *cancel_btn_str = "Circle";
 
@@ -324,8 +322,6 @@ bool ui_reload_psn_account_id(void) {
 // - ui_screen_draw_main()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
-// - ui_screen_draw_stream()
-// - ui_screen_draw_messages()
 // ============================================================================
 
 // ============================================================================
@@ -421,8 +417,8 @@ void draw_ui() {
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
   /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
-   * sidebar when it becomes active again. Starts as STREAM so the first frame counts as entry. */
-  UIScreenType drawn_screen = UI_SCREEN_TYPE_STREAM;
+   * sidebar when it becomes active again. Starts as NONE so the first frame counts as entry. */
+  UIScreenType drawn_screen = UI_SCREEN_TYPE_NONE;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
@@ -473,7 +469,7 @@ void draw_ui() {
     // host_quit.c) --- Must run on this UI main-loop thread, never on the
     // chiaki event callback thread: that thread only arms the flag, the
     // actual reconnect kickoff happens here. Gated on screen == MAIN so the
-    // retry never hijacks Settings/Profile/Messages/PIN-entry/Controller
+    // retry never hijacks Settings/Profile/PIN-entry/Controller
     // config if the user navigated away while the timer was counting down;
     // rp_in_use_retry_pending is left armed (not cleared) whenever the
     // connect can't actually be attempted yet, so it fires later once the
@@ -677,14 +673,6 @@ void draw_ui() {
         if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
           ui_pin_on_enter();
         next_screen = ui_pin_frame();
-      } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
-        if (!ui_screen_draw_messages()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
-      } else if (screen == UI_SCREEN_TYPE_STREAM) {
-        if (!ui_screen_draw_stream()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
       } else if (screen == UI_SCREEN_TYPE_WAKING) {
         next_screen = ui_screen_draw_waking();
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
