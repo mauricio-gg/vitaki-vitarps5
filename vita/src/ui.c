@@ -78,7 +78,6 @@
 #include "ui/ui_shapes.h"
 #include "ui/ui_toast.h"
 
-vita2d_font *font;
 vita2d_texture *img_ps4;
 
 // VitaRPS5 UI textures
@@ -114,9 +113,6 @@ static uint32_t *button_block_mask = NULL;
 // Connection overlay, cooldown, thread management, and text cache moved to ui_state.c
 
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
-
-#define MAX_TOOLTIP_CHARS 200
-char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
 
 /// Types of screens that can be rendered
 // UIScreenType enum moved to ui_types.h (included via ui_state.h)
@@ -334,10 +330,10 @@ void init_ui() {
   load_textures();
   ui_background_init();  // Build the wave background geometry
   ui_cards_init();       // Initialize console card system
-  font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
 
-  /* Initialize text helper: measures per-size metrics from the loaded fonts.
+  /* Initialize text helper: measures per-face metrics from the loaded fonts.
    * Must happen after font load and before the first draw_ui() frame. */
+  vita2d_font *font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
   ui_text_init(font, font_light);
   ui_glow_init();

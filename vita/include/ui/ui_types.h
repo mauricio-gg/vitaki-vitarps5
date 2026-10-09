@@ -110,6 +110,5 @@ typedef struct connection_overlay_state_t {
  */
 typedef enum controller_view_mode_t {
   CTRL_VIEW_FRONT = 0,  // Front view (D-pad, face buttons, sticks)
-  CTRL_VIEW_BACK,       // Back view (rear touchpad quadrants)
-  CTRL_VIEW_BOTH        // Both views shown (front above, back below)
+  CTRL_VIEW_BACK        // Back view (rear touchpad quadrants)
 } ControllerViewMode;

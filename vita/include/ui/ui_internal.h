@@ -7,7 +7,6 @@
  *
  * Provides access to:
  * - Shared texture pointers
- * - Shared fonts
  * - Global state accessors
  * - Cross-module function declarations
  */
@@ -32,9 +31,6 @@ typedef struct vita_chiaki_context_t VitaChiakiContext;
 // Shared Texture Pointers (defined in ui.c, will move to ui_main.c)
 // ============================================================================
 
-// Fonts
-extern vita2d_font *font;
-
 // Console icons
 extern vita2d_texture *img_ps4;
 
@@ -51,13 +47,6 @@ extern vita2d_texture *icon_play, *icon_settings;
 extern vita2d_texture *button_add_new;
 extern vita2d_texture *vita_rps5_logo;
 extern vita2d_texture *ps5_logo;
-
-// ============================================================================
-// Shared Global State (defined in ui.c, will be organized into modules)
-// ============================================================================
-
-// Tooltip buffer
-extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
 
 // ============================================================================
 // Shared Context Access
