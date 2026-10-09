@@ -168,6 +168,19 @@ target_include_directories(ui_console_rows_tests PRIVATE
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
 
+# ip_address_tests.c checks the typed-IP check used by Pair new device > Enter IP address.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ip_address_tests
+    ip_address_tests.c
+    ../vita/src/ip_address.c
+)
+
+target_include_directories(ip_address_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ip_address_tests COMMAND ip_address_tests)
+
 # ui_controller_rules_tests.c checks the pure Controller page rules (what touching a zone does,
 # the whole-side value or Mixed, assignments) against the real first-run seeds of controller.c.
 # Standalone binary with its own main(); run natively (see the file header).
