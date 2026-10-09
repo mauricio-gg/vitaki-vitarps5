@@ -85,8 +85,7 @@ vita2d_texture *img_ps4;
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
-vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
-vita2d_texture *icon_button_triangle;
+vita2d_texture *icon_play, *icon_settings;
 vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
 
@@ -269,12 +268,9 @@ void load_textures() {
   ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
   button_add_new = ui_load_png_linear("app0:/assets/button_add_new.png");
 
-  // Load navigation icons
+  // Load the Home category icons
   icon_play = ui_load_png_linear("app0:/assets/icon_play.png");
   icon_settings = ui_load_png_linear("app0:/assets/icon_settings.png");
-  icon_controller = ui_load_png_linear("app0:/assets/icon_controller.png");
-  icon_profile = ui_load_png_linear("app0:/assets/icon_profile.png");
-  icon_button_triangle = ui_load_png_linear("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
   vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");

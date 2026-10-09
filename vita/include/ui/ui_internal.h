@@ -45,9 +45,8 @@ extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_squa
 // Status ellipses
 extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 
-// Navigation icons
-extern vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
-extern vita2d_texture *icon_button_triangle;
+// Home category icons
+extern vita2d_texture *icon_play, *icon_settings;
 
 // Other UI textures
 extern vita2d_texture *button_add_new;
