@@ -168,15 +168,19 @@ target_include_directories(ui_console_rows_tests PRIVATE
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
 
-# ui_controller_rules_tests.c checks the pure Controller page rule (the common output of a set of
-# inputs, or Mixed). Standalone binary with its own main(); run natively (see the file header).
+# ui_controller_rules_tests.c checks the pure Controller page rules (what touching a zone does,
+# the whole-side value or Mixed, assignments) against the real first-run seeds of controller.c.
+# Standalone binary with its own main(); run natively (see the file header).
 add_executable(ui_controller_rules_tests
     ui_controller_rules_tests.c
     ../vita/src/ui/ui_controller_rules.c
+    ../vita/src/controller.c
 )
 
 target_include_directories(ui_controller_rules_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
     ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
 )
 
 add_test(NAME vitarps5_ui_controller_rules_tests COMMAND ui_controller_rules_tests)
