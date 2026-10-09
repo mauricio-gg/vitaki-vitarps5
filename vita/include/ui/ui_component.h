@@ -121,11 +121,13 @@ typedef enum ui_button_t {
 typedef struct ui_touch_t {
   float x;
   float y;
-  bool down;     /**< a finger is on the panel and this touch is not blocked */
-  bool pressed;  /**< touch-down edge */
-  bool released; /**< touch-up edge */
-  bool dragged;  /**< the finger moved more than UI_TOUCH_DRAG_PX from touch-down; never a tap */
-  float dx;      /**< movement since touch-down */
+  bool down;       /**< a finger is on the panel and this touch is not blocked */
+  bool pressed;    /**< touch-down edge */
+  bool released;   /**< touch-up edge */
+  bool dragged;    /**< the finger moved more than UI_TOUCH_DRAG_PX from touch-down; never a tap */
+  bool long_press; /**< true only on the frame a still finger reaches UI_LONG_PRESS_MS */
+  bool long_pressed; /**< a long-press fired during this touch; the release is never a tap */
+  float dx;          /**< movement since touch-down */
   float dy;
 } UiTouch;
 
@@ -138,9 +140,9 @@ typedef struct ui_input_t {
   UiTouch touch;
 } UiInput;
 
-/** ui_touch_tap() - True on the frame a finger lifts without having dragged. */
+/** ui_touch_tap() - True on the frame a finger lifts without having dragged or long-pressed. */
 static inline bool ui_touch_tap(const UiInput *in) {
-  return in->touch.released && !in->touch.dragged;
+  return in->touch.released && !in->touch.dragged && !in->touch.long_pressed;
 }
 
 /* ============================================================================
