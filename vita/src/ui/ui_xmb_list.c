@@ -194,11 +194,20 @@ static void draw_row(const UiXmbItem *item, int top, float alpha, float glow_k, 
                              ui_layer_color(ui_color_scale_alpha(UI_TEXT, icon_k)));
   }
 
-  UiFace name_face = focused ? UI_FACE_T20 : UI_FACE_T16;
+  UiFace name_face = focused ? UI_FACE_T20_REGULAR : UI_FACE_T16;
   UiFace status_face = focused ? UI_FACE_T16 : UI_FACE_T14;
   int name_h = ui_text_face_line_height(name_face);
   int status_h = item->status ? ui_text_face_line_height(status_face) : 0;
   int text_top = top + (UI_LIST_ROW_H - (name_h + status_h)) / 2;
+
+  if (focused) {
+    /* Soft glow behind the focused title, drawn before it and faded with the row like the icon. */
+    const UiRect title = {UI_LIST_TEXT_X, text_top, ui_text_face_width(name_face, item->name),
+                          name_h};
+    ui_glow_draw_rect(
+        title, UI_LIST_TITLE_GLOW,
+        ui_color_scale_alpha(UI_GLOW, (float)UI_LIST_TITLE_GLOW_PCT / 100.0f * k * glow_k));
+  }
 
   ui_text_draw_face_centered_v(name_face, UI_LIST_TEXT_X, text_top, name_h,
                                ui_color_scale_alpha(focused ? UI_TEXT : UI_TEXT_2, k), item->name);

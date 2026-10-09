@@ -7,8 +7,8 @@
 :root {
   --font: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* TYPE: 5 atlas entries (sizes) from 2 loaded weights, Light and Regular, all Roboto; Medium only inside baked glyphs. Digits are Roboto's own (equal width), no mono face.
-     T14 Regular (hint row), T16 Regular, T20 Light, T28 Light, T40 Light (PIN digits). */
+  /* TYPE: 6 faces from 2 loaded weights, Light and Regular, all Roboto; Medium only inside baked glyphs. Digits are Roboto's own (equal width), no mono face.
+     T14 Regular (hint row), T16 Regular, T20 Light, T28 Light, T40 Light (PIN digits), T20_REGULAR (Regular 400, focused list name, #329). */
   --t14: 14px; --t16: 16px; --t20: 20px; --t28: 28px; --t40: 40px;
   --w-light: 300; --w-reg: 400;
 

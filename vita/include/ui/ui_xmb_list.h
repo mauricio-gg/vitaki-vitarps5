@@ -7,6 +7,9 @@
  * at UI_LIST_FOCUS_Y with a gap after it; rows above the focus sit UI_LIST_SLIDE higher
  * per step and are fully faded out. The icon never scales.
  *
+ * The focused row draws its icon glow and a soft glow behind its title (one draw each, both
+ * faded with the row); an unfocused row costs one icon draw and one text run per line.
+ *
  * Motion (SPEC 3.1), all time-based and free of extra draws or allocation:
  *   - A focus change from input slides every row to its new place over UI_D2_MS. A change
  *     during a slide restarts from where each row is now, so rows never snap.

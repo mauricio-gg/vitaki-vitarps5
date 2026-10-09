@@ -281,7 +281,7 @@ static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state)
 /** Width of @text in the list's name face, for ellipsizing the Filter row's name. */
 static int measure_name_face(const char *text, void *ctx) {
   (void)ctx;
-  return ui_text_face_width(UI_FACE_T20, text);
+  return ui_text_face_width(UI_FACE_T20_REGULAR, text);
 }
 
 /** Rewrite the Filter row's name and status when the filter text or the match count changed. */

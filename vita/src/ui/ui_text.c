@@ -23,7 +23,7 @@
  * ============================================================================ */
 
 /*
- * The five SPEC type faces, indexed by UiFace: point size and which weight draws it.
+ * The six SPEC type faces, indexed by UiFace: point size and which weight draws it.
  * Light faces use s_font_light, falling back to the regular font if Light failed to load.
  */
 typedef struct {
@@ -38,6 +38,7 @@ static const FaceSpec UI_FACE_TABLE[UI_FACE_COUNT] = {
     [UI_FACE_T20] = {UI_T20_SIZE, UI_T20_LINE, UI_T20_WEIGHT},
     [UI_FACE_T28] = {UI_T28_SIZE, UI_T28_LINE, UI_T28_WEIGHT},
     [UI_FACE_T40] = {UI_T40_SIZE, UI_T40_LINE, UI_T40_WEIGHT},
+    [UI_FACE_T20_REGULAR] = {UI_T20_REGULAR_SIZE, UI_T20_REGULAR_LINE, UI_T20_REGULAR_WEIGHT},
 };
 
 /*

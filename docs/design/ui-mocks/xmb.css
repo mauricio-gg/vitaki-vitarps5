@@ -95,7 +95,7 @@ img.g{height:24px}
 .xi .gl{position:absolute;left:-24px;top:-24px;width:112px;height:112px;border-radius:50%;pointer-events:none;--rc:var(--idle);background:radial-gradient(closest-side,color-mix(in srgb,var(--rc) 55%,transparent),transparent);opacity:.45;transition:opacity var(--d2) var(--ease)}
 .xi.sel .gl{opacity:1}
 .xi .gl.ready,.xi .gl.psn{--rc:var(--ok)}.xi .gl.standby{--rc:var(--warn)}.xi .gl.unavail,.xi .gl.cool{--rc:var(--err)}.xi .gl.unpaired{opacity:0}
-.xi.sel .n{font-size:var(--t28);line-height:32px;color:var(--text)}
+.xi.sel .n{font-size:var(--t28);line-height:32px;font-weight:var(--w-reg);color:var(--text);text-shadow:0 0 12px var(--glow),0 1px 4px var(--shadow)}
 .xi.sel .s{color:var(--text)}
 .xi.dimmed{opacity:.55}
 .sdot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--dc);vertical-align:-1px;margin-right:var(--s1)}
