@@ -3,7 +3,11 @@
 #include "context.h"
 #include "debug_tools.h"
 #include "ui.h"
+#include "ui/ui_component.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_graphics.h"
+#include "ui/ui_pill.h"
+#include "ui/ui_theme.h"
 #include "ui/ui_text.h"
 
 #include <math.h>
@@ -16,8 +20,6 @@
 #include <vita2d.h>
 
 #define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
-#define STREAM_EXIT_HINT_VISIBLE_US (5 * 1000 * 1000ULL)
-#define STREAM_EXIT_HINT_FADE_US (500 * 1000ULL)
 
 enum {
   SCREEN_WIDTH = 960,
@@ -111,6 +113,25 @@ static void draw_indicators(void) {
                           FONT_SIZE_SMALL, headline);
 }
 
+/** Parts of the exit hint pill: "Back to menu: Hold [L] + [R] + [Start]". */
+static UiPillPart exit_hint_parts[] = {
+    {.text = "Back to menu: Hold "},
+    {.glyph = UI_BTN_L},
+    {.text = " + "},
+    {.glyph = UI_BTN_R},
+    {.text = " + "},
+    {.glyph = UI_BTN_FILTER},
+};
+#define EXIT_HINT_PART_COUNT ((int)(sizeof(exit_hint_parts) / sizeof(exit_hint_parts[0])))
+
+/** Width of the exit hint pill; measured once on first use, 0 until then. */
+static int exit_hint_width = 0;
+
+/**
+ * Draw the exit hint (C19 plain, SPEC 3.5): visible for UI_STREAM_HINT_VISIBLE_MS from the first
+ * frame of the stream, then a linear fade over UI_STREAM_HINT_FADE_MS. The fade is the layer
+ * opacity, restored to 1 before returning.
+ */
 static void draw_stream_exit_hint(void) {
   stream_exit_hint_visible_this_frame = false;
   if (!context.config.show_stream_exit_hint)
@@ -121,41 +142,27 @@ static void draw_stream_exit_hint(void) {
     stream_exit_hint_start_us = now_us;
   }
 
+  const uint64_t visible_us = UI_STREAM_HINT_VISIBLE_MS * 1000ULL;
+  const uint64_t fade_us = UI_STREAM_HINT_FADE_MS * 1000ULL;
   uint64_t elapsed_us = now_us - stream_exit_hint_start_us;
-  uint64_t total_visible_us = STREAM_EXIT_HINT_VISIBLE_US + STREAM_EXIT_HINT_FADE_US;
-  if (elapsed_us >= total_visible_us) {
+  if (elapsed_us >= visible_us + fade_us) {
     return;
   }
 
-  float alpha_ratio = 1.0f;
-  if (elapsed_us > STREAM_EXIT_HINT_VISIBLE_US) {
-    uint64_t fade_elapsed_us = elapsed_us - STREAM_EXIT_HINT_VISIBLE_US;
-    if (STREAM_EXIT_HINT_FADE_US > 0) {
-      alpha_ratio = 1.0f - ((float)fade_elapsed_us / (float)STREAM_EXIT_HINT_FADE_US);
-    } else {
-      alpha_ratio = 0.0f;
-    }
-    if (alpha_ratio < 0.0f)
-      alpha_ratio = 0.0f;
-    if (alpha_ratio > 1.0f)
-      alpha_ratio = 1.0f;
+  float opacity = 1.0f;
+  if (elapsed_us > visible_us) {
+    opacity = 1.0f - (float)(elapsed_us - visible_us) / (float)fade_us;
   }
 
-  const int margin = 18;
-  const int padding_x = 14;
-  const int padding_y = 7;
-  const char *hint = "Back to menu: Hold L + R + Start";
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  int box_w = text_w + (padding_x * 2);
-  int box_h = FONT_SIZE_SMALL + (padding_y * 2) + 4;
-  int box_x = SCREEN_WIDTH - box_w - margin;
-  int box_y = margin;
+  if (exit_hint_width == 0) {
+    exit_hint_width = ui_pill_plain_layout(exit_hint_parts, EXIT_HINT_PART_COUNT);
+  }
 
-  uint8_t bg_alpha = (uint8_t)(180.0f * alpha_ratio);
-  uint8_t text_alpha = (uint8_t)(240.0f * alpha_ratio);
-  draw_pill(box_x, box_y, box_w, box_h, RGBA8(0, 0, 0, bg_alpha));
-  ui_text_draw_centered_v(font, box_x + padding_x, box_y, box_h,
-                          RGBA8(0xFF, 0xFF, 0xFF, text_alpha), FONT_SIZE_SMALL, hint);
+  ui_layer_set_alpha(opacity);
+  ui_pill_plain_draw(SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - exit_hint_width,
+                     UI_STREAM_OVERLAY_MARGIN, exit_hint_width, exit_hint_parts,
+                     EXIT_HINT_PART_COUNT);
+  ui_layer_set_alpha(1.0f);
   stream_exit_hint_visible_this_frame = true;
 }
 
@@ -232,12 +239,14 @@ static void draw_stream_stats_panel(void) {
 }
 
 void vitavideo_overlay_render(void) {
+  UI_DRAW_STATS_FRAME_BEGIN();
   draw_stream_exit_hint();
   draw_stream_stats_panel();
   draw_indicators();
 #if VITARPS5_DEBUG_TOOLS
   debug_tools_draw_widget();
 #endif
+  UI_DRAW_STATS_FRAME_END("overlay");
 }
 
 void vitavideo_overlay_on_stream_start(void) {

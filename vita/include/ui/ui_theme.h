@@ -448,6 +448,15 @@ typedef enum ui_face_t {
 /** The unstable pill pulses its opacity between 100% and UI_PILL_PULSE_MIN_PCT over this period. */
 #define UI_PILL_PULSE_MS 1400
 #define UI_PILL_PULSE_MIN_PCT 55
+/** Space either side of a button glyph drawn inside a plain pill's label. */
+#define UI_PILL_GLYPH_MARGIN 2
+
+/** Stream overlay (SPEC 3.5): the exit hint pill sits UI_STREAM_OVERLAY_MARGIN from the top and
+ * right edges, stays UI_STREAM_HINT_VISIBLE_MS after the stream starts, then fades out linearly
+ * over UI_STREAM_HINT_FADE_MS. */
+#define UI_STREAM_OVERLAY_MARGIN UI_S2
+#define UI_STREAM_HINT_VISIBLE_MS 5000
+#define UI_STREAM_HINT_FADE_MS 500
 
 /* ============================================================================
  * C23 TopBar

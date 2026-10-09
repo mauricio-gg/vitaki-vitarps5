@@ -212,7 +212,7 @@ int ui_hint_row_glyph_width(uint32_t action) {
 }
 
 void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint) {
-  draw_glyph(glyph_texture(action), x, y + (h - UI_HINT_GLYPH_H) / 2, tint);
+  draw_glyph(glyph_texture(action), x, y + (h - UI_HINT_GLYPH_H) / 2, ui_layer_color(tint));
 }
 
 void ui_hint_row_draw(const UiHintLayout *layout) {
