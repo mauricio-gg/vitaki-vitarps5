@@ -39,6 +39,8 @@
 #include "ui/ui_input.h"
 #include "ui/ui_home_options.h"
 #include "ui/ui_page_frame.h"
+#include "ui/ui_pair_hosts.h"
+#include "ui/ui_pair_popup.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_profile.h"
 #include "ui/ui_settings.h"
@@ -72,14 +74,15 @@ typedef enum home_icon_t {
   HOME_ICON_SLOT2,
   HOME_ICON_SLOT3,
   HOME_ICON_SEARCH,
+  HOME_ICON_PLUS,
   HOME_ICON_COUNT,
 } HomeIcon;
 
 #define HOME_ICON_DIR "app0:/assets/icons/"
 
 static const char *const HOME_ICON_FILES[HOME_ICON_COUNT] = {
-    "video",      "network", "display", "controls", "advanced", "account",
-    "connection", "psn",     "slot1",   "slot2",    "slot3",    "search",
+    "video", "network", "display", "controls", "advanced", "account", "connection",
+    "psn",   "slot1",   "slot2",   "slot3",    "search",   "plus",
 };
 
 /** A non-console row: name, optional second line, icon. */
@@ -132,8 +135,13 @@ static const UIScreenType CATEGORY_SCREENS[UI_CAT_COUNT] = {
 
 /* Copy */
 static const char ROUTE_INTERNET[] = "\xC2\xB7 Internet";
-static const char EMPTY_SEARCHING[] = "Searching for consoles...";
+static const char EMPTY_NO_PAIRED[] = "No paired consoles yet";
 static const char EMPTY_NO_MATCH[] = "No consoles match filter";
+static const char PAIR_ITEM_NAME[] = "Pair new device";
+static const char PAIR_STATUS_ONE[] = "1 found nearby";
+static const char PAIR_STATUS_MANY_FORMAT[] = "%d found nearby";
+static const char PAIR_STATUS_SEARCHING[] = "Searching...";
+static const char PAIR_STATUS_LINK[] = "Link a console";
 static const char BANNER_DEFAULT_REASON[] = "Connection interrupted";
 static const char FILTER_IDLE_NAME[] = "Filter...";
 static const char FILTER_NAME_FORMAT[] = "Filter: \"%s\"";
@@ -143,6 +151,7 @@ static const char FILTER_IDLE_STATUS[] = "";
 static const char HINT_CONNECT[] = "Connect";
 static const char HINT_WAKE[] = "Wake";
 static const char HINT_PAIR[] = "Pair";
+static const char HINT_PAIR_NEW_DEVICE[] = "Pair new device";
 static const char HINT_PLEASE_WAIT[] = "Please wait";
 static const char HINT_OPEN[] = "Open";
 static const char HINT_CATEGORY[] = "Category";
@@ -153,6 +162,8 @@ static const char HINT_CLEAR[] = "Clear";
 /** Room for the Filter row's name: the quoted filter text plus "Filter: ". */
 #define FILTER_NAME_MAX (UI_FILTER_TEXT_MAX + 16)
 #define FILTER_STATUS_MAX 24
+/** Room for the Pair new device item's status line ("<N> found nearby"). */
+#define PAIR_STATUS_MAX 24
 
 /* ============================================================================
  * State
@@ -164,10 +175,12 @@ static UiXmbItem s_items[UI_LIST_MAX_ITEMS];
 static vita2d_texture *s_item_icons[HOME_ICON_COUNT];
 static int s_item_count = 0;
 /** Status of each list row, parallel to s_items while Consoles is focused (drives the hint verb).
- * The Filter row's entry is unused. */
+ * The entries of the Pair new device item and the Filter row are unused. */
 static UiConsoleStatus s_console_status[UI_LIST_MAX_ITEMS];
-/** The Consoles list starts with the Filter row (ui_console_rows_has_filter), as of the last
- * refresh. Row i is console i - 1 while it is set, console i otherwise. */
+/** The Pair new device item's status line, rewritten every frame the item is built. */
+static char s_pair_status[PAIR_STATUS_MAX];
+/** The Consoles list has the Filter row after the item (ui_console_rows_has_filter), as of the
+ * last refresh. See ui_console_rows_console_index() for which console a row is. */
 static bool s_filter_row = false;
 /** Category whose rows the last refresh built; -1 before the first one. */
 static int s_last_category = -1;
@@ -181,6 +194,10 @@ static UiHintLayout s_hints;
 
 /** The console Home should focus on its next live frame (ui_home_focus_console), or NULL. */
 static const VitaChiakiHost *s_focus_host = NULL;
+/** Home should focus the Pair new device item on its next live frame (ui_home_focus_pair_item). */
+static bool s_focus_pair_item = false;
+/** The launch focus (the first console) has been set. */
+static bool s_initial_focus_done = false;
 
 static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn);
 
@@ -210,7 +227,10 @@ void ui_home_init(void) {
   s_hints.count = 0;
   ui_connect_failure_init();
   ui_home_options_init(connect_console);
+  ui_pair_hosts_init();
   s_focus_host = NULL;
+  s_focus_pair_item = false;
+  s_initial_focus_done = false;
 }
 
 void ui_home_on_enter(void) {
@@ -256,11 +276,8 @@ static UiXmbItem console_item(const ConsoleCardInfo *card, UiConsoleState state)
     case UI_CONSOLE_STANDBY:
       item.status_color = UI_WARN;
       break;
-    case UI_CONSOLE_UNPAIRED:
-      item.status_color = UI_IDLE;
-      item.dim_icon = true;
-      break;
     case UI_CONSOLE_UNAVAILABLE:
+    case UI_CONSOLE_UNPAIRED: /* not listed on Home; ui_console_classify() can still return it */
       item.status_color = UI_TEXT_3;
       item.dim_icon = true;
       break;
@@ -318,18 +335,47 @@ static UiXmbItem filter_item(void) {
   return item;
 }
 
+/** The Pair new device item: a plus, and how many unpaired consoles are in range (SPEC 3.1a). */
+static UiXmbItem pair_item(void) {
+  const int found = ui_pair_hosts_count();
+  const char *status = PAIR_STATUS_LINK;
+  switch (ui_pair_hosts_item_phase(found)) {
+    case UI_PAIR_PHASE_FOUND:
+      if (found == 1) {
+        status = PAIR_STATUS_ONE;
+      } else {
+        snprintf(s_pair_status, sizeof(s_pair_status), PAIR_STATUS_MANY_FORMAT, found);
+        status = s_pair_status;
+      }
+      break;
+    case UI_PAIR_PHASE_SEARCHING:
+      status = PAIR_STATUS_SEARCHING;
+      break;
+    case UI_PAIR_PHASE_NONE:
+    case UI_PAIR_PHASE_OFF:
+      break;
+  }
+  return (UiXmbItem){
+      .icon = s_item_icons[HOME_ICON_PLUS],
+      .name = PAIR_ITEM_NAME,
+      .status = status,
+      .status_color = UI_TEXT_2,
+  };
+}
+
 /**
- * Fill s_items from the console cache, after the Filter row when @filter_row is set.
- * @cooldown_host is the console in cooldown, if any.
+ * Fill s_items: the Pair new device item, the Filter row when @filter_row is set, then the
+ * console cache. @cooldown_host is the console in cooldown, if any.
  */
 static int fill_console_items(const VitaChiakiHost *cooldown_host, bool filter_row) {
   const bool token_ok = psn_auth_token_is_valid((uint64_t)time(NULL));
-  const int first = filter_row ? 1 : 0;
+  const int first = ui_console_rows_lead(filter_row);
   const int count = ui_cards_get_count() < UI_LIST_MAX_ITEMS - first ? ui_cards_get_count()
                                                                      : UI_LIST_MAX_ITEMS - first;
 
+  s_items[UI_CONSOLE_ROW_PAIR] = pair_item();
   if (filter_row)
-    s_items[0] = filter_item();
+    s_items[UI_CONSOLE_ROW_FILTER] = filter_item();
   for (int i = 0; i < count; i++) {
     const ConsoleCardInfo *card = ui_cards_get_card(i);
     UiConsoleState state = ui_cards_classify(
@@ -401,21 +447,56 @@ void ui_home_select_controller_preset(int preset) {
 
 void ui_home_focus_console(const VitaChiakiHost *host) {
   s_focus_host = host;
+  s_focus_pair_item = false;
   ui_cards_mark_dirty();
 }
 
-/** Carry out a ui_home_focus_console() request: Consoles category, the console's row. */
+void ui_home_focus_pair_item(void) {
+  s_focus_pair_item = true;
+  s_focus_host = NULL;
+}
+
+/**
+ * Carry out the launch focus: the first console, or the Pair new device item when none is
+ * paired. The first build of the console cache is forced here, because its throttle can hold it
+ * back for the first seconds of the app.
+ */
+static void apply_initial_focus(const VitaChiakiHost *cooldown) {
+  if (s_initial_focus_done)
+    return;
+  s_initial_focus_done = true;
+  ui_cards_update_cache(true);
+  refresh_items(cooldown);
+  if (s_bar.focus != HOME_CAT_CONSOLES)
+    return;
+  ui_xmb_list_set_focus(&s_list, ui_console_rows_initial_focus(s_filter_row, ui_cards_get_count()));
+  const int console =
+      ui_console_rows_console_index(s_filter_row, s_list.focus, ui_cards_get_count());
+  if (console >= 0)
+    ui_cards_set_selected_index(console);
+}
+
+/**
+ * Carry out a ui_home_focus_console() or ui_home_focus_pair_item() request: Consoles category,
+ * the console's row or the item.
+ */
 static void apply_focus_request(const VitaChiakiHost *cooldown) {
-  if (!s_focus_host)
+  if (!s_focus_host && !s_focus_pair_item)
     return;
   const VitaChiakiHost *host = s_focus_host;
+  const bool pair_item_wanted = s_focus_pair_item;
   s_focus_host = NULL;
+  s_focus_pair_item = false;
 
   ui_category_bar_set_focus(&s_bar, HOME_CAT_CONSOLES);
   refresh_items(cooldown);
+  if (pair_item_wanted) {
+    ui_xmb_list_set_focus(&s_list, UI_CONSOLE_ROW_PAIR);
+    return;
+  }
   for (int i = 0; i < ui_cards_get_count(); i++) {
     if (ui_cards_get_card(i)->host == host) {
-      ui_xmb_list_set_focus(&s_list, i + (s_filter_row ? 1 : 0));
+      ui_xmb_list_set_focus(&s_list, i + ui_console_rows_lead(s_filter_row));
       ui_cards_set_selected_index(i);
       return;
     }
@@ -472,9 +553,32 @@ static ConsoleCardInfo *focused_card(void) {
   return ui_cards_get_card(focused_console_index());
 }
 
+/** True when the focus is on the Consoles list's Pair new device item. */
+static bool pair_row_focused(void) {
+  return s_bar.focus == HOME_CAT_CONSOLES && s_list.focus == UI_CONSOLE_ROW_PAIR;
+}
+
 /** True when the focus is on the Consoles list's Filter row. */
 static bool filter_row_focused(void) {
-  return s_bar.focus == HOME_CAT_CONSOLES && s_filter_row && s_list.focus == 0;
+  return s_bar.focus == HOME_CAT_CONSOLES && s_filter_row && s_list.focus == UI_CONSOLE_ROW_FILTER;
+}
+
+/** True when the row directly above the focus is the Pair new device item (the item itself has
+ * faded out above the focus, so the hint row names it). */
+static bool pair_row_just_above(void) {
+  return s_bar.focus == HOME_CAT_CONSOLES && s_list.focus == UI_CONSOLE_ROW_PAIR + 1;
+}
+
+/** Open the Pair new device popup (SPEC C29) with the item focused. */
+static void open_pair_popup(void) {
+  ui_xmb_list_set_focus(&s_list, UI_CONSOLE_ROW_PAIR);
+  ui_pair_popup_open();
+  LOGD("Home: Pair new device popup opened (%d found)", ui_pair_hosts_count());
+}
+
+/** True while a popup that freezes the screen behind it is open. */
+static bool popup_open(void) {
+  return ui_home_options_popup_open() || ui_pair_popup_is_open();
 }
 
 /** Index of @host in the console cache, or -1 when it is not listed (gone, or filtered out). */
@@ -512,16 +616,25 @@ static UIScreenType open_category_screen(void) {
 
 /** Forward input to the list and act on its event; returns the screen to show next. */
 static UIScreenType update_list(const UiInput *in) {
-  /* One tap on the Filter row opens the keyboard at once, focused or not. */
-  if (s_filter_row && ui_touch_tap(in) &&
-      ui_rect_contains(s_list.hit[0], in->touch.x, in->touch.y)) {
-    ui_cards_edit_filter();
-    return UI_SCREEN_TYPE_MAIN;
+  /* One tap on the item opens the popup, and one on the Filter row the keyboard, at once,
+   * focused or not. */
+  if (s_bar.focus == HOME_CAT_CONSOLES && ui_touch_tap(in)) {
+    if (ui_rect_contains(s_list.hit[UI_CONSOLE_ROW_PAIR], in->touch.x, in->touch.y)) {
+      open_pair_popup();
+      return UI_SCREEN_TYPE_MAIN;
+    }
+    if (s_filter_row &&
+        ui_rect_contains(s_list.hit[UI_CONSOLE_ROW_FILTER], in->touch.x, in->touch.y)) {
+      ui_cards_edit_filter();
+      return UI_SCREEN_TYPE_MAIN;
+    }
   }
 
   UIScreenType next = UI_SCREEN_TYPE_MAIN;
   if (ui_xmb_list_input(&s_list, in) == UI_EVENT_ACTIVATED) {
-    if (filter_row_focused()) {
+    if (pair_row_focused()) {
+      open_pair_popup();
+    } else if (filter_row_focused()) {
       ui_cards_edit_filter();
     } else if (s_bar.focus != HOME_CAT_CONSOLES) {
       next = open_category_screen();
@@ -554,7 +667,7 @@ static void update_long_press(const UiInput *in) {
   for (int i = s_list.focus; i < s_list.count; i++) {
     if (!ui_rect_contains(s_list.hit[i], in->touch.x, in->touch.y))
       continue;
-    if (s_filter_row && i == 0)
+    if (i == UI_CONSOLE_ROW_PAIR || (s_filter_row && i == UI_CONSOLE_ROW_FILTER))
       return;
     if (i != s_list.focus)
       ui_xmb_list_set_focus(&s_list, i);
@@ -590,16 +703,18 @@ static void update_console_shortcuts(const UiInput *in) {
  * ============================================================================ */
 
 /**
- * Draw the Consoles empty state (SPEC C26): below the Filter row when there is one. Text only;
- * the 16 px spinner of the mock would cost a ring of line draws every frame.
+ * Draw the Consoles empty state (SPEC C26, 3.1a): in the row after the item and the Filter row,
+ * which sits one row pitch plus the focus gap below the focused row (the focus is on one of them,
+ * as no console is listed). Text only.
  */
 static void draw_empty_state(void) {
   if (ui_cards_get_count() > 0)
     return;
   const bool no_match = ui_cards_is_filter_active() && ui_cards_get_total_count() > 0;
-  const int y = UI_LIST_FOCUS_Y + (s_filter_row ? UI_LIST_ROW_H + UI_LIST_FOCUS_GAP : 0);
+  const int rows_below_focus = ui_console_rows_lead(s_filter_row) - s_list.focus;
+  const int y = UI_LIST_FOCUS_Y + UI_LIST_FOCUS_GAP + rows_below_focus * UI_LIST_ROW_H;
   ui_text_draw_face_centered_v(UI_FACE_T20, UI_LIST_TEXT_X, y, UI_LIST_ROW_H, UI_TEXT_2,
-                               no_match ? EMPTY_NO_MATCH : EMPTY_SEARCHING);
+                               no_match ? EMPTY_NO_MATCH : EMPTY_NO_PAIRED);
 }
 
 /** Confirm verb for a console in @status (SPEC 3.1). */
@@ -607,8 +722,6 @@ static const char *console_confirm_verb(UiConsoleStatus status) {
   switch (status) {
     case UI_CONSOLE_STANDBY:
       return HINT_WAKE;
-    case UI_CONSOLE_UNPAIRED:
-      return HINT_PAIR;
     case UI_CONSOLE_COOLDOWN:
       return HINT_PLEASE_WAIT;
     default:
@@ -619,23 +732,29 @@ static const char *console_confirm_verb(UiConsoleStatus status) {
 /**
  * build_hints() - Fill @out with the hints for what is focused (SPEC 3.1) and return how many.
  *
- * An open popup owns the row, then the Options column (ui_home_options_hints): Confirm Select,
- * Cancel Back. Consoles with a console focused: Confirm with the console's verb, Options, then
- * L R Category (low priority). Cooldown shows "Please wait" dimmed. The Filter row: Confirm
- * Filter, Square Clear while a filter is active, L R Category. Other categories: Confirm Open.
- * An empty console list: L R Category only.
+ * An open popup owns the row (the pairing popup's, then ui_home_options_hints()), then the
+ * Options column: Confirm Select, Cancel Back. Consoles with a console focused: Confirm with the
+ * console's verb, Options, then L R Category (low priority). Cooldown shows "Please wait"
+ * dimmed. The Pair new device item: Confirm Pair, L R Category. The Filter row: Confirm Filter,
+ * Square Clear while a filter is active, L R Category. Other categories: Confirm Open. When the
+ * row directly above the focus is the item, which has faded out, D-pad up "Pair new device" is
+ * added last, so the row drops it first.
  */
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
+  if (ui_pair_popup_is_open())
+    return ui_pair_popup_hints(out);
   int n = ui_home_options_hints(out);
   if (n > 0)
     return n;
 
   const bool consoles = s_bar.focus == HOME_CAT_CONSOLES;
-  if (filter_row_focused()) {
+  if (pair_row_focused()) {
+    out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_PAIR};
+  } else if (filter_row_focused()) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_FILTER};
     if (ui_cards_is_filter_active())
       out[n++] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CLEAR};
-  } else if (!consoles || s_item_count > 0) {
+  } else if (!consoles || focused_card()) {
     const UiConsoleStatus status = consoles ? s_console_status[s_list.focus] : UI_CONSOLE_READY;
     out[n++] = (UiHintItem){
         .action = UI_BTN_CONFIRM,
@@ -647,6 +766,10 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   }
   out[n++] =
       (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_CATEGORY, .low_priority = true};
+  if (pair_row_just_above()) {
+    out[n++] =
+        (UiHintItem){.action = UI_BTN_UP, .label = HINT_PAIR_NEW_DEVICE, .low_priority = true};
+  }
   return n;
 }
 
@@ -655,12 +778,36 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
  * ============================================================================ */
 
 /**
+ * Run one frame of the Pair new device popup. A console chosen closes it and opens the PIN screen
+ * for that console; Circle or a tap outside closes it and leaves the item focused.
+ *
+ * @return the screen to show next
+ */
+static UIScreenType update_pair_popup(const UiInput *in) {
+  VitaChiakiHost *chosen = NULL;
+  switch (ui_pair_popup_input(in, &chosen)) {
+    case UI_PAIR_POPUP_PAIR:
+      ui_pair_popup_close();
+      LOGD("Home: pairing %s", chosen->hostname);
+      return ui_screens_pair_host(chosen);
+    case UI_PAIR_POPUP_CLOSE:
+      ui_pair_popup_close();
+      break;
+    case UI_PAIR_POPUP_NONE:
+      break;
+  }
+  return UI_SCREEN_TYPE_MAIN;
+}
+
+/**
  * Run one frame of input for the layer that has it: a popup or the Options column
  * (ui_home_options.c), else the category bar, the list and the shortcuts.
  *
  * @return the screen to show next
  */
 static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldown) {
+  if (ui_pair_popup_is_open())
+    return update_pair_popup(in);
   if (ui_home_options_popup_open() || ui_home_options_column_open()) {
     const UiHomeOptionsTarget target = options_target();
     return ui_home_options_input(in, &target);
@@ -694,7 +841,7 @@ static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldo
  * connected to from here.
  */
 static void open_pending_failure(void) {
-  if (ui_home_options_popup_open())
+  if (popup_open())
     return;
   UiConnectFailure failure;
   if (ui_connect_failure_take(&failure))
@@ -727,11 +874,12 @@ UIScreenType ui_home_frame(void) {
   /* A tapped hint acts as that button pressed and released in one frame, except while the
    * Options column is open, where every tap outside it only closes it. */
   UiInput in = *ui_input_snapshot();
-  const bool hints_tappable = ui_home_options_popup_open() || !ui_home_options_column_open();
+  const bool hints_tappable = popup_open() || !ui_home_options_column_open();
   const uint32_t tapped = hints_tappable ? ui_hint_row_tap(&s_hints, &in) : 0;
   if (tapped) {
     in.pressed |= tapped;
     in.released |= tapped;
+    in.repeat |= tapped & UI_BTN_DPAD;
     in.touch.pressed = false;
     in.touch.released = false;
     in.touch.down = false;
@@ -740,13 +888,14 @@ UIScreenType ui_home_frame(void) {
   /* Behind a popup the console list does not change, so the row a popup is about stays put. */
   const char *banner_reason = NULL;
   const VitaChiakiHost *cooldown = NULL;
-  if (!ui_home_options_popup_open()) {
+  if (!popup_open()) {
     ui_cards_update_cache(false);
     ui_cards_poll_filter_ime();
   }
   if (!frozen) {
     cooldown = cooldown_host(&banner_reason);
     refresh_items(cooldown);
+    apply_initial_focus(cooldown);
     apply_focus_request(cooldown);
     if (ui_home_options_column_open()) {
       const UiHomeOptionsTarget target = options_target();
@@ -765,8 +914,10 @@ UIScreenType ui_home_frame(void) {
   const bool capturing = ui_freeze_is_capturing();
   if (!frozen)
     draw_live_layers(banner_reason);
-  if (!capturing)
+  if (!capturing) {
     ui_home_options_draw_popup();
+    ui_pair_popup_draw();
+  }
 
   if (capturing) {
     s_hints.count = 0;

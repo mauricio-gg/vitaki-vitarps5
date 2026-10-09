@@ -126,10 +126,7 @@ static void draw_check(int x, int y, int size, uint32_t color) {
                                  ui_layer_color(color));
 }
 
-/** Draw list row @i inside @r. */
-static void draw_row(const UiListPopup *list, int i, UiRect r) {
-  const UiListRow *row = &list->rows[i];
-  const bool focused = i == list->focus;
+void ui_list_popup_draw_row(const UiListRow *row, bool focused, UiRect r) {
   const int text_x = r.x + UI_LISTPOP_ROW_PAD;
   const int right = r.x + r.w - UI_LISTPOP_ROW_PAD;
 
@@ -217,7 +214,7 @@ void ui_list_popup_draw(const UiListPopup *list) {
     for (int i = first; i < first + list->visible; i++) {
       UiRect r = row_rect(list, i);
       r.y += dy;
-      draw_row(list, i, r);
+      ui_list_popup_draw_row(&list->rows[i], i == list->focus, r);
     }
     ui_scroll_indicator_draw(list->viewport.x + list->viewport.w - UI_SCROLL_W,
                              list->viewport.y + dy, list->viewport.h, list->count, list->visible,

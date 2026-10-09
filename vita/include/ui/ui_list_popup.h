@@ -101,6 +101,15 @@ static inline bool ui_list_popup_is_open(const UiListPopup *list) {
 void ui_list_popup_draw(const UiListPopup *list);
 
 /**
+ * ui_list_popup_draw_row() - Draw one list row inside @r: the focused bar with the label glow, or
+ * the divider under an unfocused row, then the label, the check of a current row and the right
+ * label. For popups that lay out their own rows (the pairing popup) and must look like these.
+ * Follows the layer opacity. Paper cost: label 1, right label 1, check 1, divider 1; focused:
+ * glow 1 and bar 3 instead of the divider.
+ */
+void ui_list_popup_draw_row(const UiListRow *row, bool focused, UiRect r);
+
+/**
  * ui_list_popup_input() - Up/Down (grid: all four) move without wrapping, Confirm activates, a tap
  * on a row or cell focuses and activates it, a vertical swipe on a list moves the focus one row
  * per UI_ROW_SWIPE_PX, Cancel or a tap outside the card cancels.

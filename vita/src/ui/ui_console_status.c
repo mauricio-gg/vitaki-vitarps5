@@ -84,18 +84,75 @@ static char ascii_lower(char c) {
   return (c >= 'A' && c <= 'Z') ? (char)(c + ('a' - 'A')) : c;
 }
 
-bool ui_console_order_before(bool a_registered, const char *a_name, bool b_registered,
-                             const char *b_name) {
-  if (a_registered != b_registered)
-    return a_registered;
-
+/** Compare two names ignoring ASCII case: negative, zero or positive like strcmp; NULL is "". */
+static int compare_names_nocase(const char *a_name, const char *b_name) {
   const char *a = a_name ? a_name : "";
   const char *b = b_name ? b_name : "";
   while (*a && *b && ascii_lower(*a) == ascii_lower(*b)) {
     a++;
     b++;
   }
-  return (unsigned char)ascii_lower(*a) < (unsigned char)ascii_lower(*b);
+  return (unsigned char)ascii_lower(*a) - (unsigned char)ascii_lower(*b);
+}
+
+bool ui_console_order_before(bool a_registered, const char *a_name, bool b_registered,
+                             const char *b_name) {
+  if (a_registered != b_registered)
+    return a_registered;
+  return compare_names_nocase(a_name, b_name) < 0;
+}
+
+/** Octets in a dotted IPv4 address. */
+#define IPV4_OCTETS 4
+#define IPV4_OCTET_MAX 255
+
+/**
+ * Read a dotted IPv4 address ("192.168.1.4") into @octets.
+ * @return true only when @ip is exactly four numbers 0 to 255 separated by dots
+ */
+static bool parse_ipv4(const char *ip, int octets[IPV4_OCTETS]) {
+  if (!ip)
+    return false;
+  for (int i = 0; i < IPV4_OCTETS; i++) {
+    if (*ip < '0' || *ip > '9')
+      return false;
+    int value = 0;
+    while (*ip >= '0' && *ip <= '9') {
+      value = value * 10 + (*ip - '0');
+      if (value > IPV4_OCTET_MAX)
+        return false;
+      ip++;
+    }
+    octets[i] = value;
+    if (i < IPV4_OCTETS - 1) {
+      if (*ip != '.')
+        return false;
+      ip++;
+    }
+  }
+  return *ip == '\0';
+}
+
+/** Compare two addresses by number when both are dotted IPv4, else as text: strcmp-like. */
+static int compare_addresses(const char *a_ip, const char *b_ip) {
+  int a[IPV4_OCTETS];
+  int b[IPV4_OCTETS];
+  if (parse_ipv4(a_ip, a) && parse_ipv4(b_ip, b)) {
+    for (int i = 0; i < IPV4_OCTETS; i++) {
+      if (a[i] != b[i])
+        return a[i] - b[i];
+    }
+    return 0;
+  }
+  return strcmp(a_ip ? a_ip : "", b_ip ? b_ip : "");
+}
+
+bool ui_console_discovered_order_before(const char *a_name, const char *a_ip, const char *b_name,
+                                        const char *b_ip) {
+  const int by_name = compare_names_nocase(a_name, b_name);
+  if (by_name != 0)
+    return by_name < 0;
+  return compare_addresses(a_ip, b_ip) < 0;
 }
 
 const char *ui_console_route_label(bool discovered, bool internet_ok) {

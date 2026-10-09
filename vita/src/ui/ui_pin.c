@@ -127,7 +127,8 @@ void ui_pin_on_enter(void) {
  * show_result() - Handle a finished attempt: no popup for a cancel, else open the result popup.
  * @name: The console's name as the attempt saw it.
  *
- * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home), otherwise the PIN screen
+ * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home with the Pair new device item focused),
+ *         otherwise the PIN screen
  */
 static UIScreenType show_result(HostRegistrationResult result, const char *name) {
   char body[RESULT_BODY_MAX];
@@ -135,6 +136,7 @@ static UIScreenType show_result(HostRegistrationResult result, const char *name)
   if (!ui_result_copy_pairing(result, name, body, sizeof(body), &copy)) {
     if (result != HOST_REGISTRATION_CANCELLED)
       LOGE("PIN screen: pairing result %s has no popup", host_registration_result_name(result));
+    ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }
   s_result = result;
@@ -196,6 +198,7 @@ static UIScreenType update_field(const UiInput *in) {
         host_registration_cancel();
         return UI_SCREEN_TYPE_REGISTER_HOST;
       }
+      ui_home_focus_pair_item();
       return UI_SCREEN_TYPE_MAIN;
     default:
       return UI_SCREEN_TYPE_REGISTER_HOST;
@@ -204,7 +207,8 @@ static UIScreenType update_field(const UiInput *in) {
 
 /**
  * update_result_popup() - Drive the result popup. Paired goes back to Home with the console
- * focused; Close goes back to Home; Try again opens this screen again, empty.
+ * focused; Close goes back to Home with the Pair new device item focused; Try again opens this
+ * screen again, empty.
  *
  * @return the screen to show next
  */
@@ -218,8 +222,10 @@ static UIScreenType update_result_popup(const UiInput *in) {
     ui_home_focus_console(s_host);
     return UI_SCREEN_TYPE_MAIN;
   }
-  if (choice == 0)
+  if (choice == 0) {
+    ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
+  }
   reset_entry();
   return UI_SCREEN_TYPE_REGISTER_HOST;
 }

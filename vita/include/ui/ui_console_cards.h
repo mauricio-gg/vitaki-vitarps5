@@ -2,7 +2,7 @@
  * @file ui_console_cards.h
  * @brief Console list data for the Home screen
  *
- * - Card cache (sorted: paired first, then by name; filtered) that prevents flicker
+ * - Card cache (paired consoles only, sorted by name; filtered) that prevents flicker
  *   during discovery updates
  * - Host-to-card mapping logic
  * - The selected console and the console filter (name or IP address)
@@ -96,7 +96,7 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card);
 /**
  * ui_cards_get_total_count() - Consoles known before the filter is applied
  *
- * Returns: Number of consoles the list would show with no filter (after "show only paired")
+ * Returns: Number of paired consoles the list would show with no filter
  */
 int ui_cards_get_total_count(void);
 

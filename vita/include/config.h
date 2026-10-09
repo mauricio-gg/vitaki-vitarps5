@@ -84,7 +84,6 @@ typedef struct vita_chiaki_config_t {
                                     // instead of freezing for the IDR
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
-  bool show_only_paired;                     // Only show registered/paired consoles on main screen
   VitaChiakiBackgroundBlur background_blur;  // Menu background treatment, default None
   bool show_button_hints;    // Draw the button hint row on menus (not the in-stream exit hint)
   RoomIconTable room_icons;  // Per-console room icon choices, keyed by console MAC

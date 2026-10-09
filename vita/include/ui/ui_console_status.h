@@ -93,6 +93,19 @@ bool ui_console_order_before(bool a_registered, const char *a_name, bool b_regis
                              const char *b_name);
 
 /**
+ * ui_console_discovered_order_before() - Order of the unpaired consoles in the Pair new device
+ * popup (SPEC C29): by name ignoring ASCII case, equal names by address.
+ * @a_name, @a_ip: First console's name and IP address.
+ * @b_name, @b_ip: Second console's name and IP address.
+ *
+ * Addresses that are dotted IPv4 compare by number, so 192.168.1.4 comes before 192.168.1.10;
+ * anything else compares as text. Returns true only when a must sit strictly before b, so equal
+ * consoles keep their existing order (stable sort).
+ */
+bool ui_console_discovered_order_before(const char *a_name, const char *a_ip, const char *b_name,
+                                        const char *b_ip);
+
+/**
  * ui_console_route_label() - The "Route" the detail panel shows for a console.
  * @discovered:  The console answered local discovery right now.
  * @internet_ok: A PSN route exists and the PSN token is valid (the same input as classify).

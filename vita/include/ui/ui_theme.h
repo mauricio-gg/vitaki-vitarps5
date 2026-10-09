@@ -440,6 +440,29 @@ typedef enum ui_face_t {
 #define UI_LISTPOP_CELL_CHECK 16
 #define UI_LISTPOP_CELL_CHECK_INSET UI_S1
 
+/* ============================================================================
+ * C29 PairPopup (ui_pair_popup.c): the L popup that lists unpaired consoles
+ * ============================================================================ */
+
+/** Lines of Link Device instructions under the title. */
+#define UI_PAIR_INSTR_LINES 2
+/** Rows of the console viewport (it scrolls past this many). */
+#define UI_PAIR_VISIBLE_ROWS 4
+/** Space between the title, the instructions, the section label and the viewport. */
+#define UI_PAIR_GAP UI_S1
+/** A note row (searching, none, discovery off) pads this far above and below its text lines. */
+#define UI_PAIR_NOTE_PAD 12
+/** Searching note: the spinner is centred this far from the viewport edge, the text starts here. */
+#define UI_PAIR_NOTE_SPINNER_CX UI_S2
+#define UI_PAIR_NOTE_TEXT_X UI_S6
+/** Space between the section label and its spinner. */
+#define UI_PAIR_LABEL_SPINNER_GAP UI_S1
+/** The pinned Enter IP address row's chevron. */
+#define UI_PAIR_CHEVRON_ART 20
+#define UI_PAIR_CHEVRON_STROKE 2.0f
+/** Space between a row's label and its right label when the label is cut to fit. */
+#define UI_PAIR_LABEL_GAP UI_S2
+
 /* The background freeze (ui_freeze.c): a half-resolution copy of the screen behind a popup. */
 #define UI_FREEZE_W 480
 #define UI_FREEZE_H 272

@@ -29,6 +29,13 @@ UIScreenType ui_screen_draw_main(void);
 UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
 
 /**
+ * Send the user to the PIN screen to pair a discovered, unpaired console.
+ * @param host Console to pair (NULL or already paired is ignored)
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
+ */
+UIScreenType ui_screens_pair_host(VitaChiakiHost *host);
+
+/**
  * Unregister a paired console and send the user to the PIN screen to pair it again.
  * @param host Console to re-pair (NULL or unpaired is ignored)
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done

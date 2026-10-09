@@ -144,6 +144,22 @@ static void test_connection_words_follow_the_spec_table(void) {
   check_words(&psn_manual, "PSN Internet", "Ready");
 }
 
+/* catches: the pairing popup listing consoles in an order that changes between frames or jumps
+ * around: names compare ignoring case, and two consoles with the same name sit in numeric IP
+ * order (192.168.1.4 before 192.168.1.10, which a plain text compare gets wrong). */
+static void test_discovered_order_is_name_then_numeric_ip(void) {
+  assert(ui_console_discovered_order_before("bedroom", "192.168.1.9", "Den", "192.168.1.1"));
+  assert(!ui_console_discovered_order_before("Den", "192.168.1.1", "bedroom", "192.168.1.9"));
+  assert(ui_console_discovered_order_before("PS5", "192.168.1.4", "PS5", "192.168.1.10"));
+  assert(!ui_console_discovered_order_before("PS5", "192.168.1.10", "PS5", "192.168.1.4"));
+  assert(ui_console_discovered_order_before("ps5", "10.0.0.2", "PS5", "10.0.0.3"));
+  assert(ui_console_discovered_order_before("PS5", "9.0.0.1", "PS5", "10.0.0.1"));
+  /* An identical console is never before itself, so the sort stays stable. */
+  assert(!ui_console_discovered_order_before("PS5", "10.0.0.2", "PS5", "10.0.0.2"));
+  /* Text that is not a dotted address still has a fixed order. */
+  assert(ui_console_discovered_order_before("PS5", "alpha", "PS5", "beta"));
+}
+
 int main(void) {
   test_retrying_messages_ignore_the_error_flag();
   test_error_messages_stay_error();
@@ -152,6 +168,7 @@ int main(void) {
   test_status_precedence();
   test_only_error_class_hints_open_the_failure_popup();
   test_connection_words_follow_the_spec_table();
+  test_discovered_order_is_name_then_numeric_ip();
   printf("ui_console_status_tests: all passed\n");
   return 0;
 }

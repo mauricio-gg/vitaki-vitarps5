@@ -187,6 +187,20 @@ UIScreenType ui_screens_connect_host(VitaChiakiHost *host) {
 }
 
 /**
+ * ui_screens_pair_host() - Send the user to the PIN screen to pair a discovered console.
+ *
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or MAIN when @host is NULL or already paired
+ */
+UIScreenType ui_screens_pair_host(VitaChiakiHost *host) {
+  if (!host || (host->type & REGISTERED))
+    return UI_SCREEN_TYPE_MAIN;
+
+  LOGD("Pairing console: %s", host->hostname);
+  context.active_host = host;
+  return UI_SCREEN_TYPE_REGISTER_HOST;
+}
+
+/**
  * ui_screens_repair_host() - Unregister @host and send the user to the PIN screen.
  *
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or MAIN when @host is NULL or not paired

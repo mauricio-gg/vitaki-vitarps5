@@ -214,8 +214,8 @@ void ui_cards_update_cache(bool force_update) {
     if (context.hosts[i]) {
       ConsoleCardInfo temp = {0};
       ui_cards_map_host(context.hosts[i], &temp);
-      /* Skip unregistered hosts if "show only paired" is enabled */
-      if (context.config.show_only_paired && !temp.is_registered)
+      /* Home lists paired consoles only; unpaired ones live in the Pair new device popup. */
+      if (!temp.is_registered)
         continue;
       num_known++;
       /* Apply filter if active */

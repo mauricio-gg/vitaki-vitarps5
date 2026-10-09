@@ -25,7 +25,8 @@ static const char ALERT_TEXT[] = "Network Unstable";
 #define ACTION_DPAD_V (UI_BTN_UP | UI_BTN_DOWN)
 
 /** The D-pad left-right glyph is drawn in a 24 x 24 grid (the mock's dpadh icon): two triangles.
- * The up-down glyph is the same two triangles with x and y swapped. */
+ * The up-down glyph is the same two triangles with x and y swapped. The up glyph (the mock's
+ * dpadu icon) is one triangle pointing up. */
 #define DPAD_GRID 24
 #define DPAD_TRIANGLES 2
 #define DPAD_SUBSAMPLES 4
@@ -40,12 +41,17 @@ static const DpadPoint DPAD_TRIANGLE[DPAD_TRIANGLES][3] = {
     {{15.0f, 7.0f}, {21.0f, 12.0f}, {15.0f, 17.0f}},
 };
 
+static const DpadPoint DPAD_UP_TRIANGLE[1][3] = {
+    {{7.0f, 15.0f}, {12.0f, 9.0f}, {17.0f, 15.0f}},
+};
+
 static vita2d_texture *s_badge_l = NULL;
 static vita2d_texture *s_badge_r = NULL;
 static vita2d_texture *s_badge_start = NULL;
 static vita2d_texture *s_badge_select = NULL;
 static vita2d_texture *s_badge_dpad_h = NULL;
 static vita2d_texture *s_badge_dpad_v = NULL;
+static vita2d_texture *s_badge_dpad_up = NULL;
 
 /** True when (@px, @py) lies inside triangle @t (either winding). */
 static bool in_triangle(const DpadPoint t[3], float px, float py) {
@@ -60,10 +66,10 @@ static bool in_triangle(const DpadPoint t[3], float px, float py) {
   return !(has_neg && has_pos);
 }
 
-/** Alpha of a D-pad glyph: triangle coverage, supersampled DPAD_SUBSAMPLES^2. @ctx points to a
- * bool, true for the up-down glyph. */
-static float dpad_alpha(float px, float py, const void *ctx) {
-  const bool vertical = *(const bool *)ctx;
+/** Alpha of a glyph made of @count triangles on the 24 x 24 grid: coverage, supersampled
+ * DPAD_SUBSAMPLES^2. @vertical swaps x and y, turning the left-right pair into up-down. */
+static float triangles_alpha(float px, float py, const DpadPoint (*triangles)[3], int count,
+                             bool vertical) {
   const float cell = (float)DPAD_GRID / (float)UI_HINT_GLYPH_H;
   const float x0 = (px - 0.5f) * cell;
   const float y0 = (py - 0.5f) * cell;
@@ -74,8 +80,8 @@ static float dpad_alpha(float px, float py, const void *ctx) {
       const float down = y0 + ((float)sy + 0.5f) / (float)DPAD_SUBSAMPLES * cell;
       const float sample_x = vertical ? down : across;
       const float sample_y = vertical ? across : down;
-      for (int t = 0; t < DPAD_TRIANGLES; t++) {
-        if (in_triangle(DPAD_TRIANGLE[t], sample_x, sample_y)) {
+      for (int t = 0; t < count; t++) {
+        if (in_triangle(triangles[t], sample_x, sample_y)) {
           hits++;
           break;
         }
@@ -83,6 +89,17 @@ static float dpad_alpha(float px, float py, const void *ctx) {
     }
   }
   return (float)hits / (float)(DPAD_SUBSAMPLES * DPAD_SUBSAMPLES);
+}
+
+/** Alpha of the left-right or up-down glyph. @ctx points to a bool, true for up-down. */
+static float dpad_alpha(float px, float py, const void *ctx) {
+  return triangles_alpha(px, py, DPAD_TRIANGLE, DPAD_TRIANGLES, *(const bool *)ctx);
+}
+
+/** Alpha of the up-only glyph; @ctx is unused. */
+static float dpad_up_alpha(float px, float py, const void *ctx) {
+  (void)ctx;
+  return triangles_alpha(px, py, DPAD_UP_TRIANGLE, 1, false);
 }
 
 void ui_hint_row_init(void) {
@@ -95,6 +112,7 @@ void ui_hint_row_init(void) {
   if (!s_badge_dpad_h) {
     s_badge_dpad_h = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_alpha, &HORIZONTAL);
     s_badge_dpad_v = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_alpha, &VERTICAL);
+    s_badge_dpad_up = ui_bake_white(UI_HINT_GLYPH_H, UI_HINT_GLYPH_H, dpad_up_alpha, NULL);
   }
 }
 
@@ -135,6 +153,8 @@ static vita2d_texture *glyph_texture(uint32_t action) {
       return s_badge_dpad_h;
     case ACTION_DPAD_V:
       return s_badge_dpad_v;
+    case UI_BTN_UP:
+      return s_badge_dpad_up;
     default:
       return NULL;
   }

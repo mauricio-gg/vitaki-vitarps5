@@ -26,7 +26,6 @@ static const char OPTION_CONNECT[] = "Connect";
 static const char OPTION_WAKE_CONNECT[] = "Wake and connect";
 static const char OPTION_CONNECT_VIA[] = "Connect via";
 static const char OPTION_REPAIR[] = "Re-pair";
-static const char OPTION_PAIR[] = "Pair";
 static const char OPTION_CHANGE_ICON[] = "Change icon";
 static const char REPAIR_TITLE_FORMAT[] = "Re-pair %s?";
 static const char REPAIR_BODY[] = "You will need to enter a new 8-digit PIN from the console.";
@@ -80,7 +79,6 @@ static const char *const OPTION_LABELS[] = {
     [UI_CONSOLE_OPTION_WAKE_CONNECT] = OPTION_WAKE_CONNECT,
     [UI_CONSOLE_OPTION_CONNECT_VIA] = OPTION_CONNECT_VIA,
     [UI_CONSOLE_OPTION_REPAIR] = OPTION_REPAIR,
-    [UI_CONSOLE_OPTION_PAIR] = OPTION_PAIR,
     [UI_CONSOLE_OPTION_CHANGE_ICON] = OPTION_CHANGE_ICON,
 };
 
