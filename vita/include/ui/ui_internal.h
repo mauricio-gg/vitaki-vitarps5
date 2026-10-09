@@ -7,7 +7,6 @@
  *
  * Provides access to:
  * - Shared texture pointers
- * - Shared fonts
  * - Global state accessors
  * - Cross-module function declarations
  */
@@ -32,39 +31,18 @@ typedef struct vita_chiaki_context_t VitaChiakiContext;
 // Shared Texture Pointers (defined in ui.c, will move to ui_main.c)
 // ============================================================================
 
-// Fonts
-extern vita2d_font *font;
-extern vita2d_font *font_mono;
-
 // Console icons
 extern vita2d_texture *img_ps4;
 
 // UI symbols
 extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 
-// Status ellipses
-extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
-
 // Home category icons
 extern vita2d_texture *icon_play, *icon_settings;
 
 // Other UI textures
-extern vita2d_texture *button_add_new;
 extern vita2d_texture *vita_rps5_logo;
 extern vita2d_texture *ps5_logo;
-
-// ============================================================================
-// Shared Global State (defined in ui.c, will be organized into modules)
-// ============================================================================
-
-// Button configuration (set during init)
-extern int SCE_CTRL_CONFIRM;
-extern int SCE_CTRL_CANCEL;
-extern char *confirm_btn_str;
-extern char *cancel_btn_str;
-
-// Tooltip buffer
-extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
 
 // ============================================================================
 // Shared Context Access
@@ -161,14 +139,11 @@ static inline int ui_get_dynamic_content_center_x(void) {
 
 // Input handling (ui_input.c)
 bool btn_pressed(SceCtrlButtons btn);
-bool btn_down(SceCtrlButtons btn);
-bool btn_released(SceCtrlButtons btn);
 void block_inputs_for_transition(void);
 bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
 bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh);
 uint32_t *ui_input_get_button_block_mask_ptr(void);
 bool *ui_input_get_touch_block_active_ptr(void);
-bool *ui_input_get_touch_block_pending_clear_ptr(void);
 
 // Graphics primitives (ui_graphics.c)
 void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
@@ -187,23 +162,16 @@ uint64_t ui_anim_now_us(void);
 float ui_anim_elapsed_ms(uint64_t start_us);
 
 // State management (ui_state.c)
-bool stream_cooldown_active(void);
 uint64_t stream_cooldown_until_us(void);
 bool takion_cooldown_gate_active(void);
 bool start_connection_thread(VitaChiakiHost *host);
-int get_text_width_cached(const char *text, int font_size);
 bool ui_connection_overlay_active(void);
 UIConnectionStage ui_connection_stage(void);
 void ui_clear_waking_wait(void);
 
 // Components (ui_components.c)
 // Legacy compatibility wrappers - internal use only
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected);
-void draw_status_dot(int x, int y, int radius, int status);
-void draw_section_header(int x, int y, int width, const char *title);
 void open_debug_menu(void);
-void close_debug_menu(void);
 void render_debug_menu(void);
 void handle_debug_menu_input(void);
 

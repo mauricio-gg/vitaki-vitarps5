@@ -1,12 +1,6 @@
 /**
  * @file ui_components.c
- * @brief Reusable UI widgets and dialogs implementation for VitaRPS5
- *
- * This module implements high-level UI components used throughout the
- * VitaRPS5 interface. All components follow the PlayStation design language
- * with smooth animations and consistent styling.
- *
- * Extracted from ui.c during Phase 4 of UI refactoring.
+ * @brief Debug menu implementation for VitaRPS5 (VITARPS5_DEBUG_MENU builds)
  */
 
 #include <stdio.h>
@@ -18,6 +12,9 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
+#include "ui/ui_component.h"
+#include "ui/ui_shapes.h"
+#include "ui/ui_theme.h"
 #include "host_feedback.h"
 #include "video.h"
 
@@ -39,108 +36,6 @@ const char *debug_menu_options[] = {
     "Trigger network unstable badge",
     "Spawn fake consoles (x12)",
 };
-
-// ============================================================================
-// Widget Drawing Functions
-// ============================================================================
-
-/**
- * Draw a tabbed navigation bar with color-coded sections
- */
-void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                     int num_tabs, int selected) {
-  int tab_width = width / num_tabs;
-
-  for (int i = 0; i < num_tabs; i++) {
-    int tab_x = x + (i * tab_width);
-
-    // Tab background - flat color, no dimming
-    ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
-
-    // Tab text (centered horizontally and vertically in the tab box).
-    int text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
-    int text_x = tab_x + (tab_width - text_width) / 2;
-
-    // Vertically centered in the tab height box; _centered_v eliminates the +6 magic offset.
-    ui_text_draw_centered_v(font, text_x, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                            tabs[i]);
-
-    // Selection indicator (bottom bar) - only visual difference
-    if (i == selected) {
-      vita2d_draw_rectangle(tab_x + 2, y + height - 3, tab_width - 8, 3, UI_COLOR_PRIMARY_BLUE);
-    }
-  }
-}
-
-/**
- * Draw a colored status indicator dot
- */
-void ui_draw_status_dot(int x, int y, int radius, UIStatusType status) {
-  uint32_t color;
-  switch (status) {
-    case UI_STATUS_ACTIVE:
-      color = RGBA8(0x2D, 0x8A, 0x3E, 255);  // Green
-      break;
-    case UI_STATUS_STANDBY:
-      color = RGBA8(0xD9, 0x77, 0x06, 255);  // Orange/Yellow
-      break;
-    case UI_STATUS_ERROR:
-      color = RGBA8(0xDC, 0x26, 0x26, 255);  // Red
-      break;
-    default:
-      color = RGBA8(0x80, 0x80, 0x80, 255);  // Gray
-  }
-
-  ui_draw_circle(x, y, radius, color);
-}
-
-/**
- * Draw a styled section header with title and accent line
- */
-void ui_draw_section_header(int x, int y, int width, const char *title) {
-  // Subtle gradient background bar
-  int header_h = 40;
-  ui_draw_rounded_rect(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
-
-  // Bottom accent line (PlayStation Blue)
-  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title text (centered vertically in header).
-  ui_text_draw_centered_v(font, x + 15, y, header_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-                          title);
-}
-
-/**
- * Draw a rounded rectangular text button with selected/disabled states.
- *
- * Background colors mirror the ad-hoc "Add New" button in ui_screens.c:
- *   enabled+selected  → UI_COLOR_PRIMARY_BLUE
- *   enabled+unselected → RGBA8(0x50,0x70,0xA0,255)
- *   disabled          → RGBA8(0x40,0x44,0x4A,255)
- */
-void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
-                         bool enabled) {
-  uint32_t bg_color;
-  uint32_t text_color;
-
-  if (!enabled) {
-    bg_color = RGBA8(0x40, 0x44, 0x4A, 255);
-    text_color = UI_COLOR_TEXT_TERTIARY;
-  } else if (selected) {
-    bg_color = UI_COLOR_PRIMARY_BLUE;
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  } else {
-    bg_color = RGBA8(0x50, 0x70, 0xA0, 255);
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  }
-
-  ui_draw_rounded_rect(x, y, w, h, 6, bg_color);
-
-  // Label centered horizontally and vertically in the button box.
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
-  int text_x = x + (w - text_w) / 2;
-  ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
 
 // ============================================================================
 // Debug Menu (VITARPS5_DEBUG_MENU must be enabled)
@@ -372,50 +267,67 @@ void ui_debug_close(void) {
   }
 }
 
+/** Debug menu panel size, in pixels. */
+#define DEBUG_MENU_PANEL_W 560
+#define DEBUG_MENU_PANEL_H 304
+/** Top of the title text box, below the panel's top edge. */
+#define DEBUG_MENU_TITLE_TOP UI_S3
+/** Top of the first option row, below the panel's top edge. */
+#define DEBUG_MENU_LIST_TOP 72
+/** Gap between option rows. */
+#define DEBUG_MENU_ROW_GAP 2
+/** Space between the option rows and the panel's left and right edges. */
+#define DEBUG_MENU_ROW_INSET UI_S4
+/** Space between the row label and the row's left edge. */
+#define DEBUG_MENU_ROW_PAD UI_S2
+/** Top of the hint text box, above the panel's bottom edge. */
+#define DEBUG_MENU_HINT_BOTTOM_GAP 28
+
 /**
- * Render the debug menu
+ * Render the debug menu in the popup style: scrim, panel with border, T28 title, focus-bar rows
+ * in T20, T14 hint.
  */
 void ui_debug_render(void) {
   if (!context.ui_state.debug_menu_active)
     return;
 
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
+  vita2d_draw_rectangle(0.0f, 0.0f, (float)VITA_WIDTH, (float)VITA_HEIGHT, UI_SCRIM);
 
-  // Panel dimensions
-  const int panel_w = 560;
-  const int panel_h = 290;
-  int panel_x = (VITA_WIDTH - panel_w) / 2;
-  int panel_y = (VITA_HEIGHT - panel_h) / 2;
-  ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18, RGBA8(0x14, 0x16, 0x1C, 240));
+  const UiRect panel = {(VITA_WIDTH - DEBUG_MENU_PANEL_W) / 2,
+                        (VITA_HEIGHT - DEBUG_MENU_PANEL_H) / 2, DEBUG_MENU_PANEL_W,
+                        DEBUG_MENU_PANEL_H};
+  ui_shape9_draw(UI_SHAPE9_MD, panel, UI_PANEL);
+  ui_shape9_draw(UI_SHAPE9_MD_BORDER, panel, UI_LINE);
 
-  // Title — baseline sits 40 px below panel top, leaving room for the panel's title-bar area.
   const char *title = "Debug Actions";
-  int title_w = ui_text_width(font, FONT_SIZE_HEADER, title);
-  ui_text_draw(font, panel_x + (panel_w - title_w) / 2, panel_y + 40, UI_COLOR_TEXT_PRIMARY,
-               FONT_SIZE_HEADER, title);
+  ui_text_draw_face_centered_v(UI_FACE_T28,
+                               panel.x + (panel.w - ui_text_face_width(UI_FACE_T28, title)) / 2,
+                               panel.y + DEBUG_MENU_TITLE_TOP, UI_T28_LINE, UI_TEXT, title);
 
-  // Option list
-  int list_y = panel_y + 70;
+  const int row_x = panel.x + DEBUG_MENU_ROW_INSET;
+  const int row_w = panel.w - 2 * DEBUG_MENU_ROW_INSET;
   for (int i = 0; i < DEBUG_MENU_OPTION_COUNT; i++) {
-    uint32_t row_color = RGBA8(0x30, 0x35, 0x40, 255);
-    if (i == context.ui_state.debug_menu_selection) {
-      row_color = RGBA8(0x34, 0x90, 0xFF, 160);
+    const bool focused = i == context.ui_state.debug_menu_selection;
+    const int row_y = panel.y + DEBUG_MENU_LIST_TOP + i * (UI_ROW_H + DEBUG_MENU_ROW_GAP);
+    const int text_x = row_x + DEBUG_MENU_ROW_PAD;
+    if (focused) {
+      const UiRect label = {text_x, row_y + (UI_ROW_H - UI_T20_LINE) / 2,
+                            ui_text_face_width(UI_FACE_T20, debug_menu_options[i]), UI_T20_LINE};
+      ui_glow_draw_rect(label, UI_ROW_GLOW,
+                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
+      ui_shape3_draw(UI_SHAPE3_BAR_48, row_x, row_y, row_w, UI_FILL_FOCUS);
+    } else {
+      vita2d_draw_rectangle((float)row_x, (float)(row_y + UI_ROW_H - UI_LW1), (float)row_w,
+                            (float)UI_LW1, UI_LINE_FAINT);
     }
-    int row_h = 44;
-    int row_margin = 6;
-    ui_draw_rounded_rect(panel_x + 30, list_y + i * (row_h + row_margin), panel_w - 60, row_h, 10,
-                         row_color);
-    // Row label centered vertically in the row box; box top is list_y + i*(row_h+row_margin).
-    ui_text_draw_centered_v(font, panel_x + 50, list_y + i * (row_h + row_margin), row_h,
-                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, debug_menu_options[i]);
+    ui_text_draw_face_centered_v(UI_FACE_T20, text_x, row_y, UI_ROW_H,
+                                 focused ? UI_TEXT : UI_TEXT_2, debug_menu_options[i]);
   }
 
-  // Hint text — baseline sits 20 px above panel bottom.
   const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
-  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  ui_text_draw(font, panel_x + (panel_w - hint_w) / 2, panel_y + panel_h - 20,
-               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
+  ui_text_draw_face_centered_v(
+      UI_FACE_T14, panel.x + (panel.w - ui_text_face_width(UI_FACE_T14, hint)) / 2,
+      panel.y + panel.h - DEBUG_MENU_HINT_BOTTOM_GAP, UI_T14_LINE, UI_TEXT_3, hint);
 }
 
 /**
@@ -450,39 +362,12 @@ void ui_debug_handle_input(void) {
   }
 }
 
-/**
- * Check if debug menu is currently active
- */
-bool ui_debug_is_active(void) {
-  return context.ui_state.debug_menu_active;
-}
-
 // ============================================================================
 // Legacy Compatibility Wrappers (for ui.c internal use)
 // ============================================================================
 
-// These static wrappers maintain backwards compatibility with existing ui.c code
-// Once ui.c is fully refactored, these can be removed
-
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected) {
-  ui_draw_tab_bar(x, y, width, height, tabs, colors, num_tabs, selected);
-}
-
-void draw_status_dot(int x, int y, int radius, int status) {
-  ui_draw_status_dot(x, y, radius, (UIStatusType)status);
-}
-
-void draw_section_header(int x, int y, int width, const char *title) {
-  ui_draw_section_header(x, y, width, title);
-}
-
 void open_debug_menu(void) {
   ui_debug_open();
-}
-
-void close_debug_menu(void) {
-  ui_debug_close();
 }
 
 void render_debug_menu(void) {

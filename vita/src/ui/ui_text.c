@@ -1,15 +1,12 @@
 /**
  * @file ui_text.c
- * @brief Centralized text rendering helpers for VitaRPS5 UI (Phase 1, issue #127)
+ * @brief Text rendering for the VitaRPS5 UI: the five SPEC type faces
  *
  * Eliminates first-frame atlas hitches and baseline jitter by:
- *  1. Pre-warming the vita2d_font glyph atlas for all (codepoint, pt_size)
- *     pairs used by the UI before the first visible frame.
- *  2. Caching ascent and line-height once per pt size via a probe string, so
- *     all call sites share identical, metrics-derived baseline offsets.
- *
- * Phase 2 will migrate the 114 existing vita2d_font_draw_text call sites to
- * use ui_text_draw() / ui_text_draw_centered_v().
+ *  1. Pre-warming the vita2d_font glyph atlas for every type face before the
+ *     first visible frame.
+ *  2. Caching ascent and line-height once per face via a probe string, so all
+ *     call sites share identical, metrics-derived baseline offsets.
  */
 
 #include <vita2d.h>
@@ -24,61 +21,6 @@
 /* ============================================================================
  * Named Constants — no magic numbers below this section
  * ============================================================================ */
-
-/*
- * Point sizes to pre-warm.  Every entry is a FONT_SIZE_* constant from
- * ui_constants.h.  When adding a new size, update this table, the
- * _Static_assert literal, and the size_index() switch in lockstep.
- */
-static const int UI_FONT_PREWARM_SIZES[] = {
-    FONT_SIZE_SMALL,       /* 14 pt */
-    FONT_SIZE_BODY,        /* 16 pt */
-    FONT_SIZE_SUBHEADER,   /* 18 pt */
-    FONT_SIZE_CARD_TITLE,  /* 20 pt */
-    FONT_SIZE_HOME_HEADER, /* 24 pt */
-    FONT_SIZE_HEADER,      /* 28 pt */
-    FONT_SIZE_PIN_DIGIT,   /* 40 pt */
-};
-
-/* Number of entries in the regular-font prewarm size table. */
-#define UI_FONT_PREWARM_SIZE_COUNT \
-  ((int)(sizeof(UI_FONT_PREWARM_SIZES) / sizeof(UI_FONT_PREWARM_SIZES[0])))
-
-/*
- * Compile-time guard: the size_index() switch has exactly 7 cases (one per
- * entry in UI_FONT_PREWARM_SIZES).  If a new size is added to the table this
- * assertion fires immediately, reminding the author to extend size_index().
- */
-_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 7,
-               "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
-
-/*
- * Monospace font is used at small/body/subheader sizes (14/16/18 pt).  Keeping
- * the prewarm set minimal avoids baking unused glyph atlas rows for sizes that
- * mono never renders at.
- */
-static const int UI_FONT_PREWARM_MONO_SIZES[] = {
-    FONT_SIZE_SMALL,     /* 14 pt */
-    FONT_SIZE_BODY,      /* 16 pt */
-    FONT_SIZE_SUBHEADER, /* 18 pt — message log mono block */
-};
-
-/* Number of entries in the monospace prewarm size table. */
-#define UI_FONT_PREWARM_MONO_SIZE_COUNT \
-  ((int)(sizeof(UI_FONT_PREWARM_MONO_SIZES) / sizeof(UI_FONT_PREWARM_MONO_SIZES[0])))
-
-/*
- * Sizes baked for the Light weight: T20, T28 and T40 (SPEC 1.2).  Regular T14 and T16 reuse
- * the existing regular-font sizes above.
- */
-static const int UI_FONT_PREWARM_LIGHT_SIZES[] = {
-    UI_T20_SIZE,
-    UI_T28_SIZE,
-    UI_T40_SIZE,
-};
-
-#define UI_FONT_PREWARM_LIGHT_SIZE_COUNT \
-  ((int)(sizeof(UI_FONT_PREWARM_LIGHT_SIZES) / sizeof(UI_FONT_PREWARM_LIGHT_SIZES[0])))
 
 /*
  * The five SPEC type faces, indexed by UiFace: point size and which weight draws it.
@@ -181,26 +123,21 @@ static const char UI_FONT_METRIC_PROBE[] = "Ag|";
 #define UI_FONT_UTF8_SEQ_BUFFER_BYTES 8
 
 /* ============================================================================
- * Per-size metric cache
+ * Per-face metric cache
  * ============================================================================ */
 
-/*
- * Array length is UI_FONT_PREWARM_SIZE_COUNT.  Access is always through
- * size_index() so the layout is an implementation detail.
- */
 typedef struct {
-  int ascent;      /* Pixels above baseline for this pt size. */
+  int ascent;      /* Pixels above baseline for this face. */
   int line_height; /* Total line height (ascent + descent + leading). */
-} FontSizeMetrics;
+} FaceMetrics;
 
-static FontSizeMetrics s_metrics[UI_FONT_PREWARM_SIZE_COUNT];
+static FaceMetrics s_metrics[UI_FACE_COUNT];
 
 /* ============================================================================
  * Module State
  * ============================================================================ */
 
 static vita2d_font *s_font_regular = NULL;
-static vita2d_font *s_font_mono = NULL;
 static vita2d_font *s_font_light = NULL;
 static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_init() */
 
@@ -209,48 +146,9 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
  * ============================================================================ */
 
 /**
- * size_index() - Map a pt_size to its slot in s_metrics[].
- * @pt_size: One of the FONT_SIZE_* constants.
- *
- * Returns the table index (0–6), or -1 if pt_size is not a known size.
- * Using an explicit switch rather than a loop keeps the mapping O(1) and
- * makes compiler exhaustiveness warnings possible in the future.
- *
- * Index assignment must mirror UI_FONT_PREWARM_SIZES[] order exactly:
- *   0 = 14 pt (FONT_SIZE_SMALL)
- *   1 = 16 pt (FONT_SIZE_BODY)
- *   2 = 18 pt (FONT_SIZE_SUBHEADER)
- *   3 = 20 pt (FONT_SIZE_CARD_TITLE)
- *   4 = 24 pt (FONT_SIZE_HOME_HEADER)
- *   5 = 28 pt (FONT_SIZE_HEADER)
- *   6 = 40 pt (FONT_SIZE_PIN_DIGIT)
- */
-static int size_index(int pt_size) {
-  switch (pt_size) {
-    case FONT_SIZE_SMALL:
-      return 0;
-    case FONT_SIZE_BODY:
-      return 1;
-    case FONT_SIZE_SUBHEADER:
-      return 2;
-    case FONT_SIZE_CARD_TITLE:
-      return 3;
-    case FONT_SIZE_HOME_HEADER:
-      return 4;
-    case FONT_SIZE_HEADER:
-      return 5;
-    case FONT_SIZE_PIN_DIGIT:
-      return 6;
-    default:
-      return -1;
-  }
-}
-
-/**
- * compute_metrics_for_size() - Measure ascent and line-height for one pt size.
- * @f:       Font to probe (regular font is sufficient; metrics are size-driven).
- * @pt_size: Point size to measure.
- * @slot:    Index into s_metrics[] to populate.
+ * compute_metrics_for_face() - Measure ascent and line-height for one face.
+ * @f:    Font to probe (the regular font; Regular and Light share UPM/ascender).
+ * @face: Face whose point size is measured and whose slot is populated.
  *
  * vita2d_font_text_height() returns the bounding-box height for the probe
  * string.  For typographic centering purposes we treat that full height as
@@ -263,7 +161,8 @@ static int size_index(int pt_size) {
  * UI_FONT_ASCENT_NUMERATOR / UI_FONT_ASCENT_DENOMINATOR defined in the
  * constants section above.
  */
-static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
+static void compute_metrics_for_face(vita2d_font *f, UiFace face) {
+  int pt_size = UI_FACE_TABLE[face].pt_size;
   int h = (int)vita2d_font_text_height(f, (unsigned int)pt_size, UI_FONT_METRIC_PROBE);
   if (h <= 0) {
     /*
@@ -277,24 +176,12 @@ static void compute_metrics_for_size(vita2d_font *f, int pt_size, int slot) {
         h, pt_size);
     h = pt_size;
   }
-  s_metrics[slot].line_height = h;
-  s_metrics[slot].ascent = (h * UI_FONT_ASCENT_NUMERATOR) / UI_FONT_ASCENT_DENOMINATOR;
+  s_metrics[face].line_height = h;
+  s_metrics[face].ascent = (h * UI_FONT_ASCENT_NUMERATOR) / UI_FONT_ASCENT_DENOMINATOR;
 #ifndef NDEBUG
   sceClibPrintf("[ui_text] size=%d h=%d ascent=%d line=%d (font=%p)\n", pt_size, h,
-                s_metrics[slot].ascent, s_metrics[slot].line_height, (const void *)f);
+                s_metrics[face].ascent, s_metrics[face].line_height, (const void *)f);
 #endif
-}
-
-/**
- * warn_unknown_size() - Emit a single diagnostic for an unknown pt_size.
- * @caller: Short string identifying the calling function, for context.
- * @pt_size: The unrecognised size value.
- */
-static void warn_unknown_size(const char *caller, int pt_size) {
-  sceClibPrintf(
-      "[WARN] ui_text: %s received unknown pt_size=%d "
-      "(expected FONT_SIZE_SMALL/BODY/SUBHEADER/CARD_TITLE/HOME_HEADER/HEADER)\n",
-      caller, pt_size);
 }
 
 /**
@@ -377,7 +264,6 @@ static int utf8_extract(const char **pp, char *out_buf) {
  * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font, or NULL (both metric computation and atlas
  *           prewarm are skipped if either pointer is NULL).
- * @mono:    Monospace font, or NULL (see above).
  * @light:   Light-weight font for the T20/T28/T40 faces.  If NULL the faces fall
  *           back to the regular font so the UI stays usable.
  *
@@ -389,15 +275,14 @@ static int utf8_extract(const char **pp, char *out_buf) {
  *
  * Both pointers are borrowed — ownership remains with the caller.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono, vita2d_font *light) {
+void ui_text_init(vita2d_font *regular, vita2d_font *light) {
   s_font_regular = regular;
-  s_font_mono = mono;
   s_font_light = light;
 
   if (!light)
     sceClibPrintf("[WARN] ui_text_init: Light font missing — T20/T28/T40 fall back to Regular\n");
 
-  if (!regular || !mono) {
+  if (!regular) {
     sceClibPrintf(
         "[WARN] ui_text_init: NULL font pointer — "
         "skipping metrics and atlas prewarm\n");
@@ -416,202 +301,11 @@ int ui_text_needs_prewarm(void) {
 }
 
 /**
- * prewarm_one_font() - Bake all charset glyphs for one font across a set of sizes.
- * @f:          Font to draw with.
- * @sizes:      Array of point sizes to iterate.
- * @size_count: Number of entries in @sizes.
- *
- * Walks UI_FONT_PREWARM_CHARSET via utf8_extract(), issuing a
- * vita2d_font_draw_text call per glyph at fully transparent, off-screen
- * coordinates.  This forces FreeType rasterization and GXM atlas upload
- * without producing any visible output.
- */
-static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
-  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
-  int size_idx;
-
-  for (size_idx = 0; size_idx < size_count; size_idx++) {
-    int pt = sizes[size_idx];
-    const char *p = UI_FONT_PREWARM_CHARSET;
-    int extracted;
-
-    while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
-      if (extracted < 0)
-        continue;
-
-      vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
-                            UI_FONT_PREWARM_COLOR, (unsigned int)pt, glyph_buf);
-    }
-  }
-}
-
-/**
- * ui_text_prewarm() - Rasterize all (codepoint, pt_size) pairs into the atlas.
- *
- * Must be called from within an active vita2d_start_drawing() /
- * vita2d_end_drawing() pair on the render thread.  Draws each character
- * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
- * FreeType rasterization and GPU atlas upload without visible output.
- *
- * Iterates:
- *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (6 sizes)
- *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
- *   - UI_FONT_PREWARM_LIGHT_SIZES x UI_FONT_PREWARM_CHARSET for s_font_light (3 sizes)
- *
- * Metrics (ascent, line-height) are derived from s_font_regular only.
- * Roboto Regular and RobotoMono share the same UPM and ascender, so a single
- * canonical measurement per pt_size is sufficient for all font faces.
- *
- * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
- * UTF-8 decoder sees the full codepoint.
- */
-void ui_text_prewarm(void) {
-  int i;
-
-  if (!s_font_regular || !s_font_mono) {
-    sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
-    return;
-  }
-
-  /*
-   * Measure ascent and line-height here rather than in ui_text_init() because
-   * some FreeType/GXM code paths rasterize internally and require an active
-   * render pass; callers wrap this function in vita2d_start_drawing /
-   * vita2d_end_drawing, guaranteeing that context is present.
-   *
-   * Regular font is the single canonical source for metrics — Roboto Regular
-   * and RobotoMono share the same UPM/ascender, so there is no need to
-   * re-measure with the mono face (which would clobber the same s_metrics[]
-   * slots and risk writing stale values over freshly computed ones).
-   */
-  for (i = 0; i < UI_FONT_PREWARM_SIZE_COUNT; i++) {
-    compute_metrics_for_size(s_font_regular, UI_FONT_PREWARM_SIZES[i], i);
-  }
-
-  /* --- Bake regular font: all six prewarm sizes --- */
-  prewarm_one_font(s_font_regular, UI_FONT_PREWARM_SIZES, UI_FONT_PREWARM_SIZE_COUNT);
-
-  /* --- Bake mono font: body and small sizes only --- */
-  prewarm_one_font(s_font_mono, UI_FONT_PREWARM_MONO_SIZES, UI_FONT_PREWARM_MONO_SIZE_COUNT);
-
-  /* --- Bake Light font: the three SPEC Light sizes --- */
-  if (s_font_light) {
-    prewarm_one_font(s_font_light, UI_FONT_PREWARM_LIGHT_SIZES, UI_FONT_PREWARM_LIGHT_SIZE_COUNT);
-  }
-
-  s_prewarm_needed = 0;
-}
-
-/**
- * ui_text_draw() - Draw a UTF-8 string as a single whole-string call.
- *
- * Issues one vita2d_font_draw_text call for the entire string, preserving
- * vita2d's internal kerning pairs.  Sub-pixel placement aliasing is handled
- * by the atlas LINEAR (bilinear) texture filter applied at init time rather
- * than by integer-snapping individual glyph origins.
- */
-void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
-                  const char *s) {
-  if (!f) {
-    sceClibPrintf("[WARN] ui_text_draw: NULL font pointer\n");
-    return;
-  }
-  if (!s)
-    return;
-  /* Guard ensures pt_size is in UI_FONT_PREWARM_SIZES; catches forgotten new sizes early. */
-  if (size_index(pt_size) < 0) {
-    warn_unknown_size("ui_text_draw", pt_size);
-    return;
-  }
-  UI_DRAW_STATS_TEXT(
-      vita2d_font_draw_text(f, x, baseline_y, ui_layer_color(color), (unsigned int)pt_size, s));
-}
-
-/**
- * ui_text_width() - Return the pixel width of a UTF-8 string.
- *
- * Delegates to vita2d_font_text_width() for whole-string measurement,
- * matching the kerning-aware advance that ui_text_draw() produces.
- * Centering math in callers is therefore exact.
- */
-int ui_text_width(vita2d_font *f, int pt_size, const char *s) {
-  if (!f) {
-    sceClibPrintf("[WARN] ui_text_width: NULL font pointer\n");
-    return 0;
-  }
-  if (!s)
-    return 0;
-  /* Guard ensures pt_size is in UI_FONT_PREWARM_SIZES; catches forgotten new sizes early. */
-  if (size_index(pt_size) < 0) {
-    warn_unknown_size("ui_text_width", pt_size);
-    return 0;
-  }
-  return (int)vita2d_font_text_width(f, (unsigned int)pt_size, s);
-}
-
-/**
- * ui_text_ascent() - Return cached ascent (pixels above baseline) for pt_size.
- */
-int ui_text_ascent(int pt_size) {
-  int idx = size_index(pt_size);
-  if (idx < 0) {
-    warn_unknown_size("ui_text_ascent", pt_size);
-    return 0;
-  }
-  return s_metrics[idx].ascent;
-}
-
-/**
- * ui_text_line_height() - Return cached line height in pixels for pt_size.
- */
-int ui_text_line_height(int pt_size) {
-  int idx = size_index(pt_size);
-  if (idx < 0) {
-    warn_unknown_size("ui_text_line_height", pt_size);
-    return 0;
-  }
-  return s_metrics[idx].line_height;
-}
-
-/**
- * ui_text_draw_centered_v() - Draw a string vertically centred in a box.
- *
- * Baseline is computed from the cached ascent:
- *   baseline_y = box_y + (box_h + ascent) / 2
- *
- * This replaces ad-hoc magic offsets like "+5" / "+6" at individual call sites.
- * Delegates to ui_text_draw() which issues a single whole-string
- * vita2d_font_draw_text call with kerning intact.
- */
-void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsigned int color,
-                             int pt_size, const char *s) {
-  int idx;
-  int baseline_y;
-
-  if (!f) {
-    sceClibPrintf("[WARN] ui_text_draw_centered_v: NULL font pointer\n");
-    return;
-  }
-  if (!s)
-    return;
-
-  idx = size_index(pt_size);
-  if (idx < 0) {
-    warn_unknown_size("ui_text_draw_centered_v", pt_size);
-    return;
-  }
-
-  baseline_y = box_y + (box_h + s_metrics[idx].ascent) / 2;
-  ui_text_draw(f, x, baseline_y, color, pt_size, s);
-}
-
-/* ============================================================================
- * SPEC type faces
- * ============================================================================ */
-
-/**
  * face_font() - Pick the loaded font that draws @face.
+ * @face:   Face to resolve.
+ * @caller: Short string identifying the calling function, for the warning.
  *
+ * Light faces use the Light font and fall back to Regular if it failed to load.
  * Returns NULL (after a warning) for an out-of-range face.
  */
 static vita2d_font *face_font(UiFace face, const char *caller) {
@@ -624,22 +318,94 @@ static vita2d_font *face_font(UiFace face, const char *caller) {
   return s_font_regular;
 }
 
+/**
+ * prewarm_one_face() - Bake all charset glyphs for one face.
+ * @f:       Font that draws the face.
+ * @pt_size: Point size of the face.
+ *
+ * Walks UI_FONT_PREWARM_CHARSET via utf8_extract(), issuing a
+ * vita2d_font_draw_text call per glyph at fully transparent, off-screen
+ * coordinates.  This forces FreeType rasterization and GXM atlas upload
+ * without producing any visible output.
+ */
+static void prewarm_one_face(vita2d_font *f, int pt_size) {
+  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
+  const char *p = UI_FONT_PREWARM_CHARSET;
+  int extracted;
+
+  while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
+    if (extracted < 0)
+      continue;
+
+    vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
+                          UI_FONT_PREWARM_COLOR, (unsigned int)pt_size, glyph_buf);
+  }
+}
+
+/**
+ * ui_text_prewarm() - Rasterize every face's glyphs into the atlas.
+ *
+ * Must be called from within an active vita2d_start_drawing() /
+ * vita2d_end_drawing() pair on the render thread.  Draws each character
+ * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
+ * FreeType rasterization and GPU atlas upload without visible output.
+ *
+ * Each face is baked in the font that draws it, so only the sizes the UI
+ * actually uses occupy atlas memory.
+ *
+ * Metrics (ascent, line-height) are derived from s_font_regular only.
+ * Roboto Regular and Roboto Light share the same UPM and ascender, so a single
+ * canonical measurement per face is sufficient.
+ *
+ * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
+ * UTF-8 decoder sees the full codepoint.
+ */
+void ui_text_prewarm(void) {
+  int face;
+
+  if (!s_font_regular) {
+    sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
+    return;
+  }
+
+  /*
+   * Measure ascent and line-height here rather than in ui_text_init() because
+   * some FreeType/GXM code paths rasterize internally and require an active
+   * render pass; callers wrap this function in vita2d_start_drawing /
+   * vita2d_end_drawing, guaranteeing that context is present.
+   */
+  for (face = 0; face < UI_FACE_COUNT; face++) {
+    compute_metrics_for_face(s_font_regular, (UiFace)face);
+    prewarm_one_face(face_font((UiFace)face, "ui_text_prewarm"), UI_FACE_TABLE[face].pt_size);
+  }
+
+  s_prewarm_needed = 0;
+}
+
+/* ============================================================================
+ * SPEC type faces
+ * ============================================================================ */
+
 void ui_text_draw_face(UiFace face, int x, int baseline_y, unsigned int color, const char *s) {
   vita2d_font *f = face_font(face, "ui_text_draw_face");
-  if (f)
-    ui_text_draw(f, x, baseline_y, color, UI_FACE_TABLE[face].pt_size, s);
+  if (!f || !s)
+    return;
+  UI_DRAW_STATS_TEXT(vita2d_font_draw_text(f, x, baseline_y, ui_layer_color(color),
+                                           (unsigned int)UI_FACE_TABLE[face].pt_size, s));
 }
 
 int ui_text_face_width(UiFace face, const char *s) {
   vita2d_font *f = face_font(face, "ui_text_face_width");
-  return f ? ui_text_width(f, UI_FACE_TABLE[face].pt_size, s) : 0;
+  if (!f || !s)
+    return 0;
+  return (int)vita2d_font_text_width(f, (unsigned int)UI_FACE_TABLE[face].pt_size, s);
 }
 
 void ui_text_draw_face_centered_v(UiFace face, int x, int box_y, int box_h, unsigned int color,
                                   const char *s) {
-  vita2d_font *f = face_font(face, "ui_text_draw_face_centered_v");
-  if (f)
-    ui_text_draw_centered_v(f, x, box_y, box_h, color, UI_FACE_TABLE[face].pt_size, s);
+  if (!face_font(face, "ui_text_draw_face_centered_v"))
+    return;
+  ui_text_draw_face(face, x, box_y + (box_h + s_metrics[face].ascent) / 2, color, s);
 }
 
 int ui_text_face_line_height(UiFace face) {

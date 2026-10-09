@@ -401,14 +401,6 @@ ConsoleCardInfo *ui_cards_get_card(int index) {
   return &card_cache.cards[index];
 }
 
-ConsoleCardInfo *ui_cards_get_selected_card(void) {
-  if (card_cache.num_cards == 0)
-    return NULL;
-  if (selected_console_index < 0 || selected_console_index >= card_cache.num_cards)
-    return NULL;
-  return &card_cache.cards[selected_console_index];
-}
-
 int ui_cards_get_total_count(void) {
   return total_console_count;
 }

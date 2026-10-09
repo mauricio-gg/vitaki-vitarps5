@@ -614,7 +614,11 @@ UIScreenType ui_profile_frame(void) {
   ui_profile_login_update();
 
   /* A tapped hint acts as that button pressed in one frame; the D-pad hint has no action. */
-  UiInput in = keyboard_was_open ? (UiInput){0} : *ui_input_snapshot();
+  /* Plain if/else rather than a ternary: cppcheck cannot parse a compound literal in one. */
+  UiInput in = {0};
+  if (!keyboard_was_open) {
+    in = *ui_input_snapshot();
+  }
   const uint32_t tapped = ui_hint_row_tap(&s_hints, &in);
   if (tapped) {
     in.pressed |= tapped & ~(uint32_t)UI_BTN_DPAD;

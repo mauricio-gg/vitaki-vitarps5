@@ -43,12 +43,6 @@ static uint32_t button_block_mask = 0;
  */
 static bool touch_block_active = false;
 
-/**
- * Touch block pending clear flag
- * Used to delay clearing touch block (prevents immediate re-collapse in nav)
- */
-static bool touch_block_pending_clear = false;
-
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -56,7 +50,6 @@ static bool touch_block_pending_clear = false;
 void ui_input_init(void) {
   button_block_mask = 0;
   touch_block_active = false;
-  touch_block_pending_clear = false;
 }
 
 // ============================================================================
@@ -84,48 +77,10 @@ void ui_input_block_for_transition(void) {
   touch_block_active = true;
 }
 
-void ui_input_clear_button_blocks(void) {
-  // Clear button blocks by keeping only currently pressed buttons blocked
-  // This allows buttons to work again once they're released and re-pressed
-  button_block_mask &= context.ui_state.button_state;
-}
-
 void ui_input_block_button(SceCtrlButtons btn) {
   // Block specific button(s) for the rest of this frame
   // Useful when a button action should not be processed by subsequent handlers
   button_block_mask |= btn;
-}
-
-// ============================================================================
-// Touch Input Implementation
-// ============================================================================
-
-bool ui_input_is_touching(void) {
-  SceTouchData touch;
-  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
-  return touch.reportNum > 0;
-}
-
-float ui_input_get_touch_x(void) {
-  SceTouchData touch;
-  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
-  if (touch.reportNum > 0) {
-    return (float)touch.report[0].x;
-  }
-  return 0.0f;
-}
-
-float ui_input_get_touch_y(void) {
-  SceTouchData touch;
-  sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
-  if (touch.reportNum > 0) {
-    return (float)touch.report[0].y;
-  }
-  return 0.0f;
-}
-
-bool ui_input_is_touch_blocked(void) {
-  return touch_block_active;
 }
 
 // ============================================================================
@@ -198,7 +153,6 @@ static void snapshot_touch(UiInput *out, bool suppressed, uint64_t now_us) {
   if (touch_block_active) {
     if (!raw_down) {
       touch_block_active = false;
-      touch_block_pending_clear = false;
     }
   }
   bool active = raw_down && !touch_block_active && !suppressed;
@@ -327,22 +281,6 @@ bool btn_pressed(SceCtrlButtons btn) {
   return ui_input_btn_pressed(btn);
 }
 
-bool btn_down(SceCtrlButtons btn) {
-  if (button_block_mask & btn)
-    return false;
-  if (context.ui_state.debug_menu_active)
-    return false;
-  return (context.ui_state.button_state & btn) != 0;
-}
-
-bool btn_released(SceCtrlButtons btn) {
-  if (button_block_mask & btn)
-    return false;
-  if (context.ui_state.debug_menu_active)
-    return false;
-  return !(context.ui_state.button_state & btn) && (context.ui_state.old_button_state & btn);
-}
-
 /**
  * Block inputs for transition (internal alias for compatibility)
  *
@@ -391,14 +329,4 @@ uint32_t *ui_input_get_button_block_mask_ptr(void) {
  */
 bool *ui_input_get_touch_block_active_ptr(void) {
   return &touch_block_active;
-}
-
-/**
- * Get direct access to touch block pending clear flag (for nav collapse logic)
- *
- * Navigation collapse logic uses this flag for delayed clearing.
- * This function provides controlled access.
- */
-bool *ui_input_get_touch_block_pending_clear_ptr(void) {
-  return &touch_block_pending_clear;
 }

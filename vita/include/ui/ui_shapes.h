@@ -49,9 +49,6 @@ typedef enum ui_shape1_t {
  */
 void ui_shapes_init(void);
 
-/** ui_shape3_height() - The fixed height of a 3-slice shape in pixels. */
-int ui_shape3_height(UiShape3 shape);
-
 /**
  * ui_shape3_draw() - Draw a fixed-height shape at any width (3 draws).
  * @shape: Which shape.

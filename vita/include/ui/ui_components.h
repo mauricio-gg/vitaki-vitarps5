@@ -1,86 +1,12 @@
 /**
  * @file ui_components.h
- * @brief Reusable UI widgets and dialogs for VitaRPS5
- *
- * This module provides high-level UI components including:
- * - Toggle switches, dropdowns, tabs, status indicators
- * - Error popup dialog
- * - Hints popup system
- * - Debug menu (when VITARPS5_DEBUG_MENU enabled)
- *
- * All components follow the VitaRPS5 design system with PlayStation-inspired
- * styling and smooth animations.
+ * @brief Debug menu for VitaRPS5 (only reachable when VITARPS5_DEBUG_MENU is enabled)
  */
 
 #pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
-
-// ============================================================================
-// Widget Drawing Functions
-// ============================================================================
-
-/**
- * Draw a tabbed navigation bar with color-coded sections
- * @param x X position of tab bar
- * @param y Y position of tab bar
- * @param width Total width of tab bar
- * @param height Height of tab bar
- * @param tabs Array of tab label strings
- * @param colors Array of colors for each tab background
- * @param num_tabs Number of tabs in the array
- * @param selected Index of currently selected tab
- */
-void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                     int num_tabs, int selected);
-
-/**
- * Status types for status indicator dots
- */
-typedef enum {
-  UI_STATUS_ACTIVE = 0,   // Green - system active/available
-  UI_STATUS_STANDBY = 1,  // Yellow/Orange - system in standby
-  UI_STATUS_ERROR = 2     // Red - error or unavailable
-} UIStatusType;
-
-/**
- * Draw a colored status indicator dot
- * @param x X position (center of dot)
- * @param y Y position (center of dot)
- * @param radius Radius of the dot
- * @param status Status type determining the color
- */
-void ui_draw_status_dot(int x, int y, int radius, UIStatusType status);
-
-/**
- * Draw a styled section header with title and accent line
- * @param x X position of header
- * @param y Y position of header
- * @param width Width of header
- * @param title Header title text
- */
-void ui_draw_section_header(int x, int y, int width, const char *title);
-
-/**
- * Draw a rounded rectangular text button with selected/disabled states.
- *
- * Styling matches the existing ad-hoc "Add New" button pattern:
- *   - Enabled + selected:   UI_COLOR_PRIMARY_BLUE background, white label.
- *   - Enabled + unselected: RGBA8(0x50,0x70,0xA0,255) background, white label.
- *   - Disabled:             RGBA8(0x40,0x44,0x4A,255) background, tertiary label.
- *                           The `selected` parameter is ignored when disabled.
- *
- * @param x       X position of button top-left corner.
- * @param y       Y position of button top-left corner.
- * @param w       Button width in pixels.
- * @param h       Button height in pixels.
- * @param label   Null-terminated label string, centered horizontally.
- * @param selected true if this button currently has focus/selection.
- * @param enabled  true if the button is interactive; false renders it greyed out.
- */
-void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
-                         bool enabled);
 
 // ============================================================================
 // Debug Menu (VITARPS5_DEBUG_MENU must be enabled)
@@ -105,9 +31,3 @@ void ui_debug_render(void);
  * Handle input for debug menu (call during input loop)
  */
 void ui_debug_handle_input(void);
-
-/**
- * Check if debug menu is currently active
- * @return true if debug menu is visible
- */
-bool ui_debug_is_active(void);

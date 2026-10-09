@@ -63,7 +63,7 @@ Wave palette (one fixed set, no time of day): top #06204A, mid #0F4585, bottom #
 
 ### 1.2 Type
 
-Roboto only, pre-rendered. **5 atlas entries (sizes) from 2 loaded weights, Light and Regular, no mono face** (today: 7 sizes in 2 families). Roboto's own digits are equal width, so IPs, countdowns and stats still line up without OpenType features (FreeType would not apply them anyway).
+Roboto only, pre-rendered. **5 atlas entries (sizes) from 2 loaded weights, Light and Regular, no mono face** (as built in #308: Regular 14 and 16, Light 20, 28 and 40; before the redesign, 7 sizes in 2 families). Roboto's own digits are equal width, so IPs, countdowns and stats still line up without OpenType features (FreeType would not apply them anyway).
 
 | Face | Size / line | Weight | Used for | Replaces |
 |---|---|---|---|---|
@@ -73,7 +73,7 @@ Roboto only, pre-rendered. **5 atlas entries (sizes) from 2 loaded weights, Ligh
 | `T16` | 16 / 24 | Regular 400 | **unfocused list item name**, focused item status line, captions, status messages, descriptions, kv rows and values (IDs, IPs, codes), stats values, pills, toast sub | `BODY` 16, `SMALL` 14, Roboto Mono 16 |
 | `T14` | 14 / 20 | Regular 400 | hint row labels, unfocused item status line | `SMALL` 14 (already in today's atlas, no new size) |
 
-Roboto Light is not loaded by the app today (only Regular and Mono). Decision: load it (one TTF, 170 KB, about 0.3 MB of atlas for 3 sizes); Roboto Mono is dropped, which removes its atlas. List item titles use only existing faces (round 8): focused name T20 Light (29% smaller than the old T28), unfocused name T16 Regular (20% smaller than the old T20), status line T14 Regular unfocused and T16 Regular focused. No atlas growth. Roboto Medium appears only inside the baked Start/Select glyphs, never as a text face.
+Roboto Light is loaded by the app (before the redesign only Regular and Mono were). Decision, now built: load it (one TTF, 170 KB, about 0.3 MB of atlas for 3 sizes); Roboto Mono is dropped, which removes its atlas. List item titles use only existing faces (round 8): focused name T20 Light (29% smaller than the old T28), unfocused name T16 Regular (20% smaller than the old T20), status line T14 Regular unfocused and T16 Regular focused. No atlas growth. Roboto Medium appears only inside the baked Start/Select glyphs, never as a text face.
 
 ### 1.3 Spacing, layout, lines, motion
 

@@ -27,13 +27,11 @@ typedef struct vita_chiaki_host_t VitaChiakiHost;
  */
 typedef enum ui_screen_type_t {
   UI_SCREEN_TYPE_MAIN = 0,
-  UI_SCREEN_TYPE_REGISTER,
   UI_SCREEN_TYPE_REGISTER_HOST,
-  UI_SCREEN_TYPE_STREAM,
+  UI_SCREEN_TYPE_NONE,          // Sentinel: no screen drawn yet (never a real screen)
   UI_SCREEN_TYPE_WAKING,        // Waking up console screen
   UI_SCREEN_TYPE_RECONNECTING,  // Reconnecting after packet loss
   UI_SCREEN_TYPE_SETTINGS,
-  UI_SCREEN_TYPE_MESSAGES,
   UI_SCREEN_TYPE_PROFILE,     // Phase 2: Profile & Registration screen
   UI_SCREEN_TYPE_CONTROLLER,  // Phase 2: Controller Configuration screen
 } UIScreenType;
@@ -104,20 +102,6 @@ typedef struct connection_overlay_state_t {
 } ConnectionOverlayState;
 
 // ============================================================================
-// Text Cache Types
-// ============================================================================
-
-/**
- * Text width cache entry
- */
-typedef struct text_width_cache_entry_t {
-  const char *text;
-  int font_size;
-  int width;
-  bool valid;
-} TextWidthCacheEntry;
-
-// ============================================================================
 // Controller Layout Types
 // ============================================================================
 
@@ -126,29 +110,5 @@ typedef struct text_width_cache_entry_t {
  */
 typedef enum controller_view_mode_t {
   CTRL_VIEW_FRONT = 0,  // Front view (D-pad, face buttons, sticks)
-  CTRL_VIEW_BACK,       // Back view (rear touchpad quadrants)
-  CTRL_VIEW_BOTH        // Both views shown (front above, back below)
+  CTRL_VIEW_BACK        // Back view (rear touchpad quadrants)
 } ControllerViewMode;
-
-// ============================================================================
-// Widget ID Types (for legacy compatibility)
-// ============================================================================
-
-/**
- * Identifiers of various widgets on the screen
- *
- * Note: This is also defined in ui.h for backwards compatibility.
- * During refactoring, if ui.h is included (via context.h), we skip this definition.
- */
-#ifndef UI_MAIN_WIDGET_ID_DEFINED
-#define UI_MAIN_WIDGET_ID_DEFINED
-typedef enum ui_main_widget_id_t {
-  UI_MAIN_WIDGET_ADD_HOST_BTN,
-  UI_MAIN_WIDGET_REGISTER_BTN,
-  UI_MAIN_WIDGET_DISCOVERY_BTN,
-  UI_MAIN_WIDGET_MESSAGES_BTN,
-  UI_MAIN_WIDGET_SETTINGS_BTN,
-  UI_MAIN_WIDGET_HOST_TILE = 1 << 3,
-  UI_MAIN_WIDGET_TEXT_INPUT = 1 << 6,
-} MainWidgetId;
-#endif

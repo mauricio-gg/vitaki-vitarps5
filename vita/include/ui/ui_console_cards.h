@@ -108,12 +108,6 @@ int ui_cards_get_total_count(void);
 ConsoleCardInfo *ui_cards_get_card(int index);
 
 /**
- * ui_cards_get_selected_card() - Get the selected card's ConsoleCardInfo
- * Returns: Pointer to the selected card, or NULL if no cards
- */
-ConsoleCardInfo *ui_cards_get_selected_card(void);
-
-/**
  * ui_cards_classify() - Decide what status a cached console shows (see ui_console_classify()).
  * @card:     The console.
  * @token_ok: The PSN token is valid, so a PSN route counts as reachable.

@@ -170,31 +170,6 @@ uint64_t ui_cooldown_until_us(void);
 bool ui_cooldown_takion_gate_active(void);
 
 // ============================================================================
-// Text Width Caching
-// ============================================================================
-
-/**
- * Get text width with caching for static strings
- *
- * Caches text width calculations to avoid expensive vita2d_font_text_width
- * calls for frequently rendered static strings (e.g., button labels).
- *
- * Uses pointer comparison, so only works for string literals and static strings.
- *
- * @param text Text to measure (must be a stable pointer, not stack/heap)
- * @param font_size Font size in pixels
- * @return Text width in pixels
- */
-int ui_text_width_cached(const char *text, int font_size);
-
-/**
- * Clear text width cache
- *
- * Invalidates all cached entries. Call when fonts are reloaded or changed.
- */
-void ui_text_cache_clear(void);
-
-// ============================================================================
 // Waking & Reconnect State
 // ============================================================================
 

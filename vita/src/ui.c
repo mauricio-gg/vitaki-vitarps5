@@ -59,6 +59,7 @@
 #include "ui/ui_freeze.h"
 #include "ui/ui_list_popup.h"
 #include "ui/ui_pin.h"
+#include "ui/ui_result_popup.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -77,22 +78,16 @@
 #include "ui/ui_shapes.h"
 #include "ui/ui_toast.h"
 
-vita2d_font *font;
-vita2d_font *font_mono;
 vita2d_texture *img_ps4;
 
 // VitaRPS5 UI textures
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
-vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
-vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings;
 vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
 
 // Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
 static uint32_t *button_block_mask = NULL;
-static bool *touch_block_active = NULL;
-static bool *touch_block_pending_clear = NULL;
 
 // State management convenience macros (for legacy code compatibility)
 #define waking_wait_for_stream_us ui_state_get_waking_wait_for_stream_us()
@@ -117,33 +112,12 @@ static bool *touch_block_pending_clear = NULL;
 
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
 
-#define MAX_TOOLTIP_CHARS 200
-char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
-
 /// Types of screens that can be rendered
 // UIScreenType enum moved to ui_types.h (included via ui_state.h)
-
-// Initialize Yes and No button from settings (will be updated in init_ui)
-int SCE_CTRL_CONFIRM = SCE_CTRL_CROSS;
-int SCE_CTRL_CANCEL = SCE_CTRL_CIRCLE;
-char *confirm_btn_str = "Cross";
-char *cancel_btn_str = "Circle";
 
 // btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
 // Error popup and debug menu functions moved to ui_components.c
-
-/**
- * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
- * the Network Unstable pill, where they have one), so the corner logo is not drawn over them.
- */
-static bool screen_has_xmb_chrome(UIScreenType screen) {
-  return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
-         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_CONTROLLER ||
-         screen == UI_SCREEN_TYPE_REGISTER_HOST;
-}
 
 #if VITARPS5_DEBUG_TOOLS
 /** Name logged with the draw counts of a frame drawn over a frozen popup background. */
@@ -216,10 +190,6 @@ void load_textures() {
   symbol_circle = ui_load_png_linear("app0:/assets/symbol_circle.png");
   symbol_ex = ui_load_png_linear("app0:/assets/symbol_ex.png");
   symbol_square = ui_load_png_linear("app0:/assets/symbol_square.png");
-  ellipse_green = ui_load_png_linear("app0:/assets/ellipse_green.png");
-  ellipse_yellow = ui_load_png_linear("app0:/assets/ellipse_yellow.png");
-  ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
-  button_add_new = ui_load_png_linear("app0:/assets/button_add_new.png");
 
   // Load the Home category icons
   icon_play = ui_load_png_linear("app0:/assets/icon_play.png");
@@ -324,8 +294,6 @@ bool ui_reload_psn_account_id(void) {
 // - ui_screen_draw_main()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
-// - ui_screen_draw_stream()
-// - ui_screen_draw_messages()
 // ============================================================================
 
 // ============================================================================
@@ -356,16 +324,16 @@ void init_ui() {
   load_textures();
   ui_background_init();  // Build the wave background geometry
   ui_cards_init();       // Initialize console card system
-  font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
-  font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
 
-  /* Initialize text helper: measures per-size metrics from the loaded fonts.
+  /* Initialize text helper: measures per-face metrics from the loaded fonts.
    * Must happen after font load and before the first draw_ui() frame. */
+  vita2d_font *font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
   vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
-  ui_text_init(font, font_mono, font_light);
+  ui_text_init(font, font_light);
   ui_glow_init();
   ui_shapes_init();
   ui_room_icons_init();
+  ui_result_popup_init();  // shared by Home and the PIN screen, so loaded before either
   ui_home_init();
   ui_connecting_init();
   ui_toast_init();
@@ -382,19 +350,13 @@ void init_ui() {
   sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
 
-  // Set yes/no buttons (circle = yes on Japanese vitas, typically)
-  ui_settings_apply_circle_confirm();
-
   // Initialize UI modules
   ui_input_init();
-  ui_screens_init();
   ui_state_init();
   ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
   button_block_mask = ui_input_get_button_block_mask_ptr();
-  touch_block_active = ui_input_get_touch_block_active_ptr();
-  touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
 }
 
 // ============================================================================
@@ -421,8 +383,8 @@ void draw_ui() {
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
   /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
-   * sidebar when it becomes active again. Starts as STREAM so the first frame counts as entry. */
-  UIScreenType drawn_screen = UI_SCREEN_TYPE_STREAM;
+   * sidebar when it becomes active again. Starts as NONE so the first frame counts as entry. */
+  UIScreenType drawn_screen = UI_SCREEN_TYPE_NONE;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
@@ -473,7 +435,7 @@ void draw_ui() {
     // host_quit.c) --- Must run on this UI main-loop thread, never on the
     // chiaki event callback thread: that thread only arms the flag, the
     // actual reconnect kickoff happens here. Gated on screen == MAIN so the
-    // retry never hijacks Settings/Profile/Messages/PIN-entry/Controller
+    // retry never hijacks Settings/Profile/PIN-entry/Controller
     // config if the user navigated away while the timer was counting down;
     // rp_in_use_retry_pending is left armed (not cleared) whenever the
     // connect can't actually be attempted yet, so it fires later once the
@@ -577,30 +539,6 @@ void draw_ui() {
       }
     }
 
-    // handle invalid items
-    int this_active_item = context.ui_state.next_active_item;
-    if (this_active_item == -1) {
-      this_active_item = context.ui_state.active_item;
-    }
-    if (this_active_item > -1) {
-      if (this_active_item & UI_MAIN_WIDGET_HOST_TILE) {
-        if (context.num_hosts == 0) {
-          // return to toolbar
-          context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
-        } else {
-          int host_j = this_active_item - UI_MAIN_WIDGET_HOST_TILE;
-          if (host_j >= context.num_hosts) {
-            context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | (context.num_hosts - 1);
-          }
-        }
-      }
-    }
-
-    if (context.ui_state.next_active_item >= 0) {
-      context.ui_state.active_item = context.ui_state.next_active_item;
-      context.ui_state.next_active_item = -1;
-    }
-
     // Skip ALL rendering when streaming - match ywnico pattern
     if (!context.stream.is_streaming) {
       if (context.stream.reconnect_overlay_active) {
@@ -650,21 +588,6 @@ void draw_ui() {
                            screen == UI_SCREEN_TYPE_RECONNECTING);
       }
 
-      // Old screens only: Home and Connecting draw the logo in their own top bar (C23)
-      if (vita_rps5_logo && !screen_has_xmb_chrome(screen)) {
-        int logo_w = vita2d_texture_get_width(vita_rps5_logo);
-        int logo_h = vita2d_texture_get_height(vita_rps5_logo);
-        float logo_scale = 0.1f;  // 10% of original size
-        int scaled_w = (int)(logo_w * logo_scale);
-        int scaled_h = (int)(logo_h * logo_scale);
-        int logo_x = VITA_WIDTH - scaled_w - 20;  // 20px margin from right
-        int logo_y = 20;                          // 20px margin from top
-
-        // Draw with 50% transparency (alpha = 128)
-        vita2d_draw_texture_tint_scale(vita_rps5_logo, logo_x, logo_y, logo_scale, logo_scale,
-                                       RGBA8(255, 255, 255, 128));
-      }
-
       UIScreenType prev_screen = screen;
       UIScreenType next_screen = screen;
 
@@ -677,14 +600,6 @@ void draw_ui() {
         if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
           ui_pin_on_enter();
         next_screen = ui_pin_frame();
-      } else if (screen == UI_SCREEN_TYPE_MESSAGES) {
-        if (!ui_screen_draw_messages()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
-      } else if (screen == UI_SCREEN_TYPE_STREAM) {
-        if (!ui_screen_draw_stream()) {
-          next_screen = UI_SCREEN_TYPE_MAIN;
-        }
       } else if (screen == UI_SCREEN_TYPE_WAKING) {
         next_screen = ui_screen_draw_waking();
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {

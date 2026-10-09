@@ -61,7 +61,6 @@ static int s_prompt_x;
 static int s_pairing_x;
 
 void ui_pin_init(void) {
-  ui_result_popup_init();
   ui_popup_close(&s_popup);
   s_hints.count = 0;
 }
