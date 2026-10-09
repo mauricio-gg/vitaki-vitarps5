@@ -33,7 +33,7 @@ void write_message_log(VitaChiakiMessageLog *ml, const char *text) {
     }
 
     memcpy(ml->log[line_offset], text + offset, n);
-    ml->log[line_offset][n + 1] = 0;  // add null char
+    ml->log[line_offset][n] = 0;  // add null char
     ml->lines++;
     if (ml->lines > MLOG_LINES)
       ml->lines = MLOG_LINES;
