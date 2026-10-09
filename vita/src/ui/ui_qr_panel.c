@@ -19,11 +19,14 @@
 
 static const char HIDDEN_TEXT[] = "QR hidden";
 
-/** The modules, white where the code is dark, tinted UI_QR_INK at draw time. UI_QR_ART square. */
+/** The modules, white where the code is dark, tinted UI_QR_INK at draw time. UI_QR_BOX square. */
 static vita2d_texture *s_art = NULL;
 static char s_url[UI_QR_PANEL_URL_MAX];
 static UIQrCode s_qr;
 static bool s_ready = false;
+/** Side of the plate in pixels, and its offset inside the slot; set by build(). */
+static int s_plate_px = 0;
+static int s_plate_origin = 0;
 /** Width of HIDDEN_TEXT, measured on the first hidden draw. */
 static int s_hidden_w = -1;
 
@@ -31,24 +34,26 @@ static int s_hidden_w = -1;
 static bool ensure_art(void) {
   if (s_art)
     return true;
-  s_art = vita2d_create_empty_texture(UI_QR_ART, UI_QR_ART);
+  s_art = vita2d_create_empty_texture(UI_QR_BOX, UI_QR_BOX);
   if (!s_art) {
-    LOGE("QR panel: could not allocate the %dx%d art texture", UI_QR_ART, UI_QR_ART);
+    LOGE("QR panel: could not allocate the %dx%d art texture", UI_QR_BOX, UI_QR_BOX);
     return false;
   }
   vita2d_texture_set_filters(s_art, SCE_GXM_TEXTURE_FILTER_POINT, SCE_GXM_TEXTURE_FILTER_POINT);
   return true;
 }
 
-/** Fill the art texture with the modules of s_qr, @module_px pixels each, centred. */
-static void render_modules(int module_px) {
+/**
+ * Fill the art texture with the modules of s_qr, @module_px pixels each, the top-left module at
+ * (@origin, @origin) of the slot.
+ */
+static void render_modules(int module_px, int origin) {
   const int stride_px = (int)vita2d_texture_get_stride(s_art) / (int)sizeof(uint32_t);
   uint32_t *pixels = (uint32_t *)vita2d_texture_get_datap(s_art);
-  const int origin = (UI_QR_ART - s_qr.size * module_px) / 2;
   const uint32_t on = RGBA8(255, 255, 255, 255);
 
-  for (int y = 0; y < UI_QR_ART; y++)
-    memset(&pixels[y * stride_px], 0, UI_QR_ART * sizeof(uint32_t));
+  for (int y = 0; y < UI_QR_BOX; y++)
+    memset(&pixels[y * stride_px], 0, UI_QR_BOX * sizeof(uint32_t));
   for (int row = 0; row < s_qr.size; row++) {
     for (int col = 0; col < s_qr.size; col++) {
       if (!qrcodegen_getModule(s_qr.qrcode, col, row))
@@ -71,18 +76,21 @@ static void build(void) {
     LOGE("QR panel: could not encode a %d character URL", url_len);
     return;
   }
-  const int module_px = ui_qr_module_px(s_qr.size, UI_QR_ART);
+  const int module_px = ui_qr_module_px(s_qr.size, UI_QR_QUIET_MODULES, UI_QR_BOX);
   if (module_px == 0) {
     LOGE("QR panel: a %dx%d code for a %d character URL does not fit %d px", s_qr.size, s_qr.size,
-         url_len, UI_QR_ART);
+         url_len, UI_QR_BOX);
     return;
   }
   if (!ensure_art())
     return;
-  render_modules(module_px);
+  /* The code and the plate share one origin, so odd leftovers cannot misalign them. */
+  s_plate_px = module_px * (s_qr.size + 2 * UI_QR_QUIET_MODULES);
+  s_plate_origin = (UI_QR_BOX - s_plate_px) / 2;
+  render_modules(module_px, s_plate_origin + UI_QR_QUIET_MODULES * module_px);
   s_ready = true;
-  LOGD("QR panel: %dx%d modules at %d px each (%d px of %d), URL %d characters", s_qr.size,
-       s_qr.size, module_px, s_qr.size * module_px, UI_QR_ART, url_len);
+  LOGD("QR panel: %dx%d modules at %d px each, plate %d px in a %d px slot, URL %d characters",
+       s_qr.size, s_qr.size, module_px, s_plate_px, UI_QR_BOX, url_len);
 }
 
 bool ui_qr_panel_set_url(const char *url) {
@@ -102,8 +110,9 @@ bool ui_qr_panel_ready(void) {
 void ui_qr_panel_draw(int x, int y, bool show) {
   const UiRect box = {x, y, UI_QR_BOX, UI_QR_BOX};
   if (show && s_ready) {
-    ui_shape9_draw(UI_SHAPE9_SM, box, UI_QR_PLATE);
-    vita2d_draw_texture_tint(s_art, (float)(x + UI_QR_QUIET), (float)(y + UI_QR_QUIET), UI_QR_INK);
+    const UiRect plate = {x + s_plate_origin, y + s_plate_origin, s_plate_px, s_plate_px};
+    ui_shape9_draw(UI_SHAPE9_SM, plate, UI_QR_PLATE);
+    vita2d_draw_texture_tint(s_art, (float)x, (float)y, UI_QR_INK);
     return;
   }
   if (s_hidden_w < 0)

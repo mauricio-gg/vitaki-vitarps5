@@ -12,15 +12,26 @@
 #include "ui/ui_qr_panel.h"
 #include "ui/ui_utf16.h"
 
-/** A code that fits the 160 px art must be drawn as large as it can be in whole pixels, and one
- * that does not fit even at 1 px per module must be refused (0), never drawn clipped. */
-static void test_qr_module_size_fits_the_art_or_is_refused(void) {
-  assert(ui_qr_module_px(25, 160) == 6);   /* 150 px of 160 */
-  assert(ui_qr_module_px(80, 160) == 2);   /* exactly 160 px */
-  assert(ui_qr_module_px(81, 160) == 1);   /* one module over the 2 px size */
-  assert(ui_qr_module_px(160, 160) == 1);  /* the last code that fits */
-  assert(ui_qr_module_px(161, 160) == 0);  /* does not fit: refused */
-  assert(ui_qr_module_px(0, 160) == 0);
+/** The module size is what keeps the QR code (with its 2-module quiet zone) inside the slot. A code
+ * drawn larger than the slot is clipped and does not scan; one drawn smaller than the whole pixels
+ * allow wastes the slot; one that does not fit at 1 px per module must be refused (0). */
+static void test_qr_module_size_fills_the_slot_or_is_refused(void) {
+  const int quiet = 2;
+  const int slot = 216;
+
+  /* The real phone-login URL: 591 characters, a 93 module code (version 19). */
+  assert(ui_qr_module_px(93, quiet, slot) == 2); /* 194 px plate; 3 px would be 291 px, clipped */
+
+  for (int size = 21; size <= slot - 2 * quiet; size += 4) {
+    const int px = ui_qr_module_px(size, quiet, slot);
+    assert(px >= 1);
+    assert(px * (size + 2 * quiet) <= slot);         /* never clipped */
+    assert((px + 1) * (size + 2 * quiet) > slot);    /* never smaller than it could be */
+  }
+
+  assert(ui_qr_module_px(212, quiet, slot) == 1);  /* the last code that fits: 216 px */
+  assert(ui_qr_module_px(213, quiet, slot) == 0);  /* 217 px does not fit: refused */
+  assert(ui_qr_module_px(0, quiet, slot) == 0);
 }
 
 /** The pasted redirect URL must reach psn_auth intact, and a buffer that is too small must lose
@@ -54,7 +65,7 @@ static void test_prefill_text_round_trips_and_never_overruns(void) {
 }
 
 int main(void) {
-  test_qr_module_size_fits_the_art_or_is_refused();
+  test_qr_module_size_fills_the_slot_or_is_refused();
   test_keyboard_text_converts_and_never_overruns();
   test_prefill_text_round_trips_and_never_overruns();
   puts("ui_login_tests: all passed");
