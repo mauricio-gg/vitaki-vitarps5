@@ -100,10 +100,10 @@ int ui_connecting_flow_step(UiConnectingFlow flow, UIConnectionStage stage) {
 }
 
 const char *ui_connecting_flow_title(UiConnectingFlow flow, int step) {
+  if ((flow == UI_FLOW_LOCAL_STANDBY || flow == UI_FLOW_INTERNET_STANDBY) && step == 0)
+    return TITLE_WAKING;
   if (flow_is_internet(flow))
     return TITLE_INTERNET;
-  if (flow == UI_FLOW_LOCAL_STANDBY && step == 0)
-    return TITLE_WAKING;
   return TITLE_LOCAL;
 }
 
