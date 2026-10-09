@@ -1,10 +1,14 @@
 /*
  * vita2d_font.c — vendored from xerpi/libvita2d (master branch)
  *
- * VitaRPS5 patch: glyphs are rasterized into the atlas at 2x the
- * requested point size and drawn back at draw_scale = 0.5 with
- * LINEAR filtering, giving a true 2:1 bilinear minification. Atlas
- * filter selection lives in texture_atlas.c.
+ * VitaRPS5 patches:
+ *  - Glyphs are rasterized into the atlas at 2x the requested point size
+ *    and drawn back at draw_scale = 0.5 with LINEAR filtering, giving a
+ *    true 2:1 bilinear minification.
+ *  - The glyph cache is keyed by size AND glyph index, so each point size
+ *    gets its own bake and draw_scale is exactly 0.5 for every glyph.
+ *  - Atlas filter selection, the zeroed gap between glyphs and the hash
+ *    table size live in texture_atlas.c.
  *
  * See third-party/libvita2d/VITARPS5_PATCHES.md for full rationale.
  */
@@ -28,6 +32,14 @@
 
 /* VitaRPS5 patch: see VITARPS5_PATCHES.md (active patch — 2x supersample). */
 #define VITARPS5_FONT_SUPERSAMPLE 2
+
+/*
+ * VitaRPS5 patch: atlas cache key = (point size << 16) | glyph index.
+ * Both halves must fit in 16 bits; glyph_cache_key() refuses anything else
+ * rather than let two glyphs share a key.
+ */
+#define VITARPS5_GLYPH_KEY_INDEX_BITS 16
+#define VITARPS5_GLYPH_KEY_FIELD_MASK 0xFFFFu
 
 typedef enum {
 	VITA2D_LOAD_FONT_FROM_FILE,
@@ -173,7 +185,27 @@ void vita2d_free_font(vita2d_font *font)
 	}
 }
 
-static int atlas_add_glyph(texture_atlas *atlas, unsigned int glyph_index,
+/*
+ * glyph_cache_key() - Build the atlas cache key for a glyph at a point size.
+ * @size:        Display point size, 1..0xFFFF.
+ * @glyph_index: FreeType glyph index, 0..0xFFFF.
+ * @key:         Receives (size << 16) | glyph_index on success.
+ *
+ * Returns 1 on success, 0 if either value does not fit its 16-bit field.
+ * A non-zero size also keeps every key non-zero.
+ */
+static int glyph_cache_key(unsigned int size, unsigned int glyph_index,
+			   unsigned int *key)
+{
+	if (size == 0 || size > VITARPS5_GLYPH_KEY_FIELD_MASK ||
+	    glyph_index > VITARPS5_GLYPH_KEY_FIELD_MASK)
+		return 0;
+
+	*key = (size << VITARPS5_GLYPH_KEY_INDEX_BITS) | glyph_index;
+	return 1;
+}
+
+static int atlas_add_glyph(texture_atlas *atlas, unsigned int key,
 			   const FT_BitmapGlyph bitmap_glyph, int glyph_size)
 {
 	int ret;
@@ -199,7 +231,7 @@ static int atlas_add_glyph(texture_atlas *atlas, unsigned int glyph_index,
 		glyph_size
 	};
 
-	ret = texture_atlas_insert(atlas, glyph_index, &size, &data,
+	ret = texture_atlas_insert(atlas, key, &size, &data,
 				  &position);
 	if (!ret)
 		return 0;
@@ -245,6 +277,7 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 
 	int i;
 	unsigned int character;
+	unsigned int key;
 	int start_x = x;
 	int max_x = 0;
 	int pen_x = x;
@@ -292,7 +325,14 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 			pen_x += (delta.x / VITARPS5_FONT_SUPERSAMPLE) >> 6;
 		}
 
-		if (!texture_atlas_get(font->atlas, glyph_index, &rect, &data)) {
+		if (!glyph_cache_key(size, glyph_index, &key)) {
+			sceClibPrintf("[WARN] vita2d_font: glyph %u at %upt does not fit "
+				      "the 16-bit cache key, skipped\n",
+				      glyph_index, size);
+			continue;
+		}
+
+		if (!texture_atlas_get(font->atlas, key, &rect, &data)) {
 			FTC_ImageCache_LookupScaler(font->imagecache,
 						    &scaler,
 						    flags,
@@ -300,7 +340,7 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 						    &glyph,
 						    NULL);
 
-			if (!atlas_add_glyph(font->atlas, glyph_index,
+			if (!atlas_add_glyph(font->atlas, key,
 					     (FT_BitmapGlyph)glyph, atlas_size)) {
 				sceClibPrintf("[WARN] vita2d_font: atlas overflow — "
 					      "glyph %u at %upt (atlas %upt) did not fit\n",
@@ -308,7 +348,7 @@ static int generic_font_draw_text(vita2d_font *font, int draw,
 				continue;
 			}
 
-			if (!texture_atlas_get(font->atlas, glyph_index, &rect, &data))
+			if (!texture_atlas_get(font->atlas, key, &rect, &data))
 				continue;
 		}
 
