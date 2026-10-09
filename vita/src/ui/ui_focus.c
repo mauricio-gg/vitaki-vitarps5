@@ -5,8 +5,6 @@
 
 #include "context.h"
 #include "ui/ui_focus.h"
-#include "ui/ui_input.h"
-#include "ui/ui_navigation.h"
 #include <psp2/ctrl.h>
 
 // Focus stack - supports base state + modal overlays
@@ -37,14 +35,6 @@ int ui_focus_get_index(void) {
   return CURRENT_FOCUS.index;
 }
 
-bool ui_focus_is_nav_bar(void) {
-  return CURRENT_FOCUS.zone == FOCUS_ZONE_NAV_BAR;
-}
-
-bool ui_focus_is_content(void) {
-  return CURRENT_FOCUS.zone != FOCUS_ZONE_NAV_BAR && CURRENT_FOCUS.zone != FOCUS_ZONE_MODAL;
-}
-
 // ============================================================================
 // Zone Transitions
 // ============================================================================
@@ -55,10 +45,6 @@ void ui_focus_set_zone(FocusZone zone) {
 
 void ui_focus_set_index(int index) {
   CURRENT_FOCUS.index = index;
-}
-
-void ui_focus_move_to_nav_bar(void) {
-  CURRENT_FOCUS.zone = FOCUS_ZONE_NAV_BAR;
 }
 
 void ui_focus_move_to_content(UIScreenType screen) {
@@ -105,7 +91,7 @@ int ui_focus_get_stack_depth(void) {
 }
 
 // ============================================================================
-// Input Handling
+// Screen Zones
 // ============================================================================
 
 FocusZone ui_focus_zone_for_screen(UIScreenType screen) {
@@ -116,32 +102,7 @@ FocusZone ui_focus_zone_for_screen(UIScreenType screen) {
       return FOCUS_ZONE_SETTINGS_ITEMS;
     case UI_SCREEN_TYPE_PROFILE:
       return FOCUS_ZONE_PROFILE_CARDS;
-    case UI_SCREEN_TYPE_CONTROLLER:
-      return FOCUS_ZONE_CONTROLLER_CONTENT;
     default:
       return FOCUS_ZONE_MAIN_CONTENT;
   }
-}
-
-bool ui_focus_handle_zone_crossing(UIScreenType current_screen) {
-  // Modal traps all input - no zone crossing allowed
-  if (ui_focus_has_modal()) {
-    return false;
-  }
-
-  // Note: LEFT navigation (content -> nav bar) was removed to avoid
-  // interfering with content-specific LEFT/RIGHT navigation.
-  // Nav bar is now accessible only via touch on the pill.
-
-  // RIGHT: Move to content (from nav bar)
-  if (ui_input_btn_pressed(SCE_CTRL_RIGHT) && ui_focus_is_nav_bar()) {
-    ui_focus_move_to_content(current_screen);
-    ui_nav_request_collapse();
-    // Block the RIGHT button so screen handlers don't also process it
-    // (e.g., controller preset cycling, settings navigation)
-    ui_input_block_button(SCE_CTRL_RIGHT);
-    return true;  // Input consumed
-  }
-
-  return false;  // Input not consumed, let screen handle it
 }

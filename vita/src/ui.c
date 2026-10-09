@@ -12,7 +12,6 @@
  * - ui_input.c: Button/touch input handling and gesture detection
  * - ui_state.c: UI state management and transitions
  * - ui_components.c: Reusable UI widgets (toggles, dropdowns, popups)
- * - ui_navigation.c: Wave navigation sidebar and menu system
  * - ui_console_cards.c: Console selection card grid
  * - ui_screens.c: Full-screen rendering (main, settings, profile, etc.)
  *
@@ -63,7 +62,6 @@
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
-#include "ui/ui_navigation.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
@@ -104,12 +102,6 @@ static bool *touch_block_pending_clear = NULL;
 #define connection_overlay_stage ui_connection_stage()
 #define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
 
-// Wave navigation constants moved to vita/include/ui/ui_constants.h
-// (removed duplicate definitions - canonical versions are in ui_constants.h)
-
-// Navigation state moved to ui_navigation.c
-// Access via ui_nav_* functions or extern declarations in ui_internal.h
-
 // HintsPopupState type moved to ui_types.h
 // HintsPopupState instance moved to ui_components.c
 
@@ -124,16 +116,11 @@ static bool *touch_block_pending_clear = NULL;
 // Component functions moved to ui_components.c (accessible via ui_internal.h)
 static void render_loss_indicator_preview(void);
 
-// Navigation functions moved to ui_navigation.c (accessible via ui_internal.h)
-
 // Debug menu configuration moved to ui_components.c
 
 // Connection overlay, cooldown, thread management, and text cache moved to ui_state.c
 
-// Wave navigation sidebar uses simple colored bar (no animation)
-
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
-// current_focus and last_console_selection moved to ui_navigation.c
 
 #define MAX_TOOLTIP_CHARS 200
 char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
@@ -149,19 +136,13 @@ char *cancel_btn_str = "Circle";
 
 // btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
-// ============================================================================
-// Navigation functions moved to ui_navigation.c
-// ============================================================================
-
-// Pill rendering, overlay, and touch functions moved to ui_navigation.c
-
 // Error popup and debug menu functions moved to ui_components.c
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
  * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
- * the Network Unstable pill, where they have one), so the corner logo, the wave sidebar and the old
- * loss indicator are not drawn over them.
+ * the Network Unstable pill, where they have one), so the corner logo and the old loss
+ * indicator are not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
@@ -459,7 +440,6 @@ void init_ui() {
   ui_input_init();
   ui_screens_init();
   ui_state_init();
-  ui_nav_init();    // Initialize navigation module
   ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
@@ -721,10 +701,6 @@ void draw_ui() {
                            screen == UI_SCREEN_TYPE_RECONNECTING);
       }
 
-      // Wave navigation area removed - nav is a pure overlay with no background
-
-      // Focus overlay moved to after screen rendering for correct z-order
-
       // Old screens only: Home and Connecting draw the logo in their own top bar (C23)
       if (vita_rps5_logo && !screen_has_xmb_chrome(screen)) {
         int logo_w = vita2d_texture_get_width(vita_rps5_logo);
@@ -742,10 +718,6 @@ void draw_ui() {
 
       UIScreenType prev_screen = screen;
       UIScreenType next_screen = screen;
-
-      // Handle zone-crossing navigation (LEFT/RIGHT between nav bar and content)
-      // This must happen before screen-specific input handling
-      ui_focus_handle_zone_crossing(screen);
 
       // Render the current screen
       if (screen == UI_SCREEN_TYPE_MAIN) {
@@ -778,19 +750,9 @@ void draw_ui() {
 
       if (next_screen != prev_screen) {
         block_inputs_for_transition();
-        // Menu stays in current state - user controls collapse via Triangle or content tap
       }
       drawn_screen = prev_screen;
       screen = next_screen;
-
-      // The wave sidebar belongs to the old screens only; Home has its own category bar.
-      if (!screen_has_xmb_chrome(screen)) {
-        // Render focus overlay after all screen content (correct z-order)
-        ui_nav_render_content_overlay();
-
-        // Render navigation menu overlay (on top of tint)
-        render_wave_navigation();
-      }
 
       // Render hints system (indicator + popup)
       render_hints_indicator();

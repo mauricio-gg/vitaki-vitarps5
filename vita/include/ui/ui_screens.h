@@ -4,8 +4,6 @@
  *
  * Screen implementations for the main menu hand-off, the connect flows,
  * and the overlays (waking, reconnecting, streaming, messages).
- *
- * This module contains ~2000 lines of screen rendering logic extracted from ui.c.
  */
 
 #pragma once
