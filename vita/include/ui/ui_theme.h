@@ -301,6 +301,7 @@ typedef enum ui_face_t {
 #define UI_CAT_STRIP_Y 64
 #define UI_CAT_STRIP_H 112
 #define UI_CAT_HIT 64
+#define UI_CAT_SWIPE_PX 56 /* horizontal swipe distance per category step (SPEC C01) */
 
 /* ============================================================================
  * C02 XmbList

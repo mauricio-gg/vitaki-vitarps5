@@ -8,7 +8,11 @@
  * A focus change slides every icon to its new place over UI_D2_MS on the ease-out curve while
  * the glow and the new label fade in and the old label fades out. A change during a slide
  * restarts from where each icon is now. visible[] and hit[] always hold the settled layout, so
- * a tap during a slide hits the icon where it will end up. There is no swipe yet.
+ * a tap during a slide hits the icon where it will end up.
+ *
+ * A horizontal swipe that starts on the strip (UI_CAT_STRIP_Y, UI_CAT_STRIP_H, full width) moves
+ * one category per UI_CAT_SWIPE_PX of finger travel from touch-down; swiping left is the next
+ * category. Focus follows the finger with the same slide, clamped, no wrap.
  */
 
 #pragma once
@@ -31,6 +35,10 @@ typedef struct ui_category_bar_t {
   float from_scale[UI_CAT_COUNT];    ///< icon scale when the slide started
   float from_opacity[UI_CAT_COUNT];  ///< icon opacity (0..1) when the slide started
   float from_label[UI_CAT_COUNT];    ///< label opacity (0..1) when the slide started
+
+  /* Horizontal swipe (SPEC C01). */
+  bool swipe_active;  ///< the current touch went down on the strip and may swipe the bar
+  int swipe_base;     ///< focus when that touch went down; the swipe moves relative to it
 } UiCategoryBar;
 
 /**
@@ -50,7 +58,8 @@ void ui_category_bar_set_focus(UiCategoryBar *bar, int index);
 void ui_category_bar_draw(const UiCategoryBar *bar);
 
 /**
- * ui_category_bar_input() - L/R or D-pad Left/Right and tap change the category.
+ * ui_category_bar_input() - L/R or D-pad Left/Right, a tap and a horizontal swipe on the strip
+ * change the category.
  * @return UI_EVENT_MOVED when the focused category changed, otherwise UI_EVENT_NONE.
  */
 UiEvent ui_category_bar_input(UiCategoryBar *bar, const UiInput *in);
