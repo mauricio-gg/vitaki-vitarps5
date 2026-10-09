@@ -139,6 +139,11 @@ void ui_controller_zones_draw(UiCtrlZoneView view) {
     ui_zone_grid_draw(&s_views[view].grid);
 }
 
+void ui_controller_zones_set_cursor_visible(UiCtrlZoneView view, bool visible) {
+  if (view >= 0 && view < UI_CTRL_VIEW_COUNT)
+    s_views[view].grid.cursor_hidden = !visible;
+}
+
 UiEvent ui_controller_zones_input(UiCtrlZoneView view, const UiInput *in) {
   if (view < 0 || view >= UI_CTRL_VIEW_COUNT || !s_views[view].ready)
     return UI_EVENT_NONE;

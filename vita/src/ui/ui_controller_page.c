@@ -19,6 +19,7 @@
 #include "context.h"
 #include "controller.h"
 #include "ui/ui_bake.h"
+#include "ui/ui_arrow.h"
 #include "ui/ui_chevron.h"
 #include "ui/ui_component.h"
 #include "ui/ui_constants.h"
@@ -33,6 +34,7 @@
 #include "ui/ui_page_frame.h"
 #include "ui/ui_text.h"
 #include "ui/ui_text_button.h"
+#include "ui/ui_zone_select.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_top_bar.h"
 
@@ -46,7 +48,7 @@ static const char ZONES_ONE[] = "zone";
 static const char ZONES_MANY[] = "zones";
 static const char FOOT_ZONE_FORMAT[] = "Zone %s";
 static const char FOOT_SELECTED_FORMAT[] = "%d Zones Selected";
-static const char CALLOUT_FORMAT[] = "%s \xE2\x86\x92 %s";
+static const char SPACE[] = " ";
 static const char SUBTITLE_L1[] = "Left Shoulder (L1)";
 static const char SUBTITLE_R1[] = "Right Shoulder (R1)";
 static const char BUTTON_CLEAR[] = "Clear";
@@ -79,11 +81,15 @@ typedef enum page_t {
   PAGE_BACK_TOUCH,
 } Page;
 
-/** One callout: its text, rects and leader, rebuilt only when the output it names changes. */
+/** One callout: its text, rects and leader, rebuilt only when the output it names changes. The
+ * text is the shoulder name, the arrow, then @text (the output's name); @arrow_dx and @text_dx are
+ * where the arrow and @text start, from the callout's text start. */
 typedef struct callout_t {
   char text[UI_CTRL_CALLOUT_TEXT_MAX];
   int output;  ///< the output @text names; NO_OUTPUT before the first build
-  int text_w;
+  int arrow_dx;
+  int text_dx;
+  int text_w;  ///< the whole width: name, arrow and output with their gaps
   UiRect visible;
   UiRect hit;
   int leader_x1;  ///< the leader starts under the callout...
@@ -104,6 +110,7 @@ static bool s_diagram_ready = false;
 static vita2d_texture *s_chevron_left = NULL;
 static vita2d_texture *s_chevron_right = NULL;
 static vita2d_texture *s_dot = NULL;
+static vita2d_texture *s_arrow = NULL;
 
 static Callout s_callouts[SHOULDER_COUNT];
 static Shoulder s_focus = SHOULDER_L1;
@@ -122,6 +129,16 @@ static char s_page_text[FOOT_TEXT_MAX];
 static int s_page_text_x = 0;
 static UiRect s_page_hit;
 static int s_footer_key = -1;
+
+/** Which footer button the D-pad has focus on: none (the callouts or the grid have it), Whole
+ * surface (zone views only) or Clear. Applied to the buttons' focused flag each frame, because
+ * laying the buttons out again resets them. */
+typedef enum footer_focus_t {
+  FOOT_NONE = 0,
+  FOOT_WHOLE,
+  FOOT_CLEAR,
+} FooterFocus;
+static FooterFocus s_footer_focus = FOOT_NONE;
 
 /** The footer's left text in a zone view ("Zone C2", "N Zones Selected"), rebuilt when the cursor
  * or the number of picked cells changes (s_zone_foot_key). */
@@ -182,6 +199,7 @@ static void enter_zones(void) {
   const char *title = s_page == PAGE_BUTTONS ? TITLE_FRONT : TITLE_REAR;
   s_sub_x = UI_PAGE_TITLE_X + ui_text_face_width(UI_FACE_T28, title) + UI_CTRL_SUB_GAP;
   layout_footer_buttons();
+  s_footer_focus = FOOT_NONE;
 }
 
 /** Go back from a zone view to the Summary page it came from. */
@@ -189,12 +207,14 @@ static void leave_zones(void) {
   ui_controller_zones_reset(zone_view());
   s_in_zones = false;
   layout_footer_buttons();
+  s_footer_focus = FOOT_NONE;
 }
 
 /** Switch to the other Summary page. */
 static void toggle_page(void) {
   s_page = s_page == PAGE_BUTTONS ? PAGE_BACK_TOUCH : PAGE_BUTTONS;
   s_footer_key = -1;
+  s_footer_focus = FOOT_NONE;
 }
 
 /* ============================================================================
@@ -214,6 +234,8 @@ void ui_controller_page_init(void) {
   s_chevron_left = ui_chevron_bake(UI_CHEVRON_LEFT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
   s_chevron_right = ui_chevron_bake(UI_CHEVRON_RIGHT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
   s_dot = ui_bake_white(UI_CTRL_DOT, UI_CTRL_DOT, dot_alpha, NULL);
+  s_arrow =
+      ui_arrow_bake(UI_CTRL_ARROW_W, UI_CTRL_ARROW_H, UI_CTRL_ARROW_HEAD, UI_CTRL_ARROW_STROKE);
 
   s_chevron_right_hit = (UiRect){UI_CONTENT_RIGHT - UI_TAP_MIN, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
   s_label_hit = (UiRect){s_chevron_right_hit.x - UI_CTRL_PRESET_GAP - UI_CTRL_PRESET_LABEL_W,
@@ -240,6 +262,7 @@ void ui_controller_page_open(int preset) {
   s_focus = SHOULDER_L1;
   s_page = PAGE_BUTTONS;
   s_in_zones = false;
+  s_footer_focus = FOOT_NONE;
   s_label_preset = -1;
   s_footer_key = -1;
   ui_controller_mapping_close();
@@ -260,9 +283,11 @@ static void layout_callout(int i) {
   if (output == c->output)
     return;
   c->output = output;
-  snprintf(c->text, sizeof(c->text), CALLOUT_FORMAT, SHOULDER_NAME[i],
-           controller_output_name((VitakiCtrlOut)output));
-  c->text_w = ui_text_face_width(UI_FACE_T20, c->text);
+  snprintf(c->text, sizeof(c->text), "%s", controller_output_name((VitakiCtrlOut)output));
+  const int gap = ui_text_face_width(UI_FACE_T20, SPACE);
+  c->arrow_dx = ui_text_face_width(UI_FACE_T20, SHOULDER_NAME[i]) + gap;
+  c->text_dx = c->arrow_dx + UI_CTRL_ARROW_W + gap;
+  c->text_w = c->text_dx + ui_text_face_width(UI_FACE_T20, c->text);
 
   const int w = c->text_w > UI_CTRL_CALLOUT_W ? c->text_w : UI_CTRL_CALLOUT_W;
   const int x = i == SHOULDER_L1 ? UI_CTRL_CALLOUT_LEFT_X : UI_CTRL_CALLOUT_RIGHT_EDGE - w;
@@ -350,6 +375,17 @@ static bool tapped_in(const UiInput *in, UiRect r) {
   return ui_touch_tap(in) && ui_rect_contains(r, in->touch.x, in->touch.y);
 }
 
+/** Give the footer buttons their focused look from s_footer_focus. */
+static void apply_footer_focus(void) {
+  s_whole_btn.focused = s_footer_focus == FOOT_WHOLE;
+  s_clear_btn.focused = s_footer_focus == FOOT_CLEAR;
+}
+
+/** Clear every output of the current side. */
+static void clear_current_side(void) {
+  ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
+}
+
 /** Open the Shoulder Mapping popup for shoulder @which. */
 static void open_shoulder_popup(Shoulder which) {
   ui_controller_mapping_open_shoulder(SHOULDER_INPUT[which], SHOULDER_SUBTITLE[which]);
@@ -373,6 +409,7 @@ static UiRect summary_diagram_rect(void) {
  * @return true when the page should go back to Home
  */
 static bool update_summary(const UiInput *in) {
+  apply_footer_focus();
   if ((in->pressed & UI_BTN_CANCEL) || ui_page_frame_back_tapped(in))
     return true;
 
@@ -384,8 +421,8 @@ static bool update_summary(const UiInput *in) {
     ui_controller_model_step_preset(1);
   } else if (tapped_in(in, s_page_hit)) {
     toggle_page();
-  } else if (tapped_in(in, s_clear_btn.hit)) {
-    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
+  } else if (ui_text_button_input(&s_clear_btn, in) == UI_EVENT_ACTIVATED) {
+    clear_current_side();
   } else {
     if (s_page == PAGE_BUTTONS) {
       for (int i = 0; i < SHOULDER_COUNT; i++) {
@@ -411,18 +448,26 @@ static bool update_summary(const UiInput *in) {
   if (in->pressed & (UI_BTN_L | UI_BTN_R))
     toggle_page();
 
-  if (s_page == PAGE_BUTTONS) {
+  /* Up and Down walk L1, R1 and then the Clear button (page 2 has only the button). */
+  if (s_footer_focus == FOOT_CLEAR) {
+    if (in->pressed & UI_BTN_UP)
+      s_footer_focus = FOOT_NONE;
+  } else if (s_page == PAGE_BUTTONS) {
     if (in->pressed & UI_BTN_UP)
       s_focus = SHOULDER_L1;
-    else if (in->pressed & UI_BTN_DOWN)
+    else if ((in->pressed & UI_BTN_DOWN) && s_focus == SHOULDER_L1)
       s_focus = SHOULDER_R1;
+    else if (in->pressed & UI_BTN_DOWN)
+      s_footer_focus = FOOT_CLEAR;
+  } else if (in->pressed & UI_BTN_DOWN) {
+    s_footer_focus = FOOT_CLEAR;
   }
 
   if (in->pressed & UI_BTN_OPTIONS) {
     enter_zones();
   } else if (in->pressed & UI_BTN_CLEAR) {
-    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
-  } else if (in->pressed & UI_BTN_CONFIRM) {
+    clear_current_side();
+  } else if ((in->pressed & UI_BTN_CONFIRM) && s_footer_focus == FOOT_NONE) {
     if (s_page == PAGE_BUTTONS)
       open_shoulder_popup(s_focus);
     else
@@ -431,15 +476,47 @@ static bool update_summary(const UiInput *in) {
   return false;
 }
 
+/**
+ * Move the D-pad focus between the grid and the footer buttons of a zone view: Down from the
+ * grid's bottom row goes to the button under that half of the grid, Left and Right switch between
+ * the buttons, Up goes back to the grid.
+ * @return true when the press was used, so the grid must not see it
+ */
+static bool move_footer_focus(const UiInput *in) {
+  if (s_footer_focus == FOOT_NONE) {
+    const int cursor = ui_controller_zones_cursor(zone_view());
+    if ((in->pressed & UI_BTN_DOWN) && !(in->down & UI_BTN_CONFIRM) &&
+        cursor / UI_ZONE_COLS == UI_ZONE_ROWS - 1) {
+      s_footer_focus = cursor % UI_ZONE_COLS < UI_ZONE_COLS / 2 ? FOOT_WHOLE : FOOT_CLEAR;
+      return true;
+    }
+    return false;
+  }
+  if (in->pressed & UI_BTN_UP)
+    s_footer_focus = FOOT_NONE;
+  else if (in->pressed & UI_BTN_LEFT)
+    s_footer_focus = FOOT_WHOLE;
+  else if (in->pressed & UI_BTN_RIGHT)
+    s_footer_focus = FOOT_CLEAR;
+  return true;
+}
+
 /** Act on this frame's input in a zone view: back, Whole surface, Clear, or the grid. */
 static void update_zones(const UiInput *in) {
   if ((in->pressed & UI_BTN_CANCEL) || ui_page_frame_back_tapped(in)) {
     leave_zones();
-  } else if ((in->pressed & UI_BTN_OPTIONS) || tapped_in(in, s_whole_btn.hit)) {
+    return;
+  }
+  const bool used = move_footer_focus(in);
+  apply_footer_focus();
+  if (ui_text_button_input(&s_whole_btn, in) == UI_EVENT_ACTIVATED ||
+      (in->pressed & UI_BTN_OPTIONS)) {
     ui_controller_mapping_open_side(current_side());
-  } else if ((in->pressed & UI_BTN_CLEAR) || tapped_in(in, s_clear_btn.hit)) {
-    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
-  } else if (ui_controller_zones_input(zone_view(), in) == UI_EVENT_ACTIVATED) {
+  } else if (ui_text_button_input(&s_clear_btn, in) == UI_EVENT_ACTIVATED ||
+             (in->pressed & UI_BTN_CLEAR)) {
+    clear_current_side();
+  } else if (!used && s_footer_focus == FOOT_NONE &&
+             ui_controller_zones_input(zone_view(), in) == UI_EVENT_ACTIVATED) {
     open_selection_popup();
   }
 }
@@ -471,12 +548,12 @@ static void draw_preset_switcher(void) {
 }
 
 /**
- * Draw callout @i: its text, the underline (2 px white with a glow when focused, else 1 px) and
- * the leader ending in a dot at the shoulder. Paper cost 4 (5 focused).
+ * Draw callout @i: its name, arrow and output, the underline (2 px white with a glow when
+ * focused, else 1 px) and the leader ending in a dot at the shoulder. Paper cost 6 (7 focused).
  */
 static void draw_callout(int i) {
   const Callout *c = &s_callouts[i];
-  const bool focused = s_focus == (Shoulder)i;
+  const bool focused = s_focus == (Shoulder)i && s_footer_focus == FOOT_NONE;
   const int text_x = i == SHOULDER_L1 ? c->visible.x : c->visible.x + c->visible.w - c->text_w;
 
   if (focused) {
@@ -490,8 +567,17 @@ static void draw_callout(int i) {
     vita2d_draw_texture_tint(s_dot, (float)(c->leader_x2 - UI_CTRL_DOT / 2),
                              (float)(c->leader_y2 - UI_CTRL_DOT / 2), UI_TEXT);
   }
-  ui_text_draw_face_centered_v(UI_FACE_T20, text_x, c->visible.y, c->visible.h,
-                               focused ? UI_TEXT : UI_TEXT_2, c->text);
+  const unsigned int text_color = focused ? UI_TEXT : UI_TEXT_2;
+  ui_text_draw_face_centered_v(UI_FACE_T20, text_x, c->visible.y, c->visible.h, text_color,
+                               SHOULDER_NAME[i]);
+  if (s_arrow) {
+    vita2d_draw_texture_tint(
+        s_arrow, (float)(text_x + c->arrow_dx),
+        (float)(c->visible.y + (c->visible.h - UI_CTRL_ARROW_H) / 2 + UI_CTRL_ARROW_DROP),
+        text_color);
+  }
+  ui_text_draw_face_centered_v(UI_FACE_T20, text_x + c->text_dx, c->visible.y, c->visible.h,
+                               text_color, c->text);
 
   const int line = focused ? UI_LW2 : UI_LW1;
   vita2d_draw_rectangle((float)c->visible.x, (float)(c->visible.y + c->visible.h - line),
@@ -536,6 +622,7 @@ static void draw_zone_view(void) {
   const UiCtrlZoneView view = zone_view();
   draw_diagram(s_page == PAGE_BUTTONS ? CTRL_VIEW_FRONT : CTRL_VIEW_BACK,
                ui_controller_zones_diagram_rect(view));
+  ui_controller_zones_set_cursor_visible(view, s_footer_focus == FOOT_NONE);
   ui_controller_zones_draw(view);
   draw_left_footer(s_zone_foot);
 }
@@ -548,8 +635,10 @@ static const char *page_title(void) {
 }
 
 /** Draw the page behind the popup layer: frame, top bar, back chevron, the view and the footer
- * buttons (Clear on a Summary page; Whole surface and Clear in a zone view, 4 draws each). */
+ * buttons (Clear on a Summary page; Whole surface and Clear in a zone view, 4 draws each, 8 when
+ * focused). */
 static void draw_page(void) {
+  apply_footer_focus();
   ui_page_frame_draw(UI_PAGE_ICON_CONTROLLER, page_title());
   ui_top_bar_draw(NULL);
   ui_page_frame_back_draw();

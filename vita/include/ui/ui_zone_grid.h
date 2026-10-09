@@ -50,8 +50,9 @@ typedef struct ui_zone_grid_t {
   char labels[UI_ZONE_COUNT][UI_ZONE_LABEL_MAX];
   int label_x[UI_ZONE_COUNT];  ///< label offset from the cell's left edge, set with the label
   bool mapped[UI_ZONE_COUNT];
-  bool hold_active;   ///< Confirm is held and moving the cursor adds cells
-  bool paint_active;  ///< a finger gesture that began on the grid is in progress
+  bool cursor_hidden;  ///< draw no cursor cell (focus is elsewhere); the cursor keeps its position
+  bool hold_active;    ///< Confirm is held and moving the cursor adds cells
+  bool paint_active;   ///< a finger gesture that began on the grid is in progress
   struct vita2d_texture *tex_lines;
   struct vita2d_texture *tex_mapped;
   struct vita2d_texture *tex_cursor;
