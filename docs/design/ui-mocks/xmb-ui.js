@@ -23,6 +23,7 @@ const pillG=(t,w)=>`<svg class="g" viewBox="0 0 ${w} 24" width="${w}" height="24
 const GLY={
  dpad:S1('<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>'),
  dpadh:S1('<path d="M9 7 3 12l6 5zM15 7l6 5-6 5z" fill="#fff"/>'),
+ dpadu:S1('<path d="M7 15l5-6 5 6z" fill="#fff"/>'),
  dpadv:S1('<path d="M7 9l5-6 5 6zM7 15l5 6 5-6z" fill="#fff"/>'),
  L:pillG('L',32),R:pillG('R',32),
  LR:`<span style="display:flex;gap:4px">${pillG('L',32)}${pillG('R',32)}</span>`,
@@ -70,6 +71,13 @@ const tbtn=(label,o={})=>`<button class="tb ${o.sm?'sm':''} ${o.sel?'sel':''} ${
 
 /* C11 PopupShell + C12 ListPopup + C13 Confirm + C14 Result. p: {size,tone,icon,title,sub,body,rows,grid,buttons,sel} */
 function popupHTML(p){
+ if(p.kind==='pair'){
+  const n=p.rows.length,vis=4,off=Math.max(0,Math.min(n-vis,p.sel-Math.floor(vis/2)+1))*48;
+  const noteH=p.note?`<div class="lr note">${p.note}</div>`:'';
+  const inner=`<h3>${p.title}</h3><div class="body pbody">${p.body}</div><div class="phead"><span>${p.head}</span>${p.spin?'<span class="sp"></span>':''}</div>
+  <div class="lp l4"><div style="transform:translateY(${-off}px);transition:transform var(--d1) var(--ease)">${noteH}${p.rows.map((r,i)=>`<div class="lr ${i===p.sel?'sel':''}" data-pop="${i}">${r.label}${r.sub?`<small>${r.sub}</small>`:''}${r.ip?`<span class="ck">${ico('next',20)}</span>`:''}</div>`).join('')}</div>${n>vis?`<div class="lscr"><i style="top:${(off/48)/n*100}%;height:${vis/n*100}%"></i></div>`:''}</div>`;
+  return `<div class="scrimlay" data-do="scrim"></div><div class="popup ${p.size}" role="dialog" aria-label="${p.title}">${inner}</div>`;
+ }
  let inner=`<h3>${p.icon?ico(p.icon,32):''}${p.title}</h3>${p.sub?`<div class="psub">${p.sub}</div>`:''}`;
  if(p.body)inner+=`<div class="body">${p.body}</div>`;
  if(p.grid){

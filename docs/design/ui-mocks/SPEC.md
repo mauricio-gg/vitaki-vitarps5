@@ -4,7 +4,7 @@ Baseline for engineers. The HTML mock in this folder is the visual reference (`x
 
 - Theme source of truth: `tokens-xmb.css`. Component CSS: `xmb.css`. Mock logic: `xmb-app.js` (read it for exact behaviour). Canonical screens are lossless 960x544 PNGs in `screens/` (index.html), the device preview is the only JPG.
 - vita2d cost numbers: `FEASIBILITY.md`. Draw-call budget stays about 80 per frame on Home.
-- Scope decisions applied: Logs category removed; Add item removed; in-stream has no menu (today's overlay only); triangle options per console; one result/error popup; re-pair asks first; everything works by touch; hint row, on by default (Show Button Hints); the alert slot stays when hidden; Settings grouped; "Show Navigation Labels" dropped; no time-of-day wave tint (one fixed palette); Profile has no streaming metrics (stream stats live only in the overlay).
+- Scope decisions applied: Logs category removed; Add item removed in round 8, **reversed by #330 as the `+ Pair new device` item (proposal, awaiting CEO sign-off, section 3.1a)**; in-stream has no menu (today's overlay only); triangle options per console; one result/error popup; re-pair asks first; everything works by touch; hint row, on by default (Show Button Hints); the alert slot stays when hidden; Settings grouped; "Show Navigation Labels" dropped; no time-of-day wave tint (one fixed palette); Profile has no streaming metrics (stream stats live only in the overlay).
 
 ---
 
@@ -181,7 +181,7 @@ Text is drawn from the 6 pre-rendered faces (Light 20, 28, 40; Regular 14, 16, 2
 | Purpose | Triangle options for a console. |
 | Constants | `UI_OPTS_X` 608 (w 352 to the right edge), `UI_OPTS_PAD` 48, `UI_OPTS_ROW_H` 56, first row y 160 |
 | Anatomy | Slides in from the right 300 ms, left edge feathered into `PANEL_EDGE`. Console name T28 at y 88, "Options" T16 at y 120, rows T20 with 1 px `LINE_FAINT` divider. Focused row: TEXT on an `R_SM` `FILL_FOCUS` bar, glow on the label. Home dims behind it. |
-| Items | Connect (Wake and connect on standby) / Connect via (only when Local and Internet both exist) / Re-pair / Change icon. Unpaired consoles get Pair / Change icon. Cooldown disables Connect and Connect via. |
+| Items | Connect (Wake and connect on standby) / Connect via (only when Local and Internet both exist) / Re-pair / Change icon. Unpaired consoles are no longer in the Home list, so they have no Options (#330). Cooldown disables Connect and Connect via. |
 | Input | Triangle opens, Triangle or Circle closes. Up/Down, Confirm. Touch: tap a row (hit 352 x 56); every tap outside the column, including the hint-row buttons, closes it and is consumed (nothing else runs). While open, the category bar, list, detail panel and top bar dim to 25%; the column and the hint row stay bright. |
 
 ### C06 HintRow (display-only, with hit test)
@@ -328,6 +328,19 @@ Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searchin
 
 The ribbons may be updated into the small target at 15 to 30 Hz while the upscaled quad is drawn every frame (the result is soft enough that the lower rate is invisible); None keeps the 30 Hz CPU vertex update. Freeze or halve updates while Connecting. Measurements, cost and the decision are in FEASIBILITY.md section 8. Replaces: `ui_particles`.
 
+### C29 PairPopup (configuration of C11, issue #330, proposal)
+| | |
+|---|---|
+| Purpose | The one place a console is paired: Link Device instructions, the unpaired consoles found on the network, and a way in for a console discovery cannot see. Opened from the `+ Pair new device` Home item. |
+| Size | **L** (480 x 432 at y 56), the same size in every state so the popup never resizes while discovery runs. |
+| Anatomy | Title T28 "Pair new device" at the popup padding. Instruction body T16 `TEXT_2`, 72 high (3 lines at 416 px; the copy fits 2). Section label T16 `TEXT_3` "Found on your network" with a 16 px spinner arc after it while discovery is still running and at least one console is already listed. List viewport **4 rows of 48** (192 high, C12 rules: `LINE_FAINT` dividers, focused row an `R_SM` `FILL_FOCUS` bar with glow on the label, 2 px scroll indicator when over 4 rows). Rows: each unpaired console found (name T20 Light, right label T16 `TEXT_3` `PS5 · 192.168.1.44`), then a fixed last row **Enter IP address** with a chevron. A non-focusable note row (T16 `TEXT_3`, 48 or 72 high) sits above the rows when there is nothing to list. Height check: 32 + 32 + 8 + 72 + 16 + 24 + 8 + 192 + 32 = 416 of 432. |
+| States | one console (`#pair-popup-one`), several (`#pair-popup-many`, 3 found), more than 4 rows (`#pair-popup-scroll`, scrolls), searching with none yet (`#pair-popup-searching`, note "Searching your network..." with spinner), scan finished with none (`#pair-popup-none`, note "No unpaired consoles found"), Auto Discovery off (`#pair-popup-discoff`, note "Auto Discovery is off. Turn it on in Settings > Network, or enter the IP address."), Enter IP address focused (`#pair-popup-ip`). With no console listed focus starts on Enter IP address, otherwise on the first console. |
+| Input | Modal. Up/Down moves focus, no wrap. Confirm on a console closes the popup and opens the PIN screen for it (C17, 3.2). Confirm on Enter IP address closes the popup and opens the system keyboard (below). Circle, or a tap on the scrim, closes the popup and returns to Home with `+ Pair new device` still focused. Tap a row: focus and activate in one tap (as every popup list). Vertical swipe scrolls the list, 48 px per row. Hints: `[Confirm Pair] [Cancel Close]`, the Confirm label reads `Enter IP` on the last row. |
+| Discovery | Discovery keeps running while the popup is open; rows appear as consoles answer and are removed when they stop answering (focus moves to the nearest row if the focused one disappears). A console that is already paired is never listed. |
+| Enter IP address | 1. System keyboard, title "Console IP address", empty (`#pair-ip-keyboard`). 2. On Done the popup "Looking for console" (size S, sub line the address, spinner, one Cancel button, `#pair-ip-looking`) while the app sends one unicast discovery packet to that address and waits (propose 5 s). 3a. A reply gives the console's name and model: the PIN screen opens for it (`#pin-manual`, title "PS5 Console Registration", sub "PS5-204 (192.168.1.77)"). 3b. No reply: result popup (C14) "Console not found", "Nothing answered at <ip>. Check the address, and that the console is on and on the same network.", Close / Try again (`#pair-ip-notfound`). 3c. The text is not four numbers 0 to 255 separated by dots: result popup "Not an IP address", "Use four numbers separated by dots, like 192.168.1.20." Close / Try again (`#pair-ip-invalid`). Try again reopens the keyboard with the typed text. Close returns to Home with `+ Pair new device` focused. |
+| Draws (paper) | worst case about 39: frozen background copy 1, scrim 1, body 9-slice 9, title 1, instruction 3 lines 3, section label 1 + spinner 1, 4 rows x 3 (name, right label, divider) 12, focused bar 3, scroll indicator 2, Enter IP chevron 1, hint row 4. Searching or empty: about 30. Looking popup: about 24. Inside the "about 36" of any popup plus the longer list; see FEASIBILITY 4. |
+| Cost | No new font size and no new atlas glyph (ASCII, `>` and the middle dot). One new item icon (plus in a ring, 38 px, same weight as the others) and one new hint glyph (D-pad up). |
+
 ### C28 (removed)
 The separate filter line was folded into the Filter item of the Consoles list (C02).
 
@@ -342,7 +355,7 @@ Layers: C27, top bar C23, C01, C02, C04, C05, hint row C06. Category row y 104, 
 
 | Category | Items | Detail | Confirm |
 |---|---|---|---|
-| Consoles | console rows, registered first, then by name | C04 console | per state, below |
+| Consoles | `+ Pair new device` (row 0), the Filter row (when shown), then **paired** console rows by name (#330) | C04 console | per state, below |
 | Settings | Video, Network, Display, Controls, Advanced | the group's rows and values | opens Settings page at that group |
 | Controller | Custom 1, Custom 2, Custom 3 (+ description line) | L1, R1, Front touch, Rear touch | opens Controller summary on that preset |
 | Profile | Account, Connection, PlayStation Network | first rows of the group | opens Profile page at that group |
@@ -353,7 +366,7 @@ Console states (rows and detail):
 |---|---|---|---|---|
 | Ready | OK | Ready | Connecting (local) | `#home` |
 | Standby | WARN | Standby | Waking, auto-connects | `#consoles-standby` |
-| Unpaired | IDLE (room icon at 55%) | Unpaired | PIN screen | `#consoles-unpaired` |
+| ~~Unpaired~~ (#330: not a Home state any more; it is a row in the Pair new device popup, 3.1a) | IDLE in the popup | Unpaired | PIN screen | `#pair-popup-one` |
 | Internet only (PSN, valid token) | OK | Ready, "Internet" in `INTERNET` | Connecting (internet) | `#consoles-psn` |
 | Unavailable (not discovered, no route; not a failure, the console is just not reachable now) | neutral TEXT_3 (room icon at 55%) | Unavailable (TEXT_3) | tries to connect, result popup on failure | `#consoles-unavailable` |
 | **Error** (a failure the user must act on) | ERR | Error, message in the info panel | tries to connect | `#hints` |
@@ -369,13 +382,31 @@ Sub-screens from Home:
 
 | Id | What | Component |
 |---|---|---|
-| `#options`, `#options-unpaired` | Triangle options column | C05 |
+| `#options` | Triangle options column | C05 |
+| `#pair-item` and the `#pair-*` links | `+ Pair new device` item and its popup, section 3.1a | C02, C29 |
 | `#icon-picker` | Change icon, 3 x 2 grid | C11 M + C12 grid |
 | `#connect-via` | Connect via: Local Network (IP) / Internet (PSN) | C11 S + C12 |
 | `#repair` | "Re-pair <name>?" Cancel / Re-pair | C13 |
 | `#keyboard` | system keyboard "Filter Consoles" (stand-in dim + caption; the real IME is the Vita's) | stand-in |
 
 Categories deep links: `#xmb-settings`, `#xmb-controller`, `#xmb-profile`.
+
+### 3.1a Pair new device (issue #330, proposal for CEO approval)
+Reverses "Add item removed" from round 8. Home's Consoles list now shows **paired consoles only**. Discovered unpaired consoles live in the pairing popup (C29), not on Home. Deep links: the `Pair new device` group in the mock's Jump menu, all listed in `index.html`.
+
+**The item.** Row 0 of the Consoles list, always present, above the Filter row (when shown) and the consoles. Icon: plus in a ring (`icons/plus.svg`, 38 px). Name "Pair new device" (focus styles of C02 unchanged: T20 Light, glow, icon glow). Status line (T16 focused): "1 found nearby", "N found nearby", "Searching..." (discovery running, none yet), or "Link a console" (none found, or Auto Discovery off). Detail panel: title "Pair new device", "Link a PS5 or PS4 to this Vita. Turn the console on and join the same network.", then rows Paired (N consoles) and Found nearby (N unpaired, Searching..., None, or Discovery off). Hints when focused: `[Confirm Pair] [L R Category]`; no Triangle (nothing to option).
+
+**Focus.** Focus still starts on the first console on launch and on category change, so Cross still connects at once. **Up once from the first console reaches the item** (twice when the Filter row is shown: first Filter, then the item). With no paired console the item is the only row and starts focused (`#home-first-run`, `#home-first-run-found`), with "No paired consoles yet" under it. Confirm or a tap opens the popup at once (like the Filter row; no focus-then-activate). Long-press does nothing on it. The list swipe moves focus onto it like any row.
+
+**Unfocused state.** By the list's rule, rows above the focus fade to 0, so the item has no resting appearance while a console is focused (`#pair-item-hint`, the Home list shows only consoles). This is the real cost of putting it above the list (flag 18c). To keep it findable the hint row gains `[D-pad up] Pair new device` (tappable, same effect as Up, dropped first when the row is crowded) whenever the row directly above the focus is the item. With Show Button Hints off, only the swipe or Up reaches it.
+
+**Flow.** Home, item, popup (C29), PIN screen (3.2), result popup (3.3), Home with the new console focused. Leaving the PIN screen with Cancel or Circle before pairing, or closing any popup or result in this flow, lands on Home with the item focused. Leaving the PIN screen of a re-pair (a console that is already paired) lands on that console as today.
+
+**Re-pair stays.** Triangle > Re-pair on a paired console is unchanged: it is about one specific console whose credentials are stale, the popup deliberately never lists paired consoles, and the confirm ("Re-pair <name>?") protects against doing it by accident. The Pair new device item is for adding, Options is for repairing.
+
+**Show Only Paired (proposal: remove the setting).** Home no longer shows unpaired consoles, so the toggle has nothing left to hide. Remove the Settings > Network row and its config key (`show_only_paired`; an old value is ignored). Network keeps Auto Discovery and Enable PSN Internet Mode. The alternative (keep it, inverted to "Show unpaired consoles on Home", default off) brings back the clutter the CEO asked to remove and is not recommended. Flag 18.
+
+**Unpaired row state (proposal).** Removed from Home (table above, the Unpaired deep links, the Unpaired Options variant and the Unpaired row of Profile > Connection). The state survives only as a row in the popup, where it needs no status dot because every row there is unpaired. The word "Unpaired" stays in the copy deck for the detail panel's Pairing row only if a later change lets an unpaired console be selected; today the row always reads Paired.
 
 ### 3.2 PIN (`#pin`, `#pin-partial`, `#pin-full`)
 Page shell (lock icon). Title "<PS5|PS4> Console Registration" with the console name and IP as a T16 sub. Prompt T20 centred at y 160: "Enter the 8-digit session PIN displayed on your <PS5|PS4>:". C17 at y 224. TextButtons at y 424: Clear digit, Cancel, Register (disabled until all 8 are filled).
@@ -442,7 +473,7 @@ Page shell, title "Settings". Left: groups. Pane: C08 rows; description line for
 | Video | Fill Screen | toggle | off |
 | Network | Auto Discovery | toggle | on (read at startup only) |
 | Network | Enable PSN Internet Mode | toggle | off |
-| Network | Show Only Paired | toggle | off |
+| ~~Network | Show Only Paired | toggle | off~~ (#330 proposal: row removed, Home lists paired consoles only; flag 18) | | | |
 | Display | Show Latency | toggle | off (shows the stats panel in the stream overlay only; default pending CEO, see Flags) |
 | Display | Show Network Alerts | toggle | on |
 | Display | Show Exit Shortcut Hint | toggle | on |
@@ -470,7 +501,7 @@ Page shell, title "Profile". Groups: Account, Connection, PlayStation Network. *
 |---|---|---|---|---|---|---|
 | Console found on the local network, ready | Local Wi-Fi | name | address | Ready | current preset | `#profile-connection` |
 | Same, in rest mode | Local Wi-Fi | name | address | Standby | preset | `#profile-connection-standby` |
-| Same, not paired | Local Wi-Fi | name | address | Unpaired | preset | `#profile-connection-unpaired` |
+| ~~Same, not paired~~ (#330: an unpaired console can no longer be the selected console, row removed) | | | | | | |
 | Internet (PSN) console | PSN Internet | name | address when known (usually none) | Ready | preset | `#profile-connection-psn` |
 | Manually added host | Manual Host | name | address | Ready | preset | not in the mock |
 | Console selected, no discovery, PSN or manual route applies | Unavailable | name | address if known | Unavailable | preset | `#profile-connection-unavailable` |
@@ -611,7 +642,7 @@ Wording changes: glyphs replace "X/O/Cross/Circle" text; "Streaming Settings" be
 
 **Home list additions (round 8)**: Filter... ; Filter: "<text>" ; <N> found · [Square] to clear ; info panel: Filter / Find a console by name or IP address. / <N> consoles ; "<text>": <N> found of <M> ; hints Filter, Clear. **Touch controls (new)**: Clear, Whole surface (Controller), Enter code, Open browser, Cancel login (Profile login), back chevron (no label).
 
-**Settings**: group names Video, Network, Display, Controls, Advanced; row labels and values in section 3.6; descriptions (new, draft for sign-off): Quality Preset "Video resolution requested from the console."; Latency Mode "Sets the target bitrate. Higher looks better but needs a stronger connection."; FPS Target "Frame rate requested from the console."; Force 30 FPS Output "Output video at 30 FPS."; Fill Screen "Stretch the video to fill the whole screen."; Auto Discovery "Find consoles on your network automatically. Takes effect the next time the app starts."; Enable PSN Internet Mode "Connect to your consoles over the internet with your PSN account."; Show Only Paired "Hide consoles that are not paired."; Show Latency "Show latency and frame rate in the stream overlay."; Show Network Alerts "Show a badge when the connection becomes unstable."; Show Exit Shortcut Hint "Show how to leave the stream when it starts."; Circle Button Confirm "Use Circle to confirm and Cross to go back, on every screen."; Clamp Soft Restart Bitrate "Limit the bitrate when the stream restarts after packet loss."; Motion during loss "Keep motion going while packets are lost. May show visual artifacts."; Enable Logging "Write diagnostic logs on the Vita for troubleshooting."; Show Button Hints (new) "Show the button hints along the bottom of menus."; Background Blur (new) "Blur the background waves behind menus. Strong and Dark are softer and calmer." with values None, Soft, Strong, Dark; On, Off; hints Toggle, Next, Change, Group, Back, Open
+**Settings**: group names Video, Network, Display, Controls, Advanced; row labels and values in section 3.6; descriptions (new, draft for sign-off): Quality Preset "Video resolution requested from the console."; Latency Mode "Sets the target bitrate. Higher looks better but needs a stronger connection."; FPS Target "Frame rate requested from the console."; Force 30 FPS Output "Output video at 30 FPS."; Fill Screen "Stretch the video to fill the whole screen."; Auto Discovery "Find consoles on your network automatically. Takes effect the next time the app starts."; Enable PSN Internet Mode "Connect to your consoles over the internet with your PSN account."; Show Latency "Show latency and frame rate in the stream overlay."; Show Network Alerts "Show a badge when the connection becomes unstable."; Show Exit Shortcut Hint "Show how to leave the stream when it starts."; Circle Button Confirm "Use Circle to confirm and Cross to go back, on every screen."; Clamp Soft Restart Bitrate "Limit the bitrate when the stream restarts after packet loss."; Motion during loss "Keep motion going while packets are lost. May show visual artifacts."; Enable Logging "Write diagnostic logs on the Vita for troubleshooting."; Show Button Hints (new) "Show the button hints along the bottom of menus."; Background Blur (new) "Blur the background waves behind menus. Strong and Dark are softer and calmer." with values None, Soft, Strong, Dark; On, Off; hints Toggle, Next, Change, Group, Back, Open
 
 **Profile**: Account, Connection, PlayStation Network; identity block: PSN Account ID, PlayStation Network; Account ID, Not Set, Refresh Account ID ("Read the Account ID again from the system profile." new); Network Type (Local Wi-Fi, PSN Internet, Manual Host, Unavailable), Console (Not selected), Console IP, Status (Ready, Standby, Unpaired, Unavailable, None), Quality; PSN Auth; Disabled, Authenticated, Refreshing token, Awaiting browser sign-in, Token expired, Not authenticated, <error text>; Log in, Log out, Refresh hosts; Press [Confirm] again to confirm log out ; Phone Login Assist; 1 Press [Start] to show or hide the QR code; 2 Scan the QR code with your phone and sign in; 3 Press [Confirm] and paste the redirect URL or code; 4 [Select] opens the Vita browser instead; Code: Paste redirect URL/code; URL: my.account.sony.com/sso/ca/authorize (short form) ; QR hidden ; hints Enter code, QR, Browser, Cancel login, Confirm log out, Refresh
 - Descriptions: "Enable PSN internet mode in Settings" (today); "Sign in with your phone. Needed for internet Remote Play." (new); "Reload your internet-capable consoles." (new); "Remove the saved PSN login from this Vita." (new)
@@ -635,7 +666,7 @@ Open:
 6. **New copy needs sign-off**: all Settings descriptions, Profile action descriptions, Re-pair confirm, Change icon popup, the pairing and connection result popups, the three pairing failure reasons.
 7. **Room icon needs storage**: one small integer per console in the host config (default TV).
 8. **PIN title and prompt are model aware** ("PS4"/"PS5"); today they say PS5 always.
-9. **Unpaired consoles** show Pair and Change icon in Options (Connect and Re-pair would both open the PIN screen). Cooldown disables Connect and Connect via.
+9. **Unpaired consoles** no longer appear on Home (#330), so they have no Options. Cooldown disables Connect and Connect via.
 10. **Console type is only in the detail panel**, not on list rows (locked). The earlier "Last session" line is removed (the app has no such data).
 11. **System reads for the top bar**: Wi-Fi state, battery percent, local time, polled about once per second.
 12. **Errors left the list; transient states are not errors (my call, please confirm).** Rows show only a status label. New statuses: **Error** (red) for failures that need the user, **Retrying** (amber) for things the app is already retrying or waiting on. Classification: Error = wake failed (check pairing), Remote Play already active, Remote Play crashed, missing credentials, PSN mode off, PSN login required, PSN session expired, no host address. Retrying = wake failed but connecting anyway, console releasing session, console busy, waiting for network link, and the four stream-recovery messages. "Console releasing session... ready in Ns" could read as "Waiting"; I kept one amber label. Two related changes: **Cooldown (Please wait...) is now amber**, not red, because it is transient; **Unavailable** now has a label (it had none; Profile already used the word) and is deliberately neutral (grey dot and label, room icon at 55% opacity) so it cannot be confused with Error.
@@ -650,3 +681,6 @@ Open:
     - **Touch parity (4.1) added new controls**: long-press for Options, a back chevron on pages and the Controller, Clear and Whole surface buttons on the Controller, three buttons under the Profile login panel. Confirm you want them visible even when hints are on.
 16. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the drawn stand-in for the stream picture (a CSS gradient scene, no photo); the illustrative QR; the stand-in for the system keyboard.
 17. **Rear touch seeds did nothing in the stream (resolved by #319, was #305).** The seeded rear L2/R2 sat on quadrant inputs the stream never reads, and the page and the stream seeded a never-saved preset differently. Now one shared default in `vita/src/controller.c` puts L2 on the rear grid's left three columns and R2 on the right three for both; the old shoulder+rear-half L2/R2 combo is dropped, and presets already saved with the old seed are not repaired. New copy still to sign off: the "+" label of a Mixed cell.
+18. **#330 Pair new device (mock for approval).** Decisions for the CEO: (a) **Remove Show Only Paired** (recommended; Home is paired-only now) or keep it inverted; (b) **Unpaired row state removed from Home**, kept only in the popup; (c) **the item is invisible while a console is focused** (rows above the focus fade out). It is found by Up, by the new Up hint in the hint row, and by swipe; with hints off or a user who never presses Up it is still hidden, which is the discoverability problem this ticket exists to fix. Alternatives: pin the item as the last row of the list (always visible with up to 3 consoles, but not what was agreed), or leave as agreed and revisit after hardware use; (d) **order with the Filter row**: item above Filter (as drawn, Up twice with 5+ consoles) or Filter above the item; (e) **PS4 instructions**: the popup names only the PS5 path (as agreed); the PS4 path (Settings > Remote Play Connection Settings > Add Device) is not shown, add a line or swap the line by the focused console's model; (f) **Enter IP address needs a backend probe** (one unicast discovery packet to the typed address, to learn the console's name and model for the PIN title); without it the PIN screen cannot know PS4 from PS5; (g) **Cancel from the PIN screen lands on the item**, not on the popup; (h) **Auto Discovery off** shows a note in the popup instead of an empty list; (i) new copy needs sign-off (section 5 additions); (j) Re-pair stays under Triangle.
+
+**Pair new device (#330, new copy, for sign-off)**: item: Pair new device, <N> found nearby, Searching..., Link a console; detail: Link a PS5 or PS4 to this Vita. Turn the console on and join the same network., Paired, <N> console(s), Found nearby, <N> unpaired, Searching..., None, Discovery off; empty: No paired consoles yet; hint: Pair, Pair new device. Popup: Pair new device / On your PS5, open Settings > System > Remote Play > Link Device. Then pick it below and enter the PIN it shows. / Found on your network / Searching your network... / No unpaired consoles found / Auto Discovery is off. Turn it on in Settings > Network, or enter the IP address. / Enter IP address / hints Pair, Enter IP, Close. IP flow: keyboard title Console IP address; Looking for console / Contacting the console... / Cancel; Console not found / Nothing answered at <ip>. Check the address, and that the console is on and on the same network.; Not an IP address / Use four numbers separated by dots, like 192.168.1.20.; Close, Try again.
