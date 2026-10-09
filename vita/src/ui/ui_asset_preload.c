@@ -116,6 +116,12 @@ static const PreloadEntry PRELOAD_LIST[] = {
 
 #define PRELOAD_COUNT (sizeof(PRELOAD_LIST) / sizeof(PRELOAD_LIST[0]))
 
+/* The TTF files init_ui() opens from memory. The worker reads them right after the logo, since the
+ * fonts step comes early; they are read whole and not decoded. */
+static const char *const FONT_PATHS[] = {UI_ASSET_FONT_REGULAR_PATH, UI_ASSET_FONT_LIGHT_PATH};
+
+#define FONT_COUNT (sizeof(FONT_PATHS) / sizeof(FONT_PATHS[0]))
+
 /** The result for one list entry. */
 typedef struct {
   UiAssetPixels px;
@@ -125,6 +131,17 @@ typedef struct {
   bool err_logged;           /**< Main thread only. */
 } Slot;
 
+/** The result for one font file. */
+typedef struct {
+  uint8_t *bytes; /**< malloc'd file contents; NULL if the read failed or they were taken. */
+  size_t size;
+  uint64_t read_us;
+  char err[PRELOAD_ERR_LEN];
+  bool ready;      /**< Worker done with this slot. Guarded by s_mutex. */
+  bool claimed;    /**< Main thread only: ui_asset_preload_take_font() was called for it. */
+  bool err_logged; /**< Main thread only. */
+} FontSlot;
+
 static struct {
   bool active;
   bool thread_started;
@@ -133,6 +150,7 @@ static struct {
   ChiakiCond cond;
   UiAssetFrameHook hook;
   Slot slots[PRELOAD_COUNT];
+  FontSlot fonts[FONT_COUNT];
 } s_pre;
 
 /* ============================================================================
@@ -300,14 +318,33 @@ static void load_slot(size_t index) {
   }
 }
 
-/** Decodes the whole list in order, publishing each slot as it is done. */
+/** Reads font file @index into its slot, with its timing. Worker (or fallback) only. */
+static void load_font(size_t index) {
+  FontSlot *font = &s_pre.fonts[index];
+  const uint64_t t0 = sceKernelGetProcessTimeWide();
+  font->bytes = read_file(FONT_PATHS[index], &font->size, font->err);
+  font->read_us = sceKernelGetProcessTimeWide() - t0;
+}
+
+/** Marks a slot's `ready` flag under the lock and wakes the main thread. */
+static void publish(bool *ready) {
+  chiaki_mutex_lock(&s_pre.mutex);
+  *ready = true;
+  chiaki_cond_broadcast(&s_pre.cond);
+  chiaki_mutex_unlock(&s_pre.mutex);
+}
+
+/** Loads the logo, then the fonts, then the rest of the list in order, publishing each as done. */
 static void load_all(void) {
   for (size_t i = 0; i < PRELOAD_COUNT; i++) {
     load_slot(i);
-    chiaki_mutex_lock(&s_pre.mutex);
-    s_pre.slots[i].ready = true;
-    chiaki_cond_broadcast(&s_pre.cond);
-    chiaki_mutex_unlock(&s_pre.mutex);
+    publish(&s_pre.slots[i].ready);
+    if (i == 0) {
+      for (size_t f = 0; f < FONT_COUNT; f++) {
+        load_font(f);
+        publish(&s_pre.fonts[f].ready);
+      }
+    }
   }
 }
 
@@ -368,20 +405,20 @@ static size_t find_slot(const char *path) {
   return PRELOAD_COUNT;
 }
 
-/** True once the worker has published slot @index. */
-static bool slot_ready(size_t index) {
+/** True once the worker has set @ready (a slot's flag). */
+static bool is_ready(const bool *ready) {
   chiaki_mutex_lock(&s_pre.mutex);
-  const bool ready = s_pre.slots[index].ready;
+  const bool value = *ready;
   chiaki_mutex_unlock(&s_pre.mutex);
-  return ready;
+  return value;
 }
 
-/** Waits until slot @index is ready, giving the frame hook a turn every UI_PRELOAD_WAIT_MS. */
-static void wait_ready(size_t index) {
-  while (!slot_ready(index)) {
+/** Waits until @ready is set, giving the frame hook a turn every UI_PRELOAD_WAIT_MS. */
+static void wait_ready(const bool *ready) {
+  while (!is_ready(ready)) {
     ui_asset_preload_pump();
     chiaki_mutex_lock(&s_pre.mutex);
-    if (!s_pre.slots[index].ready)
+    if (!*ready)
       chiaki_cond_timedwait(&s_pre.cond, &s_pre.mutex, UI_PRELOAD_WAIT_MS);
     chiaki_mutex_unlock(&s_pre.mutex);
   }
@@ -404,7 +441,7 @@ bool ui_asset_preload_wait(const char *path, UiAssetPixels *out) {
   if (index == PRELOAD_COUNT)
     return false;
 
-  wait_ready(index);
+  wait_ready(&s_pre.slots[index].ready);
   Slot *slot = &s_pre.slots[index];
   log_failure(index);
   slot->uses_left--;
@@ -430,6 +467,41 @@ bool ui_asset_preload_wait(const char *path, UiAssetPixels *out) {
   *out = slot->px;
   slot->px = (UiAssetPixels){0};
   return true;
+}
+
+/** Logs a font slot's failure once. */
+static void log_font_failure(size_t index) {
+  FontSlot *font = &s_pre.fonts[index];
+  if (font->bytes || font->err_logged)
+    return;
+  font->err_logged = true;
+  LOGE("UI/PRELOAD failed to read font '%s': %s", FONT_PATHS[index], font->err);
+}
+
+bool ui_asset_preload_take_font(const char *path, uint8_t **bytes, unsigned int *size) {
+  *bytes = NULL;
+  *size = 0;
+  if (!s_pre.active)
+    return false;
+  for (size_t i = 0; i < FONT_COUNT; i++) {
+    if (strcmp(FONT_PATHS[i], path) != 0)
+      continue;
+    FontSlot *font = &s_pre.fonts[i];
+    if (font->claimed)
+      return false;
+    wait_ready(&font->ready);
+    font->claimed = true;
+    log_font_failure(i);
+    if (!font->bytes)
+      return false;
+    LOGD("PIPE/ASSET font path=%s read_us=%llu bytes=%u", path, (unsigned long long)font->read_us,
+         (unsigned int)font->size);
+    *bytes = font->bytes;
+    *size = (unsigned int)font->size;
+    font->bytes = NULL;
+    return true;
+  }
+  return false;
 }
 
 vita2d_texture *ui_asset_preload_upload(const UiAssetPixels *px, const char *path) {
@@ -473,6 +545,13 @@ void ui_asset_preload_finish(void) {
       LOGW("UI/PRELOAD '%s' was decoded but %d of %d loads never asked for it",
            PRELOAD_LIST[i].path, slot->uses_left, PRELOAD_LIST[i].uses);
     ui_asset_pixels_free(&slot->px);
+  }
+  for (size_t i = 0; i < FONT_COUNT; i++) {
+    FontSlot *font = &s_pre.fonts[i];
+    log_font_failure(i);
+    if (!font->claimed)
+      LOGW("UI/PRELOAD font '%s' was read but nobody asked for it", FONT_PATHS[i]);
+    free(font->bytes);
   }
   chiaki_cond_fini(&s_pre.cond);
   chiaki_mutex_fini(&s_pre.mutex);

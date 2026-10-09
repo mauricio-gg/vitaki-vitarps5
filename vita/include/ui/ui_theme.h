@@ -1033,3 +1033,9 @@ typedef enum ui_face_t {
 #define UI_PRELOAD_THREAD_PRIO_LOWEST 191
 #define UI_PRELOAD_WAIT_MS 8
 #define UI_PRELOAD_MAX_SIDE 4096
+
+/* Glyph baking during the splash: a frame bakes glyphs until this much time is spent (checked
+ * after each glyph, so a frame can overshoot by one glyph), then the splash frame is drawn and
+ * the next one resumes where this stopped. 8 ms is about half of a 16.7 ms display frame: it
+ * leaves room for the three splash draws and the swap, so the logo animation stays near 60 fps. */
+#define UI_PREWARM_FRAME_BUDGET_US 8000

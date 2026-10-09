@@ -28,6 +28,7 @@
 #include <sys/param.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
@@ -351,29 +352,30 @@ static void startup_note_presented(void) {
 
 /**
  * splash_frame() - Draw and present one splash frame.
- * @more_faces: NULL for a plain frame. Otherwise the next glyph face is baked inside this
- *              frame's scene (FreeType/GXM needs an active render pass, and only one scene may be
- *              open at a time) and *@more_faces is set to whether any face remains.
- * @face_index: Index of the face being baked, for the log line (ignored when @more_faces is NULL).
+ * @more_work: NULL for a plain frame. Otherwise glyphs are baked inside this frame's scene until
+ *             UI_PREWARM_FRAME_BUDGET_US is spent (FreeType/GXM needs an active render pass, and
+ *             only one scene may be open at a time) and *@more_work is set to whether any glyph
+ *             remains to bake.
  *
- * A frame is: poll skip, open the scene, clear, [bake a face], draw the splash (3 draws), close,
+ * A frame is: poll skip, open the scene, clear, [bake glyphs], draw the splash (3 draws), close,
  * swap. The draw counters start after the bake, so the glyph quads are not counted.
  */
-static void splash_frame(bool *more_faces, int face_index) {
+static void splash_frame(bool *more_work) {
   s_in_splash_frame = true;
   ui_splash_poll_skip();
   vita2d_start_drawing();
   vita2d_clear_screen();
-  if (more_faces) {
-    char name[24];
+  if (more_work) {
+    UiPrewarmReport report;
     const uint64_t t0 = sceKernelGetProcessTimeWide();
-    *more_faces = ui_text_prewarm_next_face() != 0;
-    const uint64_t bake_us = sceKernelGetProcessTimeWide() - t0;
-    snprintf(name, sizeof(name), "glyphs_%d", face_index);
-    LOGD("PIPE/SPLASH_STEP name=%s us=%llu", name, (unsigned long long)bake_us);
-    /* The gap bookkeeping keeps the pointer, so it takes a literal, not the local buffer. */
-    startup_note_step("glyphs", bake_us);
-    if (!*more_faces)
+    *more_work = ui_text_prewarm_step(UI_PREWARM_FRAME_BUDGET_US, &report) != 0;
+    /* The gap bookkeeping keeps the pointer, so it takes a literal. */
+    startup_note_step("glyphs", sceKernelGetProcessTimeWide() - t0);
+    if (report.face_done)
+      LOGD("PIPE/SPLASH_STEP name=glyphs_%d us=%llu frames=%d metrics_us=%llu first_glyph_us=%llu",
+           report.face, (unsigned long long)report.bake_us, report.frames,
+           (unsigned long long)report.metrics_us, (unsigned long long)report.first_glyph_us);
+    if (!*more_work)
       LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
   }
   UI_DRAW_STATS_FRAME_BEGIN();
@@ -397,7 +399,7 @@ static void startup_frame_hook(void) {
   if (s_in_splash_frame)
     return;
   if (sceKernelGetProcessTimeWide() - s_last_present_us >= UI_SPLASH_FRAME_INTERVAL_US)
-    splash_frame(NULL, 0);
+    splash_frame(NULL);
 }
 
 /** startup_run_step() - Run one step, log its duration, then draw a splash frame if one is due. */
@@ -408,13 +410,44 @@ static void startup_run_step(const StartupStep *step) {
   LOGD("PIPE/SPLASH_STEP name=%s us=%llu", step->name, (unsigned long long)duration_us);
   startup_note_step(step->name, duration_us);
   if (sceKernelGetProcessTimeWide() - s_last_present_us >= UI_SPLASH_FRAME_INTERVAL_US)
-    splash_frame(NULL, 0);
+    splash_frame(NULL);
 }
 
-/** step_fonts() - Load the two Roboto weights and hand them to the text module. */
+/**
+ * Roboto TTF bytes read by the preload worker. FreeType reads the font from this memory for as
+ * long as the font lives, which is the whole run (fonts are never freed), so it is never freed
+ * either. NULL when the font was opened from its file instead.
+ */
+static uint8_t *s_font_data_regular = NULL;
+static uint8_t *s_font_data_light = NULL;
+
+/**
+ * open_font() - Open a Roboto TTF, from the bytes the preload worker read when it has them.
+ * @path:     The TTF path (UI_ASSET_FONT_*_PATH).
+ * @data_out: Where the owned TTF bytes are kept (see s_font_data_regular).
+ *
+ * Opening from the file makes FreeType read app0: through many small reads during the first glyph
+ * lookups, on the main thread. If the worker's bytes are missing the font is opened from its file
+ * so text still draws, after a warning naming the path.
+ */
+static vita2d_font *open_font(const char *path, uint8_t **data_out) {
+  unsigned int size = 0;
+  if (ui_asset_preload_take_font(path, data_out, &size)) {
+    vita2d_font *font = vita2d_load_font_mem(*data_out, size);
+    if (font)
+      return font;
+    LOGE("UI/FONT could not open '%s' from memory", path);
+    free(*data_out);
+    *data_out = NULL;
+  }
+  LOGW("UI/FONT '%s' is not available from the preload, opening it from the file", path);
+  return vita2d_load_font_file(path);
+}
+
+/** step_fonts() - Open the two Roboto weights and hand them to the text module. */
 static void step_fonts(void) {
-  vita2d_font *font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
-  vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
+  vita2d_font *font = open_font(UI_ASSET_FONT_REGULAR_PATH, &s_font_data_regular);
+  vita2d_font *font_light = open_font(UI_ASSET_FONT_LIGHT_PATH, &s_font_data_light);
   ui_text_init(font, font_light);
 }
 
@@ -499,7 +532,8 @@ static const StartupStep STARTUP_STEPS[] = {
  * 3. Runs STARTUP_STEPS one after another on the main thread. Their PNG loads are served from the
  *    worker, and the splash draws a frame between textures (startup_frame_hook()) and after each
  *    step, only when one display frame interval has passed since the last.
- * 4. Joins the worker, bakes the glyph atlas one face per splash frame (it needs an open scene).
+ * 4. Joins the worker, bakes the glyph atlas a time budget per splash frame (it needs an open
+ * scene).
  * 5. Marks loading done and keeps drawing splash frames until the logo has assembled; the fade
  *    over Home is then drawn by the main loop in draw_ui().
  *
@@ -536,24 +570,25 @@ void init_ui() {
        (unsigned long long)(logo_upload_start_us - logo_wait_start_us),
        (unsigned long long)(logo_done_us - logo_upload_start_us),
        (unsigned long long)ui_splash_sample_us());
-  splash_frame(NULL, 0);
+  splash_frame(NULL);
   ui_asset_preload_set_frame_hook(startup_frame_hook);
 
   for (size_t i = 0; i < sizeof(STARTUP_STEPS) / sizeof(STARTUP_STEPS[0]); i++)
     startup_run_step(&STARTUP_STEPS[i]);
   ui_asset_preload_finish();
 
-  /* Each face is baked inside a splash frame, whatever the frame gate says. */
-  bool more_faces = ui_text_needs_prewarm() != 0;
-  for (int face = 0; more_faces; face++)
-    splash_frame(&more_faces, face);
+  /* Glyphs are baked inside splash frames, a time budget per frame, whatever the frame gate says.
+   */
+  bool more_work = ui_text_needs_prewarm() != 0;
+  while (more_work)
+    splash_frame(&more_work);
 
   s_load_done_us = sceKernelGetProcessTimeWide();
   vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
   vita2d_set_vblank_wait(true);
   ui_splash_loading_done();
   while (!ui_splash_ready_to_exit())
-    splash_frame(NULL, 0);
+    splash_frame(NULL);
   s_splash_block_pending = true;
 }
 

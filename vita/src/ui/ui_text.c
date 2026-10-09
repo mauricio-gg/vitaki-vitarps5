@@ -11,6 +11,7 @@
 
 #include <vita2d.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/processmgr.h>
 
 #include "ui/ui_text.h"
 #include "ui/ui_constants.h"
@@ -125,7 +126,16 @@ static FaceMetrics s_metrics[UI_FACE_COUNT];
 static vita2d_font *s_font_regular = NULL;
 static vita2d_font *s_font_light = NULL;
 static int s_prewarm_needed = 0;    /* armed to 1 only after a successful ui_text_init() */
-static int s_prewarm_next_face = 0; /* next face ui_text_prewarm_next_face() will bake */
+static int s_prewarm_next_face = 0; /* face ui_text_prewarm_step() is baking */
+
+/* Where the face being baked stands, so the next ui_text_prewarm_step() resumes there. */
+static const char *s_prewarm_pos = UI_FONT_PREWARM_CHARSET; /* next glyph of the charset */
+static bool s_prewarm_metrics_done = false;
+static bool s_prewarm_first_glyph_done = false;
+static int s_prewarm_face_frames = 0;
+static uint64_t s_prewarm_face_us = 0;
+static uint64_t s_prewarm_metrics_us = 0;
+static uint64_t s_prewarm_first_glyph_us = 0;
 
 /* ============================================================================
  * Internal Helpers
@@ -242,6 +252,17 @@ static int utf8_extract(const char **pp, char *out_buf) {
   return seq_len;
 }
 
+/** reset_face_progress() - Point the prewarm at the start of the current face's charset. */
+static void reset_face_progress(void) {
+  s_prewarm_pos = UI_FONT_PREWARM_CHARSET;
+  s_prewarm_metrics_done = false;
+  s_prewarm_first_glyph_done = false;
+  s_prewarm_face_frames = 0;
+  s_prewarm_face_us = 0;
+  s_prewarm_metrics_us = 0;
+  s_prewarm_first_glyph_us = 0;
+}
+
 /* ============================================================================
  * Public API
  * ============================================================================ */
@@ -253,10 +274,10 @@ static int utf8_extract(const char **pp, char *out_buf) {
  * @light:   Light-weight font for the T20/T28/T40 faces.  If NULL the faces fall
  *           back to the regular font so the UI stays usable.
  *
- * Must be called after fonts are loaded and before ui_text_prewarm_next_face().
+ * Must be called after fonts are loaded and before ui_text_prewarm_step().
  * This function does NOT compute metrics — that is intentionally deferred to
- * ui_text_prewarm_next_face() because some FreeType/GXM paths require an active render
- * pass, which is guaranteed by the caller wrapping ui_text_prewarm_next_face() in
+ * ui_text_prewarm_step() because some FreeType/GXM paths require an active render
+ * pass, which is guaranteed by the caller wrapping ui_text_prewarm_step() in
  * vita2d_start_drawing / vita2d_end_drawing.
  *
  * Both pointers are borrowed — ownership remains with the caller.
@@ -265,6 +286,7 @@ void ui_text_init(vita2d_font *regular, vita2d_font *light) {
   s_font_regular = regular;
   s_font_light = light;
   s_prewarm_next_face = 0;
+  reset_face_progress();
 
   if (!light)
     sceClibPrintf("[WARN] ui_text_init: Light font missing — T20/T28/T40 fall back to Regular\n");
@@ -306,59 +328,75 @@ static vita2d_font *face_font(UiFace face, const char *caller) {
 }
 
 /**
- * prewarm_one_face() - Bake all charset glyphs for one face.
- * @f:       Font that draws the face.
- * @pt_size: Point size of the face.
- *
- * Walks UI_FONT_PREWARM_CHARSET via utf8_extract(), issuing a
- * vita2d_font_draw_text call per glyph at fully transparent, off-screen
- * coordinates.  This forces FreeType rasterization and GXM atlas upload
- * without producing any visible output.
- */
-static void prewarm_one_face(vita2d_font *f, int pt_size) {
-  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
-  const char *p = UI_FONT_PREWARM_CHARSET;
-  int extracted;
-
-  while ((extracted = utf8_extract(&p, glyph_buf)) != 0) {
-    if (extracted < 0)
-      continue;
-
-    vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
-                          UI_FONT_PREWARM_COLOR, (unsigned int)pt_size, glyph_buf);
-  }
-}
-
-/**
- * ui_text_prewarm_next_face() - Rasterize the glyphs of the next face into the atlas.
+ * ui_text_prewarm_step() - Bake glyphs of the current face until @budget_us is spent.
+ * @budget_us: Time this call may spend, checked after each glyph (and after the face's metrics).
+ * @report:    Filled in; face_done is set only when this call finished a face.
  *
  * Must be called from within an active vita2d_start_drawing() /
- * vita2d_end_drawing() pair on the render thread.  Draws each character
+ * vita2d_end_drawing() pair on the render thread.  Draws each charset character
  * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
  * FreeType rasterization and GPU atlas upload without visible output.
  *
  * The face is baked in the font that draws it, so only the sizes the UI
  * actually uses occupy atlas memory.  Its metrics (ascent, line-height) are
- * measured here rather than in ui_text_init() because some FreeType/GXM code
- * paths rasterize internally and require an active render pass.  Metrics come
+ * measured here, once, before its first glyph, rather than in ui_text_init() because some
+ * FreeType/GXM code paths rasterize internally and require an active render pass.  Metrics come
  * from s_font_regular only: Roboto Regular and Roboto Light share the same UPM
  * and ascender, so a single canonical measurement per face is sufficient.
  *
  * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
- * UTF-8 decoder sees the full codepoint.
+ * UTF-8 decoder sees the full codepoint.  The glyphs, their order and the atlas that results are
+ * the same whatever the budget; it only decides where a face is split across calls.  A call
+ * always makes progress: the metrics are measured once, and every later call bakes at least one
+ * glyph, so the face finishes however small the budget.
  *
- * Returns 1 if more faces remain to be baked, 0 when this was the last one (or
- * nothing is armed).
+ * Returns 1 if more work remains, 0 when the last face is finished (or nothing is armed).
  */
-int ui_text_prewarm_next_face(void) {
+int ui_text_prewarm_step(uint64_t budget_us, UiPrewarmReport *report) {
+  *report = (UiPrewarmReport){0};
   if (!s_prewarm_needed)
     return 0;
 
-  UiFace face = (UiFace)s_prewarm_next_face;
-  compute_metrics_for_face(s_font_regular, face);
-  prewarm_one_face(face_font(face, "ui_text_prewarm_next_face"), UI_FACE_TABLE[face].pt_size);
+  const uint64_t t0 = sceKernelGetProcessTimeWide();
+  const UiFace face = (UiFace)s_prewarm_next_face;
+  vita2d_font *f = face_font(face, "ui_text_prewarm_step");
+
+  if (!s_prewarm_metrics_done) {
+    compute_metrics_for_face(s_font_regular, face);
+    s_prewarm_metrics_done = true;
+    s_prewarm_metrics_us = sceKernelGetProcessTimeWide() - t0;
+  }
+
+  char glyph_buf[UI_FONT_UTF8_SEQ_BUFFER_BYTES];
+  uint64_t now = sceKernelGetProcessTimeWide();
+  while (*s_prewarm_pos != '\0' && now - t0 < budget_us) {
+    if (utf8_extract(&s_prewarm_pos, glyph_buf) < 0)
+      continue;
+    vita2d_font_draw_text(f, UI_FONT_PREWARM_OFFSCREEN_X, UI_FONT_PREWARM_OFFSCREEN_Y,
+                          UI_FONT_PREWARM_COLOR, (unsigned int)UI_FACE_TABLE[face].pt_size,
+                          glyph_buf);
+    const uint64_t after = sceKernelGetProcessTimeWide();
+    if (!s_prewarm_first_glyph_done) {
+      s_prewarm_first_glyph_done = true;
+      s_prewarm_first_glyph_us = after - now;
+    }
+    now = after;
+  }
+  s_prewarm_face_us += now - t0;
+  s_prewarm_face_frames++;
+
+  if (*s_prewarm_pos != '\0')
+    return 1;
+
+  report->face_done = true;
+  report->face = s_prewarm_next_face;
+  report->bake_us = s_prewarm_face_us;
+  report->frames = s_prewarm_face_frames;
+  report->metrics_us = s_prewarm_metrics_us;
+  report->first_glyph_us = s_prewarm_first_glyph_us;
 
   s_prewarm_next_face++;
+  reset_face_progress();
   if (s_prewarm_next_face >= UI_FACE_COUNT) {
     s_prewarm_needed = 0;
     return 0;

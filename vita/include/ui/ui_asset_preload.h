@@ -24,6 +24,10 @@
 /** The splash logo: first in the preload list, and the one image init_ui() takes itself. */
 #define UI_ASSET_LOGO_PATH "app0:/assets/Vita_RPS5_Logo.png"
 
+/** The two Roboto TTFs. The worker reads them whole (no decode) for vita2d_load_font_mem(). */
+#define UI_ASSET_FONT_REGULAR_PATH "app0:/assets/fonts/Roboto-Regular.ttf"
+#define UI_ASSET_FONT_LIGHT_PATH "app0:/assets/fonts/Roboto-Light.ttf"
+
 /** A decoded image: RGBA, 4 bytes per pixel in the order R, G, B, A, rows packed. */
 typedef struct {
   uint8_t *rgba; /**< Owned by the holder; free with ui_asset_pixels_free(). NULL if empty. */
@@ -75,6 +79,21 @@ void ui_asset_preload_pump(void);
  *         left empty and nothing was logged)
  */
 bool ui_asset_preload_wait(const char *path, UiAssetPixels *out);
+
+/**
+ * ui_asset_preload_take_font() - Take the bytes of a font file the worker read, waiting if needed.
+ * @path:  UI_ASSET_FONT_REGULAR_PATH or UI_ASSET_FONT_LIGHT_PATH.
+ * @bytes: Receives the malloc'd file contents; ownership passes to the caller, who must keep them
+ *         for as long as a font opened from them lives (FreeType reads them on demand).
+ * @size:  Receives the byte count.
+ *
+ * Pumps the frame hook while it waits. Logs the PIPE/ASSET line, or the failure with its path.
+ *
+ * @return true with @bytes set; false (@bytes NULL) when the preload is not running, the path is
+ *         not a listed font, it was already taken, or the read failed. The caller then falls back
+ *         to opening the file directly.
+ */
+bool ui_asset_preload_take_font(const char *path, uint8_t **bytes, unsigned int *size);
 
 /**
  * ui_asset_preload_upload() - Create the vita2d texture for decoded pixels (main thread).
