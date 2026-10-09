@@ -105,7 +105,6 @@ typedef enum ui_button_t {
   UI_BTN_OPTIONS = 1u << 2, /**< Triangle */
   UI_BTN_CLEAR = 1u << 3,   /**< Square */
   UI_BTN_FILTER = 1u << 4,  /**< Start */
-  UI_BTN_BROWSER = 1u << 5, /**< Select */
   UI_BTN_L = 1u << 6,
   UI_BTN_R = 1u << 7,
   UI_BTN_UP = 1u << 8,

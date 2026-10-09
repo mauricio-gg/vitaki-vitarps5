@@ -364,7 +364,6 @@ if(CHIAKI_IS_VITA)
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
-        FILE assets/glyphs/hint_select.png assets/glyphs/hint_select.png
         # Logos
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
