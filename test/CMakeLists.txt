@@ -157,6 +157,19 @@ target_include_directories(ui_console_rows_tests PRIVATE
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
 
+# ui_controller_rules_tests.c checks the pure Controller page rule (the common output of a set of
+# inputs, or Mixed). Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_controller_rules_tests
+    ui_controller_rules_tests.c
+    ../vita/src/ui/ui_controller_rules.c
+)
+
+target_include_directories(ui_controller_rules_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_controller_rules_tests COMMAND ui_controller_rules_tests)
+
 # ui_downsample_tests.c checks the pure 2 x 2 pixel averaging behind the popup background freeze.
 # Standalone binary with its own main(); run natively (see the file header).
 add_executable(ui_downsample_tests
