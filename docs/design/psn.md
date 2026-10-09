@@ -90,7 +90,7 @@ Sony ties the OAuth tokens to a client device id, the `duid`. Tokens minted with
 - Injection: `tools/build.sh:135-140` passes them to CMake; `vita/CMakeLists.txt:120-127` fails the build if they are missing; `psn_auth.c:32-37` is an `#error` without them. A user can override them from config keys (`psn_oauth_client_id` / `_secret`, `config.c:35`), but the build defaults are what ships.
 - `.gitleaks.toml` allowlists them so secret scanning does not flag the files.
 - If Sony ever rotates them, copy the new values from [chiaki-ng](https://github.com/streetpea/chiaki-ng) into both env files.
-- Tokens and authorization codes are different: they are user secrets and are redacted in logs (PR #106).
+- Tokens and authorization codes are different: they are user secrets, and the logs must never hold a usable one (#361). The rule: a credential keeps its first 4 characters and the rest becomes `***`. It covers Authorization header values (the scheme word, Bearer or Basic, stays), `access_token`, `refresh_token`, `id_token`, `code` and `client_secret` in JSON bodies and in form or query strings, and the console pairing keys (`RP-Key` and any `*RegistKey` header). `chiaki_redact_secrets()` in `lib/src/redact.c` does it. The places that dump raw network text call it: the PSN WebSocket curl trace (`ws_curl_debug_cb` in `holepunch.c`), the pairing response in `regist.c` (logged as redacted text, no longer as a hexdump) and the OAuth curl trace in `psn_auth.c` (debug builds only). A new log line that prints raw HTTP text must go through the same helper.
 
 ### 3. The CA bundle must hold every certificate in Sony's chains, including intermediates
 

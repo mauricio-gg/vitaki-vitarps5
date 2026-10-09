@@ -64,6 +64,7 @@
 #include <chiaki/random.h>
 #include <chiaki/sock.h>
 #include <chiaki/time.h>
+#include <chiaki/redact.h>
 
 #include "../utils.h"
 #include "stun.h"
@@ -521,6 +522,13 @@ static void dequeueNq(NotificationQueue *nq);
 static void enqueueNq(NotificationQueue *nq, Notification *notif);
 static Notification* newNotification(NotificationType type, json_object *json, char* json_buf, size_t json_buf_size);
 static void remove_substring(char *str, char *substring);
+/** Size of the stack buffer that holds a redacted copy of one curl debug chunk (a full header block). */
+#define WS_CURL_DEBUG_REDACT_BUF_SIZE 2048
+
+/*
+ * Curl debug callback for the PSN websocket. Everything it logs as text goes through
+ * chiaki_redact_secrets() first: the header block carries the Authorization bearer token.
+ */
 static int ws_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
                             size_t size, void *userptr);
 
@@ -2225,25 +2233,31 @@ static int ws_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
     const char *url = NULL;
     const char retry_min_header[] = "X-PSN-RETRY-INTERVAL-MIN:";
     const char retry_max_header[] = "X-PSN-RETRY-INTERVAL-MAX:";
+    char redacted[WS_CURL_DEBUG_REDACT_BUF_SIZE];
+    size_t redacted_len = 0;
     (void)handle;
     if(session && session->ws_fqdn)
         url = session->ws_fqdn;
     else
         url = "<unknown>";
 
+    if(type == CURLINFO_TEXT || type == CURLINFO_HEADER_OUT || type == CURLINFO_HEADER_IN ||
+       (type == CURLINFO_DATA_IN && size > 0 && size <= 1024))
+        redacted_len = chiaki_redact_secrets(data, size, redacted, sizeof(redacted));
+
     switch(type)
     {
         case CURLINFO_TEXT:
             CHIAKI_LOGV(session->log, "websocket_thread_func: curl info host=%s text=%.*s",
-                        url, (int)size, data);
+                        url, (int)redacted_len, redacted);
             break;
         case CURLINFO_HEADER_OUT:
             CHIAKI_LOGV(session->log, "websocket_thread_func: curl header_out host=%s data=%.*s",
-                        url, (int)size, data);
+                        url, (int)redacted_len, redacted);
             break;
         case CURLINFO_HEADER_IN:
             CHIAKI_LOGV(session->log, "websocket_thread_func: curl header_in host=%s data=%.*s",
-                        url, (int)size, data);
+                        url, (int)redacted_len, redacted);
             if (size > strlen(retry_min_header) &&
                 !strncasecmp(data, retry_min_header, strlen(retry_min_header))) {
                 session->ws_retry_interval_min = strtol(data + strlen(retry_min_header), NULL, 10);
@@ -2259,7 +2273,7 @@ static int ws_curl_debug_cb(CURL *handle, curl_infotype type, char *data,
         case CURLINFO_DATA_IN:
             if(size > 0 && size <= 1024)
                 CHIAKI_LOGV(session->log, "websocket_thread_func: curl data_in host=%s data=%.*s",
-                            url, (int)size, data);
+                            url, (int)redacted_len, redacted);
             else
                 CHIAKI_LOGV(session->log, "websocket_thread_func: curl data_in host=%s size=%u",
                             url, (unsigned)size);
