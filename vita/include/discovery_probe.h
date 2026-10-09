@@ -73,8 +73,10 @@ void discovery_probe_free_host(VitaChiakiHost *host);
  * Call after a registration through the probe path succeeded: saves the typed address as a
  * manual host with save_manual_host(), so a console that broadcast cannot see appears on Home.
  * Used for new pairs and re-pairs alike (a duplicate address for the same console is skipped
- * by save_manual_host()). When broadcast discovery already lists the console, that entry gets
- * the new credentials too, so it shows as paired at once.
+ * by save_manual_host()). The new credentials also go to the broadcast-discovered entry of the
+ * console (so it shows as paired at once) and to every saved manual host of it (so a re-pair
+ * leaves none with the old credentials). The registered-table entry a re-pair replaces is left
+ * alone, never freed.
  *
  * @param host  The host from discovery_probe_take_host(), now registered.
  * @return the context.hosts entry that now stands for the console, for Home to focus; NULL when

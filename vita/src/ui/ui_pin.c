@@ -52,8 +52,6 @@ static PinPhase s_phase = PIN_PHASE_ENTRY;
 static VitaChiakiHost *s_host = NULL;
 /** The host from the IP probe this screen owns (see ui_pin_adopt_probed_host()), or NULL. */
 static VitaChiakiHost *s_probed = NULL;
-/** Probed re-pair: the registered-table entry the new registration will replace, or NULL. */
-static VitaChiakiHost *s_replaced = NULL;
 /** The result the open popup shows (a paired console goes to Home, a failure offers Try again). */
 static HostRegistrationResult s_result = HOST_REGISTRATION_FAILED;
 
@@ -76,16 +74,6 @@ void ui_pin_init(void) {
 
 void ui_pin_adopt_probed_host(VitaChiakiHost *host) {
   s_probed = host;
-  s_replaced = NULL;
-  if (!host || !(host->type & REGISTERED))
-    return;
-  for (int i = 0; i < context.config.num_registered_hosts; i++) {
-    VitaChiakiHost *entry = context.config.registered_hosts[i];
-    if (entry && mac_addrs_match(&(entry->server_mac), &(host->server_mac))) {
-      s_replaced = entry;
-      return;
-    }
-  }
 }
 
 /**
@@ -95,22 +83,17 @@ void ui_pin_adopt_probed_host(VitaChiakiHost *host) {
 static void release_probed_host(void) {
   discovery_probe_free_host(s_probed);
   s_probed = NULL;
-  s_replaced = NULL;
 }
 
 /**
  * finish_probed_pair() - A probed console is paired: the registered table owns it now. Save the
- * address as a manual host, and let go of the credentials of the entry it replaced (a re-pair).
+ * address as a manual host and give the credentials to the console's other live entries.
  *
  * @return the console to focus on Home
  */
 static const VitaChiakiHost *finish_probed_pair(void) {
   VitaChiakiHost *host = s_probed;
-  VitaChiakiHost *replaced = s_replaced;
   s_probed = NULL;
-  s_replaced = NULL;
-  if (replaced && replaced != host && !host_in_active_use(replaced))
-    host_free(replaced);
   const VitaChiakiHost *listed = discovery_probe_save_manual_host(host);
   return listed ? listed : host;
 }

@@ -331,29 +331,41 @@ void discovery_probe_free_host(VitaChiakiHost *host) {
   free(host);
 }
 
-/* Gives the discovered entry of the same console (if broadcast discovery already lists it) the
- * credentials of the new registration, as discovery.c does on its next reply, so Home lists the
- * console as paired at once. Returns that entry, or NULL. */
-static VitaChiakiHost *sync_discovered_entry(VitaChiakiHost *host) {
-  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
-    VitaChiakiHost *entry = context.hosts[i];
-    if (!entry || !(entry->type & DISCOVERED) || entry == host ||
-        !mac_addrs_match(&(entry->server_mac), &(host->server_mac)))
-      continue;
-    ChiakiRegisteredHost *state = calloc(1, sizeof(*state));
-    if (!state || !host->registered_state) {
-      CHIAKI_LOGE(&(context.log), "Discovery probe: could not copy credentials to %s",
-                  entry->hostname);
-      free(state);
-      return entry;
-    }
-    copy_host_registered_state(state, host->registered_state);
-    free(entry->registered_state);
-    entry->registered_state = state;
-    entry->type |= REGISTERED;
-    return entry;
+/* Replaces the credentials of @entry with a copy of @host's. Returns false (logged) when the copy
+ * could not be made; @entry is then left as it was. */
+static bool give_credentials(VitaChiakiHost *entry, const VitaChiakiHost *host) {
+  ChiakiRegisteredHost *state = calloc(1, sizeof(*state));
+  if (!state || !host->registered_state) {
+    CHIAKI_LOGE(&(context.log), "Discovery probe: could not copy credentials to %s",
+                entry->hostname);
+    free(state);
+    return false;
   }
-  return NULL;
+  copy_host_registered_state(state, host->registered_state);
+  free(entry->registered_state);
+  entry->registered_state = state;
+  entry->type |= REGISTERED;
+  return true;
+}
+
+/* Gives the new credentials to every live entry of the same console, as discovery.c does for the
+ * discovered one on its next reply: the discovered entry in context.hosts (so Home lists it as
+ * paired at once) and every saved manual host (so none keeps the old credentials of a re-pair).
+ * Returns the discovered entry, or NULL. The old registered-table entry, if any, is left alone. */
+static VitaChiakiHost *sync_credentials(VitaChiakiHost *host) {
+  VitaChiakiHost *discovered = NULL;
+  for (int i = 0; i < MAX_CONTEXT_HOSTS && !discovered; i++) {
+    VitaChiakiHost *entry = context.hosts[i];
+    if (entry && entry != host && (entry->type & DISCOVERED) &&
+        mac_addrs_match(&(entry->server_mac), &(host->server_mac)) && give_credentials(entry, host))
+      discovered = entry;
+  }
+  for (int i = 0; i < context.config.num_manual_hosts; i++) {
+    VitaChiakiHost *manual = context.config.manual_hosts[i];
+    if (manual && manual != host && mac_addrs_match(&(manual->server_mac), &(host->server_mac)))
+      give_credentials(manual, host);
+  }
+  return discovered;
 }
 
 VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host) {
@@ -362,7 +374,7 @@ VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host) {
     return NULL;
   }
   save_manual_host(host, host->hostname);
-  VitaChiakiHost *entry = sync_discovered_entry(host);
+  VitaChiakiHost *entry = sync_credentials(host);
   if (entry)
     return entry;
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
