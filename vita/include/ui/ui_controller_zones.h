@@ -40,6 +40,10 @@ void ui_controller_zones_sync(UiCtrlZoneView view);
 /** ui_controller_zones_draw() - Draw the grid of @view. Nothing when it could not be created. */
 void ui_controller_zones_draw(UiCtrlZoneView view);
 
+/** ui_controller_zones_set_cursor_visible() - Show or hide the cursor cell of @view while focus is
+ * on something else; the cursor keeps its position and picked and mapped cells draw as usual. */
+void ui_controller_zones_set_cursor_visible(UiCtrlZoneView view, bool visible);
+
 /**
  * ui_controller_zones_input() - Forward this frame's input to the grid of @view (see
  * ui_zone_grid_input()). UI_EVENT_ACTIVATED means "assign the selection"; the page must not act

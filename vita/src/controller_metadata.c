@@ -6,21 +6,6 @@ const ControllerPresetDef g_controller_presets[CTRL_PRESET_COUNT] = {
     {"Custom 2", "Your second custom mapping", VITAKI_CONTROLLER_MAP_CUSTOM_2},
     {"Custom 3", "Your third custom mapping", VITAKI_CONTROLLER_MAP_CUSTOM_3}};
 
-const char *controller_output_symbol(VitakiCtrlOut button) {
-  switch (button) {
-    case VITAKI_CTRL_OUT_TRIANGLE:
-      return "△";
-    case VITAKI_CTRL_OUT_CIRCLE:
-      return "○";
-    case VITAKI_CTRL_OUT_CROSS:
-      return "✕";
-    case VITAKI_CTRL_OUT_SQUARE:
-      return "□";
-    default:
-      return controller_output_name(button);
-  }
-}
-
 const char *controller_output_name(VitakiCtrlOut button) {
   switch (button) {
     case VITAKI_CTRL_OUT_TRIANGLE:

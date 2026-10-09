@@ -622,6 +622,7 @@ static void draw_zone_view(void) {
   const UiCtrlZoneView view = zone_view();
   draw_diagram(s_page == PAGE_BUTTONS ? CTRL_VIEW_FRONT : CTRL_VIEW_BACK,
                ui_controller_zones_diagram_rect(view));
+  ui_controller_zones_set_cursor_visible(view, s_footer_focus == FOOT_NONE);
   ui_controller_zones_draw(view);
   draw_left_footer(s_zone_foot);
 }
@@ -634,7 +635,8 @@ static const char *page_title(void) {
 }
 
 /** Draw the page behind the popup layer: frame, top bar, back chevron, the view and the footer
- * buttons (Clear on a Summary page; Whole surface and Clear in a zone view, 4 draws each). */
+ * buttons (Clear on a Summary page; Whole surface and Clear in a zone view, 4 draws each, 8 when
+ * focused). */
 static void draw_page(void) {
   apply_footer_focus();
   ui_page_frame_draw(UI_PAGE_ICON_CONTROLLER, page_title());

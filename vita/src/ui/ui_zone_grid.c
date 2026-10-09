@@ -190,7 +190,7 @@ void ui_zone_grid_draw(const UiZoneGrid *grid) {
 
   for (int i = 0; i < UI_ZONE_COUNT; i++) {
     const bool picked = !grid->read_only && grid->selection.picked[i];
-    const bool cursor = !grid->read_only && i == grid->cursor;
+    const bool cursor = !grid->read_only && !grid->cursor_hidden && i == grid->cursor;
     vita2d_texture *state = picked            ? grid->tex_picked
                             : cursor          ? grid->tex_cursor
                             : grid->mapped[i] ? grid->tex_mapped
