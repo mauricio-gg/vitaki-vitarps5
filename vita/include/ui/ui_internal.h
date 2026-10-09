@@ -195,12 +195,7 @@ void ui_clear_waking_wait(void);
 
 // Components (ui_components.c)
 // Legacy compatibility wrappers - internal use only
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected);
-void draw_status_dot(int x, int y, int radius, int status);
-void draw_section_header(int x, int y, int width, const char *title);
 void open_debug_menu(void);
-void close_debug_menu(void);
 void render_debug_menu(void);
 void handle_debug_menu_input(void);
 

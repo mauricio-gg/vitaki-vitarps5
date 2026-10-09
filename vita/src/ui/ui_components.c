@@ -1,12 +1,6 @@
 /**
  * @file ui_components.c
- * @brief Reusable UI widgets and dialogs implementation for VitaRPS5
- *
- * This module implements high-level UI components used throughout the
- * VitaRPS5 interface. All components follow the PlayStation design language
- * with smooth animations and consistent styling.
- *
- * Extracted from ui.c during Phase 4 of UI refactoring.
+ * @brief Debug menu implementation for VitaRPS5 (VITARPS5_DEBUG_MENU builds)
  */
 
 #include <stdio.h>
@@ -42,108 +36,6 @@ const char *debug_menu_options[] = {
     "Trigger network unstable badge",
     "Spawn fake consoles (x12)",
 };
-
-// ============================================================================
-// Widget Drawing Functions
-// ============================================================================
-
-/**
- * Draw a tabbed navigation bar with color-coded sections
- */
-void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                     int num_tabs, int selected) {
-  int tab_width = width / num_tabs;
-
-  for (int i = 0; i < num_tabs; i++) {
-    int tab_x = x + (i * tab_width);
-
-    // Tab background - flat color, no dimming
-    ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
-
-    // Tab text (centered horizontally and vertically in the tab box).
-    int text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
-    int text_x = tab_x + (tab_width - text_width) / 2;
-
-    // Vertically centered in the tab height box; _centered_v eliminates the +6 magic offset.
-    ui_text_draw_centered_v(font, text_x, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                            tabs[i]);
-
-    // Selection indicator (bottom bar) - only visual difference
-    if (i == selected) {
-      vita2d_draw_rectangle(tab_x + 2, y + height - 3, tab_width - 8, 3, UI_COLOR_PRIMARY_BLUE);
-    }
-  }
-}
-
-/**
- * Draw a colored status indicator dot
- */
-void ui_draw_status_dot(int x, int y, int radius, UIStatusType status) {
-  uint32_t color;
-  switch (status) {
-    case UI_STATUS_ACTIVE:
-      color = RGBA8(0x2D, 0x8A, 0x3E, 255);  // Green
-      break;
-    case UI_STATUS_STANDBY:
-      color = RGBA8(0xD9, 0x77, 0x06, 255);  // Orange/Yellow
-      break;
-    case UI_STATUS_ERROR:
-      color = RGBA8(0xDC, 0x26, 0x26, 255);  // Red
-      break;
-    default:
-      color = RGBA8(0x80, 0x80, 0x80, 255);  // Gray
-  }
-
-  ui_draw_circle(x, y, radius, color);
-}
-
-/**
- * Draw a styled section header with title and accent line
- */
-void ui_draw_section_header(int x, int y, int width, const char *title) {
-  // Subtle gradient background bar
-  int header_h = 40;
-  ui_draw_rounded_rect(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
-
-  // Bottom accent line (PlayStation Blue)
-  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title text (centered vertically in header).
-  ui_text_draw_centered_v(font, x + 15, y, header_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-                          title);
-}
-
-/**
- * Draw a rounded rectangular text button with selected/disabled states.
- *
- * Background colors mirror the ad-hoc "Add New" button in ui_screens.c:
- *   enabled+selected  → UI_COLOR_PRIMARY_BLUE
- *   enabled+unselected → RGBA8(0x50,0x70,0xA0,255)
- *   disabled          → RGBA8(0x40,0x44,0x4A,255)
- */
-void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
-                         bool enabled) {
-  uint32_t bg_color;
-  uint32_t text_color;
-
-  if (!enabled) {
-    bg_color = RGBA8(0x40, 0x44, 0x4A, 255);
-    text_color = UI_COLOR_TEXT_TERTIARY;
-  } else if (selected) {
-    bg_color = UI_COLOR_PRIMARY_BLUE;
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  } else {
-    bg_color = RGBA8(0x50, 0x70, 0xA0, 255);
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  }
-
-  ui_draw_rounded_rect(x, y, w, h, 6, bg_color);
-
-  // Label centered horizontally and vertically in the button box.
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
-  int text_x = x + (w - text_w) / 2;
-  ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
 
 // ============================================================================
 // Debug Menu (VITARPS5_DEBUG_MENU must be enabled)
@@ -470,39 +362,12 @@ void ui_debug_handle_input(void) {
   }
 }
 
-/**
- * Check if debug menu is currently active
- */
-bool ui_debug_is_active(void) {
-  return context.ui_state.debug_menu_active;
-}
-
 // ============================================================================
 // Legacy Compatibility Wrappers (for ui.c internal use)
 // ============================================================================
 
-// These static wrappers maintain backwards compatibility with existing ui.c code
-// Once ui.c is fully refactored, these can be removed
-
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected) {
-  ui_draw_tab_bar(x, y, width, height, tabs, colors, num_tabs, selected);
-}
-
-void draw_status_dot(int x, int y, int radius, int status) {
-  ui_draw_status_dot(x, y, radius, (UIStatusType)status);
-}
-
-void draw_section_header(int x, int y, int width, const char *title) {
-  ui_draw_section_header(x, y, width, title);
-}
-
 void open_debug_menu(void) {
   ui_debug_open();
-}
-
-void close_debug_menu(void) {
-  ui_debug_close();
 }
 
 void render_debug_menu(void) {
