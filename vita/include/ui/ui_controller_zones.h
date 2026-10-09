@@ -3,7 +3,7 @@
  * @brief The Controller page's four zone grids (SPEC.md C20 and C21)
  *
  * One C21 ZoneGrid per view: the read-only rear grid of Summary page 2, the read-only front grid
- * of Summary page 1 (mapped blocks only, no cell labels, to stay inside the draw budget), and the
+ * of Summary page 1, and the
  * interactive front and rear grids of the zone views. Each grid is created the first time its view
  * is shown and then kept (creating or freeing one waits for the GPU). The cell labels and mapped
  * flags come from the model and are rewritten only for the cells whose output changed since the
