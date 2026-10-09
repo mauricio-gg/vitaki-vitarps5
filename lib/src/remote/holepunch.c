@@ -509,22 +509,38 @@ static ChiakiErrorCode check_candidates(
     Session *session, Candidate *local_candidates, Candidate *candidates_received, size_t num_candidates, chiaki_socket_t *out,
     Candidate *out_candidate);
 
-/** Size of the stack buffer that holds a redacted copy of a session message JSON for logging. */
-#define SESSION_MESSAGE_LOG_REDACT_BUF_SIZE 4096
+/** Size of the stack buffer that holds a redacted copy of a JSON or HTTP body for logging. */
+#define LOG_REDACT_BUF_SIZE 4096
 
 /**
- * Log a session message JSON with its credentials (the stream key "skey") shortened.
+ * Log text that may hold credentials (the stream key "skey", tokens) with them shortened. Output
+ * longer than LOG_REDACT_BUF_SIZE is cut, never passed on unredacted.
  *
  * @param log Log to write to
  * @param level Level of the log line
- * @param json Message to dump
+ * @param prefix Label logged in front of the text, "" for none
+ * @param text Text to dump, need not be NUL-terminated
+ * @param len Length of text in bytes
  */
-static void log_session_message_redacted(ChiakiLog *log, ChiakiLogLevel level, json_object *json)
+static void log_text_redacted(ChiakiLog *log, ChiakiLogLevel level, const char *prefix, const char *text, size_t len)
+{
+    char redacted[LOG_REDACT_BUF_SIZE];
+    chiaki_redact_secrets(text, len, redacted, sizeof(redacted));
+    chiaki_log(log, level, "%s%s", prefix, redacted);
+}
+
+/**
+ * Log a JSON object, pretty-printed, with its credentials shortened.
+ *
+ * @param log Log to write to
+ * @param level Level of the log line
+ * @param prefix Label logged in front of the JSON, "" for none
+ * @param json JSON to dump
+ */
+static void log_json_redacted(ChiakiLog *log, ChiakiLogLevel level, const char *prefix, json_object *json)
 {
     const char *json_str = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
-    char redacted[SESSION_MESSAGE_LOG_REDACT_BUF_SIZE];
-    chiaki_redact_secrets(json_str, strlen(json_str), redacted, sizeof(redacted));
-    chiaki_log(log, level, "%s", redacted);
+    log_text_redacted(log, level, prefix, json_str, strlen(json_str));
 }
 
 static json_object* session_message_get_payload(ChiakiLog *log, json_object *session_message);
@@ -634,7 +650,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Fetching device list from %s failed with HTTP code %ld", url, http_code);
-            CHIAKI_LOGV(log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Fetching device list from %s failed with CURL error %d", url, res);
@@ -678,8 +694,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
         goto cleanup_json;
     }
     CHIAKI_LOGV(log, console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5 ? "PS5 devices: ": "PS4 devices: ");
-    const char *json_str = json_object_to_json_string_ext(clients, JSON_C_TO_STRING_PRETTY);
-        CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: retrieved devices \n%s", json_str);
+    log_json_redacted(log, CHIAKI_LOG_VERBOSE, "chiaki_holepunch_list_devices: retrieved devices \n", clients);
     size_t num_clients = json_object_array_length(clients);
     *devices = calloc(num_clients, sizeof(ChiakiHolepunchDeviceInfo));
     if(!(*devices))
@@ -1107,8 +1122,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
             if (!online_id_json || !json_object_is_type(online_id_json, json_type_string))
             {
                 CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create: JSON does not contain member with online Id of user");
-                const char *json_str = json_object_to_json_string_ext(notif->json, JSON_C_TO_STRING_PRETTY);
-                CHIAKI_LOGV(session->log, "chiaki_holepunch_session_create: JSON was:\n%s", json_str);
+                log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "chiaki_holepunch_session_create: JSON was:\n", notif->json);
                 err = CHIAKI_ERR_UNKNOWN;
                 break;
             }
@@ -1247,8 +1261,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
             if (!member_duid_json || !json_object_is_type(member_duid_json, json_type_string))
             {
                 CHIAKI_LOGE(session->log, "chiaki_holepunch_session_start: JSON does not contain member with a deviceUniqueId string field!");
-                const char *json_str = json_object_to_json_string_ext(notif->json, JSON_C_TO_STRING_PRETTY);
-                CHIAKI_LOGV(session->log, "chiaki_holepunch_session_start: JSON was:\n%s", json_str);
+                log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "chiaki_holepunch_session_start: JSON was:\n", notif->json);
                 err = CHIAKI_ERR_UNKNOWN;
                 break;
             }
@@ -1280,8 +1293,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
             if (!custom_data1_json || !json_object_is_type(custom_data1_json, json_type_string))
             {
                 CHIAKI_LOGE(session->log, "chiaki_holepunch_session_start: JSON does not contain \"customData1\" string field");
-                const char *json_str = json_object_to_json_string_ext(notif->json, JSON_C_TO_STRING_PRETTY);
-                CHIAKI_LOGV(session->log, "chiaki_holepunch_session_start: JSON was:\n%s", json_str);
+                log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "chiaki_holepunch_session_start: JSON was:\n", notif->json);
                 err = CHIAKI_ERR_UNKNOWN;
                 break;
             }
@@ -1387,7 +1399,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Retrieving profile information for PS4 wakeup command failed with HTTP code %ld.", http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Retrieving profile information for PS4 wakeup command failed with CURL error %d.", res);
@@ -1419,7 +1431,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     if (schema_bad)
     {
         CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Unexpected JSON schema, could not parse user profile url");
-        CHIAKI_LOGV(session->log, json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+        log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "", json);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_json;
     }
@@ -1501,7 +1513,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
-    CHIAKI_LOGV(session->log, "http_ps4_session_wakeup: Sending JSON:\n%s", envelope_buf);
+    log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "http_ps4_session_wakeup: Sending JSON:\n", envelope_buf, strlen(envelope_buf));
 
 #if defined(__PSVITA__)
     struct curl_slist *vita_resolve2 = NULL;
@@ -1522,8 +1534,8 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Waking up ps4 console failed with HTTP code %ld.", http_code);
-            CHIAKI_LOGV(session->log, "Request Body: %s.", envelope_buf);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Request Body: ", envelope_buf, strlen(envelope_buf));
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             if(http_code == 404)
                 CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Please make sure PS4 is registered to your account and on or in rest mode.");
             err = CHIAKI_ERR_HTTP_NONOK;
@@ -2322,7 +2334,7 @@ static void* websocket_thread_func(void *user) {
 
 /* Append a formatted WebSocket header to the curl slist, detecting truncation
  * and OOM from curl_slist_append.
- * On truncation: logs the (possibly partial) header_buf via %s to avoid
+ * On truncation: logs the (possibly partial) header_buf, redacted, to avoid
  *   re-expanding fmt with wrong args, sets err = CHIAKI_ERR_UNKNOWN, and
  *   jumps to cleanup_headers.
  * On curl_slist_append OOM: logs an error, sets err = CHIAKI_ERR_MEMORY, and
@@ -2330,13 +2342,13 @@ static void* websocket_thread_func(void *user) {
 #define APPEND_WS_HEADER(fmt, ...) do { \
     int _n = snprintf(header_buf, sizeof(header_buf), fmt, __VA_ARGS__); \
     if (_n < 0 || (size_t)_n >= sizeof(header_buf)) { \
-        CHIAKI_LOGE(session->log, "WebSocket header truncated: %s", header_buf); \
+        log_text_redacted(session->log, CHIAKI_LOG_ERROR, "WebSocket header truncated: ", header_buf, strlen(header_buf)); \
         err = CHIAKI_ERR_UNKNOWN; \
         goto cleanup_headers; \
     } \
     struct curl_slist *_tmp = curl_slist_append(headers, header_buf); \
     if (!_tmp) { \
-        CHIAKI_LOGE(session->log, "curl_slist_append OOM for header: %s", header_buf); \
+        log_text_redacted(session->log, CHIAKI_LOG_ERROR, "curl_slist_append OOM for header: ", header_buf, strlen(header_buf)); \
         err = CHIAKI_ERR_MEMORY; \
         goto cleanup_headers; \
     } \
@@ -2574,10 +2586,10 @@ cleanup_headers:
             if (json == NULL)
             {
                 CHIAKI_LOGE(session->log, "websocket_thread_func: Parsing JSON from payload failed");
-                CHIAKI_LOGV(session->log, "websocket_thread_func: Payload was:\n%s", buf);
+                log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "websocket_thread_func: Payload was:\n", buf, rlen);
                 continue;
             }
-            CHIAKI_LOGV(session->log, json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+            log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "", json);
 
             NotificationType type = parse_notification_type(session->log, json);
             char *json_buf = malloc(rlen);
@@ -2714,7 +2726,7 @@ static NotificationType parse_notification_type(
     }else
     {
         CHIAKI_LOGW(log, "parse_notification_type: Unknown notification type \"%s\"", datatype_str);
-        CHIAKI_LOGV(log, "parse_notification_type: JSON was:\n%s", json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+        log_json_redacted(log, CHIAKI_LOG_VERBOSE, "parse_notification_type: JSON was:\n", json);
         return NOTIFICATION_TYPE_UNKNOWN;
     }
 }
@@ -3668,7 +3680,7 @@ static ChiakiErrorCode http_create_session(Session *session)
     if(!session_create_json)
         return CHIAKI_ERR_MEMORY;
     snprintf(session_create_json, session_create_json_len, session_create_json_fmt, session->pushctx_id);
-    CHIAKI_LOGV(session->log, "http_create_session: Sending JSON:\n%s", session_create_json);
+    log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "http_create_session: Sending JSON:\n", session_create_json, strlen(session_create_json));
 
     HttpResponseData response_data = {
         .data = malloc(0),
@@ -3727,7 +3739,7 @@ static ChiakiErrorCode http_create_session(Session *session)
         CHIAKI_LOGE(session->log, "Couldn't create new json tokener");
         goto cleanup;
     }
-    CHIAKI_LOGV(session->log, "http_create_session: Received JSON:\n%s", response_data.data);
+    log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "http_create_session: Received JSON:\n", response_data.data, response_data.size);
     json_object *json = json_tokener_parse_ex(tok, response_data.data, response_data.size);
     if (json == NULL)
     {
@@ -3750,7 +3762,7 @@ static ChiakiErrorCode http_create_session(Session *session)
     if (schema_bad)
     {
         CHIAKI_LOGE(session->log, "http_create_session: Unexpected JSON schema, could not parse sessionId and accountId.");
-        CHIAKI_LOGV(session->log, json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+        log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "", json);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_json;
     }
@@ -3758,7 +3770,7 @@ static ChiakiErrorCode http_create_session(Session *session)
     if (strlen(session_id) != 36)
     {
         CHIAKI_LOGE(session->log, "http_create_session: Unexpected JSON schema, sessionId is not a UUIDv4, was '%s'.", session_id);
-        CHIAKI_LOGV(session->log, json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+        log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "", json);
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_json;
     }
@@ -3846,8 +3858,7 @@ static ChiakiErrorCode http_check_session(Session *session, bool viewurl)
         err = CHIAKI_ERR_UNKNOWN;
         goto cleanup_json_tokener;
     }
-    CHIAKI_LOGV(session->log, "http_check_session: retrieved session data \n%s",
-                json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
+    log_json_redacted(session->log, CHIAKI_LOG_VERBOSE, "http_check_session: retrieved session data \n", json);
 
     json_object_put(json);
 cleanup_json_tokener:
@@ -3918,7 +3929,7 @@ static ChiakiErrorCode http_start_session(Session *session)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
 
-    CHIAKI_LOGV(session->log, "http_start_session: Sending JSON:\n%s", envelope_buf);
+    log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "http_start_session: Sending JSON:\n", envelope_buf, strlen(envelope_buf));
 
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
 #if defined(__PSVITA__)
@@ -3940,8 +3951,8 @@ static ChiakiErrorCode http_start_session(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_start_session: Starting holepunch session failed with HTTP code %ld.", http_code);
-            CHIAKI_LOGV(session->log, "Request Body: %s.", envelope_buf);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Request Body: ", envelope_buf, strlen(envelope_buf));
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "http_start_session: Starting holepunch session failed with CURL error %d.", res);
@@ -3996,7 +4007,7 @@ static ChiakiErrorCode http_send_session_message(Session *session, SessionMessag
         payload_str, session->account_id, console_uid_str,
         session->console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS4 ? "PS4" : "PS5"
     );
-    CHIAKI_LOGV(session->log, "Message to send: %s", msg_buf);
+    log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Message to send: ", msg_buf, strlen(msg_buf));
     CURL *curl = curl_easy_init();
     if(!curl)
     {
@@ -4035,7 +4046,7 @@ static ChiakiErrorCode http_send_session_message(Session *session, SessionMessag
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_send_session_message: Sending holepunch session message failed with HTTP code %ld.", http_code);
-            CHIAKI_LOGV(session->log, "Request Body: %s.", msg_buf);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Request Body: ", msg_buf, strlen(msg_buf));
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "http_send_session_message: Sending holepunch session message failed with CURL error %d.", res);
@@ -5373,14 +5384,14 @@ static json_object* session_message_get_payload(ChiakiLog *log, json_object *ses
     if (json_pointer_get(session_message, "/body/data/sessionMessage/payload", &payload_json) < 0)
     {
         CHIAKI_LOGE(log, "session_message_get_payload: Failed to get payload");
-        log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, session_message);
+        log_json_redacted(log, CHIAKI_LOG_VERBOSE, "", session_message);
         return NULL;
     }
 
     if (!json_object_is_type(payload_json, json_type_string))
     {
         CHIAKI_LOGE(log, "session_message_get_payload: Payload is not a string");
-        log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, session_message);
+        log_json_redacted(log, CHIAKI_LOG_VERBOSE, "", session_message);
         return NULL;
     }
 
@@ -5429,15 +5440,15 @@ static json_object* session_message_get_payload(ChiakiLog *log, json_object *ses
         message_json = json_tokener_parse(fixed_json);
         if(message_json == NULL)
         {
-            CHIAKI_LOGE(log, "Couldn't parse the following fixed json: %s", fixed_json);
-            CHIAKI_LOGE(log, json_object_to_json_string_ext(payload_json, JSON_C_TO_STRING_PRETTY));
+            log_text_redacted(log, CHIAKI_LOG_ERROR, "Couldn't parse the following fixed json: ", fixed_json, strlen(fixed_json));
+            log_json_redacted(log, CHIAKI_LOG_ERROR, "", payload_json);
         }
     }
         // check if parse fails
         if(message_json == NULL)
         {
-            CHIAKI_LOGE(log, "Couldn't parse the following json: %s", json);
-            CHIAKI_LOGE(log, json_object_to_json_string_ext(payload_json, JSON_C_TO_STRING_PRETTY));
+            log_text_redacted(log, CHIAKI_LOG_ERROR, "Couldn't parse the following json: ", json, strlen(json));
+            log_json_redacted(log, CHIAKI_LOG_ERROR, "", payload_json);
         }
 
     return message_json;
@@ -5931,7 +5942,7 @@ static ChiakiErrorCode session_message_parse(
 
 invalid_schema:
     CHIAKI_LOGE(log, "session_message_parse: Unexpected JSON schema for holepunch session message.");
-    log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, message_json);
+    log_json_redacted(log, CHIAKI_LOG_VERBOSE, "", message_json);
     err = CHIAKI_ERR_UNKNOWN;
 
 cleanup:
@@ -6217,7 +6228,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "Getting stun servers from %s failed with HTTP code %ld", STUN_HOSTS_URL, http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             /* Demoted to INFO: on Vita the psn-ca-bundle.pem covers Sony CAs only, so fetching
@@ -6304,7 +6315,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "Getting IPV6 stun servers from %s failed with HTTP code %ld", STUN_HOSTS_URL, http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             /* Same as IPv4 list: non-fatal CA mismatch on Vita; built-in list used instead. */

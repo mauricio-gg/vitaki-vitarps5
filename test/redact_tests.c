@@ -55,9 +55,9 @@ static void test_basic_auth_header(void)
 // Token response body: both tokens cut, expires_in and a numeric code untouched.
 static void test_token_json(void)
 {
-	const char *in = "{\"access_token\": \"abcd1234-fake-access\",\"token_type\":\"bearer\","
+	const char *in = "{\"access_token\": \"abcd1234-fake-access\",\"scope\":\"psn:fake\","
 		"\"refresh_token\":\"wxyz5678-fake-refresh\",\"expires_in\":3599,\"code\":123}";
-	const char *expected = "{\"access_token\": \"abcd***\",\"token_type\":\"bearer\","
+	const char *expected = "{\"access_token\": \"abcd***\",\"scope\":\"psn:fake\","
 		"\"refresh_token\":\"wxyz***\",\"expires_in\":3599,\"code\":123}";
 	char out[OUT_SIZE];
 	redact(in, out, sizeof(out));
@@ -140,10 +140,10 @@ static void test_cookie_and_token_headers(void)
 {
 	const char *in = "Cookie: sid=abcd1234fake; npsso=wxyz5678fake;other=zzzzzz\r\n"
 		"Set-Cookie: npsso=qrst9012fake; Path=/; Secure\r\n"
-		"X-Foo-Token: uvwx3456fake\r\nX-Foo-Tokens: visible\r\n";
+		"X-Foo-Token: uvwx3456fake\r\nX-Foo-Mode: visible\r\n";
 	const char *expected = "Cookie: sid=abcd***; npsso=wxyz***;other=zzzz***\r\n"
 		"Set-Cookie: npsso=qrst***; Path=/; Secure\r\n"
-		"X-Foo-Token: uvwx***\r\nX-Foo-Tokens: visible\r\n";
+		"X-Foo-Token: uvwx***\r\nX-Foo-Mode: visible\r\n";
 	char out[OUT_SIZE];
 	redact(in, out, sizeof(out));
 	assert(!strcmp(out, expected));
@@ -179,6 +179,43 @@ static void test_stream_key_and_wake_credential(void)
 	char out[OUT_SIZE];
 	redact(in, out, sizeof(out));
 	assert(!strcmp(out, expected));
+}
+
+// The outgoing holepunch session message ("Message to send:" line) nests JSON inside a JSON
+// string, so the stream key is written \"skey\":\"...\". Catches the stream key reaching the log.
+static void test_escaped_session_message(void)
+{
+	const char *in = "{\"payload\":\"ver=1.0, type=text, body={\\\"action\\\":\\\"OFFER\\\",\\\"reqId\\\":1,"
+		"\\\"skey\\\":\\\"ZmFrZWZha2VmYWtlZmFrZWZh\\\",\\\"sid\\\":7}\",\"accountId\":\"fake-account-1\"}";
+	const char *expected = "{\"payload\":\"ver=1.0, type=text, body={\\\"action\\\":\\\"OFFER\\\",\\\"reqId\\\":1,"
+		"\\\"skey\\\":\\\"ZmFr***\\\",\\\"sid\\\":7}\",\"accountId\":\"fake-account-1\"}";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+// Credentials whose names are not on the explicit list (the console's RP-Enterkey header, an
+// apiKey JSON field, an assertion token form field) must still be cut: the name pattern is the net.
+static void test_unlisted_names_matching_pattern(void)
+{
+	char out[OUT_SIZE];
+	redact("RP-Enterkey: fakeenterkey1234\r\nX-Api-Key: fakeapikey12345\r\n", out, sizeof(out));
+	assert(!strcmp(out, "RP-Enterkey: fake***\r\nX-Api-Key: fake***\r\n"));
+	redact("{\"apiKey\":\"fakeapikey12345\",\"retry\":30}", out, sizeof(out));
+	assert(!strcmp(out, "{\"apiKey\":\"fake***\",\"retry\":30}"));
+	redact("client_assertion_token=fakeassertion123&grant_type=fake", out, sizeof(out));
+	assert(!strcmp(out, "client_assertion_token=fake***&grant_type=fake"));
+}
+
+// json-c writes "/" as "\/" in base64 values; the scanner must skip the escape, in plain and in
+// nested JSON, and not stop early and leave the rest of the key in the log.
+static void test_escaped_slash_in_value(void)
+{
+	char out[OUT_SIZE];
+	redact("{\"skey\":\"ZmFr\\/ZWZh\\/a2Vm\",\"sid\":7}", out, sizeof(out));
+	assert(!strcmp(out, "{\"skey\":\"ZmFr***\",\"sid\":7}"));
+	redact("{\\\"skey\\\":\\\"ZmFr\\\\/ZWZh\\\\/a2Vm\\\",\\\"sid\\\":7}", out, sizeof(out));
+	assert(!strcmp(out, "{\\\"skey\\\":\\\"ZmFr***\\\",\\\"sid\\\":7}"));
 }
 
 typedef struct
@@ -241,6 +278,9 @@ int main(void)
 	test_camel_case_and_case_insensitive_keys();
 	test_query_string_in_logged_line();
 	test_stream_key_and_wake_credential();
+	test_escaped_session_message();
+	test_unlisted_names_matching_pattern();
+	test_escaped_slash_in_value();
 	test_hexdump_redacted_hides_secret();
 	test_hexdump_redacted_cut();
 	printf("redact_tests: all passed\n");
