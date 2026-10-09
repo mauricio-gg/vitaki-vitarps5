@@ -457,6 +457,9 @@ typedef enum ui_face_t {
 #define UI_PAIR_NOTE_TEXT_X UI_S6
 /** Space between the section label and its spinner. */
 #define UI_PAIR_LABEL_SPINNER_GAP UI_S1
+/** The Filter row's magnifier is drawn this many px square, and its label starts after it. */
+#define UI_PAIR_FILTER_ICON 24
+#define UI_PAIR_FILTER_LABEL_INSET (UI_PAIR_FILTER_ICON + UI_S2)
 /** The pinned Enter IP address row's chevron. */
 #define UI_PAIR_CHEVRON_ART 20
 #define UI_PAIR_CHEVRON_STROKE 2.0f

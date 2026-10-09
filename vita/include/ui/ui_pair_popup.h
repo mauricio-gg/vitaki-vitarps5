@@ -8,14 +8,13 @@
  * "Enter IP address" row under it. The rows are the unpaired discovered consoles
  * (ui_pair_hosts_collect()) read again every frame, so the list follows discovery while the popup
  * is open; the focused console is followed by host, and when it disappears the focus moves to the
- * row now in its place.
+ * row now in its place. With more than UI_FILTER_ROW_MAX_PLAIN_CONSOLES consoles, or a filter
+ * active, the first row of the list is a Filter row (the popup's own text, kept apart from
+ * Home's) that scrolls with the list; L and R page the list.
  *
  * Home owns one (this module keeps its state in the file). Every frame while it is open Home
  * converts a tapped hint to a button press, calls ui_pair_popup_input(), acts on the result, then
  * draws ui_pair_popup_draw() and the hint row from ui_pair_popup_hints().
- *
- * The Filter row and L/R paging of C29 are not built yet: the list is the rows array plus the
- * pinned row, and the focus is an index into it, so they are added without reshaping either.
  */
 
 #pragma once
@@ -54,17 +53,22 @@ bool ui_pair_popup_is_open(void);
  * @in:     This frame's input (a tapped hint already converted to a press).
  * @chosen: Out: the console to pair when the result is UI_PAIR_POPUP_PAIR, else untouched.
  *
- * Up and Down move through the consoles and then Enter IP address (no wrap); Confirm or a tap
- * acts on a row; a vertical swipe over the viewport scrolls it one row per UI_ROW_SWIPE_PX and
- * the focus follows. Confirm or a tap on Enter IP address returns UI_PAIR_POPUP_ENTER_IP.
- * The list is refreshed from discovery first.
+ * Up and Down move through the Filter row, the consoles and then Enter IP address (no wrap); L and
+ * R move one page; Confirm or a tap acts on a row (the Filter row opens the system keyboard, a tap
+ * on its Clear button clears); Start opens the keyboard or clears an active filter and Square on
+ * the Filter row clears it, both only while the Filter row is shown; a vertical swipe over the
+ * viewport scrolls it one row per UI_ROW_SWIPE_PX and the focus follows. Confirm or a tap on Enter
+ * IP address returns UI_PAIR_POPUP_ENTER_IP. While the keyboard is up the popup takes no other
+ * input. The list is refreshed from discovery first.
  */
 UiPairPopupResult ui_pair_popup_input(const UiInput *in, VitaChiakiHost **chosen);
 
 /** ui_pair_popup_draw() - Draw the popup (frame, instructions, rows, pinned row), rising and
- * fading in. Paper cost about 30 to 40 (SPEC C29). */
+ * fading in. Paper cost: see SPEC C29 "Draws". */
 void ui_pair_popup_draw(void);
 
-/** ui_pair_popup_hints() - Fill @out: Confirm "Pair" on a console or "Enter IP" on the pinned
- * row, then Cancel "Close". Returns how many. */
+/** ui_pair_popup_hints() - Fill @out: Confirm "Pair" on a console, "Filter" on the Filter row
+ * (with Square "Clear" while a filter is active) or "Enter IP" on the pinned row; "L R Page" when
+ * the list has more rows than fit (low priority, not tappable: Home drops a tap on it); then
+ * Cancel "Close". Returns how many. */
 int ui_pair_popup_hints(UiHintItem out[UI_HINT_MAX_ITEMS]);

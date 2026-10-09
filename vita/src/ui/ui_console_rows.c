@@ -81,3 +81,19 @@ UiPairPhase ui_console_rows_pair_phase(bool discovery_running, int found, uint32
     return UI_PAIR_PHASE_FOUND;
   return elapsed_ms < UI_PAIR_SEARCH_MS ? UI_PAIR_PHASE_SEARCHING : UI_PAIR_PHASE_NONE;
 }
+
+int ui_pair_page_focus(int focus, int direction, int lead, int rows, int page) {
+  if (rows <= lead)
+    return focus;
+  if (focus == UI_PAIR_FOCUS_PINNED)
+    return direction < 0 ? rows - 1 : UI_PAIR_FOCUS_PINNED;
+  if (direction < 0 && focus < lead)
+    return focus;
+
+  int target = focus + (direction < 0 ? -page : page);
+  if (target < lead)
+    target = lead;
+  if (target > rows - 1)
+    target = rows - 1;
+  return target;
+}

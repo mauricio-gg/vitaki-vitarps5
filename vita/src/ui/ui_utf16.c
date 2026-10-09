@@ -1,6 +1,6 @@
 /**
  * @file ui_utf16.c
- * @brief UTF-16 to UTF-8 for the text the system keyboard returns (see ui_utf16.h)
+ * @brief UTF-8 and UTF-16 conversion for the system keyboard text (see ui_utf16.h)
  */
 
 #include "ui/ui_utf16.h"
@@ -38,4 +38,25 @@ void ui_utf16_to_utf8(const uint16_t *src, size_t src_max, char *dst, size_t dst
     out += need;
   }
   dst[out] = '\0';
+}
+
+void ui_utf8_to_utf16(const char *src, uint16_t *dst, size_t dst_len) {
+  if (!dst || dst_len == 0)
+    return;
+  size_t out = 0;
+  const unsigned char *p = (const unsigned char *)src;
+  while (p && *p && out + 1 < dst_len) {
+    if (*p < 0x80) {
+      dst[out++] = *p++;
+    } else if ((*p & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) {
+      dst[out++] = (uint16_t)(((p[0] & 0x1F) << 6) | (p[1] & 0x3F));
+      p += 2;
+    } else if ((*p & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80) {
+      dst[out++] = (uint16_t)(((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F));
+      p += 3;
+    } else {
+      break;
+    }
+  }
+  dst[out] = 0;
 }

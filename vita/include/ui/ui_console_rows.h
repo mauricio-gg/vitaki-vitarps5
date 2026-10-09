@@ -132,3 +132,24 @@ typedef enum ui_pair_phase_t {
  * Off wins, then Found; with none, Searching holds for UI_PAIR_SEARCH_MS and then reads None.
  */
 UiPairPhase ui_console_rows_pair_phase(bool discovery_running, int found, uint32_t elapsed_ms);
+
+/** The focus of the pairing popup when it is on the pinned Enter IP address row. */
+#define UI_PAIR_FOCUS_PINNED (-1)
+
+/**
+ * ui_pair_page_focus() - Where L (@direction < 0) or R (@direction > 0) puts the focus in the
+ * pairing popup's list (SPEC C29).
+ * @focus:     Focused list row (0 is the Filter row when there is one, then the consoles), or
+ *             UI_PAIR_FOCUS_PINNED.
+ * @direction: Negative pages up, positive pages down.
+ * @lead:      Rows before the first console: 1 with the Filter row, else 0.
+ * @rows:      List rows, the Filter row included; the pinned row is not one.
+ * @page:      Rows in a page.
+ *
+ * Moves one page and clamps to the first and last console, so paging never lands on the Filter
+ * row. L on the Filter row stays there; L from the pinned row returns to the last console; R
+ * from it stays. With no console the focus does not move.
+ *
+ * @return the new focus, in the same encoding
+ */
+int ui_pair_page_focus(int focus, int direction, int lead, int rows, int page);

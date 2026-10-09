@@ -886,7 +886,9 @@ UIScreenType ui_home_frame(void) {
    * Options column is open, where every tap outside it only closes it. */
   UiInput in = *ui_input_snapshot();
   const bool hints_tappable = popup_open() || !ui_home_options_column_open();
-  const uint32_t tapped = hints_tappable ? ui_hint_row_tap(&s_hints, &in) : 0;
+  uint32_t tapped = hints_tappable ? ui_hint_row_tap(&s_hints, &in) : 0;
+  if (ui_pair_popup_is_open())
+    tapped &= ~(uint32_t)(UI_BTN_L | UI_BTN_R); /* the popup's "L R Page" hint is not tappable */
   if (tapped) {
     in.pressed |= tapped;
     in.released |= tapped;

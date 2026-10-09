@@ -127,7 +127,11 @@ static void draw_check(int x, int y, int size, uint32_t color) {
 }
 
 void ui_list_popup_draw_row(const UiListRow *row, bool focused, UiRect r) {
-  const int text_x = r.x + UI_LISTPOP_ROW_PAD;
+  ui_list_popup_draw_row_inset(row, focused, r, 0);
+}
+
+void ui_list_popup_draw_row_inset(const UiListRow *row, bool focused, UiRect r, int label_inset) {
+  const int text_x = r.x + UI_LISTPOP_ROW_PAD + label_inset;
   const int right = r.x + r.w - UI_LISTPOP_ROW_PAD;
 
   if (focused) {
