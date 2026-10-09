@@ -54,6 +54,7 @@
 #include "psn_remote.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
+#include "ui/ui_asset_preload.h"
 #include "ui/ui_background.h"
 #include "ui/ui_draw_stats.h"
 #include "ui/ui_freeze.h"
@@ -319,6 +320,8 @@ static uint64_t s_max_gap_us = 0;
 static const char *s_max_gap_step = "none";
 static uint64_t s_interval_longest_us = 0;
 static const char *s_interval_longest_name = "none";
+/** True while splash_frame() runs, so the frame hook cannot start a frame inside a frame. */
+static bool s_in_splash_frame = false;
 /** Process time at which the last loading step finished. */
 static uint64_t s_load_done_us = 0;
 /** Set when loading ends; the main loop then blocks held inputs once (see draw_ui()). */
@@ -357,6 +360,7 @@ static void startup_note_presented(void) {
  * swap. The draw counters start after the bake, so the glyph quads are not counted.
  */
 static void splash_frame(bool *more_faces, int face_index) {
+  s_in_splash_frame = true;
   ui_splash_poll_skip();
   vita2d_start_drawing();
   vita2d_clear_screen();
@@ -378,6 +382,22 @@ static void splash_frame(bool *more_faces, int face_index) {
   vita2d_end_drawing();
   vita2d_swap_buffers();
   startup_note_presented();
+  s_in_splash_frame = false;
+}
+
+/**
+ * startup_frame_hook() - Draw a splash frame from inside a loading step, if one is due.
+ *
+ * Called through ui_asset_preload_pump(): after each texture is made, while the main thread waits
+ * for a PNG decode, and after each baked texture. It is set only while loading runs, after the
+ * first splash frame, and never starts a frame while one is being drawn (so never inside an open
+ * scene). Uses the same time gate as startup_run_step().
+ */
+static void startup_frame_hook(void) {
+  if (s_in_splash_frame)
+    return;
+  if (sceKernelGetProcessTimeWide() - s_last_present_us >= UI_SPLASH_FRAME_INTERVAL_US)
+    splash_frame(NULL, 0);
 }
 
 /** startup_run_step() - Run one step, log its duration, then draw a splash frame if one is due. */
@@ -472,16 +492,22 @@ static const StartupStep STARTUP_STEPS[] = {
 /**
  * init_ui() - Bring the UI up behind the splash screen
  *
- * 1. Initializes vita2d, loads the logo and draws the first splash frame.
- * 2. Runs STARTUP_STEPS one after another on the main thread, drawing a splash frame after a step
- *    only when one display frame interval has passed since the last.
- * 3. Bakes the glyph atlas one face per splash frame (it needs an open scene).
- * 4. Marks loading done and keeps drawing splash frames until the logo has assembled; the fade
+ * 1. Starts the asset preload worker (it reads and decodes the start-up PNGs in RAM from here on),
+ *    then initializes vita2d.
+ * 2. Makes the logo texture from the decoded logo, picks the particles from its RAM pixels and
+ *    draws the first splash frame.
+ * 3. Runs STARTUP_STEPS one after another on the main thread. Their PNG loads are served from the
+ *    worker, and the splash draws a frame between textures (startup_frame_hook()) and after each
+ *    step, only when one display frame interval has passed since the last.
+ * 4. Joins the worker, bakes the glyph atlas one face per splash frame (it needs an open scene).
+ * 5. Marks loading done and keeps drawing splash frames until the logo has assembled; the fade
  *    over Home is then drawn by the main loop in draw_ui().
  *
  * Must be called before draw_ui() main loop.
  */
 void init_ui() {
+  ui_asset_preload_start();
+  const uint64_t vita2d_start_us = sceKernelGetProcessTimeWide();
   int vita2d_init_ret =
       vita2d_init_advanced_with_msaa(SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE, SCE_GXM_MULTISAMPLE_4X);
   if (vita2d_init_ret < 0) {
@@ -493,12 +519,29 @@ void init_ui() {
    * display while loading: the splash frames are time gated and animation is time based. */
   vita2d_set_clear_color(UI_SPLASH_CLEAR_COLOR);
   vita2d_set_vblank_wait(false);
-  vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
-  ui_splash_start(vita_rps5_logo);
+  const uint64_t logo_wait_start_us = sceKernelGetProcessTimeWide();
+  UiAssetPixels logo_pixels;
+  const bool logo_listed = ui_asset_preload_wait(UI_ASSET_LOGO_PATH, &logo_pixels);
+  const uint64_t logo_upload_start_us = sceKernelGetProcessTimeWide();
+  vita_rps5_logo =
+      logo_pixels.rgba ? ui_asset_preload_upload(&logo_pixels, UI_ASSET_LOGO_PATH) : NULL;
+  const uint64_t logo_done_us = sceKernelGetProcessTimeWide();
+  if (!logo_listed)
+    LOGE("UI/SPLASH logo '%s' is not available from the preload, splash draws black only",
+         UI_ASSET_LOGO_PATH);
+  ui_splash_start(vita_rps5_logo, &logo_pixels);
+  ui_asset_pixels_free(&logo_pixels);
+  LOGD("PIPE/SPLASH_INIT vita2d_us=%llu logo_wait_us=%llu logo_upload_us=%llu sample_us=%llu",
+       (unsigned long long)(logo_wait_start_us - vita2d_start_us),
+       (unsigned long long)(logo_upload_start_us - logo_wait_start_us),
+       (unsigned long long)(logo_done_us - logo_upload_start_us),
+       (unsigned long long)ui_splash_sample_us());
   splash_frame(NULL, 0);
+  ui_asset_preload_set_frame_hook(startup_frame_hook);
 
   for (size_t i = 0; i < sizeof(STARTUP_STEPS) / sizeof(STARTUP_STEPS[0]); i++)
     startup_run_step(&STARTUP_STEPS[i]);
+  ui_asset_preload_finish();
 
   /* Each face is baked inside a splash frame, whatever the frame gate says. */
   bool more_faces = ui_text_needs_prewarm() != 0;

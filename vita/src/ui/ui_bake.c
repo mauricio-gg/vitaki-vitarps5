@@ -8,6 +8,7 @@
 #include <math.h>
 
 #include "context.h"
+#include "ui/ui_asset_preload.h"
 
 vita2d_texture *ui_bake_white(int w, int h, UiBakeAlphaFn alpha, const void *ctx) {
   vita2d_texture *tex = vita2d_create_empty_texture((unsigned int)w, (unsigned int)h);
@@ -25,6 +26,8 @@ vita2d_texture *ui_bake_white(int w, int h, UiBakeAlphaFn alpha, const void *ctx
     }
   }
   vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+  /* A bake is a long CPU loop; at start-up this lets the splash draw a frame between bakes. */
+  ui_asset_preload_pump();
   return tex;
 }
 
