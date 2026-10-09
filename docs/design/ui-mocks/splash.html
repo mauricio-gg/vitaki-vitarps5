@@ -36,19 +36,18 @@ kbd{font-family:ui-monospace,Menlo,monospace;color:#fff;border:1px solid var(--l
   <div class="marks" id="marks"></div>
   <div class="ctl">
     <button id="bFade" aria-pressed="true">Home fade: on</button>
-    <button id="bGlow" aria-pressed="false">Glow: off</button>
     <button id="bLoop" aria-pressed="true">Loop: on</button>
     <button id="bSlow" aria-pressed="false">Slow 0.25&times;: off</button>
   </div>
-  <p class="note">Native 960&times;544, one canvas, square quads only: <span id="cnt"></span> particles sampled from the bright pixels of <code>assets/Vita_RPS5_Logo.png</code>, each drawn as one 2&ndash;3 px square. Click the picture or press <kbd>R</kbd> to replay; <kbd>Space</kbd> / any other key skips to the end of the animation (the Vita: any button or a tap). The Home picture behind the fade is the real <code>screens/home.png</code>. Timing, counts and easing are in SPEC.md, section 3.9.</p>
+  <p class="note">Native 960&times;544, one canvas, square quads only: <span id="cnt"></span> particles sampled from the bright pixels of <code>assets/Vita_RPS5_Logo.png</code>, each drawn as one 2&ndash;3 px square and absorbed into the logo as it lands. Click the picture or press <kbd>R</kbd> to replay; <kbd>Space</kbd> / any other key skips to the end of the animation (the Vita: any button or a tap). The Home picture behind the fade is the real <code>screens/home.png</code>. Timing, counts and easing are in SPEC.md, section 3.9.</p>
 </div>
 <script>
 /* Splash mock. Everything is a pure function of time t, as it will be on the Vita:
    per-particle state = f(t, seed), whole-pixel squares, no blur. */
 const W=960,H=544,SEED=366;
-const T={ASM_END:1.0,XFADE:0.3,HOLD_END:2.4,FADE:0.3,HOME_HOLD:0.8}; // seconds
-T.XFADE_END=T.ASM_END+T.XFADE; T.FADE_END=T.HOLD_END+T.FADE; T.TOTAL=T.FADE_END+T.HOME_HOLD;
-const STAG_MAX=0.35, FLIGHT=T.ASM_END-STAG_MAX, A0=0.12;   // delay 0..0.35 s, flight 0.65 s
+const T={ASM_END:1.0,HOLD_END:2.4,FADE:0.3,HOME_HOLD:0.8}; // seconds
+T.XFADE_END=T.ASM_END; T.FADE_END=T.HOLD_END+T.FADE; T.TOTAL=T.FADE_END+T.HOME_HOLD;
+const STAG_MAX=0.30, FLIGHT=0.60, A0=0.12, ABSORB=0.12;   // delay 0..0.30 s, flight 0.60 s (last lands 0.90 s), absorbed over 0.12 s
 const LW=640, LH=Math.round(297*640/688), LX=(W-LW)/2, LY=Math.round((H-LH)/2);
 const cv=document.getElementById('cv'),cx=cv.getContext('2d');
 cx.imageSmoothingEnabled=false;
@@ -70,9 +69,7 @@ function build(){
     return{tx:LX+x,ty:LY+y,sx,sy,delay:rnd()*STAG_MAX,sz:rnd()<0.55?2:3,curve:(rnd()-.5)*140};});
   document.getElementById('cnt').textContent=P.length.toLocaleString('en');
 }
-const dot=(()=>{const o=document.createElement('canvas');o.width=o.height=16;const c=o.getContext('2d');
-  const g=c.createRadialGradient(8,8,0,8,8,8);g.addColorStop(0,'rgba(255,255,255,.9)');g.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=g;c.fillRect(0,0,16,16);return o})();
-const opt={fade:true,glow:false,loop:true,slow:false};
+const opt={fade:true,loop:true,slow:false};
 function render(t){
   cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
   cx.fillStyle='#000';cx.fillRect(0,0,W,H);
@@ -82,44 +79,40 @@ function render(t){
   const sa=1-f;                                             // splash layer opacity during the exit
   if(sa>0){
     if(f>0){cx.globalAlpha=sa;cx.fillStyle='#000';cx.fillRect(0,0,W,H);}   // black covers Home until it fades in
-    // particles
-    const pa=t<T.ASM_END?1:Math.max(0,1-(t-T.ASM_END)/T.XFADE);
-    if(pa>0){
-      for(const p of P){
-        const k=ease((t-p.delay)/FLIGHT);if(t<p.delay)continue;
-        const x=p.sx+(p.tx-p.sx)*k,y=p.sy+(p.ty-p.sy)*k;
-        const b=4*k*(1-k)*p.curve;                          // sideways bow that dies out on arrival
-        const dx=-(p.ty-p.sy),dy=(p.tx-p.sx),n=Math.hypot(dx,dy)||1;
-        const px=Math.round(x+dx/n*b),py=Math.round(y+dy/n*b);
-        const a=(A0+(1-A0)*k)*pa*sa;                        // dim -> bright with progress
-        cx.globalAlpha=a;cx.fillStyle='#fff';cx.fillRect(px,py,p.sz,p.sz);
-        if(opt.glow&&k>.3){cx.globalCompositeOperation='lighter';cx.globalAlpha=a*.25;cx.drawImage(dot,px-6,py-6,14,14);cx.globalCompositeOperation='source-over';}
-      }
-    }
-    // crisp logo texture
-    const la=(t<T.ASM_END?0:Math.min(1,(t-T.ASM_END)/T.XFADE))*sa;
+    // logo texture builds up with the mean arrival progress of the particles (never a stipple on its own)
+    let m=0;for(const p of P)m+=Math.min(1,Math.max(0,(t-p.delay)/FLIGHT));m/=P.length;   // linear flight progress, 0..1
+    const sm=Math.pow(m*m*(3-2*m),1.3),la=(t>=T.ASM_END?1:sm)*sa;
     if(la>0){cx.globalAlpha=la;cx.imageSmoothingEnabled=true;cx.drawImage(logo,LX,LY,LW,LH);cx.imageSmoothingEnabled=false;}
+    // particles: dim -> bright in flight, absorbed into the logo on arrival
+    for(const p of P){
+      if(t<p.delay)continue;const u=(t-p.delay)/FLIGHT,k=ease(u);let a,sz=p.sz;
+      if(u<1)a=A0+(1-A0)*k;
+      else{const r=(t-p.delay-FLIGHT)/ABSORB;if(r>=1)continue;a=1-r;sz=p.sz+1}   // flash one px larger, then gone
+      const x=p.sx+(p.tx-p.sx)*k,y=p.sy+(p.ty-p.sy)*k;
+      const b=4*k*(1-k)*p.curve,dx=-(p.ty-p.sy),dy=(p.tx-p.sx),n=Math.hypot(dx,dy)||1;
+      cx.globalAlpha=a*sa;cx.fillStyle='#fff';cx.fillRect(Math.round(x+dx/n*b)-(sz-p.sz),Math.round(y+dy/n*b)-(sz-p.sz),sz,sz);
+    }
   }
   cx.globalAlpha=1;
 }
 /* clock */
 let t=0,playing=true,last=0;
 const $=id=>document.getElementById(id),scrub=$('scrub');
-function setT(v){t=Math.max(0,Math.min(T.TOTAL,v));render(t);scrub.value=t*1000;$('tt').textContent=t.toFixed(2)+' s'+(t<T.ASM_END?' · assembling':t<T.XFADE_END?' · resolving':t<T.HOLD_END?' · hold':t<T.FADE_END?' · to Home':' · Home')}
+function setT(v){t=Math.max(0,Math.min(T.TOTAL,v));render(t);scrub.value=t*1000;$('tt').textContent=t.toFixed(2)+' s'+(t<T.ASM_END?' · assembling':t<T.HOLD_END?' · hold':t<T.FADE_END?' · to Home':' · Home')}
 function tick(ts){if(playing&&ready>=2){const dt=Math.min(.05,(ts-last)/1000)*(opt.slow?.25:1);let n=t+dt;
   if(n>=T.TOTAL){if(opt.loop)n=0;else{n=T.TOTAL;setPlay(false)}}setT(n);}last=ts;requestAnimationFrame(tick)}
 function setPlay(v){playing=v;$('bPlay').setAttribute('aria-pressed',v);$('bPlay').textContent=v?'Playing':'Paused'}
 function replay(){setT(0);setPlay(true)}
-function skip(){if(t<T.XFADE_END)setT(T.XFADE_END)}                    // skips the animation only, never past loading
+function skip(){if(t<T.ASM_END)setT(T.ASM_END)}                    // skips the animation only, never past loading
 $('bReplay').onclick=replay;$('bSkip').onclick=skip;$('bPlay').onclick=()=>setPlay(!playing);
 scrub.oninput=()=>{setPlay(false);setT(scrub.value/1000)};
 cv.onclick=replay;
 addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R')replay();else if(!e.metaKey&&!e.ctrlKey&&e.target.tagName!=='INPUT'&&e.target.tagName!=='BUTTON'){skip();if(e.key===' ')e.preventDefault()}});
 function tog(id,key,label){$(id).onclick=()=>{opt[key]=!opt[key];$(id).setAttribute('aria-pressed',opt[key]);$(id).textContent=label+(opt[key]?'on':'off');render(t)}}
-tog('bFade','fade','Home fade: ');tog('bGlow','glow','Glow: ');tog('bLoop','loop','Loop: ');tog('bSlow','slow','Slow 0.25×: ');
+tog('bFade','fade','Home fade: ');tog('bLoop','loop','Loop: ');tog('bSlow','slow','Slow 0.25×: ');
 $('bFade').setAttribute('aria-pressed',true);
 scrub.max=Math.round(T.TOTAL*1000);
-[['0',0],['1.0 assembled',T.ASM_END],['1.3 crisp',T.XFADE_END],['2.4 loaded',T.HOLD_END],['2.7 Home',T.FADE_END]].forEach(([l,v])=>{
+[['0',0],['1.0 assembled',T.ASM_END],['2.4 loaded',T.HOLD_END],['2.7 Home',T.FADE_END]].forEach(([l,v])=>{
   const s=document.createElement('span');s.textContent=l.includes(' ')?l:l+' s';s.style.left=(v/T.TOTAL*100)+'%';$('marks').appendChild(s)});
 const q=new URLSearchParams(location.search);if(q.has('bare'))document.body.classList.add('bare');
 logo.onload=()=>{build();ready++;go()};home.onload=()=>{ready++;go()};
