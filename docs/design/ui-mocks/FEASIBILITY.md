@@ -22,7 +22,7 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | Glow | baked soft blob textures: one white 112 x 112 (focused list icon, same for every category), one state-tinted for the Connecting ring | focus glow behind icons and text | each padded by its glow radius on all sides (art + 2 x radius, transparent border), drawn before the art, never clipped to the art or the row (SPEC 2.0 Glow rule) |
 | Wave | no texture | background | ribbons are geometry (section 3) |
 
-Removed from the app by this design: the wave sidebar, particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations.
+Removed from the app by this design: the wave sidebar (done in #305: `ui_navigation.c`, its state, pill, toast and icons are gone), particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations.
 
 ## 2. Type
 
@@ -58,6 +58,8 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 | Stream overlay | 26 worst case | exit pill 7 (3-slice, 3 glyphs, text), stats panel 14 (9-slice 9, title, 2 rows x 2), unstable badge 5 |
 | Any popup | about 36 | **the screen behind is frozen into one half-resolution copy when the popup opens (1 draw)**, scrim 1, popup body 9-slice 9, title and text 3 to 4, buttons 2 x 4 or list rows (6 x 2 + focused 3-slice bar 3 + scroll 2), hint row 4. Popups are not drawn over the live screen because that would exceed the budget (Home 67 + a 31-draw list popup = 98) |
 
+**As built (#305), draw counts per frame:** Controller Summary page 1 draws 56, page 2 draws 44 to 80 (by how many zones are mapped) and a zone view draws 79. Page 1 and the zone view are over the paper budgets above (49 and 70) by the touch controls of SPEC 4.1 (the back chevron, the small Clear and Whole surface buttons) and, in the zone view, because the grid is a baked grid-lines texture plus a baked state texture per mapped, cursor or picked cell instead of one baked grid. All stay at or under the ~80 call budget of Home.
+
 Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.
 
 ## 5. Texture budget (paper)
@@ -79,7 +81,7 @@ Well under the 15 MB budget. The wave costs none.
 ## 6. Reuse
 
 - `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (summary pages, zone views, mapping popup, preset slots). Only chrome, colours and the new Triangle entry to the zone view change.
-- `ui_focus.c` zones: category row, list, options column, page groups and rows, controller views, popup. Not verified that nothing in the focus manager assumes the wave sidebar.
+- `ui_focus.c` zones: the focus zone and the modal stack. Nothing in the focus manager assumes the wave sidebar any more (its nav-bar zone and zone crossing were removed in #305).
 - `ui_input.c`, the IME dialog, `ui_text.c` atlas, `ui_qr.c`: reused as they are.
 
 ## 7. Risks

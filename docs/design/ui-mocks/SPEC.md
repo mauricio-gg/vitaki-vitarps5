@@ -267,6 +267,8 @@ h 32, padding 0 16, `HUD` fill, T16 TEXT, `R_PILL` corners. Variants: **warn** (
 | Input | Up/Down picks L1/R1, Confirm opens its popup. Touch: tap a callout (its 48 high hit rect wins over the diagram) or the diagram. |
 | Replaces | procedural diagram drawing is kept as is (`ui_controller_diagram.c`); only chrome changes. |
 
+**As built (#305).** Built as written: the diagram boxes and callout constants are `UI_CTRL_*` in `ui_theme.h`. The left footer is "Zone C2" or "N Zones Selected" in a zone view, and the right footer on page 2 adds the zone count ("Page 2/2 · Back Touch · N zones"). The page-2 label is tappable.
+
 ### C21 ZoneGrid (interactive)
 6 x 3 cells (columns A-F, rows 1-3) over the screen rect (front: x +178/874, y +30/396, 526 x 298 source px) or the rear pad rect (x +139/720, y +45/327, 444 x 188 source px), scaled with the diagram. Cell label T16 (OPT, SHR, TP, L1...; blank for None). Constants: `UI_ZONE_COLS` 6, `UI_ZONE_ROWS` 3.
 
@@ -277,6 +279,8 @@ h 32, padding 0 16, `HUD` fill, T16 TEXT, `R_PILL` corners. Variants: **warn** (
 | picked (multi-select) | 2 px white border, `FILL_ON` fill, 14 px inner `GLOW_INNER` | highest; a cell that is both cursor and picked draws as picked |
 
 Input: D-pad moves; hold Confirm and move adds cells to the selection (popup on release; a plain tap assigns the one cell); touch (a single-cell gesture opens that cell's popup on release, and the click that follows is ignored): finger paint across cells, backtracking one cell removes the last, release opens the popup; tap = one cell. Used by: Front and Rear zone views; Summary page 2 shows the grid read-only (tap opens Rear zones).
+
+**As built (#305).** `ui_zone_grid.c` draws one baked grid-lines texture, one baked state texture per mapped, cursor or picked cell, and one label per cell (37 draws for a full grid), not the single baked grid texture FEASIBILITY.md assumed. `ui_controller_zones.c` keeps one grid per view (Summary rear, Front, Rear), created the first time it is shown. A cell that is Mixed shows "+".
 
 ### C22 TextButton (interactive)
 h 48, min w 128, padding 0 24, T20, `R_PILL` corners, 1 px `LINE` border, no fill. Focused: `FILL_FOCUS`, white border, glow. Disabled: 45%. Pressed: `FILL_ON`. Hit = visible (already above 48). Used by: popups, PIN, Connecting (Cancel). Replaces: `text_button`.
@@ -487,6 +491,17 @@ Touch: tap the preset chevrons or the label; tap a callout; tap the diagram to e
 
 **As built (#305, Summary page 1).** The page opens on the preset Home's item names (Custom 1 to 3), which makes that preset the current one, as Left/Right would. The hint row has Preset, L1 / R1, Shoulder and Back for now; Page, Zones and Clear join it with the features they trigger, and the page label in the footer is not tappable until page 2 exists. Left/Right switch preset on the press only (no hold-repeat, because each switch saves the config), Up picks L1 and Down picks R1 (no wrap). The diagram is the procedural/art diagram unchanged except that its old pill callouts, page text and front zone labels are gone; the page draws the callouts. A callout grows past 136 px when its text is wider, keeping its outer edge. The leader runs from the middle of the callout's underline. The mapping popup focuses the ticked row, or the first row when nothing is ticked. A never-saved preset is seeded from the defaults the first time it is shown, as before.
 
+**As built (#305, the rest of the page).** The page is `ui_controller_page.c` with the zones in `ui_controller_zones.c`, the popup in `ui_controller_mapping.c`, the data in `ui_controller_model.c` and the rules in `ui_controller_rules.c`.
+- **What a zone and a side show is what a touch does in the stream.** A touch fires the side's whole-surface input and the output of the zone under the finger (`host_input.c`), and the two add up. A zone's value is its own output plus the side's whole-surface output; when they disagree, or the whole-surface input holds L2 or R2 (which presses the wrong buttons there), the zone is Mixed. The side's value ("whole surface") is the common value of its 18 zones, or Mixed.
+- **Editing keeps the page equal to the stream.** Assigning to zones first folds the side's whole-surface output into the zones that have none of their own and clears it. Assigning the whole surface (Triangle in a zone view, or Whole surface) writes all 18 zones and clears the whole-surface input. Clear is a whole-surface assign of None.
+- **With today's seeds the front reads Touchpad (18 zones) and the rear reads None (0 zones).** The seed's rear L2/R2 sit on the quadrant inputs, which the stream never reads on a rear touch, so they do nothing and the page does not show them. **Open CEO decision (flag 17).**
+- **A Mixed cell shows "+"** (new copy, sign-off pending). The popup subtitle for several cells is "N Zones Selected · <value or Mixed>"; for one cell "Front C2"; for a whole side "Full Front Touch · <value or Mixed>".
+- **The footer** reads the preset description on page 1 and 2, "Zone C2" or "N Zones Selected" in a zone view, and the page label at the right ("Page 2/2 · Back Touch · N zones" on page 2). The small Clear button (and Whole surface in a zone view) sit in the footer band, 32 px high with a 48 px hit (the 4.1 touch controls). The hint row is Preset, Page, L1 / R1 and Shoulder (page 1 only), Zones, Clear and Back on a Summary page, and Move, Assign, Whole surface, Clear and Back in a zone view.
+- **Home** shows the same zone counts for "Front touch" and "Rear touch" (`ui_controller_mapped_zones()`), and its Custom 1 to 3 open the page on that preset and make it the active one.
+- **Circle** in a zone view returns to its Summary page; Circle on a Summary page returns to Home on the preset the page was on.
+- **Flag 5 shipped:** the rear art is `vita/res/assets/controller_back_clean.png`.
+- **The wave sidebar is removed** (`ui_navigation.c` and its state); the Controller was the last screen that drew it.
+
 ---
 
 ## 4. Input model
@@ -593,7 +608,7 @@ Open:
 2. **Pairing results need backend work.** The result popups need registration to report finished OK, PIN not accepted, console unreachable or timeout to the UI (3.3). Today there is no success or failure UI and the registration code may not distinguish these. Timeout length proposed at 30 s. If the code cannot tell "unreachable" from "PIN not accepted", collapse to one failure copy.
 3. **Login URL shown in a short form** (`my.account.sony.com/sso/ca/authorize`). Today the app prints up to 2 lines of the full authorize URL and silently drops the tail; the full URL stays in memory for the QR and browser. Typing the full URL by hand was never practical.
 4. **Profile Status is a deliberate fix.** Today it says "Ready" or "Ready / Not Registered" even for a console that is asleep or unreachable. The spec shows the console's real state (Ready, Standby, Unpaired, Unavailable, None) in the same words as the Home list. Everything else in the Connection group matches today's code.
-5. **Rear controller art edited.** `controller_back_clean.png` removes the tiny "Sony Computer Entertainment Inc" line (unreadable at that size, off-brand for our app). Ship the clean copy; the original stays in `assets/`.
+5. **Rear controller art edited (shipped in #305 as `vita/res/assets/controller_back_clean.png`).** `controller_back_clean.png` removes the tiny "Sony Computer Entertainment Inc" line (unreadable at that size, off-brand for our app). Ship the clean copy; the original stays in `assets/`.
 6. **New copy needs sign-off**: all Settings descriptions, Profile action descriptions, Re-pair confirm, Change icon popup, the pairing and connection result popups, the three pairing failure reasons.
 7. **Room icon needs storage**: one small integer per console in the host config (default TV).
 8. **PIN title and prompt are model aware** ("PS4"/"PS5"); today they say PS5 always.
@@ -611,3 +626,4 @@ Open:
     - **Show Button Hints** setting (default On). New config field `show_button_hints` (boolean, default true), listed with `background_blur` in flag 13.
     - **Touch parity (4.1) added new controls**: long-press for Options, a back chevron on pages and the Controller, Clear and Whole surface buttons on the Controller, three buttons under the Profile login panel. Confirm you want them visible even when hints are on.
 16. **Mock-only affordances** (not app behaviour): Esc leaves the stream; the toolbar Circle toggle; the pairing trigger digits (first digit 0 or 9); the drawn stand-in for the stream picture (a CSS gradient scene, no photo); the illustrative QR; the stand-in for the system keyboard.
+17. **Rear touch seeds do nothing in the stream (open, CEO decision, #305).** The seeded rear L2 (left three columns) and R2 (right three) are stored on the quadrant inputs, which the stream never reads on a rear touch, so the Controller page shows the rear as None (0 zones) while the front shows Touchpad (18 zones). Options: keep it as is (the page tells the truth), or change the seeds to put L2 and R2 on the rear zones so they work. New copy to sign off with it: the "+" label of a Mixed cell.
