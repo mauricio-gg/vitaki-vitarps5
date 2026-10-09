@@ -1013,3 +1013,11 @@ typedef enum ui_face_t {
 
 /** Depth of the splash's vertices (vita2d draws 2D shapes at z = 0.5). */
 #define UI_SPLASH_Z 0.5f
+
+/* Start-up (ui.c): while the app loads, a splash frame is drawn only if this many microseconds
+ * (one display frame at 60 Hz) have passed since the last one was presented, so a run of fast
+ * loading steps is not throttled to the display rate. The scene is cleared black for the splash
+ * and grey (the colour every other screen starts from) once loading is finished. */
+#define UI_SPLASH_FRAME_INTERVAL_US 16667
+#define UI_SPLASH_CLEAR_COLOR RGBA8(0x00, 0x00, 0x00, 0xFF)
+#define UI_SCENE_CLEAR_COLOR RGBA8(0x40, 0x40, 0x40, 0xFF)

@@ -15,8 +15,8 @@
  * is render-thread-only.
  *
  * Lifecycle: there is no explicit deinit. Reloading fonts at runtime requires
- * calling ui_text_init() again followed by ui_text_prewarm() on the next
- * render pass.
+ * calling ui_text_init() again followed by ui_text_prewarm_next_face() until it
+ * returns 0, on a render pass.
  */
 
 #pragma once
@@ -35,36 +35,38 @@
  * @light:   Light font loaded by init_ui() (Roboto-Light.ttf), used by the SPEC
  *           faces T20/T28/T40.  May be NULL: those faces then draw in Regular.
  *
- * Must be called after fonts are loaded and before ui_text_prewarm().
+ * Must be called after fonts are loaded and before ui_text_prewarm_next_face().
  * Both pointers are borrowed — ownership remains with the caller.
  *
  * This function does NOT compute metrics or pre-warm the atlas — that is
- * intentionally deferred to ui_text_prewarm() because some FreeType/GXM
+ * intentionally deferred to ui_text_prewarm_next_face() because some FreeType/GXM
  * paths require an active render pass.  If either font pointer is NULL,
  * both metric computation and atlas prewarm are skipped.
  */
 void ui_text_init(vita2d_font *regular, vita2d_font *light);
 
 /**
- * ui_text_needs_prewarm() - True until ui_text_prewarm() has been called.
+ * ui_text_needs_prewarm() - True while at least one face is still to be baked.
  *
- * Use this flag in the first iteration of draw_ui() to schedule the warm-up
- * pass inside an active vita2d_start_drawing / vita2d_end_drawing pair.
+ * The start-up sequence (ui.c) bakes one face per splash frame while this is true.
  */
 int ui_text_needs_prewarm(void);
 
 /**
- * ui_text_prewarm() - Force-rasterize every face's glyphs.
+ * ui_text_prewarm_next_face() - Force-rasterize the glyphs of the next face.
  *
  * MUST be called from within a vita2d_start_drawing() / vita2d_end_drawing()
  * pair on the render thread so that texture uploads are committed.
  *
- * Bakes the charset for each face in the font that draws it, at alpha=0 and
+ * Bakes the charset of one face in the font that draws it, at alpha=0 and
  * off-screen coordinates so glyphs reach the atlas without appearing on screen.
- * Also measures per-face metrics (ascent, line-height) while inside the active
- * render pass.
+ * Also measures that face's metrics (ascent, line-height) while inside the
+ * active render pass.
+ *
+ * Returns 1 if more faces remain, 0 when the last one has been baked (or when
+ * ui_text_init() armed nothing).
  */
-void ui_text_prewarm(void);
+int ui_text_prewarm_next_face(void);
 
 /* ============================================================================
  * SPEC type faces (ui_theme.h: T14, T16, T20_REGULAR Regular; T20, T28, T40 Light)

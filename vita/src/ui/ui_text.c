@@ -124,7 +124,8 @@ static FaceMetrics s_metrics[UI_FACE_COUNT];
 
 static vita2d_font *s_font_regular = NULL;
 static vita2d_font *s_font_light = NULL;
-static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_init() */
+static int s_prewarm_needed = 0;    /* armed to 1 only after a successful ui_text_init() */
+static int s_prewarm_next_face = 0; /* next face ui_text_prewarm_next_face() will bake */
 
 /* ============================================================================
  * Internal Helpers
@@ -252,10 +253,10 @@ static int utf8_extract(const char **pp, char *out_buf) {
  * @light:   Light-weight font for the T20/T28/T40 faces.  If NULL the faces fall
  *           back to the regular font so the UI stays usable.
  *
- * Must be called after fonts are loaded and before ui_text_prewarm().
+ * Must be called after fonts are loaded and before ui_text_prewarm_next_face().
  * This function does NOT compute metrics — that is intentionally deferred to
- * ui_text_prewarm() because some FreeType/GXM paths require an active render
- * pass, which is guaranteed by the caller wrapping ui_text_prewarm() in
+ * ui_text_prewarm_next_face() because some FreeType/GXM paths require an active render
+ * pass, which is guaranteed by the caller wrapping ui_text_prewarm_next_face() in
  * vita2d_start_drawing / vita2d_end_drawing.
  *
  * Both pointers are borrowed — ownership remains with the caller.
@@ -263,6 +264,7 @@ static int utf8_extract(const char **pp, char *out_buf) {
 void ui_text_init(vita2d_font *regular, vita2d_font *light) {
   s_font_regular = regular;
   s_font_light = light;
+  s_prewarm_next_face = 0;
 
   if (!light)
     sceClibPrintf("[WARN] ui_text_init: Light font missing — T20/T28/T40 fall back to Regular\n");
@@ -279,7 +281,7 @@ void ui_text_init(vita2d_font *regular, vita2d_font *light) {
 }
 
 /**
- * ui_text_needs_prewarm() - Return 1 if ui_text_prewarm() has not yet run.
+ * ui_text_needs_prewarm() - Return 1 while at least one face is still to be baked.
  */
 int ui_text_needs_prewarm(void) {
   return s_prewarm_needed;
@@ -328,43 +330,40 @@ static void prewarm_one_face(vita2d_font *f, int pt_size) {
 }
 
 /**
- * ui_text_prewarm() - Rasterize every face's glyphs into the atlas.
+ * ui_text_prewarm_next_face() - Rasterize the glyphs of the next face into the atlas.
  *
  * Must be called from within an active vita2d_start_drawing() /
  * vita2d_end_drawing() pair on the render thread.  Draws each character
  * individually at UI_FONT_PREWARM_OFFSCREEN_Y with alpha=0 to trigger
  * FreeType rasterization and GPU atlas upload without visible output.
  *
- * Each face is baked in the font that draws it, so only the sizes the UI
- * actually uses occupy atlas memory.
- *
- * Metrics (ascent, line-height) are derived from s_font_regular only.
- * Roboto Regular and Roboto Light share the same UPM and ascender, so a single
- * canonical measurement per face is sufficient.
+ * The face is baked in the font that draws it, so only the sizes the UI
+ * actually uses occupy atlas memory.  Its metrics (ascent, line-height) are
+ * measured here rather than in ui_text_init() because some FreeType/GXM code
+ * paths rasterize internally and require an active render pass.  Metrics come
+ * from s_font_regular only: Roboto Regular and Roboto Light share the same UPM
+ * and ascender, so a single canonical measurement per face is sufficient.
  *
  * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
  * UTF-8 decoder sees the full codepoint.
+ *
+ * Returns 1 if more faces remain to be baked, 0 when this was the last one (or
+ * nothing is armed).
  */
-void ui_text_prewarm(void) {
-  int face;
+int ui_text_prewarm_next_face(void) {
+  if (!s_prewarm_needed)
+    return 0;
 
-  if (!s_font_regular) {
-    sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
-    return;
+  UiFace face = (UiFace)s_prewarm_next_face;
+  compute_metrics_for_face(s_font_regular, face);
+  prewarm_one_face(face_font(face, "ui_text_prewarm_next_face"), UI_FACE_TABLE[face].pt_size);
+
+  s_prewarm_next_face++;
+  if (s_prewarm_next_face >= UI_FACE_COUNT) {
+    s_prewarm_needed = 0;
+    return 0;
   }
-
-  /*
-   * Measure ascent and line-height here rather than in ui_text_init() because
-   * some FreeType/GXM code paths rasterize internally and require an active
-   * render pass; callers wrap this function in vita2d_start_drawing /
-   * vita2d_end_drawing, guaranteeing that context is present.
-   */
-  for (face = 0; face < UI_FACE_COUNT; face++) {
-    compute_metrics_for_face(s_font_regular, (UiFace)face);
-    prewarm_one_face(face_font((UiFace)face, "ui_text_prewarm"), UI_FACE_TABLE[face].pt_size);
-  }
-
-  s_prewarm_needed = 0;
+  return 1;
 }
 
 /* ============================================================================
