@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/redact.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 
 #include "config.h"
 #include "context.h"
@@ -50,6 +52,11 @@
 #define RESPONSE_CAP_BYTES (16 * 1024)
 #define AUTH_VERIFICATION_URL_MAX 1536
 #define PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
+/* How long a non-UI thread (the connect worker) waits for the startup refresh to be committed.
+ * The worker runs the OAuth POST (15 s curl timeout) and then the device-list fetch (10 s), so
+ * 30 s covers both plus the wait for the next main-loop frame. */
+#define BACKGROUND_REFRESH_WAIT_MAX_US (30ULL * 1000000ULL)
+#define BACKGROUND_REFRESH_WAIT_POLL_US (50ULL * 1000ULL)
 
 typedef struct {
   PsnAuthState state;
@@ -64,7 +71,9 @@ typedef struct {
    * successful code exchange, so a rejected token is retried once per app launch (GH #360). */
   bool refresh_token_rejected;
   /* The startup worker has a refresh in flight (GH #366); main thread only. */
-  bool background_refresh_in_flight;
+  volatile bool background_refresh_in_flight;
+  /* The thread that started the background refresh, i.e. the UI thread that commits it. */
+  SceUID ui_thread_id;
   /* Bumped when the stored grant is replaced or cleared, so a worker's late result for the old
    * grant is recognised and dropped. */
   uint32_t grant_generation;
@@ -1365,8 +1374,10 @@ PsnAuthRefreshPrep psn_auth_refresh_prepare(uint64_t now_unix, bool force, bool 
 
   LOGD("PSN auth refresh exchange url=%s redirect_uri=%s client_id=%s form_len=%u", req->url,
        oauth_redirect_uri(), req->client_id, (unsigned)strlen(req->form));
-  if (background)
+  if (background) {
+    g_psn_auth.ui_thread_id = sceKernelGetThreadId();
     g_psn_auth.background_refresh_in_flight = true;
+  }
   return PSN_AUTH_REFRESH_PREP_READY;
 }
 
@@ -1434,7 +1445,38 @@ uint32_t psn_auth_grant_generation(void) {
   return g_psn_auth.grant_generation;
 }
 
+/**
+ * wait_for_background_refresh() - Let the startup refresh finish before a refresh from a worker.
+ *
+ * The connect worker must not fail with "session expired" just because the startup refresh is
+ * still in flight; the UI thread commits it, then this caller re-runs the normal logic. The UI
+ * thread itself never waits (it is the one that commits).
+ *
+ * @return now_unix advanced by the time spent waiting
+ */
+static uint64_t wait_for_background_refresh(uint64_t now_unix) {
+  if (!g_psn_auth.background_refresh_in_flight ||
+      sceKernelGetThreadId() == g_psn_auth.ui_thread_id) {
+    return now_unix;
+  }
+  const uint64_t start_us = sceKernelGetProcessTimeWide();
+  uint64_t waited_us = 0;
+  while (g_psn_auth.background_refresh_in_flight && waited_us < BACKGROUND_REFRESH_WAIT_MAX_US) {
+    sceKernelDelayThread((SceUInt)BACKGROUND_REFRESH_WAIT_POLL_US);
+    waited_us = sceKernelGetProcessTimeWide() - start_us;
+  }
+  if (g_psn_auth.background_refresh_in_flight) {
+    LOGE("PSN auth: startup refresh still in flight after %llu ms; continuing without it",
+         (unsigned long long)(waited_us / 1000ULL));
+    return now_unix;
+  }
+  LOGD("PSN auth: waited %llu ms for the startup refresh to commit",
+       (unsigned long long)(waited_us / 1000ULL));
+  return now_unix + waited_us / 1000000ULL;
+}
+
 bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
+  now_unix = wait_for_background_refresh(now_unix);
   PsnAuthRefreshRequest req;
   switch (psn_auth_refresh_prepare(now_unix, force, false, &req)) {
     case PSN_AUTH_REFRESH_PREP_VALID:
