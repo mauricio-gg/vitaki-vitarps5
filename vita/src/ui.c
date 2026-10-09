@@ -82,8 +82,6 @@ vita2d_texture *img_ps4;
 
 // VitaRPS5 UI textures
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
-vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
-vita2d_texture *button_add_new;
 vita2d_texture *icon_play, *icon_settings;
 vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
@@ -192,10 +190,6 @@ void load_textures() {
   symbol_circle = ui_load_png_linear("app0:/assets/symbol_circle.png");
   symbol_ex = ui_load_png_linear("app0:/assets/symbol_ex.png");
   symbol_square = ui_load_png_linear("app0:/assets/symbol_square.png");
-  ellipse_green = ui_load_png_linear("app0:/assets/ellipse_green.png");
-  ellipse_yellow = ui_load_png_linear("app0:/assets/ellipse_yellow.png");
-  ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
-  button_add_new = ui_load_png_linear("app0:/assets/button_add_new.png");
 
   // Load the Home category icons
   icon_play = ui_load_png_linear("app0:/assets/icon_play.png");

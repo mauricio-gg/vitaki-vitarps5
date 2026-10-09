@@ -304,16 +304,9 @@ if(CHIAKI_IS_VITA)
         FILE assets/symbol_circle.png assets/symbol_circle.png
         FILE assets/symbol_ex.png assets/symbol_ex.png
         FILE assets/symbol_square.png assets/symbol_square.png
-        FILE assets/ellipse_green.png assets/ellipse_green.png
-        FILE assets/ellipse_yellow.png assets/ellipse_yellow.png
-        FILE assets/ellipse_red.png assets/ellipse_red.png
-        FILE assets/button_add_new.png assets/button_add_new.png
         # Navigation Icons
         FILE assets/icon_settings.png assets/icon_settings.png
-        FILE assets/icon_controller.png assets/icon_controller.png
-        FILE assets/icon_profile.png assets/icon_profile.png
         FILE assets/icon_play.png assets/icon_play.png
-        FILE assets/icon_button_triangle.png assets/icon_button_triangle.png
         # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
         FILE assets/icons/controller.png assets/icons/controller.png
         FILE assets/icons/profile.png assets/icons/profile.png
@@ -364,11 +357,9 @@ if(CHIAKI_IS_VITA)
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
         FILE assets/glyphs/hint_select.png assets/glyphs/hint_select.png
-        # Professional UI assets (gradient background, logo, controller diagrams)
-        FILE assets/background.png assets/background.png
+        # Logos
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
         FILE ../assets/psn-ca-bundle.pem assets/psn-ca-bundle.pem
-        # Controller layout screen now uses procedural rendering - PNG outlines removed
     )
 endif()

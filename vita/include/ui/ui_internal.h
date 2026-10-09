@@ -37,14 +37,10 @@ extern vita2d_texture *img_ps4;
 // UI symbols
 extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 
-// Status ellipses
-extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
-
 // Home category icons
 extern vita2d_texture *icon_play, *icon_settings;
 
 // Other UI textures
-extern vita2d_texture *button_add_new;
 extern vita2d_texture *vita_rps5_logo;
 extern vita2d_texture *ps5_logo;
 
