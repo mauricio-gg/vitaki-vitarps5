@@ -10,9 +10,9 @@
  * restarts from where each icon is now. visible[] and hit[] always hold the settled layout, so
  * a tap during a slide hits the icon where it will end up.
  *
- * A horizontal swipe that starts on the strip (UI_CAT_STRIP_Y, UI_CAT_STRIP_H, full width) moves
- * one category per UI_CAT_SWIPE_PX of finger travel from touch-down; swiping left is the next
- * category. Focus follows the finger with the same slide, clamped, no wrap.
+ * A swipe that starts anywhere on the screen and locks to the horizontal axis moves one category
+ * per UI_CAT_SWIPE_PX of finger travel from touch-down; swiping left is the next category.
+ * Focus follows the finger with the same slide, clamped, no wrap.
  */
 
 #pragma once
@@ -37,8 +37,8 @@ typedef struct ui_category_bar_t {
   float from_label[UI_CAT_COUNT];    ///< label opacity (0..1) when the slide started
 
   /* Horizontal swipe (SPEC C01). */
-  bool swipe_active;  ///< the current touch went down on the strip and may swipe the bar
-  int swipe_base;     ///< focus when that touch went down; the swipe moves relative to it
+  bool swipe_active;  ///< a horizontal swipe is under way and moves the bar
+  int swipe_base;     ///< focus when that swipe began; the swipe moves relative to it
 } UiCategoryBar;
 
 /**

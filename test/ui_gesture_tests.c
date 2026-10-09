@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
-// Native (non-Vita) tests for the pure touch gesture rules: tap, long-press, swipe and swipe step
-// counting. `./tools/build.sh test` only cross-compiles for arm-vita-eabi and never executes, so
-// run these natively:
+// Native (non-Vita) tests for the pure touch gesture rules: tap, long-press, swipe, swipe axis
+// lock and swipe step counting. `./tools/build.sh test` only cross-compiles for arm-vita-eabi and never
+// executes, so run these natively:
 //
 //   cc -std=c99 -Wall -Wextra -I vita/include \
 //      test/ui_gesture_tests.c vita/src/ui/ui_gesture.c -o /tmp/ui_gesture_tests && \
@@ -80,6 +80,27 @@ static void test_swipe_steps_truncate_toward_zero(void) {
   assert(ui_gesture_swipe_steps(-130.0f, 64) == -2);
 }
 
+/* catches: a sideways swipe with some vertical wobble locks to the vertical axis, so the list
+ * scrolls instead of the category changing. */
+static void test_mostly_horizontal_swipe_locks_horizontal(void) {
+  assert(ui_gesture_swipe_axis(-30.0f, 12.0f) == UI_GESTURE_AXIS_HORIZONTAL);
+  assert(ui_gesture_swipe_axis(30.0f, -12.0f) == UI_GESTURE_AXIS_HORIZONTAL);
+}
+
+/* catches: an up or down swipe with some sideways drift locks to the horizontal axis, so the
+ * category changes instead of the list scrolling. */
+static void test_mostly_vertical_swipe_locks_vertical(void) {
+  assert(ui_gesture_swipe_axis(10.0f, -40.0f) == UI_GESTURE_AXIS_VERTICAL);
+  assert(ui_gesture_swipe_axis(-10.0f, 40.0f) == UI_GESTURE_AXIS_VERTICAL);
+}
+
+/* catches: a perfect diagonal has no answer (or answers differently from frame to frame), so one
+ * touch could move both the category and the list. */
+static void test_diagonal_swipe_picks_exactly_one_axis(void) {
+  assert(ui_gesture_swipe_axis(20.0f, 20.0f) == UI_GESTURE_AXIS_VERTICAL);
+  assert(ui_gesture_swipe_axis(-20.0f, 20.0f) == UI_GESTURE_AXIS_VERTICAL);
+}
+
 int main(void) {
   test_quick_still_touch_is_a_tap();
   test_hold_fires_long_press_once();
@@ -89,6 +110,9 @@ int main(void) {
   test_nine_px_move_is_a_swipe_never_a_tap_or_long_press();
   test_eight_px_move_is_still_a_tap();
   test_swipe_steps_truncate_toward_zero();
+  test_mostly_horizontal_swipe_locks_horizontal();
+  test_mostly_vertical_swipe_locks_vertical();
+  test_diagonal_swipe_picks_exactly_one_axis();
   puts("ui_gesture_tests: all passed");
   return 0;
 }

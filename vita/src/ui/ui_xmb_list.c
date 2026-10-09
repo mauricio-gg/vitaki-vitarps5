@@ -242,27 +242,20 @@ void ui_xmb_list_draw(const UiXmbList *list) {
 }
 
 /**
- * follow_swipe() - Follow a vertical swipe that began on the list: focus = the focus at
- * touch-down + whole rows of finger travel (finger up = next row), clamped, no wrap.
+ * follow_swipe() - Follow a vertical swipe: focus = the focus when the swipe began + whole rows
+ * of finger travel (finger up = next row), clamped, no wrap. The swipe may start anywhere on the
+ * screen; it counts only when it locked to the vertical axis.
  * @return UI_EVENT_MOVED when the focus changed.
  */
 static UiEvent follow_swipe(UiXmbList *list, const UiTouch *touch) {
-  if (touch->pressed) {
-    /* The strip overlaps the top of the viewport; a touch that starts there is the category
-     * swipe's. */
-    const bool in_strip = touch->y < (float)(UI_CAT_STRIP_Y + UI_CAT_STRIP_H);
-    const UiRect viewport = {UI_LIST_X, UI_LIST_Y, UI_LIST_W, UI_LIST_H};
-    list->swipe_active = !in_strip && ui_rect_contains(viewport, touch->x, touch->y);
-    list->swipe_base = list->focus;
-  }
-  if (!list->swipe_active)
-    return UI_EVENT_NONE;
-  if (!touch->down) {
+  if (!touch->down || touch->swipe_axis != UI_GESTURE_AXIS_VERTICAL) {
     list->swipe_active = false;
     return UI_EVENT_NONE;
   }
-  if (!touch->dragged)
-    return UI_EVENT_NONE;
+  if (!list->swipe_active) {
+    list->swipe_active = true;
+    list->swipe_base = list->focus;
+  }
   const int target =
       clamp_focus(list, list->swipe_base + ui_gesture_swipe_steps(-touch->dy, UI_LIST_ROW_H));
   if (target == list->focus)

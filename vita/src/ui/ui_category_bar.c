@@ -131,24 +131,20 @@ void ui_category_bar_draw(const UiCategoryBar *bar) {
 }
 
 /**
- * swipe_target() - Category a horizontal swipe on the strip points at: the focus at touch-down
- * plus whole steps of finger travel (swipe left = next), clamped. Returns the current focus when
- * no swipe is under way.
+ * swipe_target() - Category a horizontal swipe points at: the focus when the swipe began plus
+ * whole steps of finger travel (swipe left = next), clamped. The swipe may start anywhere on the
+ * screen; it counts only when it locked to the horizontal axis. Returns the current focus when
+ * no such swipe is under way.
  */
 static int swipe_target(UiCategoryBar *bar, const UiTouch *touch) {
-  if (touch->pressed) {
-    bar->swipe_active =
-        touch->y >= (float)UI_CAT_STRIP_Y && touch->y < (float)(UI_CAT_STRIP_Y + UI_CAT_STRIP_H);
-    bar->swipe_base = bar->focus;
-  }
-  if (!bar->swipe_active)
-    return bar->focus;
-  if (!touch->down) {
+  if (!touch->down || touch->swipe_axis != UI_GESTURE_AXIS_HORIZONTAL) {
     bar->swipe_active = false;
     return bar->focus;
   }
-  if (!touch->dragged)
-    return bar->focus;
+  if (!bar->swipe_active) {
+    bar->swipe_active = true;
+    bar->swipe_base = bar->focus;
+  }
   const int target = bar->swipe_base + ui_gesture_swipe_steps(-touch->dx, UI_CAT_SWIPE_PX);
   return target < 0 ? 0 : (target >= UI_CAT_COUNT ? UI_CAT_COUNT - 1 : target);
 }

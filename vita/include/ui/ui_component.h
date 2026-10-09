@@ -20,6 +20,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ui/ui_gesture.h"
+
 /* ============================================================================
  * Geometry
  * ============================================================================ */
@@ -128,6 +130,8 @@ typedef struct ui_touch_t {
   bool consumed;   /**< a screen acted on this touch (ui_input_consume_touch()); never a tap */
   float dx;        /**< movement since touch-down */
   float dy;
+  UiGestureAxis swipe_axis; /**< axis the swipe locked to when it began, until the finger lifts;
+                                 UI_GESTURE_AXIS_NONE before the touch becomes a swipe */
 } UiTouch;
 
 /** One per-frame input snapshot, built once at the top of the UI frame. */

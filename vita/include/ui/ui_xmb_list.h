@@ -55,8 +55,8 @@ typedef struct ui_xmb_list_t {
   uint64_t cascade_start_us;            ///< start of the cascade-in
 
   /* Vertical swipe (SPEC C02): one row per UI_LIST_ROW_H of finger travel from touch-down. */
-  bool swipe_active;  ///< the current touch went down on the list and may swipe it
-  int swipe_base;     ///< focus when that touch went down; the swipe moves relative to it
+  bool swipe_active;  ///< a vertical swipe is under way and moves the list
+  int swipe_base;     ///< focus when that swipe began; the swipe moves relative to it
 } UiXmbList;
 
 /** ui_xmb_list_init() - Empty list with focus 0. */
@@ -82,9 +82,8 @@ void ui_xmb_list_draw(const UiXmbList *list);
 
 /**
  * ui_xmb_list_input() - Up/Down move (no wrap), Confirm activates, taps focus or activate, and a
- * vertical swipe that starts on the list moves one row per UI_LIST_ROW_H (finger up = next row).
- * A touch that goes down inside the category strip (it overlaps the top of the viewport) belongs
- * to the category swipe and never swipes the list.
+ * swipe that starts anywhere on the screen and locks to the vertical axis moves one row per
+ * UI_LIST_ROW_H (finger up = next row). A horizontal swipe never moves the list.
  * @return UI_EVENT_MOVED when the focus changed, UI_EVENT_ACTIVATED on Confirm or a tap on
  *         the focused row, otherwise UI_EVENT_NONE. A tap on another row only focuses it.
  */
