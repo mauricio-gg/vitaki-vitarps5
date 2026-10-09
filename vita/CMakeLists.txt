@@ -10,6 +10,7 @@ endif()
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
+    src/config_writer.c
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c

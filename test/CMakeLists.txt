@@ -4,6 +4,7 @@ add_executable(vitarps5_tests
     packet_path_tests.c
     json_escape_tests.c
     ../vita/src/config.c
+    ../vita/src/config_writer.c
     ../vita/src/config_migration.c
     ../vita/src/config_values.c
     ../vita/src/config_hosts.c
@@ -284,3 +285,27 @@ target_include_directories(ui_splash_particles_tests PRIVATE
 target_link_libraries(ui_splash_particles_tests m)
 
 add_test(NAME vitarps5_ui_splash_particles_tests COMMAND ui_splash_particles_tests)
+
+# config_writer_tests.c checks the config writer's ordering and its failure reporting. Standalone
+# binary with its own main(); run natively (see the file header).
+add_executable(config_writer_tests
+    config_writer_tests.c
+    ../vita/src/config_writer.c
+    ../lib/src/thread.c
+    ../lib/src/time.c
+)
+
+target_include_directories(config_writer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
+    ${CMAKE_SOURCE_DIR}/lib/src
+)
+
+target_compile_definitions(config_writer_tests PRIVATE
+    CFG_FILENAME="${CMAKE_CURRENT_BINARY_DIR}/config_writer_test.toml"
+)
+
+target_link_libraries(config_writer_tests Threads::Threads)
+
+add_test(NAME vitarps5_config_writer_tests COMMAND config_writer_tests)

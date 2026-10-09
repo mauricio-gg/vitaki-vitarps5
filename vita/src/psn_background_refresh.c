@@ -86,10 +86,10 @@ static uint64_t now_us(void) {
   return sceKernelGetProcessTimeWide();
 }
 
-/** save_config() - Write the config and clear the pending-persist flag, logging a failure. */
-static void save_config(const char *why) {
-  if (!config_serialize(&context.config))
-    CHIAKI_LOGW(&(context.log), "PSN background refresh: failed to persist config (%s)", why);
+/** save_config() - Queue a config save (the writer thread logs a failed write) and clear the
+ * pending-persist flag. */
+static void save_config(void) {
+  config_serialize_async(&context.config);
   context.config_persist_pending = false;
 }
 
@@ -162,7 +162,7 @@ static bool run_synchronously(PsnRefreshOrigin origin) {
   /* Drain any token refresh that happened but didn't persist (e.g. host fetch failed after a
    * successful token refresh). */
   if (context.config_persist_pending)
-    save_config("synchronous fallback");
+    save_config();
   return hosts_ok;
 }
 
@@ -307,7 +307,7 @@ void psn_background_refresh_poll(void) {
     }
     /* One save covers the new token and the new host list. */
     if (hosts_applied || context.config_persist_pending)
-      save_config("commit");
+      save_config();
     if (hosts_applied)
       ui_cards_update_cache(true);
   }

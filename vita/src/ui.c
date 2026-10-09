@@ -688,8 +688,7 @@ void draw_ui() {
      * so draining it here — outside the 60s gate — ensures a power-cycle right after
      * any refresh still saves the new token. */
     if (!context.stream.is_streaming && context.config_persist_pending) {
-      if (!config_serialize(&context.config))
-        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token");
+      config_serialize_async(&context.config);
       context.config_persist_pending = false;
     }
 

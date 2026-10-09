@@ -7,6 +7,7 @@
 #include "config.h"
 #include "config_internal.h"
 #include "config_hosts.h"
+#include "config_writer.h"
 #include "context.h"
 #include "host.h"
 #include "room_icons.h"
@@ -503,6 +504,7 @@ static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrat
 }
 
 void config_parse(VitaChiakiConfig *cfg) {
+  config_writer_init(CFG_FILENAME);
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
@@ -607,17 +609,23 @@ void config_free(VitaChiakiConfig *cfg) {
   free(cfg);
 }
 
-/** Writes the whole config file; config_serialize() wraps it so every caller gets timed. */
-static bool config_write_file(VitaChiakiConfig *cfg) {
+/**
+ * Formats the whole config file into a malloc'ed buffer; the caller hands it to the config writer.
+ * Reads @p cfg, so it runs on the thread that owns the config. On success @p out_data / @p out_len
+ * hold the file contents (not NUL-terminated by contract) and the caller owns the buffer.
+ */
+static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *out_len) {
   bool downgraded_resolution = false;
   cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
   if (downgraded_resolution) {
     LOGD("Refusing to persist unsupported resolution on Vita; saving 540p instead");
   }
 
-  FILE *fp = fopen(CFG_FILENAME, "w");
+  char *data = NULL;
+  size_t len = 0;
+  FILE *fp = open_memstream(&data, &len);
   if (!fp) {
-    LOGE("Failed to open %s for writing", CFG_FILENAME);
+    LOGE("Failed to format %s in memory", CFG_FILENAME);
     return false;
   }
   fprintf(fp, "[general]\nversion = 1\n");
@@ -768,17 +776,40 @@ static bool config_write_file(VitaChiakiConfig *cfg) {
   config_serialize_manual_hosts(fp, cfg);
   config_serialize_registered_hosts(fp, cfg);
   room_icons_serialize(fp, &cfg->room_icons);
-  bool write_ok = (ferror(fp) == 0) && (fclose(fp) == 0);
-  if (!write_ok) {
-    LOGE("Failed to flush %s", CFG_FILENAME);
+  const bool format_ok = (ferror(fp) == 0);
+  /* fclose() finalizes data/len for a memory stream, so it is needed even after an error. */
+  if (fclose(fp) != 0 || !format_ok) {
+    LOGE("Failed to format %s in memory", CFG_FILENAME);
+    free(data);
     return false;
   }
+  *out_data = data;
+  *out_len = len;
   return true;
 }
 
-bool config_serialize(VitaChiakiConfig *cfg) {
+/** Formats and hands the file to the config writer; @p wait is documented in config_writer.h. */
+static bool config_save(VitaChiakiConfig *cfg, bool wait) {
   const uint64_t start_us = UI_WORK_START();
-  const bool ok = config_write_file(cfg);
+  char *data = NULL;
+  size_t len = 0;
+  bool ok = config_format_file(cfg, &data, &len);
+  if (ok) {
+#if VITARPS5_DEBUG_TOOLS
+    const uint64_t format_us = ui_draw_stats_now_us() - start_us;
+#else
+    const uint64_t format_us = 0;
+#endif
+    ok = config_writer_submit(data, len, format_us, wait);
+  }
   UI_WORK_NOTE("config_save", start_us);
   return ok;
+}
+
+bool config_serialize(VitaChiakiConfig *cfg) {
+  return config_save(cfg, true);
+}
+
+void config_serialize_async(VitaChiakiConfig *cfg) {
+  (void)config_save(cfg, false);
 }
