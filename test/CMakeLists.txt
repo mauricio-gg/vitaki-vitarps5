@@ -259,8 +259,8 @@ target_include_directories(psn_auth_rules_tests PRIVATE
 add_test(NAME vitarps5_psn_auth_rules_tests COMMAND psn_auth_rules_tests)
 
 # redact_tests.c has its own main() and tests lib/src/redact.c (credentials in log output keep
-# only their first 4 characters, GH #361). Cross-compiled but never run by ./tools/build.sh test;
-# the native command is at the top of the file.
+# only their first 4 characters, GH #361). ./tools/build.sh test neither builds nor runs it; the
+# native cc command at the top of redact_tests.c is how it is run.
 add_executable(redact_tests redact_tests.c ../lib/src/redact.c)
 
 target_include_directories(redact_tests PRIVATE
