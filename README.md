@@ -17,11 +17,11 @@ VitaRPS5 is a Remote Play client for the PS Vita and PS TV. It streams games fro
 ## Screenshots
 
 <div align="center">
-  <img src="docs/screenshots/main_screen.png" alt="Main Screen" width="45%"/>
-  <img src="docs/screenshots/main_sidebar.png" alt="Main Screen with Sidebar" width="45%"/>
-  <img src="docs/screenshots/profile_screen.png" alt="Profile & Connection" width="45%"/>
-  <img src="docs/screenshots/connect_via.png" alt="Connect via Popup" width="45%"/>
-  <img src="docs/screenshots/controller_screen.png" alt="Controller Mapping" width="45%"/>
+  <img src="docs/screenshots/home_controller.png" alt="Home menu with the Controller category" width="45%"/>
+  <img src="docs/screenshots/controller_front.png" alt="Controller mapping: front touch zones" width="45%"/>
+  <img src="docs/screenshots/controller_rear.png" alt="Controller mapping: rear touch zones" width="45%"/>
+  <img src="docs/screenshots/profile_psn.png" alt="Profile: PlayStation Network sign-in" width="45%"/>
+  <img src="docs/screenshots/settings_video.png" alt="Settings: video" width="45%"/>
 </div>
 
 ## Features
