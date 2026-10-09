@@ -156,11 +156,20 @@ static vita2d_texture *glyph_texture(uint32_t action) {
   }
 }
 
-/** Drawn width of @tex scaled to UI_HINT_GLYPH_H high; 0 for NULL. */
+/** Drawn height of @tex: the four face symbols are baked at UI_FACE_GLYPH_H and drawn 1:1; every
+ * other glyph is scaled to UI_HINT_GLYPH_H. */
+static int glyph_height(const vita2d_texture *tex) {
+  const bool face =
+      tex == symbol_ex || tex == symbol_circle || tex == symbol_square || tex == symbol_triangle;
+  return face ? UI_FACE_GLYPH_H : UI_HINT_GLYPH_H;
+}
+
+/** Drawn width of @tex at its glyph_height(); 0 for NULL. */
 static int glyph_width(const vita2d_texture *tex) {
   if (!tex)
     return 0;
-  return (int)vita2d_texture_get_width(tex) * UI_HINT_GLYPH_H / (int)vita2d_texture_get_height(tex);
+  return (int)vita2d_texture_get_width(tex) * glyph_height(tex) /
+         (int)vita2d_texture_get_height(tex);
 }
 
 /** Width of the glyph (or glyph pair) of @action; 0 when it has none. */
@@ -209,17 +218,22 @@ void ui_hint_row_layout(UiHintLayout *layout, const UiHintItem *items, int count
     const int n = layout->count++;
     layout->items[n] = items[i];
     layout->x[n] = x;
-    layout->hit[n] = (UiRect){x, UI_HINT_Y, widths[i], UI_HINT_H};
+    /* The hit rect reaches half the gap past the hint on each side, so a narrow glyph never
+     * shrinks the tap target and neighbouring targets meet without overlapping. */
+    layout->hit[n] = (UiRect){x - UI_HINT_GAP / 2, UI_HINT_Y, widths[i] + UI_HINT_GAP, UI_HINT_H};
     x += widths[i] + UI_HINT_GAP;
   }
 }
 
-/** Draw @tex scaled to UI_HINT_GLYPH_H high at (@x, @y) with @tint. */
-static void draw_glyph(vita2d_texture *tex, int x, int y, uint32_t tint) {
+/** Draw @tex at its glyph_height(), vertically centred in the @h high band starting at @top, at
+ * column @x with @tint. */
+static void draw_glyph(vita2d_texture *tex, int x, int top, int h, uint32_t tint) {
   if (!tex)
     return;
-  const float scale = (float)UI_HINT_GLYPH_H / (float)vita2d_texture_get_height(tex);
-  vita2d_draw_texture_tint_scale(tex, (float)x, (float)y, scale, scale, tint);
+  const int glyph_h = glyph_height(tex);
+  const float scale = (float)glyph_h / (float)vita2d_texture_get_height(tex);
+  vita2d_draw_texture_tint_scale(tex, (float)x, (float)(top + (h - glyph_h) / 2), scale, scale,
+                                 tint);
 }
 
 int ui_hint_row_glyph_width(uint32_t action) {
@@ -227,12 +241,10 @@ int ui_hint_row_glyph_width(uint32_t action) {
 }
 
 void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint) {
-  draw_glyph(glyph_texture(action), x, y + (h - UI_HINT_GLYPH_H) / 2, ui_layer_color(tint));
+  draw_glyph(glyph_texture(action), x, y, h, ui_layer_color(tint));
 }
 
 void ui_hint_row_draw(const UiHintLayout *layout) {
-  const int glyph_y = UI_HINT_Y + (UI_HINT_H - UI_HINT_GLYPH_H) / 2;
-
   for (int i = 0; i < layout->count; i++) {
     const UiHintItem *item = &layout->items[i];
     const float k = item->dim ? (float)UI_HINT_DIM_PCT / 100.0f : 1.0f;
@@ -240,12 +252,12 @@ void ui_hint_row_draw(const UiHintLayout *layout) {
     int x = layout->x[i];
 
     if (item->action == (UI_BTN_L | UI_BTN_R)) {
-      draw_glyph(s_badge_l, x, glyph_y, tint);
+      draw_glyph(s_badge_l, x, UI_HINT_Y, UI_HINT_H, tint);
       x += glyph_width(s_badge_l) + UI_HINT_LR_GAP;
-      draw_glyph(s_badge_r, x, glyph_y, tint);
+      draw_glyph(s_badge_r, x, UI_HINT_Y, UI_HINT_H, tint);
       x += glyph_width(s_badge_r) + UI_HINT_GLYPH_GAP;
     } else if (glyph_texture(item->action)) {
-      draw_glyph(glyph_texture(item->action), x, glyph_y, tint);
+      draw_glyph(glyph_texture(item->action), x, UI_HINT_Y, UI_HINT_H, tint);
       x += glyph_width(glyph_texture(item->action)) + UI_HINT_GLYPH_GAP;
     }
     ui_text_draw_face_centered_v(UI_FACE_T14, x, UI_HINT_Y, UI_HINT_H,

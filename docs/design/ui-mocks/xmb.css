@@ -57,7 +57,7 @@ button{font-family:inherit}
 .g{height:24px;width:auto;display:block;flex:none}
 img.g{height:24px}
 .gs{display:inline-block;height:24px;vertical-align:middle}
-.inl{height:20px;vertical-align:-5px;margin:0 2px}
+.inl{height:16px;vertical-align:-3px;margin:0 2px}
 
 /* C19 Pill: overlay pill, badge, banner. h32, pad 16, square */
 .pill{display:inline-flex;align-items:center;gap:var(--s1);height:32px;padding:0 var(--s2);background:var(--hud);font-size:var(--t16);font-weight:var(--w-reg);color:var(--text);white-space:nowrap}
@@ -322,7 +322,8 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 /* ---- round 7: radius tokens (R_SM 8, R_MD 16, R_PILL), hint row T14 centred, error and retry statuses ---- */
 .hintrow{font-size:var(--t14)}
 .hintrow .hl{justify-content:center;gap:var(--s3)}
-.hintrow .g,.hintrow img.g{height:20px;width:auto}
+.hintrow .g{height:20px;width:auto}
+.hintrow img.g{height:16px;width:auto}
 .pill{border-radius:var(--r-pill)}
 .pill.warn{border-left:0;box-shadow:inset 0 0 0 var(--lw1) var(--warn)}
 .oi{border-bottom:0;border-radius:var(--r-sm);padding:0 var(--s2);margin-bottom:4px}
