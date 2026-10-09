@@ -106,6 +106,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_list_popup.c
     src/ui/ui_result_popup.c
     src/ui/ui_pair_hosts.c
+    src/ui/ui_pair_ip.c
     src/ui/ui_pair_popup.c
     src/ui/ui_pin.c
     src/ui/ui_pin_field.c

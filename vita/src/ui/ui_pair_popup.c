@@ -81,16 +81,6 @@ void ui_pair_popup_init(void) {
  * Rows
  * ============================================================================ */
 
-/**
- * ui_pair_popup_enter_ip_address() - Run Enter IP address (Confirm or a tap on the pinned row).
- *
- * Hook for a later slice of #330: it will close the popup and open the "Console IP address"
- * keyboard. Until then it only logs, and the popup stays as it is.
- */
-static void ui_pair_popup_enter_ip_address(void) {
-  LOGD("Pair popup: Enter IP address chosen (not wired yet)");
-}
-
 /** The console the viewport shows first: the reference console kept near the middle. */
 static int first_visible(void) {
   int first = s_scroll_ref - UI_PAIR_VISIBLE_ROWS / 2 + 1;
@@ -254,18 +244,15 @@ UiPairPopupResult ui_pair_popup_input(const UiInput *in, VitaChiakiHost **chosen
   move_focus(in);
 
   if (in->pressed & UI_BTN_CONFIRM) {
-    if (s_on_pinned) {
-      ui_pair_popup_enter_ip_address();
-      return UI_PAIR_POPUP_NONE;
-    }
+    if (s_on_pinned)
+      return UI_PAIR_POPUP_ENTER_IP;
     *chosen = s_rows[s_focus].host;
     return UI_PAIR_POPUP_PAIR;
   }
   if (ui_touch_tap(in)) {
     if (ui_rect_contains(s_pinned, in->touch.x, in->touch.y)) {
       s_on_pinned = true;
-      ui_pair_popup_enter_ip_address();
-      return UI_PAIR_POPUP_NONE;
+      return UI_PAIR_POPUP_ENTER_IP;
     }
     const int row = row_at(in->touch.x, in->touch.y);
     if (row >= 0) {

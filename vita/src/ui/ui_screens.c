@@ -36,6 +36,7 @@
 #include "ui/ui_graphics.h"
 #include "ui/ui_text.h"
 #include "ui/ui_home.h"
+#include "ui/ui_pin.h"
 
 // ============================================================================
 // Constants (use definitions from ui_constants.h via ui_internal.h)
@@ -196,6 +197,23 @@ UIScreenType ui_screens_pair_host(VitaChiakiHost *host) {
     return UI_SCREEN_TYPE_MAIN;
 
   LOGD("Pairing console: %s", host->hostname);
+  context.active_host = host;
+  return UI_SCREEN_TYPE_REGISTER_HOST;
+}
+
+/**
+ * ui_screens_pair_probed_host() - Send the user to the PIN screen for a console found by the IP
+ * probe. A console that is already paired (the host carries REGISTERED) is a re-pair: the same
+ * screen, no confirm popup. The PIN screen takes ownership of @host.
+ *
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or MAIN when @host is NULL
+ */
+UIScreenType ui_screens_pair_probed_host(VitaChiakiHost *host) {
+  if (!host)
+    return UI_SCREEN_TYPE_MAIN;
+
+  LOGD("Pairing probed console: %s (%s)", host->display_name, host->hostname);
+  ui_pin_adopt_probed_host(host);
   context.active_host = host;
   return UI_SCREEN_TYPE_REGISTER_HOST;
 }

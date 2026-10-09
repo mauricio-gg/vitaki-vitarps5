@@ -28,6 +28,7 @@
 typedef enum ui_pair_popup_result_t {
   UI_PAIR_POPUP_NONE = 0,  ///< stay open
   UI_PAIR_POPUP_PAIR,      ///< a console was chosen: see the host out-parameter; popup still open
+  UI_PAIR_POPUP_ENTER_IP,  ///< Enter IP address was chosen; popup still open
   UI_PAIR_POPUP_CLOSE,     ///< Circle or a tap outside the card; popup still open
 } UiPairPopupResult;
 
@@ -55,7 +56,7 @@ bool ui_pair_popup_is_open(void);
  *
  * Up and Down move through the consoles and then Enter IP address (no wrap); Confirm or a tap
  * acts on a row; a vertical swipe over the viewport scrolls it one row per UI_ROW_SWIPE_PX and
- * the focus follows. Confirm or a tap on Enter IP address runs ui_pair_popup_enter_ip_address().
+ * the focus follows. Confirm or a tap on Enter IP address returns UI_PAIR_POPUP_ENTER_IP.
  * The list is refreshed from discovery first.
  */
 UiPairPopupResult ui_pair_popup_input(const UiInput *in, VitaChiakiHost **chosen);

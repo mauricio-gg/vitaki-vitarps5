@@ -64,7 +64,8 @@ VitaChiakiHost *discovery_probe_take_host(void);
 /**
  * Releases a host obtained from discovery_probe_take_host() that was NOT stored by a
  * successful registration. Clears context.active_host if it points at it. Call only when no
- * registration is running on it. NULL is ignored.
+ * registration is running on it. NULL is ignored. A host the registered-host table holds (a
+ * registration stored it, then failed to persist) is left alone: the table owns it.
  */
 void discovery_probe_free_host(VitaChiakiHost *host);
 
@@ -72,8 +73,11 @@ void discovery_probe_free_host(VitaChiakiHost *host);
  * Call after a registration through the probe path succeeded: saves the typed address as a
  * manual host with save_manual_host(), so a console that broadcast cannot see appears on Home.
  * Used for new pairs and re-pairs alike (a duplicate address for the same console is skipped
- * by save_manual_host()).
+ * by save_manual_host()). When broadcast discovery already lists the console, that entry gets
+ * the new credentials too, so it shows as paired at once.
  *
  * @param host  The host from discovery_probe_take_host(), now registered.
+ * @return the context.hosts entry that now stands for the console, for Home to focus; NULL when
+ *         there is none.
  */
-void discovery_probe_save_manual_host(VitaChiakiHost *host);
+VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host);

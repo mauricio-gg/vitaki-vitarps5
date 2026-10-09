@@ -308,19 +308,68 @@ VitaChiakiHost *discovery_probe_take_host(void) {
   return host;
 }
 
+/* True when the registered-host table holds @host, so the table owns it. */
+static bool table_holds(const VitaChiakiHost *host) {
+  for (size_t i = 0; i < context.config.num_registered_hosts; i++) {
+    if (context.config.registered_hosts[i] == host)
+      return true;
+  }
+  return false;
+}
+
 void discovery_probe_free_host(VitaChiakiHost *host) {
   if (!host)
     return;
+  if (table_holds(host)) {
+    CHIAKI_LOGW(&(context.log), "Discovery probe %s: host is in the registered table; kept",
+                host->hostname);
+    return;
+  }
   if (context.active_host == host)
     context.active_host = NULL;
   host_free(host);
   free(host);
 }
 
-void discovery_probe_save_manual_host(VitaChiakiHost *host) {
+/* Gives the discovered entry of the same console (if broadcast discovery already lists it) the
+ * credentials of the new registration, as discovery.c does on its next reply, so Home lists the
+ * console as paired at once. Returns that entry, or NULL. */
+static VitaChiakiHost *sync_discovered_entry(VitaChiakiHost *host) {
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+    VitaChiakiHost *entry = context.hosts[i];
+    if (!entry || !(entry->type & DISCOVERED) || entry == host ||
+        !mac_addrs_match(&(entry->server_mac), &(host->server_mac)))
+      continue;
+    ChiakiRegisteredHost *state = calloc(1, sizeof(*state));
+    if (!state || !host->registered_state) {
+      CHIAKI_LOGE(&(context.log), "Discovery probe: could not copy credentials to %s",
+                  entry->hostname);
+      free(state);
+      return entry;
+    }
+    copy_host_registered_state(state, host->registered_state);
+    free(entry->registered_state);
+    entry->registered_state = state;
+    entry->type |= REGISTERED;
+    return entry;
+  }
+  return NULL;
+}
+
+VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host) {
   if (!host || !host->hostname[0]) {
     CHIAKI_LOGE(&(context.log), "Discovery probe: no host to save as a manual host");
-    return;
+    return NULL;
   }
   save_manual_host(host, host->hostname);
+  VitaChiakiHost *entry = sync_discovered_entry(host);
+  if (entry)
+    return entry;
+  for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {
+    entry = context.hosts[i];
+    if (entry && (entry->type & MANUALLY_ADDED) &&
+        mac_addrs_match(&(entry->server_mac), &(host->server_mac)))
+      return entry;
+  }
+  return NULL;
 }

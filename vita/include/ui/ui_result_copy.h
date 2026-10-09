@@ -56,3 +56,23 @@ bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, cha
  */
 bool ui_result_copy_connect_failed(const char *name, const char *reason, bool can_retry, char *body,
                                    size_t body_size, UiResultCopy *out);
+
+/** Why the Enter IP address flow could not start pairing. */
+typedef enum ui_pair_ip_failure_t {
+  UI_PAIR_IP_NOT_AN_ADDRESS,  ///< the typed text is not four numbers 0 to 255 with dots
+  UI_PAIR_IP_NOT_FOUND,       ///< nothing answered the probe (or it could not run)
+} UiPairIpFailure;
+
+/**
+ * ui_result_copy_pair_ip() - Popup copy for a failed Enter IP address attempt (SPEC 3.1a).
+ * @failure:   What went wrong.
+ * @ip:        The address that was probed, shown in the "not found" body; required for
+ *             UI_PAIR_IP_NOT_FOUND, ignored otherwise.
+ * @body:      Receives the body text, always terminated, truncated to fit.
+ * @body_size: Size of @body in bytes.
+ * @out:       Receives tone (ERR), title and buttons (Close, Try again).
+ *
+ * Returns false when the arguments are unusable; @body is then set to "" when it can be.
+ */
+bool ui_result_copy_pair_ip(UiPairIpFailure failure, const char *ip, char *body, size_t body_size,
+                            UiResultCopy *out);

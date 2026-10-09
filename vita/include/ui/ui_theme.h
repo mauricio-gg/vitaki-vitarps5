@@ -462,6 +462,10 @@ typedef enum ui_face_t {
 #define UI_PAIR_CHEVRON_STROKE 2.0f
 /** Space between a row's label and its right label when the label is cut to fit. */
 #define UI_PAIR_LABEL_GAP UI_S2
+/** "Looking for console" popup (ui_pair_ip.c): its spinner is centred this far from the content
+ * edge, and its "Contacting the console..." line starts here. */
+#define UI_PAIR_LOOKING_SPINNER_CX UI_S1
+#define UI_PAIR_LOOKING_TEXT_X UI_S3
 
 /* The background freeze (ui_freeze.c): a half-resolution copy of the screen behind a popup. */
 #define UI_FREEZE_W 480

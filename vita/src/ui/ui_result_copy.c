@@ -12,6 +12,11 @@
 #define UI_RESULT_TITLE_PAIR_FAILED "Pairing failed"
 #define UI_RESULT_FALLBACK_REASON "Connection failed"
 #define UI_RESULT_TITLE_CONNECT_FAILED "Could not connect"
+#define UI_RESULT_TITLE_NOT_AN_ADDRESS "Not an IP address"
+#define UI_RESULT_BODY_NOT_AN_ADDRESS "Use four numbers separated by dots, like 192.168.1.20."
+#define UI_RESULT_TITLE_NOT_FOUND "Console not found"
+#define UI_RESULT_BODY_NOT_FOUND \
+  "Nothing answered at %s. Check the address, and that the console is on and on the same network."
 #define UI_RESULT_BUTTON_OK "OK"
 #define UI_RESULT_BUTTON_CLOSE "Close"
 #define UI_RESULT_BUTTON_RETRY "Try again"
@@ -84,5 +89,29 @@ bool ui_result_copy_connect_failed(const char *name, const char *reason, bool ca
     out->button_count = 2;
   }
   out->primary_button = out->button_count - 1;
+  return true;
+}
+
+bool ui_result_copy_pair_ip(UiPairIpFailure failure, const char *ip, char *body, size_t body_size,
+                            UiResultCopy *out) {
+  if (!body || body_size == 0 || !out)
+    return false;
+  body[0] = '\0';
+
+  if (failure == UI_PAIR_IP_NOT_AN_ADDRESS) {
+    out->title = UI_RESULT_TITLE_NOT_AN_ADDRESS;
+    snprintf(body, body_size, "%s", UI_RESULT_BODY_NOT_AN_ADDRESS);
+  } else if (failure == UI_PAIR_IP_NOT_FOUND && ip && ip[0]) {
+    out->title = UI_RESULT_TITLE_NOT_FOUND;
+    snprintf(body, body_size, UI_RESULT_BODY_NOT_FOUND, ip);
+  } else {
+    return false;
+  }
+
+  out->tone = UI_RESULT_TONE_ERR;
+  out->buttons[0] = UI_RESULT_BUTTON_CLOSE;
+  out->buttons[1] = UI_RESULT_BUTTON_RETRY;
+  out->button_count = 2;
+  out->primary_button = 1;
   return true;
 }

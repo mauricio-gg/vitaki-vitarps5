@@ -4,7 +4,7 @@
 // (issue #301): which messages show as Error or Retrying, and which status a row shows when a
 // message is live. `./tools/build.sh test` only cross-compiles, so run these on the host:
 //   cc -std=c99 -Wall -Wextra -I vita/include test/ui_console_status_tests.c \
-//      vita/src/ui/ui_console_status.c -o /tmp/ui_console_status_tests && \
+//      vita/src/ui/ui_console_status.c vita/src/ip_address.c -o /tmp/ui_console_status_tests && \
 //      /tmp/ui_console_status_tests
 
 #include <assert.h>

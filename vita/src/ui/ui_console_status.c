@@ -7,6 +7,8 @@
 
 #include <string.h>
 
+#include "ip_address.h"
+
 UiConsoleState ui_console_classify(bool registered, bool discovered, bool standby, bool internet_ok,
                                    bool cooldown, UiConsoleMessage message) {
   UiConsoleState state = {UI_CONSOLE_UNAVAILABLE, false};
@@ -102,43 +104,12 @@ bool ui_console_order_before(bool a_registered, const char *a_name, bool b_regis
   return compare_names_nocase(a_name, b_name) < 0;
 }
 
-/** Octets in a dotted IPv4 address. */
-#define IPV4_OCTETS 4
-#define IPV4_OCTET_MAX 255
-
-/**
- * Read a dotted IPv4 address ("192.168.1.4") into @octets.
- * @return true only when @ip is exactly four numbers 0 to 255 separated by dots
- */
-static bool parse_ipv4(const char *ip, int octets[IPV4_OCTETS]) {
-  if (!ip)
-    return false;
-  for (int i = 0; i < IPV4_OCTETS; i++) {
-    if (*ip < '0' || *ip > '9')
-      return false;
-    int value = 0;
-    while (*ip >= '0' && *ip <= '9') {
-      value = value * 10 + (*ip - '0');
-      if (value > IPV4_OCTET_MAX)
-        return false;
-      ip++;
-    }
-    octets[i] = value;
-    if (i < IPV4_OCTETS - 1) {
-      if (*ip != '.')
-        return false;
-      ip++;
-    }
-  }
-  return *ip == '\0';
-}
-
 /** Compare two addresses by number when both are dotted IPv4, else as text: strcmp-like. */
 static int compare_addresses(const char *a_ip, const char *b_ip) {
-  int a[IPV4_OCTETS];
-  int b[IPV4_OCTETS];
-  if (parse_ipv4(a_ip, a) && parse_ipv4(b_ip, b)) {
-    for (int i = 0; i < IPV4_OCTETS; i++) {
+  uint8_t a[IP_ADDRESS_OCTET_COUNT];
+  uint8_t b[IP_ADDRESS_OCTET_COUNT];
+  if (ip_address_parse(a_ip, a) && ip_address_parse(b_ip, b)) {
+    for (int i = 0; i < IP_ADDRESS_OCTET_COUNT; i++) {
       if (a[i] != b[i])
         return a[i] - b[i];
     }

@@ -10,6 +10,7 @@
 #include <vita2d.h>
 
 #include "context.h"
+#include "discovery_probe.h"
 #include "host.h"
 #include "host_registration.h"
 #include "ui/ui_chrome_layout.h"
@@ -49,6 +50,10 @@ static UiPopup s_popup;
 static UiHintLayout s_hints;
 static PinPhase s_phase = PIN_PHASE_ENTRY;
 static VitaChiakiHost *s_host = NULL;
+/** The host from the IP probe this screen owns (see ui_pin_adopt_probed_host()), or NULL. */
+static VitaChiakiHost *s_probed = NULL;
+/** Probed re-pair: the registered-table entry the new registration will replace, or NULL. */
+static VitaChiakiHost *s_replaced = NULL;
 /** The result the open popup shows (a paired console goes to Home, a failure offers Try again). */
 static HostRegistrationResult s_result = HOST_REGISTRATION_FAILED;
 
@@ -68,6 +73,47 @@ void ui_pin_init(void) {
 /* ============================================================================
  * Entry
  * ============================================================================ */
+
+void ui_pin_adopt_probed_host(VitaChiakiHost *host) {
+  s_probed = host;
+  s_replaced = NULL;
+  if (!host || !(host->type & REGISTERED))
+    return;
+  for (int i = 0; i < context.config.num_registered_hosts; i++) {
+    VitaChiakiHost *entry = context.config.registered_hosts[i];
+    if (entry && mac_addrs_match(&(entry->server_mac), &(host->server_mac))) {
+      s_replaced = entry;
+      return;
+    }
+  }
+}
+
+/**
+ * release_probed_host() - Give back the probed host on an exit without a pairing. Only called
+ * when no attempt is running: a cancel reaches here only after its result was collected.
+ */
+static void release_probed_host(void) {
+  discovery_probe_free_host(s_probed);
+  s_probed = NULL;
+  s_replaced = NULL;
+}
+
+/**
+ * finish_probed_pair() - A probed console is paired: the registered table owns it now. Save the
+ * address as a manual host, and let go of the credentials of the entry it replaced (a re-pair).
+ *
+ * @return the console to focus on Home
+ */
+static const VitaChiakiHost *finish_probed_pair(void) {
+  VitaChiakiHost *host = s_probed;
+  VitaChiakiHost *replaced = s_replaced;
+  s_probed = NULL;
+  s_replaced = NULL;
+  if (replaced && replaced != host && !host_in_active_use(replaced))
+    host_free(replaced);
+  const VitaChiakiHost *listed = discovery_probe_save_manual_host(host);
+  return listed ? listed : host;
+}
 
 /** Width function for ui_ellipsize_to_fit(): the console line's face. */
 static int measure_sub(const char *text, void *ctx) {
@@ -136,6 +182,7 @@ static UIScreenType show_result(HostRegistrationResult result, const char *name)
   if (!ui_result_copy_pairing(result, name, body, sizeof(body), &copy)) {
     if (result != HOST_REGISTRATION_CANCELLED)
       LOGE("PIN screen: pairing result %s has no popup", host_registration_result_name(result));
+    release_probed_host();
     ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }
@@ -198,6 +245,7 @@ static UIScreenType update_field(const UiInput *in) {
         host_registration_cancel();
         return UI_SCREEN_TYPE_REGISTER_HOST;
       }
+      release_probed_host();
       ui_home_focus_pair_item();
       return UI_SCREEN_TYPE_MAIN;
     default:
@@ -219,10 +267,11 @@ static UIScreenType update_result_popup(const UiInput *in) {
 
   ui_popup_close(&s_popup);
   if (s_result == HOST_REGISTRATION_PAIRED) {
-    ui_home_focus_console(s_host);
+    ui_home_focus_console(s_probed ? finish_probed_pair() : s_host);
     return UI_SCREEN_TYPE_MAIN;
   }
   if (choice == 0) {
+    release_probed_host();
     ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }

@@ -40,6 +40,7 @@
 #include "ui/ui_home_options.h"
 #include "ui/ui_page_frame.h"
 #include "ui/ui_pair_hosts.h"
+#include "ui/ui_pair_ip.h"
 #include "ui/ui_pair_popup.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_profile.h"
@@ -576,9 +577,10 @@ static void open_pair_popup(void) {
   LOGD("Home: Pair new device popup opened (%d found)", ui_pair_hosts_count());
 }
 
-/** True while a popup that freezes the screen behind it is open. */
+/** True while a popup that freezes the screen behind it is open, or the Enter IP address keyboard
+ * is up (Home then neither refreshes its cards nor takes input). */
 static bool popup_open(void) {
-  return ui_home_options_popup_open() || ui_pair_popup_is_open();
+  return ui_home_options_popup_open() || ui_pair_popup_is_open() || ui_pair_ip_active();
 }
 
 /** Index of @host in the console cache, or -1 when it is not listed (gone, or filtered out). */
@@ -743,6 +745,8 @@ static const char *console_confirm_verb(UiConsoleStatus status) {
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   if (ui_pair_popup_is_open())
     return ui_pair_popup_hints(out);
+  if (ui_pair_ip_active())
+    return ui_pair_ip_hints(out);
   int n = ui_home_options_hints(out);
   if (n > 0)
     return n;
@@ -790,6 +794,11 @@ static UIScreenType update_pair_popup(const UiInput *in) {
       ui_pair_popup_close();
       LOGD("Home: pairing %s", chosen->hostname);
       return ui_screens_pair_host(chosen);
+    case UI_PAIR_POPUP_ENTER_IP:
+      ui_pair_popup_close();
+      LOGD("Home: Enter IP address chosen");
+      ui_pair_ip_start();
+      break;
     case UI_PAIR_POPUP_CLOSE:
       ui_pair_popup_close();
       break;
@@ -808,6 +817,8 @@ static UIScreenType update_pair_popup(const UiInput *in) {
 static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldown) {
   if (ui_pair_popup_is_open())
     return update_pair_popup(in);
+  if (ui_pair_ip_active())
+    return ui_pair_ip_input(in);
   if (ui_home_options_popup_open() || ui_home_options_column_open()) {
     const UiHomeOptionsTarget target = options_target();
     return ui_home_options_input(in, &target);
@@ -917,6 +928,7 @@ UIScreenType ui_home_frame(void) {
   if (!capturing) {
     ui_home_options_draw_popup();
     ui_pair_popup_draw();
+    ui_pair_ip_draw();
   }
 
   if (capturing) {

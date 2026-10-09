@@ -119,6 +119,7 @@ add_test(NAME vitarps5_ui_connecting_flow_tests COMMAND ui_connecting_flow_tests
 add_executable(ui_console_status_tests
     ui_console_status_tests.c
     ../vita/src/ui/ui_console_status.c
+    ../vita/src/ip_address.c
 )
 
 target_include_directories(ui_console_status_tests PRIVATE
