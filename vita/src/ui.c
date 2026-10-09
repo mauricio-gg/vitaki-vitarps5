@@ -78,7 +78,6 @@
 #include "ui/ui_toast.h"
 
 vita2d_font *font;
-vita2d_font *font_mono;
 vita2d_texture *img_ps4;
 
 // VitaRPS5 UI textures
@@ -341,12 +340,11 @@ void init_ui() {
   ui_background_init();  // Build the wave background geometry
   ui_cards_init();       // Initialize console card system
   font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
-  font_mono = vita2d_load_font_file("app0:/assets/fonts/RobotoMono-Regular.ttf");
 
   /* Initialize text helper: measures per-size metrics from the loaded fonts.
    * Must happen after font load and before the first draw_ui() frame. */
   vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
-  ui_text_init(font, font_mono, font_light);
+  ui_text_init(font, font_light);
   ui_glow_init();
   ui_shapes_init();
   ui_room_icons_init();

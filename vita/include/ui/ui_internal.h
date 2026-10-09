@@ -34,7 +34,6 @@ typedef struct vita_chiaki_context_t VitaChiakiContext;
 
 // Fonts
 extern vita2d_font *font;
-extern vita2d_font *font_mono;
 
 // Console icons
 extern vita2d_texture *img_ps4;

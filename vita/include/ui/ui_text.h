@@ -37,7 +37,6 @@
 /**
  * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font loaded by init_ui() (Roboto-Regular.ttf).
- * @mono:    Monospace font loaded by init_ui() (RobotoMono-Regular.ttf).
  * @light:   Light font loaded by init_ui() (Roboto-Light.ttf), used by the SPEC
  *           faces T20/T28/T40.  May be NULL: those faces then draw in Regular.
  *
@@ -49,7 +48,7 @@
  * paths require an active render pass.  If either font pointer is NULL,
  * both metric computation and atlas prewarm are skipped.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono, vita2d_font *light);
+void ui_text_init(vita2d_font *regular, vita2d_font *light);
 
 /**
  * ui_text_needs_prewarm() - True until ui_text_prewarm() has been called.
@@ -66,8 +65,7 @@ int ui_text_needs_prewarm(void);
  * pair on the render thread so that texture uploads are committed.
  *
  * Iterates UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for the regular
- * font (7 sizes), UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for
- * the mono font (3 sizes) and the three Light sizes for the Light font.  Draws each character at
+ * font (7 sizes) and the three Light sizes for the Light font.  Draws each character at
  * alpha=0 at off-screen coordinates so glyphs are baked into the atlas without appearing on screen.
  * Also measures per-size metrics (ascent, line-height) while inside the active
  * render pass.
@@ -80,7 +78,7 @@ void ui_text_prewarm(void);
 
 /**
  * ui_text_draw() - Draw a UTF-8 string using the atlas LINEAR filter for clean rendering.
- * @f:          Font pointer (regular or mono).
+ * @f:          Font pointer (regular or light).
  * @x:          Left edge of the first glyph, in screen pixels.
  * @baseline_y: Baseline Y coordinate, in screen pixels.
  * @color:      ABGR colour value (e.g. RGBA8(r,g,b,a)).
@@ -119,7 +117,7 @@ int ui_text_width(vita2d_font *f, int pt_size, const char *s);
  * chosen empirically for Roboto). Revisit if the font face changes.
  *
  * Metrics are derived from the regular font; valid for any face sharing the
- * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
+ * same UPM/ascender (Roboto Regular and Light in this build). Swapping
  * to a different family requires re-measuring.
  *
  * Returns 0 and logs a warning for unknown sizes.
@@ -131,7 +129,7 @@ int ui_text_ascent(int pt_size);
  * @pt_size: One of the FONT_SIZE_* constants.
  *
  * Metrics are derived from the regular font; valid for any face sharing the
- * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
+ * same UPM/ascender (Roboto Regular and Light in this build). Swapping
  * to a different family requires re-measuring.
  *
  * Returns 0 and logs a warning for unknown sizes.

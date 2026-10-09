@@ -53,21 +53,6 @@ _Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 7,
                "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
 
 /*
- * Monospace font is used at small/body/subheader sizes (14/16/18 pt).  Keeping
- * the prewarm set minimal avoids baking unused glyph atlas rows for sizes that
- * mono never renders at.
- */
-static const int UI_FONT_PREWARM_MONO_SIZES[] = {
-    FONT_SIZE_SMALL,     /* 14 pt */
-    FONT_SIZE_BODY,      /* 16 pt */
-    FONT_SIZE_SUBHEADER, /* 18 pt — message log mono block */
-};
-
-/* Number of entries in the monospace prewarm size table. */
-#define UI_FONT_PREWARM_MONO_SIZE_COUNT \
-  ((int)(sizeof(UI_FONT_PREWARM_MONO_SIZES) / sizeof(UI_FONT_PREWARM_MONO_SIZES[0])))
-
-/*
  * Sizes baked for the Light weight: T20, T28 and T40 (SPEC 1.2).  Regular T14 and T16 reuse
  * the existing regular-font sizes above.
  */
@@ -200,7 +185,6 @@ static FontSizeMetrics s_metrics[UI_FONT_PREWARM_SIZE_COUNT];
  * ============================================================================ */
 
 static vita2d_font *s_font_regular = NULL;
-static vita2d_font *s_font_mono = NULL;
 static vita2d_font *s_font_light = NULL;
 static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_init() */
 
@@ -377,7 +361,6 @@ static int utf8_extract(const char **pp, char *out_buf) {
  * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font, or NULL (both metric computation and atlas
  *           prewarm are skipped if either pointer is NULL).
- * @mono:    Monospace font, or NULL (see above).
  * @light:   Light-weight font for the T20/T28/T40 faces.  If NULL the faces fall
  *           back to the regular font so the UI stays usable.
  *
@@ -389,15 +372,14 @@ static int utf8_extract(const char **pp, char *out_buf) {
  *
  * Both pointers are borrowed — ownership remains with the caller.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono, vita2d_font *light) {
+void ui_text_init(vita2d_font *regular, vita2d_font *light) {
   s_font_regular = regular;
-  s_font_mono = mono;
   s_font_light = light;
 
   if (!light)
     sceClibPrintf("[WARN] ui_text_init: Light font missing — T20/T28/T40 fall back to Regular\n");
 
-  if (!regular || !mono) {
+  if (!regular) {
     sceClibPrintf(
         "[WARN] ui_text_init: NULL font pointer — "
         "skipping metrics and atlas prewarm\n");
@@ -455,11 +437,10 @@ static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
  *
  * Iterates:
  *   - UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for s_font_regular (6 sizes)
- *   - UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for s_font_mono (2 sizes)
  *   - UI_FONT_PREWARM_LIGHT_SIZES x UI_FONT_PREWARM_CHARSET for s_font_light (3 sizes)
  *
  * Metrics (ascent, line-height) are derived from s_font_regular only.
- * Roboto Regular and RobotoMono share the same UPM and ascender, so a single
+ * Roboto Regular and Roboto Light share the same UPM and ascender, so a single
  * canonical measurement per pt_size is sufficient for all font faces.
  *
  * Each multibyte UTF-8 sequence is drawn as a single call so vita2d's internal
@@ -468,7 +449,7 @@ static void prewarm_one_font(vita2d_font *f, const int *sizes, int size_count) {
 void ui_text_prewarm(void) {
   int i;
 
-  if (!s_font_regular || !s_font_mono) {
+  if (!s_font_regular) {
     sceClibPrintf("[WARN] ui_text_prewarm: called before ui_text_init()\n");
     return;
   }
@@ -480,8 +461,8 @@ void ui_text_prewarm(void) {
    * vita2d_end_drawing, guaranteeing that context is present.
    *
    * Regular font is the single canonical source for metrics — Roboto Regular
-   * and RobotoMono share the same UPM/ascender, so there is no need to
-   * re-measure with the mono face (which would clobber the same s_metrics[]
+   * and Roboto Light share the same UPM/ascender, so there is no need to
+   * re-measure with the Light face (which would clobber the same s_metrics[]
    * slots and risk writing stale values over freshly computed ones).
    */
   for (i = 0; i < UI_FONT_PREWARM_SIZE_COUNT; i++) {
@@ -490,9 +471,6 @@ void ui_text_prewarm(void) {
 
   /* --- Bake regular font: all six prewarm sizes --- */
   prewarm_one_font(s_font_regular, UI_FONT_PREWARM_SIZES, UI_FONT_PREWARM_SIZE_COUNT);
-
-  /* --- Bake mono font: body and small sizes only --- */
-  prewarm_one_font(s_font_mono, UI_FONT_PREWARM_MONO_SIZES, UI_FONT_PREWARM_MONO_SIZE_COUNT);
 
   /* --- Bake Light font: the three SPEC Light sizes --- */
   if (s_font_light) {

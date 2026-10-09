@@ -299,7 +299,6 @@ if(CHIAKI_IS_VITA)
         FILE res/assets/controller_back_clean.png assets/controller_back_clean.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
         FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
-        FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory
         FILE assets/symbol_triangle.png assets/symbol_triangle.png
         FILE assets/symbol_circle.png assets/symbol_circle.png
