@@ -9,7 +9,11 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include <vita2d.h>
+
+#include "ui/ui_component.h"
 
 /** The 32 px icon in the title row. */
 typedef enum ui_page_icon_t {
@@ -39,3 +43,15 @@ vita2d_texture *ui_page_frame_icon(UiPageIcon icon);
  * @title: Page title, T28 at x UI_PAGE_TITLE_X.
  */
 void ui_page_frame_draw(UiPageIcon icon, const char *title);
+
+/**
+ * ui_page_frame_back_draw() - Draw the back chevron at the left of the title row, in TEXT_2. Call
+ * it after ui_page_frame_draw(); a missing texture draws nothing. Paper cost: 1 draw.
+ */
+void ui_page_frame_back_draw(void);
+
+/**
+ * ui_page_frame_back_tapped() - True when this frame's input is a tap that lifted inside the back
+ * chevron's 48 x 48 hit box (x 0, UI_TITLE_Y). The page decides what going back means.
+ */
+bool ui_page_frame_back_tapped(const UiInput *in);

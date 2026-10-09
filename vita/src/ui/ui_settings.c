@@ -507,6 +507,15 @@ UIScreenType ui_settings_frame(void) {
     in.touch.down = false;
   }
 
+  /* The back chevron is a small control and wins over everything under it; one tap leaves the page
+   * whichever column has focus, so it reaches neither column. */
+  const bool back_tapped = ui_page_frame_back_tapped(&in);
+  if (back_tapped) {
+    in.touch.pressed = false;
+    in.touch.released = false;
+    in.touch.down = false;
+  }
+
   /* Keys go to the column that has focus, so one press never acts twice; L and R always reach
    * the group list, and touch reaches both. */
   UiInput pane_in = in;
@@ -521,7 +530,8 @@ UIScreenType ui_settings_frame(void) {
 
   handle_pane_event(ui_setting_list_input(&s_pane, &pane_in));
   const bool back =
-      handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
+      handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in)) ||
+      back_tapped;
 
   fill_items();
   ui_setting_list_sync(&s_pane);
@@ -530,6 +540,7 @@ UIScreenType ui_settings_frame(void) {
   s_pane.active = s_pane_focus;
 
   ui_page_frame_draw(UI_PAGE_ICON_GEAR, TITLE);
+  ui_page_frame_back_draw();
   ui_top_bar_draw(NULL);
   ui_group_list_draw(&s_groups);
   ui_setting_list_draw(&s_pane);

@@ -623,6 +623,15 @@ UIScreenType ui_profile_frame(void) {
     in.touch.down = false;
   }
 
+  /* The back chevron is a small control and wins over everything under it, the login pane
+   * included, so a tap on it reaches nothing else. */
+  const bool back_tapped = ui_page_frame_back_tapped(&in);
+  if (back_tapped) {
+    in.touch.pressed = false;
+    in.touch.released = false;
+    in.touch.down = false;
+  }
+
   /* The login pane takes the face buttons and touch whatever had focus (its buttons are touch
    * targets and take no controller focus), so the focus stays with the pane while it shows. */
   const bool login_in = login_pane_shows();
@@ -647,7 +656,7 @@ UIScreenType ui_profile_frame(void) {
     handle_pane_event(ui_setting_list_input(&s_pane, &pane_in));
   bool back = handle_group_event(ui_group_list_input(&s_groups, &group_in), ui_touch_tap(&in));
   /* Cancel goes back to Home; the login keeps running and its pane shows again on return. */
-  if (login_in && (in.pressed & UI_BTN_CANCEL))
+  if (back_tapped || (login_in && (in.pressed & UI_BTN_CANCEL)))
     back = true;
   const bool login = login_pane_shows();
   if (login)
@@ -661,6 +670,7 @@ UIScreenType ui_profile_frame(void) {
   s_pane.active = s_pane_focus;
 
   ui_page_frame_draw(UI_PAGE_ICON_PROFILE, TITLE);
+  ui_page_frame_back_draw();
   ui_top_bar_draw(NULL);
   ui_group_list_draw(&s_groups);
   draw_identity();

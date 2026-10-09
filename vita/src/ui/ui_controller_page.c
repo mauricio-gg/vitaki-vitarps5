@@ -103,7 +103,6 @@ static DiagramState s_diagram;
 static bool s_diagram_ready = false;
 static vita2d_texture *s_chevron_left = NULL;
 static vita2d_texture *s_chevron_right = NULL;
-static vita2d_texture *s_back_icon = NULL;
 static vita2d_texture *s_dot = NULL;
 
 static Callout s_callouts[SHOULDER_COUNT];
@@ -140,7 +139,6 @@ static UiTextButton s_whole_btn;
 static UiHintLayout s_hints;
 
 /* Rects fixed by the layout constants */
-static UiRect s_back_hit;
 static UiRect s_chevron_left_hit;
 static UiRect s_label_hit;
 static UiRect s_chevron_right_hit;
@@ -215,10 +213,8 @@ static float dot_alpha(float px, float py, const void *ctx) {
 void ui_controller_page_init(void) {
   s_chevron_left = ui_chevron_bake(UI_CHEVRON_LEFT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
   s_chevron_right = ui_chevron_bake(UI_CHEVRON_RIGHT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
-  s_back_icon = ui_chevron_bake(UI_CHEVRON_LEFT, UI_CTRL_BACK_ART, UI_CTRL_BACK_STROKE);
   s_dot = ui_bake_white(UI_CTRL_DOT, UI_CTRL_DOT, dot_alpha, NULL);
 
-  s_back_hit = (UiRect){0, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
   s_chevron_right_hit = (UiRect){UI_CONTENT_RIGHT - UI_TAP_MIN, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
   s_label_hit = (UiRect){s_chevron_right_hit.x - UI_CTRL_PRESET_GAP - UI_CTRL_PRESET_LABEL_W,
                          UI_TITLE_Y, UI_CTRL_PRESET_LABEL_W, UI_TAP_MIN};
@@ -377,7 +373,7 @@ static UiRect summary_diagram_rect(void) {
  * @return true when the page should go back to Home
  */
 static bool update_summary(const UiInput *in) {
-  if ((in->pressed & UI_BTN_CANCEL) || tapped_in(in, s_back_hit))
+  if ((in->pressed & UI_BTN_CANCEL) || ui_page_frame_back_tapped(in))
     return true;
 
   /* Small controls win over the diagram (SPEC 2.0); the callouts' hit rects reach 8 px past
@@ -437,7 +433,7 @@ static bool update_summary(const UiInput *in) {
 
 /** Act on this frame's input in a zone view: back, Whole surface, Clear, or the grid. */
 static void update_zones(const UiInput *in) {
-  if ((in->pressed & UI_BTN_CANCEL) || tapped_in(in, s_back_hit)) {
+  if ((in->pressed & UI_BTN_CANCEL) || ui_page_frame_back_tapped(in)) {
     leave_zones();
   } else if ((in->pressed & UI_BTN_OPTIONS) || tapped_in(in, s_whole_btn.hit)) {
     ui_controller_mapping_open_side(current_side());
@@ -556,7 +552,7 @@ static const char *page_title(void) {
 static void draw_page(void) {
   ui_page_frame_draw(UI_PAGE_ICON_CONTROLLER, page_title());
   ui_top_bar_draw(NULL);
-  draw_centered(s_back_icon, s_back_hit, UI_CTRL_BACK_ART, UI_TEXT_2);
+  ui_page_frame_back_draw();
   if (s_in_zones) {
     draw_zone_view();
     ui_text_button_draw(&s_whole_btn);

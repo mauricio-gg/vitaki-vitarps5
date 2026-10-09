@@ -547,6 +547,10 @@ typedef enum ui_face_t {
 #define UI_PAGE_ICON 32
 #define UI_PAGE_TITLE_X 96
 #define UI_PAGE_TITLE_H 48
+/** The back chevron at the left of the title row (Settings, Profile, Controller): a UI_TAP_MIN box
+ * at x 0 holding the art. */
+#define UI_PAGE_BACK_ART 24
+#define UI_PAGE_BACK_STROKE 2.0f
 
 /* Page body: the group list on the left, the setting pane on the right, a description line under
  * both (SPEC C07). The pane shows UI_PAGE_PANE_ROWS rows of UI_ROW_H. */
@@ -823,10 +827,6 @@ typedef enum ui_face_t {
 #define UI_CTRL_FRONT_Y 176
 #define UI_CTRL_FRONT_W 630
 #define UI_CTRL_FRONT_H 286
-
-/** The back chevron at the left of the title row: a UI_TAP_MIN box at x 0 holding the art. */
-#define UI_CTRL_BACK_ART 24
-#define UI_CTRL_BACK_STROKE 2.0f
 
 /** The preset switcher in the title row's right slot: chevron box, label box, chevron box, with
  * UI_CTRL_PRESET_GAP between them, ending at UI_CONTENT_RIGHT. The label is centred in its box. */
