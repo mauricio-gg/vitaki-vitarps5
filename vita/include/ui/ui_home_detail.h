@@ -51,9 +51,11 @@ typedef enum ui_profile_group_t {
  * ui_home_detail_draw() - Draw the detail panel for the focused row of @list.
  * @source:     The category @list shows.
  * @list:       Home's list; its focused item supplies the title, status and description.
- * @filter_row: Consoles only: the list's first row is the Filter item, not a console.
+ * @filter_row: Consoles only: the list has the Filter item after the Pair new device item.
  *
- * With the Filter row focused the panel shows "Filter", what it does and the console count
+ * With the Pair new device item focused the panel shows its title, what it does, the paired
+ * console count and what discovery has found. With the Filter row focused the panel shows
+ * "Filter", what it does and the console count
  * (4 draws). Draws nothing when the list is empty. Reads config, the card cache and PSN state;
  * changes none.
  */

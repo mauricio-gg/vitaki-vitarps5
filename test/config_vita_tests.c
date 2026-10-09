@@ -335,17 +335,17 @@ static void test_root_level_bool_migration(void) {
       "[general]\n"
       "version = 1\n"
       "\n"
-      "show_only_paired = true\n"
+      "stretch_video = true\n"
       "clamp_soft_restart_bitrate = false\n");
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.show_only_paired == true);
+  assert(cfg.stretch_video == true);
   assert(cfg.clamp_soft_restart_bitrate == false);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "show_only_paired = true") != NULL);
+  assert(strstr(rewritten, "stretch_video = true") != NULL);
   assert(strstr(rewritten, "clamp_soft_restart_bitrate = false") != NULL);
   free(rewritten);
 }
@@ -445,7 +445,7 @@ static void test_old_config_gets_new_field_defaults(void) {
       "controller_map_id = 201\n"
       "fps = 60\n"
       "show_latency = true\n"
-      "show_only_paired = true\n");
+      "stretch_video = true\n");
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
@@ -453,7 +453,31 @@ static void test_old_config_gets_new_field_defaults(void) {
   assert(cfg.show_button_hints == true);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
   assert(cfg.show_latency == true);
-  assert(cfg.show_only_paired == true);
+  assert(cfg.stretch_video == true);
+}
+
+/* catches: the removed Show Only Paired key lingering in the config file forever (written back
+ * on every save), or an old file that still carries it failing to load its other settings. */
+static void test_removed_show_only_paired_key_is_dropped(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "show_only_paired = true\n"
+      "show_latency = true\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_latency == true);
+  assert(config_serialize(&cfg));
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "show_only_paired") == NULL);
+  assert(strstr(rewritten, "show_latency = true") != NULL);
+  free(rewritten);
 }
 
 /* catches: a non-default blur level or hints-off choice being lost on save or load, so the
@@ -579,6 +603,7 @@ int main(void) {
   test_resolution_roundtrip();
   test_registered_hosts_require_required_fields();
   test_old_config_gets_new_field_defaults();
+  test_removed_show_only_paired_key_is_dropped();
   test_new_fields_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
   test_room_icons_survive_save_and_load();

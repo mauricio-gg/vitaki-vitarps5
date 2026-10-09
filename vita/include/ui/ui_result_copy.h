@@ -16,6 +16,7 @@
 
 typedef enum ui_result_tone_t {
   UI_RESULT_TONE_OK = 0,
+  UI_RESULT_TONE_WARN,  ///< worked, but not completely
   UI_RESULT_TONE_ERR,
 } UiResultTone;
 
@@ -43,6 +44,19 @@ bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, cha
                             size_t body_size, UiResultCopy *out);
 
 /**
+ * ui_result_copy_paired_partial() - Popup copy for a pairing that worked on a console reached by
+ * IP address, when this Vita could not save everything (the address or the new credentials).
+ * @name:      The console's name; NULL or empty reads as "The console".
+ * @body:      Receives the body text, always terminated, truncated to fit.
+ * @body_size: Size of @body in bytes.
+ * @out:       Receives tone (WARN), title ("Console paired") and one OK button.
+ *
+ * Returns false when the arguments are unusable; @body is then set to "" when it can be.
+ */
+bool ui_result_copy_paired_partial(const char *name, char *body, size_t body_size,
+                                   UiResultCopy *out);
+
+/**
  * ui_result_copy_connect_failed() - Popup copy for a connection that failed.
  * @name:      The console's name; NULL or empty reads as "The console".
  * @reason:    The raw reason the connection gave (SPEC 3.3); NULL or empty reads as "Connection
@@ -56,3 +70,23 @@ bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, cha
  */
 bool ui_result_copy_connect_failed(const char *name, const char *reason, bool can_retry, char *body,
                                    size_t body_size, UiResultCopy *out);
+
+/** Why the Enter IP address flow could not start pairing. */
+typedef enum ui_pair_ip_failure_t {
+  UI_PAIR_IP_NOT_AN_ADDRESS,  ///< the typed text is not four numbers 0 to 255 with dots
+  UI_PAIR_IP_NOT_FOUND,       ///< nothing answered the probe (or it could not run)
+} UiPairIpFailure;
+
+/**
+ * ui_result_copy_pair_ip() - Popup copy for a failed Enter IP address attempt (SPEC 3.1a).
+ * @failure:   What went wrong.
+ * @ip:        The address that was probed, shown in the "not found" body; required for
+ *             UI_PAIR_IP_NOT_FOUND, ignored otherwise.
+ * @body:      Receives the body text, always terminated, truncated to fit.
+ * @body_size: Size of @body in bytes.
+ * @out:       Receives tone (ERR), title and buttons (Close, Try again).
+ *
+ * Returns false when the arguments are unusable; @body is then set to "" when it can be.
+ */
+bool ui_result_copy_pair_ip(UiPairIpFailure failure, const char *ip, char *body, size_t body_size,
+                            UiResultCopy *out);

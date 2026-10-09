@@ -11,21 +11,25 @@ bool ui_console_rows_has_filter(int total_consoles, bool filter_active) {
   return filter_active || total_consoles > UI_FILTER_ROW_MAX_PLAIN_CONSOLES;
 }
 
+int ui_console_rows_lead(bool has_filter_row) {
+  return has_filter_row ? 2 : 1;
+}
+
 int ui_console_rows_console_index(bool has_filter_row, int row, int console_count) {
-  int index = has_filter_row ? row - 1 : row;
+  const int index = row - ui_console_rows_lead(has_filter_row);
   return (index < 0 || index >= console_count) ? -1 : index;
 }
 
 int ui_console_rows_initial_focus(bool has_filter_row, int console_count) {
-  return (has_filter_row && console_count > 0) ? 1 : 0;
+  return console_count > 0 ? ui_console_rows_lead(has_filter_row) : UI_CONSOLE_ROW_PAIR;
 }
 
 int ui_console_rows_rebase_focus(int focus, bool had_filter_row, bool has_filter_row) {
   if (had_filter_row == has_filter_row)
     return focus;
   if (has_filter_row)
-    return focus + 1;
-  return focus > 0 ? focus - 1 : 0;
+    return focus >= UI_CONSOLE_ROW_FILTER ? focus + 1 : focus;
+  return focus > UI_CONSOLE_ROW_FILTER ? focus - 1 : focus;
 }
 
 /** Lower-case an ASCII letter; every other byte is returned unchanged. */
@@ -52,12 +56,6 @@ static bool contains_nocase(const char *haystack, const char *needle) {
 int ui_console_option_rows(UiConsoleStatus status, bool both_routes, bool can_change_icon,
                            UiConsoleOptionRow out[UI_CONSOLE_OPTION_ROWS_MAX]) {
   int n = 0;
-  if (status == UI_CONSOLE_UNPAIRED) {
-    out[n++] = (UiConsoleOptionRow){UI_CONSOLE_OPTION_PAIR, false};
-    if (can_change_icon)
-      out[n++] = (UiConsoleOptionRow){UI_CONSOLE_OPTION_CHANGE_ICON, false};
-    return n;
-  }
   const bool cooldown = status == UI_CONSOLE_COOLDOWN;
   out[n++] = (UiConsoleOptionRow){
       status == UI_CONSOLE_STANDBY ? UI_CONSOLE_OPTION_WAKE_CONNECT : UI_CONSOLE_OPTION_CONNECT,
@@ -74,4 +72,28 @@ bool ui_console_matches_filter(const char *name, const char *ip, const char *fil
   if (!filter || !*filter)
     return true;
   return (name && contains_nocase(name, filter)) || (ip && contains_nocase(ip, filter));
+}
+
+UiPairPhase ui_console_rows_pair_phase(bool discovery_running, int found, uint32_t elapsed_ms) {
+  if (!discovery_running)
+    return UI_PAIR_PHASE_OFF;
+  if (found > 0)
+    return UI_PAIR_PHASE_FOUND;
+  return elapsed_ms < UI_PAIR_SEARCH_MS ? UI_PAIR_PHASE_SEARCHING : UI_PAIR_PHASE_NONE;
+}
+
+int ui_pair_page_focus(int focus, int direction, int lead, int rows, int page) {
+  if (rows <= lead)
+    return focus;
+  if (focus == UI_PAIR_FOCUS_PINNED)
+    return direction < 0 ? rows - 1 : UI_PAIR_FOCUS_PINNED;
+  if (direction < 0 && focus < lead)
+    return focus;
+
+  int target = focus + (direction < 0 ? -page : page);
+  if (target < lead)
+    target = lead;
+  if (target > rows - 1)
+    target = rows - 1;
+  return target;
 }

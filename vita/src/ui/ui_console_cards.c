@@ -12,15 +12,13 @@
 #include <math.h>
 #include <time.h>
 #include <psp2/kernel/processmgr.h>
-#include <psp2/ime_dialog.h>
-#include <psp2/common_dialog.h>
 
 #include "ui/ui_internal.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_text.h"
-#include "ui/ui_utf16.h"
+#include "ui/ui_filter_keyboard.h"
 #include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
@@ -59,42 +57,8 @@ static char filter_text[FILTER_MAX_LEN + 1] = {0};
 static int filter_len = 0;
 static bool filter_active = false;
 
-/** IME dialog state */
-static bool ime_running = false;
-static SceWChar16 ime_input_buf[FILTER_MAX_LEN + 1];
-static SceWChar16 ime_initial_text[FILTER_MAX_LEN + 1];
-static char ime_title_buf[64];
-
-// ============================================================================
-// Filter Helpers
-// ============================================================================
-
-/**
- * utf8_to_utf16() - Convert UTF-8 to UTF-16 (BMP only, the inverse of ui_utf16_to_utf8)
- * @src: Source UTF-8 string
- * @dst: Destination buffer, always NUL-terminated
- * @dst_len: Capacity of @dst in SceWChar16 units
- *
- * Used to prefill the IME with the current filter. A character outside the BMP ends the text.
- */
-static void utf8_to_utf16(const char *src, SceWChar16 *dst, size_t dst_len) {
-  size_t o = 0;
-  const unsigned char *p = (const unsigned char *)src;
-  while (*p && o + 1 < dst_len) {
-    if (*p < 0x80) {
-      dst[o++] = *p++;
-    } else if ((*p & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) {
-      dst[o++] = (SceWChar16)(((p[0] & 0x1F) << 6) | (p[1] & 0x3F));
-      p += 2;
-    } else if ((*p & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80) {
-      dst[o++] = (SceWChar16)(((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F));
-      p += 3;
-    } else {
-      break;
-    }
-  }
-  dst[o] = 0;
-}
+/** Title of the system keyboard the Home filter opens. */
+static const char FILTER_KEYBOARD_TITLE[] = "Filter Consoles";
 
 // ============================================================================
 // Initialization
@@ -109,7 +73,6 @@ void ui_cards_init(void) {
   filter_text[0] = '\0';
   filter_len = 0;
   filter_active = false;
-  ime_running = false;
 }
 
 // ============================================================================
@@ -214,8 +177,8 @@ void ui_cards_update_cache(bool force_update) {
     if (context.hosts[i]) {
       ConsoleCardInfo temp = {0};
       ui_cards_map_host(context.hosts[i], &temp);
-      /* Skip unregistered hosts if "show only paired" is enabled */
-      if (context.config.show_only_paired && !temp.is_registered)
+      /* Home lists paired consoles only; unpaired ones live in the Pair new device popup. */
+      if (!temp.is_registered)
         continue;
       num_known++;
       /* Apply filter if active */
@@ -283,43 +246,14 @@ void ui_cards_clear_filter(void) {
  * Done with empty text clears the filter; Cancel leaves it as it was (see the poll below).
  */
 void ui_cards_edit_filter(void) {
-  if (ime_running)
-    return;
-
-  memset(ime_input_buf, 0, sizeof(ime_input_buf));
-  utf8_to_utf16(filter_text, ime_initial_text,
-                sizeof(ime_initial_text) / sizeof(ime_initial_text[0]));
-  sceClibSnprintf(ime_title_buf, sizeof(ime_title_buf), "Filter Consoles");
-
-  /* Convert title to UTF-16 for IME */
-  SceWChar16 ime_title_w[64];
-  utf8_to_utf16(ime_title_buf, ime_title_w, sizeof(ime_title_w) / sizeof(ime_title_w[0]));
-
-  SceImeDialogParam param;
-  sceImeDialogParamInit(&param);
-  param.supportedLanguages = 0; /* All languages */
-  param.languagesForced = SCE_FALSE;
-  param.type = SCE_IME_TYPE_DEFAULT;
-  param.option = 0;
-  param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_DEFAULT;
-  param.maxTextLength = FILTER_MAX_LEN;
-  param.title = ime_title_w;
-  param.initialText = ime_initial_text;
-  param.inputTextBuffer = ime_input_buf;
-
-  int ret = sceImeDialogInit(&param);
-  if (ret >= 0) {
-    ime_running = true;
-  } else {
-    LOGE("Filter keyboard failed to open: 0x%08x", ret);
-  }
+  ui_filter_keyboard_open(FILTER_KEYBOARD_TITLE, filter_text);
 }
 
 /**
  * ui_cards_open_filter() - Start shortcut: clear an active filter, otherwise open the keyboard.
  */
 void ui_cards_open_filter(void) {
-  if (ime_running)
+  if (ui_filter_keyboard_running())
     return;
   if (filter_active)
     ui_cards_clear_filter();
@@ -334,31 +268,23 @@ void ui_cards_open_filter(void) {
  * Handles Enter (confirm) and Cancel/Close (discard) actions.
  */
 void ui_cards_poll_filter_ime(void) {
-  if (!ime_running)
+  char typed[UI_FILTER_TEXT_MAX];
+  const UiFilterKeyboardResult result = ui_filter_keyboard_poll(typed, sizeof(typed));
+  if (result != UI_FILTER_KB_DONE && result != UI_FILTER_KB_CANCEL)
     return;
 
-  SceCommonDialogStatus status = sceImeDialogGetStatus();
-  if (status == SCE_COMMON_DIALOG_STATUS_FINISHED) {
-    SceImeDialogResult result;
-    memset(&result, 0, sizeof(result));
-    sceImeDialogGetResult(&result);
+  /* Done applies the typed text (empty clears the filter); Cancel keeps the filter as it was. */
+  if (result == UI_FILTER_KB_DONE) {
+    snprintf(filter_text, sizeof(filter_text), "%s", typed);
+    filter_len = (int)strlen(filter_text);
+    filter_active = (filter_len > 0);
+  }
 
-    /* Done applies the typed text (empty clears the filter); Cancel keeps the filter as it was. */
-    if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
-      ui_utf16_to_utf8(ime_input_buf, FILTER_MAX_LEN + 1, filter_text, sizeof(filter_text));
-      filter_len = (int)strlen(filter_text);
-      filter_active = (filter_len > 0);
-    }
-
-    sceImeDialogTerm();
-    ime_running = false;
-
-    /* Force cache refresh to apply filter */
-    ui_cards_update_cache(true);
-    /* Clamp selection */
-    if (selected_console_index >= card_cache.num_cards && card_cache.num_cards > 0) {
-      selected_console_index = card_cache.num_cards - 1;
-    }
+  /* Force cache refresh to apply filter */
+  ui_cards_update_cache(true);
+  /* Clamp selection */
+  if (selected_console_index >= card_cache.num_cards && card_cache.num_cards > 0) {
+    selected_console_index = card_cache.num_cards - 1;
   }
 }
 

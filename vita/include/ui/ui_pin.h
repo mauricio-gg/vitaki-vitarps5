@@ -22,6 +22,17 @@
 void ui_pin_init(void);
 
 /**
+ * ui_pin_adopt_probed_host() - Take ownership of a host from discovery_probe_take_host(). Call
+ * right before switching to this screen, with context.active_host set to @host.
+ *
+ * The screen then owns it until it leaves: a successful registration hands it to the registered
+ * table, saves the address as a manual host and focuses the console on Home; every other exit
+ * (Cancel on the field, Close on a failure, a cancelled attempt) releases it with
+ * discovery_probe_free_host() once no attempt is running. Try again keeps it.
+ */
+void ui_pin_adopt_probed_host(VitaChiakiHost *host);
+
+/**
  * ui_pin_on_enter() - Open the screen for context.active_host with an empty field.
  * Drops a pairing result nobody collected, so it cannot show for this console.
  */

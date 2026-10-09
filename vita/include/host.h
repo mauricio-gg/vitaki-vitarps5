@@ -87,7 +87,10 @@ int host_stream(VitaChiakiHost *host);
 void host_cancel_stream_request(void);
 void host_finalize_deferred_session(void);
 bool mac_addrs_match(MacAddr *a, MacAddr *b);
-void save_manual_host(VitaChiakiHost *rhost, char *new_hostname);
+/* Saves @new_hostname as a manual host of @rhost's console. Returns true when the address is saved
+ * or was already saved for that console; false (logged with the address) on a missing host,
+ * address or MAC, a full table or out of memory. */
+bool save_manual_host(VitaChiakiHost *rhost, char *new_hostname);
 void delete_manual_host(VitaChiakiHost *mhost);
 void update_context_hosts();
 int count_manual_hosts_of_console(VitaChiakiHost *host);

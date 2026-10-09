@@ -19,6 +19,7 @@
 #include "ui/ui_controller_rules.h"
 #include "ui/ui_detail_panel.h"
 #include "ui/ui_internal.h"
+#include "ui/ui_pair_hosts.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_value_labels.h"
 
@@ -27,8 +28,25 @@ static const char NOT_SET[] = "Not Set";
 static const char FILTER_TITLE[] = "Filter";
 static const char FILTER_DESCRIPTION[] = "Find a console by name or IP address.";
 
-/** Identity of the Filter panel for the rise animation; no console pointer can equal it. */
+static const char PAIR_TITLE[] = "Pair new device";
+static const char PAIR_DESCRIPTION[] =
+    "Link a PS5 or PS4 to this Vita. Turn the console on and join the same network.";
+static const char PAIR_PAIRED_LABEL[] = "Paired";
+static const char PAIR_FOUND_LABEL[] = "Found nearby";
+static const char PAIR_FOUND_FORMAT[] = "%d unpaired";
+static const char PAIR_SEARCHING[] = "Searching...";
+static const char PAIR_NONE[] = "None";
+static const char PAIR_DISCOVERY_OFF[] = "Discovery off";
+
+/** Identities of the Filter and Pair new device panels for the rise animation; no console pointer
+ * can equal them. */
 #define FILTER_PANEL_KEY 1u
+#define PAIR_PANEL_KEY 2u
+
+/** Room for the Pair new device panel's "<N> consoles" and "<N> unpaired" values. */
+#define PAIR_VALUE_MAX 24
+static char s_pair_paired[PAIR_VALUE_MAX];
+static char s_pair_found[PAIR_VALUE_MAX];
 
 /** The content handed to the panel; rebuilt every frame from pointers, no allocation. */
 static UiDetailContent s_content;
@@ -135,6 +153,38 @@ static void build_filter(void) {
   add_row(filter_count_text(), NULL, 0);
 }
 
+/** Fill s_content for the Pair new device item: what it does, how many consoles are paired, and
+ * what discovery has found (SPEC 3.1a). */
+static void build_pair(void) {
+  const int paired = ui_cards_get_total_count();
+  const int found = ui_pair_hosts_count();
+  const char *found_text = PAIR_NONE;
+
+  snprintf(s_pair_paired, sizeof(s_pair_paired), paired == 1 ? "%d console" : "%d consoles",
+           paired);
+  switch (ui_pair_hosts_item_phase(found)) {
+    case UI_PAIR_PHASE_FOUND:
+      snprintf(s_pair_found, sizeof(s_pair_found), PAIR_FOUND_FORMAT, found);
+      found_text = s_pair_found;
+      break;
+    case UI_PAIR_PHASE_SEARCHING:
+      found_text = PAIR_SEARCHING;
+      break;
+    case UI_PAIR_PHASE_OFF:
+      found_text = PAIR_DISCOVERY_OFF;
+      break;
+    case UI_PAIR_PHASE_NONE:
+      break;
+  }
+
+  s_content.kind = UI_DETAIL_LIST;
+  s_content.key = PAIR_PANEL_KEY;
+  s_content.title = PAIR_TITLE;
+  s_content.description = PAIR_DESCRIPTION;
+  add_row(PAIR_PAIRED_LABEL, s_pair_paired, 0);
+  add_row(PAIR_FOUND_LABEL, found_text, 0);
+}
+
 /* ============================================================================
  * Settings
  * ============================================================================ */
@@ -153,7 +203,6 @@ static void build_settings_rows(int group) {
     case UI_SETTINGS_GROUP_NETWORK:
       add_toggle_row("Auto Discovery", cfg->auto_discovery);
       add_toggle_row("Enable PSN Internet Mode", cfg->psn_remoteplay_enabled);
-      add_toggle_row("Show Only Paired", cfg->show_only_paired);
       break;
     case UI_SETTINGS_GROUP_DISPLAY:
       add_toggle_row("Show Latency", cfg->show_latency);
@@ -321,7 +370,9 @@ void ui_home_detail_draw(UiHomeDetailSource source, const UiXmbList *list, bool 
       const ConsoleCardInfo *card = ui_cards_get_card(index);
       if (card)
         build_console(item, card);
-      else if (filter_row && list->focus == 0)
+      else if (list->focus == UI_CONSOLE_ROW_PAIR)
+        build_pair();
+      else if (filter_row && list->focus == UI_CONSOLE_ROW_FILTER)
         build_filter();
     } else {
       build_list_item(source, item, list->focus);

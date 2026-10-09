@@ -38,9 +38,25 @@ static void test_keyboard_text_converts_and_never_overruns(void) {
   assert(guard[7] == 'X');
 }
 
+/** The text a filter keyboard is prefilled with must come back as typed, accents included, and
+ * must stop before the buffer ends: a garbled prefill would silently change the user's filter
+ * the next time they press Done. */
+static void test_prefill_text_round_trips_and_never_overruns(void) {
+  uint16_t units[8];
+  char back[16];
+
+  ui_utf8_to_utf16("caf\xC3\xA9 \xE2\x82\xAC", units, 8);
+  ui_utf16_to_utf8(units, 8, back, sizeof(back));
+  assert(strcmp(back, "caf\xC3\xA9 \xE2\x82\xAC") == 0);
+
+  ui_utf8_to_utf16("abcdefghij", units, 4);
+  assert(units[3] == 0 && units[2] == 'c');
+}
+
 int main(void) {
   test_qr_module_size_fits_the_art_or_is_refused();
   test_keyboard_text_converts_and_never_overruns();
+  test_prefill_text_round_trips_and_never_overruns();
   puts("ui_login_tests: all passed");
   return 0;
 }

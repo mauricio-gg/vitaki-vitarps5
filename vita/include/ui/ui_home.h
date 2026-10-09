@@ -59,3 +59,10 @@ void ui_home_select_controller_preset(int preset);
  * filter hides it) leaves the focus alone.
  */
 void ui_home_focus_console(const VitaChiakiHost *host);
+
+/**
+ * ui_home_focus_pair_item() - Ask Home to focus the Pair new device item the next time it runs,
+ * on the Consoles category. For the PIN screen: Cancel or Close before a console is paired lands
+ * on the item the flow started from.
+ */
+void ui_home_focus_pair_item(void);

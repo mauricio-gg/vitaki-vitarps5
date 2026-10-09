@@ -10,6 +10,7 @@
 #include <vita2d.h>
 
 #include "context.h"
+#include "discovery_probe.h"
 #include "host.h"
 #include "host_registration.h"
 #include "ui/ui_chrome_layout.h"
@@ -49,8 +50,12 @@ static UiPopup s_popup;
 static UiHintLayout s_hints;
 static PinPhase s_phase = PIN_PHASE_ENTRY;
 static VitaChiakiHost *s_host = NULL;
+/** The host from the IP probe this screen owns (see ui_pin_adopt_probed_host()), or NULL. */
+static VitaChiakiHost *s_probed = NULL;
 /** The result the open popup shows (a paired console goes to Home, a failure offers Try again). */
 static HostRegistrationResult s_result = HOST_REGISTRATION_FAILED;
+/** The console Home focuses after a pairing; NULL focuses the Pair new device item. */
+static const VitaChiakiHost *s_focus_after_pair = NULL;
 
 /* Text built once per entry, never per frame. */
 static char s_title[UI_PIN_TEXT_MAX];
@@ -68,6 +73,33 @@ void ui_pin_init(void) {
 /* ============================================================================
  * Entry
  * ============================================================================ */
+
+void ui_pin_adopt_probed_host(VitaChiakiHost *host) {
+  s_probed = host;
+}
+
+/**
+ * release_probed_host() - Give back the probed host on an exit without a pairing. Only called
+ * when no attempt is running: a cancel reaches here only after its result was collected.
+ */
+static void release_probed_host(void) {
+  discovery_probe_free_host(s_probed);
+  s_probed = NULL;
+}
+
+/**
+ * finish_probed_pair() - A probed console is paired: the registered table owns it now. Save the
+ * address as a manual host and give the credentials to the console's other live entries.
+ *
+ * @param complete  Receives false when the address or any credentials could not be saved
+ * @return the console to focus on Home, or NULL when Home lists none for it
+ */
+static const VitaChiakiHost *finish_probed_pair(bool *complete) {
+  VitaChiakiHost *host = s_probed;
+  s_probed = NULL;
+  const VitaChiakiHost *listed = discovery_probe_save_manual_host(host, complete);
+  return listed ? listed : (*complete ? host : NULL);
+}
 
 /** Width function for ui_ellipsize_to_fit(): the console line's face. */
 static int measure_sub(const char *text, void *ctx) {
@@ -127,14 +159,23 @@ void ui_pin_on_enter(void) {
  * show_result() - Handle a finished attempt: no popup for a cancel, else open the result popup.
  * @name: The console's name as the attempt saw it.
  *
- * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home), otherwise the PIN screen
+ * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home with the Pair new device item focused),
+ *         otherwise the PIN screen
  */
 static UIScreenType show_result(HostRegistrationResult result, const char *name) {
   char body[RESULT_BODY_MAX];
   UiResultCopy copy;
-  if (!ui_result_copy_pairing(result, name, body, sizeof(body), &copy)) {
+  bool saved_everything = true;
+  if (result == HOST_REGISTRATION_PAIRED)
+    s_focus_after_pair = s_probed ? finish_probed_pair(&saved_everything) : s_host;
+  const bool copied = saved_everything
+                          ? ui_result_copy_pairing(result, name, body, sizeof(body), &copy)
+                          : ui_result_copy_paired_partial(name, body, sizeof(body), &copy);
+  if (!copied) {
     if (result != HOST_REGISTRATION_CANCELLED)
       LOGE("PIN screen: pairing result %s has no popup", host_registration_result_name(result));
+    release_probed_host();
+    ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }
   s_result = result;
@@ -196,6 +237,8 @@ static UIScreenType update_field(const UiInput *in) {
         host_registration_cancel();
         return UI_SCREEN_TYPE_REGISTER_HOST;
       }
+      release_probed_host();
+      ui_home_focus_pair_item();
       return UI_SCREEN_TYPE_MAIN;
     default:
       return UI_SCREEN_TYPE_REGISTER_HOST;
@@ -204,7 +247,8 @@ static UIScreenType update_field(const UiInput *in) {
 
 /**
  * update_result_popup() - Drive the result popup. Paired goes back to Home with the console
- * focused; Close goes back to Home; Try again opens this screen again, empty.
+ * focused; Close goes back to Home with the Pair new device item focused; Try again opens this
+ * screen again, empty.
  *
  * @return the screen to show next
  */
@@ -215,11 +259,17 @@ static UIScreenType update_result_popup(const UiInput *in) {
 
   ui_popup_close(&s_popup);
   if (s_result == HOST_REGISTRATION_PAIRED) {
-    ui_home_focus_console(s_host);
+    if (s_focus_after_pair)
+      ui_home_focus_console(s_focus_after_pair);
+    else
+      ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }
-  if (choice == 0)
+  if (choice == 0) {
+    release_probed_host();
+    ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
+  }
   reset_entry();
   return UI_SCREEN_TYPE_REGISTER_HOST;
 }

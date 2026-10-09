@@ -23,10 +23,11 @@ void ui_result_popup_init(void) {
 
 void ui_result_popup_open(UiPopup *popup, const UiResultCopy *copy, const char *body) {
   const bool ok = copy->tone == UI_RESULT_TONE_OK;
+  const bool warn = copy->tone == UI_RESULT_TONE_WARN;
   UiPopupSpec spec = {
       .size = UI_POPUP_SIZE_S,
       .icon = ok ? s_icon_check : s_icon_warn,
-      .icon_color = ok ? UI_OK : UI_ERR,
+      .icon_color = ok ? UI_OK : (warn ? UI_WARN : UI_ERR),
       .title = copy->title,
       .body = body,
       .button_count = copy->button_count,

@@ -12,7 +12,6 @@
 #include "context.h"
 #include "logging.h"
 #include "video.h"
-#include "ui/ui_console_cards.h"
 #include "ui/ui_group_list.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_home.h"
@@ -147,17 +146,6 @@ static void psn_internet_change(int step) {
   ui_settings_persist_config();
 }
 
-static bool show_only_paired_is_on(void) {
-  return context.config.show_only_paired;
-}
-
-static void show_only_paired_change(int step) {
-  (void)step;
-  context.config.show_only_paired = !context.config.show_only_paired;
-  ui_settings_persist_config();
-  ui_cards_update_cache(true);
-}
-
 static const SettingDef NETWORK_ROWS[] = {
     {"Auto Discovery", UI_SETTING_TOGGLE,
      "Find consoles on your network automatically. Takes effect the next time the app starts.",
@@ -165,8 +153,6 @@ static const SettingDef NETWORK_ROWS[] = {
     {"Enable PSN Internet Mode", UI_SETTING_TOGGLE,
      "Connect to your consoles over the internet with your PSN account.", psn_internet_is_on, NULL,
      psn_internet_change},
-    {"Show Only Paired", UI_SETTING_TOGGLE, "Hide consoles that are not paired.",
-     show_only_paired_is_on, NULL, show_only_paired_change},
 };
 
 /* Display */

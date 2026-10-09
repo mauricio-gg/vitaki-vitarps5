@@ -56,7 +56,6 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->submit_on_missing_ref = false;
-  cfg->show_only_paired = false;
   cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
   cfg->show_button_hints = true;
   cfg->room_icons.count = 0;
@@ -421,7 +420,6 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
       {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", false, &cfg->submit_on_missing_ref},
-      {"show_only_paired", false, &cfg->show_only_paired},
       {"show_button_hints", true, &cfg->show_button_hints},
       {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
       {"enable_logging", false, &cfg->logging.enabled},
@@ -736,7 +734,6 @@ bool config_serialize(VitaChiakiConfig *cfg) {
       {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", cfg->submit_on_missing_ref},
-      {"show_only_paired", cfg->show_only_paired},
       {"show_button_hints", cfg->show_button_hints},
       {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
       {"enable_logging", cfg->logging.enabled},
