@@ -75,42 +75,17 @@ jobs:
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_OUTPUT
           echo "New version: $NEW_TAG"
 
-      - name: Generate changelog
+      - name: Generate release notes
         id: changelog
         run: |
           LATEST_TAG="${{ steps.get_latest_tag.outputs.LATEST_TAG }}"
           NEW_TAG="${{ steps.new_version.outputs.NEW_TAG }}"
+          BUILD_DATE=$(date -u +%Y-%m-%d)
 
-          echo "Generating changelog from $LATEST_TAG to HEAD..."
-
-          # Get merged PRs since last tag
-          CHANGELOG=$(cat <<'EOF'
-          ## What's Changed
-
-          EOF
-          )
-
-          # Get commits since last tag with PR numbers
-          git log $LATEST_TAG..HEAD --merges --pretty=format:"- %s" | \
-            grep -E "Merge pull request|Merge branch" | \
-            sed 's/Merge pull request #\([0-9]*\) from .*/PR #\1/' | \
-            sed 's/Merge branch .*//' | \
-            grep -v "^$" > /tmp/changelog.txt || true
-
-          if [ -s /tmp/changelog.txt ]; then
-            CHANGELOG+=$(cat /tmp/changelog.txt)
-          else
-            # If no PRs, list individual commits
-            git log $LATEST_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges >> /tmp/changelog.txt
-            CHANGELOG+=$(cat /tmp/changelog.txt)
-          fi
-
-          # Save to file for later use
-          echo "$CHANGELOG" > /tmp/full_changelog.txt
-
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/full_changelog.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Generating release notes from $LATEST_TAG to HEAD..."
+          chmod +x tools/release_notes.sh
+          tools/release_notes.sh "$LATEST_TAG" "$NEW_TAG" "VitaRPS5-${NEW_TAG}.vpk" \
+            "${{ github.sha }}" "$BUILD_DATE" "${{ github.repository }}" "$RUNNER_TEMP/release_notes.md"
 
       - name: Build VPK using Docker (prod env)
         run: |
@@ -161,34 +136,7 @@ jobs:
           tag_name: ${{ steps.new_version.outputs.NEW_TAG }}
           name: VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
           files: ${{ steps.find_vpk.outputs.VPK_PATH }}
-          body: |
-            # VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
-
-            **Enhanced PlayStation 5 Remote Play for PS Vita**
-
-            Built with modern UI, optimized performance, and quality-of-life improvements.
-
-            ## 📦 Installation
-
-            1. Download `${{ steps.find_vpk.outputs.VPK_NAME }}` below
-            2. Transfer to your PS Vita (via USB or FTP)
-            3. Install using VitaShell (press X on the VPK file)
-            4. Launch from LiveArea
-
-            ${{ steps.changelog.outputs.CHANGELOG }}
-
-            ## 🛠️ Build Information
-
-            - **Build System:** Docker + VitaSDK
-            - **Version:** ${{ steps.new_version.outputs.NEW_TAG }}
-            - **Commit:** ${{ github.sha }}
-            - **Build Date:** ${{ github.event.head_commit.timestamp }}
-
-            ---
-
-            Built with ❤️ for the PS Vita community over 3+ months of design and development.
-
-            ☕ **Support development:** [Buy Me a Coffee](https://buymeacoffee.com/solidem)
+          body_path: ${{ runner.temp }}/release_notes.md
           draft: false
           prerelease: false
         env:
