@@ -25,7 +25,6 @@
 #include "util.h"
 #include "video.h"
 #include "ui/ui_screens.h"
-#include "ui/ui_settings_actions.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
 #include "ui/ui_connecting.h"
