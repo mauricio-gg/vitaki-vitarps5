@@ -43,7 +43,7 @@ Fixed palette (no time of day). 5 ribbons: one triangle strip per ribbon fill pl
 
 ## 4. Draw-call counts per screen (paper)
 
-The ~80 figure is a paper reference, not a hard limit for menu screens (CEO ruling, 2026-10-09, #271). The test for a menu screen is that it stays smooth on hardware, with `UI/DRAWS` used to spot outliers. The stream overlay stays lean, because it shares the CPU with decode and networking. `UI/DRAWS` counts a text run as 1 while vita2d draws one quad per glyph, so the counter understates real cost (#353).
+The ~80 figure is a paper reference, not a hard limit for menu screens (CEO ruling, 2026-10-09, #271). The test for a menu screen is that it stays smooth on hardware, with `UI/DRAWS` used to spot outliers. Menu screens do not give up legibility or clarity, such as labels, to lower the draw count (same ruling). The stream overlay stays lean, because it shares the CPU with decode and networking. `UI/DRAWS` counts a text run as 1 while vita2d draws one quad per glyph, so the counter understates real cost (#353).
 
 Recounted bottom-up in round 7b from the real primitives (one draw per texture quad, text run, strip or rectangle). Earlier round estimates undercounted. Default settings (Background Blur None).
 
