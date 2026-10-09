@@ -959,3 +959,65 @@ typedef enum ui_face_t {
 
 /** In a zone view the preset name follows the title as a T16 sub, this far after the title. */
 #define UI_CTRL_SUB_GAP (UI_S2 + UI_S1)
+
+/* ============================================================================
+ * Splash screen (ui_splash.c, ui_splash_particles.c). Constants are the ones of the approved mock,
+ * docs/design/ui-mocks/splash.html; times are milliseconds.
+ * ============================================================================ */
+
+/** The logo is drawn at 640 x 276 (the art is 688 x 297), centred on the 960 x 544 screen. */
+#define UI_SPLASH_LOGO_W 640
+#define UI_SPLASH_LOGO_H 276
+#define UI_SPLASH_LOGO_X 160
+#define UI_SPLASH_LOGO_Y 134
+
+/* Sampling: one particle per UI_SPLASH_CELL px square cell that is more than UI_SPLASH_CELL_FILL
+ * covered by bright, opaque logo pixels (alpha above UI_SPLASH_ALPHA_MIN and red above
+ * UI_SPLASH_RED_MIN; the art has a thin dark outline that must not get particles). The capacity
+ * covers the ~970 the real logo gives with room to spare. */
+#define UI_SPLASH_CELL 9
+#define UI_SPLASH_CELL_FILL 0.35f
+#define UI_SPLASH_ALPHA_MIN 200
+#define UI_SPLASH_RED_MIN 200
+#define UI_SPLASH_MAX_PARTICLES 1500
+
+/* The mock's random numbers (a linear congruential generator, s = s * MUL + ADD mod 2^32, divided
+ * by 2^32), so the particles are the same on every launch. */
+#define UI_SPLASH_SEED 366u
+#define UI_SPLASH_LCG_MUL 1664525u
+#define UI_SPLASH_LCG_ADD 1013904223u
+#define UI_SPLASH_LCG_RANGE 4294967296.0
+
+/* Each particle starts on or just beyond the screen border: UI_SPLASH_MARGIN_MIN px outside the
+ * edge up to UI_SPLASH_MARGIN_RANGE px further. It is UI_SPLASH_SIZE_SMALL px wide with a
+ * UI_SPLASH_SMALL_CHANCE chance, else UI_SPLASH_SIZE_LARGE, and bows sideways by up to
+ * UI_SPLASH_BOW_PX px on its way. */
+#define UI_SPLASH_MARGIN_MIN (-10.0f)
+#define UI_SPLASH_MARGIN_RANGE 70.0f
+#define UI_SPLASH_SIZE_SMALL 2
+#define UI_SPLASH_SIZE_LARGE 3
+#define UI_SPLASH_SMALL_CHANCE 0.55f
+#define UI_SPLASH_BOW_PX 70.0f
+
+/* Timing: a particle waits 0..UI_SPLASH_STAGGER_MS, flies for UI_SPLASH_FLIGHT_MS (alpha rising
+ * from UI_SPLASH_ALPHA_START to 1), then is absorbed over UI_SPLASH_ABSORB_MS. The crisp logo fades
+ * in as the mean flight progress to the power UI_SPLASH_LOGO_GAMMA, and is whole from
+ * UI_SPLASH_ASSEMBLY_MS on. Once loading is done the splash fades out over UI_SPLASH_FADE_MS. */
+#define UI_SPLASH_STAGGER_MS 300.0f
+#define UI_SPLASH_FLIGHT_MS 600.0f
+#define UI_SPLASH_ABSORB_MS 120.0f
+#define UI_SPLASH_ALPHA_START 0.12f
+#define UI_SPLASH_LOGO_GAMMA 1.3f
+#define UI_SPLASH_ASSEMBLY_MS 1000.0f
+#define UI_SPLASH_FADE_MS 300.0f
+
+/** Depth of the splash's vertices (vita2d draws 2D shapes at z = 0.5). */
+#define UI_SPLASH_Z 0.5f
+
+/* Start-up (ui.c): while the app loads, a splash frame is drawn only if this many microseconds
+ * (one display frame at 60 Hz) have passed since the last one was presented, so a run of fast
+ * loading steps is not throttled to the display rate. The scene is cleared black for the splash
+ * and grey (the colour every other screen starts from) once loading is finished. */
+#define UI_SPLASH_FRAME_INTERVAL_US 16667
+#define UI_SPLASH_CLEAR_COLOR RGBA8(0x00, 0x00, 0x00, 0xFF)
+#define UI_SCENE_CLEAR_COLOR RGBA8(0x40, 0x40, 0x40, 0xFF)

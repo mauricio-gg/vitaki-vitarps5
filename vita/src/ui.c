@@ -77,6 +77,7 @@
 #include "ui/ui_settings.h"
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_shapes.h"
+#include "ui/ui_splash.h"
 #include "ui/ui_toast.h"
 
 vita2d_texture *img_ps4;
@@ -173,17 +174,19 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
 // ============================================================================
 
 /**
- * load_textures() - Load all UI textures and assets into memory
+ * load_textures() - Load all UI textures and assets into memory (except the logo)
  *
  * Loads console icons, UI symbols, navigation icons, and other graphical
  * assets required for rendering the VitaRPS5 interface. Called once during
  * UI initialization.
  *
+ * The VitaRPS5 logo is loaded earlier, by init_ui(), because the splash draws it first.
+ *
  * Note: Textures are loaded from app0:/assets/ directory as defined in
  * ui_constants.h. Failed loads result in NULL texture pointers which must
  * be checked before rendering.
  */
-void load_textures() {
+static void load_textures(void) {
   img_ps4 = ui_load_png_linear(IMG_PS4_PATH);
 
   // Load VitaRPS5 UI assets
@@ -197,7 +200,6 @@ void load_textures() {
   icon_settings = ui_load_png_linear("app0:/assets/icon_settings.png");
 
   // Load new professional assets
-  vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
   ps5_logo = ui_load_png_linear("app0:/assets/PS5_logo.png");
 
   // Controller diagram textures are managed separately by the controller
@@ -298,18 +300,184 @@ bool ui_reload_psn_account_id(void) {
 // ============================================================================
 
 // ============================================================================
-// UI INITIALIZATION
+// UI INITIALIZATION AND START-UP SPLASH
 // ============================================================================
 
+/** One piece of start-up work. Steps run in table order on the main thread. */
+typedef struct {
+  const char *name; /**< Name in the PIPE/SPLASH_STEP log line. */
+  void (*run)(void);
+} StartupStep;
+
+/** Unix time at the startup PSN refresh; seeds the once-a-minute token check in draw_ui(). */
+static uint64_t s_startup_unix = 0;
+
+/** When the last splash frame was presented (0 before the first), for the frame gate. */
+static uint64_t s_last_present_us = 0;
+/** Longest gap between two presented splash frames, and the longest step run inside it. */
+static uint64_t s_max_gap_us = 0;
+static const char *s_max_gap_step = "none";
+static uint64_t s_interval_longest_us = 0;
+static const char *s_interval_longest_name = "none";
+/** Process time at which the last loading step finished. */
+static uint64_t s_load_done_us = 0;
+/** Set when loading ends; the main loop then blocks held inputs once (see draw_ui()). */
+static bool s_splash_block_pending = false;
+
+/** startup_note_step() - Remember @name if it is the longest step since the last splash frame. */
+static void startup_note_step(const char *name, uint64_t duration_us) {
+  if (duration_us > s_interval_longest_us) {
+    s_interval_longest_us = duration_us;
+    s_interval_longest_name = name;
+  }
+}
+
+/** startup_note_presented() - Account for a splash frame that has just been presented. */
+static void startup_note_presented(void) {
+  const uint64_t now = sceKernelGetProcessTimeWide();
+  if (s_last_present_us == 0) {
+    LOGD("PIPE/SPLASH_FIRST_FRAME us=%llu", (unsigned long long)now);
+  } else if (now - s_last_present_us > s_max_gap_us) {
+    s_max_gap_us = now - s_last_present_us;
+    s_max_gap_step = s_interval_longest_name;
+  }
+  s_last_present_us = now;
+  s_interval_longest_us = 0;
+  s_interval_longest_name = "none";
+}
+
 /**
- * init_ui() - Initialize the VitaRPS5 UI system
+ * splash_frame() - Draw and present one splash frame.
+ * @more_faces: NULL for a plain frame. Otherwise the next glyph face is baked inside this
+ *              frame's scene (FreeType/GXM needs an active render pass, and only one scene may be
+ *              open at a time) and *@more_faces is set to whether any face remains.
+ * @face_index: Index of the face being baked, for the log line (ignored when @more_faces is NULL).
  *
- * Performs one-time initialization of the UI subsystem:
- * 1. Initializes vita2d graphics library
- * 2. Loads all textures and fonts
- * 3. Initializes touch screen input
- * 4. Configures confirm/cancel button layout
- * 5. Initializes all UI modules (input, screens, state, background, cards)
+ * A frame is: poll skip, open the scene, clear, [bake a face], draw the splash (3 draws), close,
+ * swap. The draw counters start after the bake, so the glyph quads are not counted.
+ */
+static void splash_frame(bool *more_faces, int face_index) {
+  ui_splash_poll_skip();
+  vita2d_start_drawing();
+  vita2d_clear_screen();
+  if (more_faces) {
+    char name[24];
+    const uint64_t t0 = sceKernelGetProcessTimeWide();
+    *more_faces = ui_text_prewarm_next_face() != 0;
+    const uint64_t bake_us = sceKernelGetProcessTimeWide() - t0;
+    snprintf(name, sizeof(name), "glyphs_%d", face_index);
+    LOGD("PIPE/SPLASH_STEP name=%s us=%llu", name, (unsigned long long)bake_us);
+    /* The gap bookkeeping keeps the pointer, so it takes a literal, not the local buffer. */
+    startup_note_step("glyphs", bake_us);
+    if (!*more_faces)
+      LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
+  }
+  UI_DRAW_STATS_FRAME_BEGIN();
+  ui_splash_draw();
+  UI_DRAW_STATS_FRAME_END("splash");
+  vita2d_end_drawing();
+  vita2d_swap_buffers();
+  startup_note_presented();
+}
+
+/** startup_run_step() - Run one step, log its duration, then draw a splash frame if one is due. */
+static void startup_run_step(const StartupStep *step) {
+  const uint64_t t0 = sceKernelGetProcessTimeWide();
+  step->run();
+  const uint64_t duration_us = sceKernelGetProcessTimeWide() - t0;
+  LOGD("PIPE/SPLASH_STEP name=%s us=%llu", step->name, (unsigned long long)duration_us);
+  startup_note_step(step->name, duration_us);
+  if (sceKernelGetProcessTimeWide() - s_last_present_us >= UI_SPLASH_FRAME_INTERVAL_US)
+    splash_frame(NULL, 0);
+}
+
+/** step_fonts() - Load the two Roboto weights and hand them to the text module. */
+static void step_fonts(void) {
+  vita2d_font *font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
+  vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
+  ui_text_init(font, font_light);
+}
+
+/** step_input() - Start touch sampling and initialise the input, state and focus modules. */
+static void step_input(void) {
+  sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
+  sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
+  sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
+
+  ui_input_init();
+  ui_state_init();
+  ui_focus_init();  // Initialize centralized focus manager (Phase 1)
+
+  // Get pointers to input state for direct manipulation (legacy compatibility)
+  button_block_mask = ui_input_get_button_block_mask_ptr();
+}
+
+/** step_psn_id() - Load the PSN account id from the registry if the config has none. */
+static void step_psn_id(void) {
+  load_psn_id_if_needed();
+}
+
+/**
+ * step_psn_refresh() - The startup PSN host refresh and the config persist that follows it.
+ *
+ * psn_remote_refresh_hosts() blocks, so the splash cannot draw while it runs (ticket #353 moves
+ * it off the main thread). It is a no-op when PSN internet mode is disabled.
+ */
+static void step_psn_refresh(void) {
+  time_t startup_t = time(NULL);
+  if (startup_t != (time_t)-1) {
+    s_startup_unix = (uint64_t)startup_t;
+    /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
+     * device list, and persists the config. It is a no-op when PSN internet
+     * mode is disabled. Doing this at startup means the user does not have to
+     * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
+    psn_remote_refresh_hosts();
+    /* Drain any token refresh that happened but didn't persist (e.g. host
+     * fetch failed after a successful token refresh). */
+    if (context.config_persist_pending) {
+      if (!config_serialize(&context.config))
+        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
+      context.config_persist_pending = false;
+    }
+  } else {
+    CHIAKI_LOGW(&(context.log), "PSN auth: skipping startup host refresh — system clock not set");
+  }
+}
+
+/** Loading steps after the splash is up, in the order init_ui() and draw_ui() always did them. */
+static const StartupStep STARTUP_STEPS[] = {
+    {"textures", load_textures},
+    {"background", ui_background_init},  // Build the wave background geometry
+    {"cards", ui_cards_init},            // Initialize console card system
+    /* Text helper: needs the fonts loaded; metrics are measured later, in the glyph steps. */
+    {"fonts", step_fonts},
+    {"glow", ui_glow_init},
+    {"shapes", ui_shapes_init},
+    {"room_icons", ui_room_icons_init},
+    {"result_popup", ui_result_popup_init},  // shared by Home and the PIN screen, so before both
+    {"home", ui_home_init},
+    {"connecting", ui_connecting_init},
+    {"toast", ui_toast_init},
+    {"settings", ui_settings_init},
+    {"profile", ui_profile_init},
+    {"controller_page", ui_controller_page_init},
+    {"pin", ui_pin_init},
+    {"list_popup", ui_list_popup_init},
+    {"pair_popup", ui_pair_popup_init},
+    {"input", step_input},
+    {"psn_id", step_psn_id},
+    {"psn_refresh", step_psn_refresh},
+};
+
+/**
+ * init_ui() - Bring the UI up behind the splash screen
+ *
+ * 1. Initializes vita2d, loads the logo and draws the first splash frame.
+ * 2. Runs STARTUP_STEPS one after another on the main thread, drawing a splash frame after a step
+ *    only when one display frame interval has passed since the last.
+ * 3. Bakes the glyph atlas one face per splash frame (it needs an open scene).
+ * 4. Marks loading done and keeps drawing splash frames until the logo has assembled; the fade
+ *    over Home is then drawn by the main loop in draw_ui().
  *
  * Must be called before draw_ui() main loop.
  */
@@ -321,44 +489,29 @@ void init_ui() {
                   vita2d_init_ret);
     vita2d_init();
   }
-  vita2d_set_clear_color(RGBA8(0x40, 0x40, 0x40, 0xFF));
-  load_textures();
-  ui_background_init();  // Build the wave background geometry
-  ui_cards_init();       // Initialize console card system
+  /* The splash needs a black screen and nothing else may show first. Nothing blocks on the
+   * display while loading: the splash frames are time gated and animation is time based. */
+  vita2d_set_clear_color(UI_SPLASH_CLEAR_COLOR);
+  vita2d_set_vblank_wait(false);
+  vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
+  ui_splash_start(vita_rps5_logo);
+  splash_frame(NULL, 0);
 
-  /* Initialize text helper: measures per-face metrics from the loaded fonts.
-   * Must happen after font load and before the first draw_ui() frame. */
-  vita2d_font *font = vita2d_load_font_file("app0:/assets/fonts/Roboto-Regular.ttf");
-  vita2d_font *font_light = vita2d_load_font_file("app0:/assets/fonts/Roboto-Light.ttf");
-  ui_text_init(font, font_light);
-  ui_glow_init();
-  ui_shapes_init();
-  ui_room_icons_init();
-  ui_result_popup_init();  // shared by Home and the PIN screen, so loaded before either
-  ui_home_init();
-  ui_connecting_init();
-  ui_toast_init();
-  ui_settings_init();
-  ui_profile_init();
-  ui_controller_page_init();
-  ui_pin_init();
-  ui_list_popup_init();
-  ui_pair_popup_init();
+  for (size_t i = 0; i < sizeof(STARTUP_STEPS) / sizeof(STARTUP_STEPS[0]); i++)
+    startup_run_step(&STARTUP_STEPS[i]);
 
+  /* Each face is baked inside a splash frame, whatever the frame gate says. */
+  bool more_faces = ui_text_needs_prewarm() != 0;
+  for (int face = 0; more_faces; face++)
+    splash_frame(&more_faces, face);
+
+  s_load_done_us = sceKernelGetProcessTimeWide();
+  vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
   vita2d_set_vblank_wait(true);
-
-  // Initialize touch screen
-  sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
-  sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
-  sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
-
-  // Initialize UI modules
-  ui_input_init();
-  ui_state_init();
-  ui_focus_init();  // Initialize centralized focus manager (Phase 1)
-
-  // Get pointers to input state for direct manipulation (legacy compatibility)
-  button_block_mask = ui_input_get_button_block_mask_ptr();
+  ui_splash_loading_done();
+  while (!ui_splash_ready_to_exit())
+    splash_frame(NULL, 0);
+  s_splash_block_pending = true;
 }
 
 // ============================================================================
@@ -387,39 +540,10 @@ void draw_ui() {
   /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
    * sidebar when it becomes active again. Starts as NONE so the first frame counts as entry. */
   UIScreenType drawn_screen = UI_SCREEN_TYPE_NONE;
+  bool first_home_frame_logged = false;
   context.ui_state.debug_menu_active = false;
   context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
-
-  load_psn_id_if_needed();
-  time_t startup_t = time(NULL);
-  uint64_t startup_unix = 0;
-  if (startup_t != (time_t)-1) {
-    startup_unix = (uint64_t)startup_t;
-    /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
-     * device list, and persists the config. It is a no-op when PSN internet
-     * mode is disabled. Doing this at startup means the user does not have to
-     * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
-    psn_remote_refresh_hosts();
-    /* Drain any token refresh that happened but didn't persist (e.g. host
-     * fetch failed after a successful token refresh). */
-    if (context.config_persist_pending) {
-      if (!config_serialize(&context.config))
-        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
-      context.config_persist_pending = false;
-    }
-  } else {
-    CHIAKI_LOGW(&(context.log), "PSN auth: skipping startup host refresh — system clock not set");
-  }
-
-  /*
-   * Glyph atlas warm-up flag: set once here so the first main-loop iteration
-   * runs the prewarm pass inside the main drawing pair (after
-   * vita2d_start_drawing / vita2d_clear_screen, before the background draw).
-   * Keeping it inside the main pair avoids opening a second GXM scene in the
-   * same frame, which would risk a GXM assertion or scene corruption.
-   */
-  int ui_text_prewarm_pending = ui_text_needs_prewarm();
 
   while (true) {
     // --- Deferred session finalization (join + fini on UI thread) ---
@@ -510,7 +634,7 @@ void draw_ui() {
       if (t != (time_t)-1) {
         uint64_t now_unix = (uint64_t)t;
         if (last_token_check_unix == 0)
-          last_token_check_unix = startup_unix;
+          last_token_check_unix = s_startup_unix;
         if (now_unix - last_token_check_unix >= 60) {
           last_token_check_unix = now_unix;
           psn_auth_refresh_token_if_needed(now_unix, false);
@@ -528,6 +652,12 @@ void draw_ui() {
     context.ui_state.old_button_state = context.ui_state.button_state;
     context.ui_state.button_state = ctrl.buttons;
     *button_block_mask &= context.ui_state.button_state;
+    /* The fade over Home starts now. A button or finger the user is still holding from skipping
+     * the splash must not act on Home, so it is blocked until it is released. */
+    if (s_splash_block_pending) {
+      block_inputs_for_transition();
+      s_splash_block_pending = false;
+    }
 
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
@@ -566,18 +696,6 @@ void draw_ui() {
       }
       vita2d_start_drawing_advanced(NULL, 0);
       vita2d_clear_screen();
-
-      /*
-       * One-shot atlas prewarm: runs inside the main drawing pair so there is
-       * only ever one vita2d_start_drawing / vita2d_end_drawing open at a time.
-       * Prewarm draws are at alpha=0 and off-screen (UI_FONT_PREWARM_OFFSCREEN_X/Y)
-       * so they produce no visible output even on the first rendered frame.
-       */
-      if (ui_text_prewarm_pending) {
-        ui_text_prewarm();
-        ui_text_prewarm_pending = 0;
-        LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
-      }
 
       UI_DRAW_STATS_FRAME_BEGIN();
 
@@ -625,9 +743,27 @@ void draw_ui() {
       if (next_screen != prev_screen)
         ui_freeze_release();
       UI_DRAW_STATS_FRAME_END(frozen ? DRAW_STATS_POPUP_NAME : draw_stats_screen_name(prev_screen));
+      /* The splash fades out over Home as the last draw of the frame, after the Home and debug
+       * menu draws it covers (and after the draw counters, so they stay Home's own). */
+      const bool splash_was_active = ui_splash_active();
+      if (splash_was_active && ui_splash_draw_exit()) {
+        LOGD(
+            "PIPE/SPLASH_DONE frames=%u expected=%llu elapsed_us=%llu load_done_us=%llu "
+            "max_gap_us=%llu max_gap_step=%s",
+            (unsigned int)ui_splash_frames_drawn(),
+            (unsigned long long)(ui_splash_elapsed_us() / UI_SPLASH_FRAME_INTERVAL_US),
+            (unsigned long long)ui_splash_elapsed_us(), (unsigned long long)s_load_done_us,
+            (unsigned long long)s_max_gap_us, s_max_gap_step);
+      }
       vita2d_end_drawing();
       vita2d_common_dialog_update();
       vita2d_swap_buffers();
+      if (splash_was_active)
+        startup_note_presented();
+      if (!first_home_frame_logged && prev_screen == UI_SCREEN_TYPE_MAIN) {
+        LOGD("PIPE/UI_FIRST_HOME_FRAME us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
+        first_home_frame_logged = true;
+      }
       ui_freeze_frame_end();
     } else {
       // Streaming active — render decoded frames from the UI thread.
