@@ -328,7 +328,7 @@ function loginHTML(){
  <div class="st inf"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div></div></div><div class="lbtns">${tbtn('Enter code',{do:'btn',arg:'ok'})}${tbtn('Cancel login',{do:'btn',arg:'sq'})}</div>`;
 }
 /* Illustrative 93-module code (QR version 18) inside a 2-module quiet zone: 97 modules at 2 px = the 194 px plate. Not a real code; finders in three corners, pseudo-random fill. */
-function qrSvg(){const N=93,Q=2,ink='#0a0a0a';let s='';const f=(x,y)=>`<rect x="${x+Q}" y="${y+Q}" width="7" height="7" fill="${ink}"/><rect x="${x+Q+1}" y="${y+Q+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+Q+2}" y="${y+Q+2}" width="3" height="3" fill="${ink}"/>`;s+=f(0,0)+f(N-7,0)+f(0,N-7);let r=7;for(let y=0;y<N;y++)for(let x=0;x<N;x++){if((x<8&&y<8)||(x>N-9&&y<8)||(x<8&&y>N-9))continue;r=(r*9301+49297)%233280;if(r%2===0)s+=`<rect x="${x+Q}" y="${y+Q}" width="1" height="1" fill="${ink}"/>`;}return s;}
+function qrSvg(){const N=93,Q=2,ink='#0a0a0a';let s='';const f=(x,y)=>`<rect x="${x+Q}" y="${y+Q}" width="7" height="7" fill="${ink}"/><rect x="${x+Q+1}" y="${y+Q+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+Q+2}" y="${y+Q+2}" width="3" height="3" fill="${ink}"/>`;s+=f(0,0)+f(N-7,0)+f(0,N-7);let r=7;for(let y=0;y<N;y++)for(let x=0;x<N;x++){if((x<8&&y<8)||(x>N-9&&y<8)||(x<8&&y>N-9))continue;r=(r*9301+49297)%233280;if(((r>>8)&1)===0)s+=`<rect x="${x+Q}" y="${y+Q}" width="1" height="1" fill="${ink}"/>`;}return s;}
 function openPage(kind,g,focus='r'){
  S.pg={kind,g:g||0,focus,row:S.pg.kind===kind?S.pg.row:{}};S.screen='page';showOnly('page');paintTop();paintPage(true);
 }
