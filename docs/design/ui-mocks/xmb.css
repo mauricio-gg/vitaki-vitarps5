@@ -384,3 +384,7 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 .lr.fl img{opacity:.8}.lr.fl .fr{margin-left:auto;display:flex;align-items:center;gap:var(--s2)}
 .lr.fl .fr small{margin-left:0}
 .lr.pinrow{margin-top:0;border-top:var(--lw1) solid var(--line-faint);flex:none}
+
+/* revision 3: 2-line instructions, 4-row viewport (Filter row + 3 consoles) */
+.popup .pbody{height:48px}
+.phead{margin-top:var(--s1)}

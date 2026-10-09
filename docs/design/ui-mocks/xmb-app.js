@@ -110,7 +110,7 @@ function items(ci){
   const L=visCons().map(c=>({k:'console',c,t:c.name}));
   const n=unpairedFound().length;
   const P={k:'pair',t:'Pair new device',s:!SET('disc').v?'Link a console':n?`${n} found nearby`:S.scan==='searching'?'Searching...':'Link a console',img:'icons/plus.svg'};
-  return [P].concat(hasFilterRow()?[{k:'filter',t:S.flt?`Filter: &ldquo;${S.flt}&rdquo;`:'Filter&hellip;',s:S.flt?`${L.length} found &middot; ${inl('sq')} to clear`:''}]:[],L);
+  return [P].concat(hasFilterRow()?[{k:'filter',t:S.flt?`Filter: "${S.flt}"`:'Filter...',s:S.flt?`${L.length} found &middot; ${inl('sq')} to clear`:''}]:[],L);
  }
  if(ci===1)return GROUPS.map((n,gi)=>({k:'grp',gi,t:n,s:SETTINGS.filter(s=>s.g===gi).length+(SETTINGS.filter(s=>s.g===gi).length>1?' settings':' setting'),img:`icons/${GICON[gi]}.svg`}));
  if(ci===2)return PNAME.map((p,i)=>({k:'preset',i,t:p,s:PDESC[i],img:`icons/slot${i+1}.svg`}));
@@ -159,7 +159,7 @@ function kv(a,b,col=''){return `<div class="kv"><span>${a}</span><b ${col?`style
 function paintDetail(){
  const it=selItem(),P=$('#detail');let h='';
  if(!it){P.innerHTML='';return;}
- if(it.k==='filter'){const n=visCons().length,tot=pairedCount();h=`<h4>Filter</h4><p class="st" style="height:auto;margin:0 0 16px">Find a console by name or IP address.</p><p class="st" style="height:auto">${S.flt?`&ldquo;${S.flt}&rdquo;: ${n} found of ${tot}`:`${tot} consoles`}</p>`;}
+ if(it.k==='filter'){const n=visCons().length,tot=pairedCount();h=`<h4>Filter</h4><p class="st" style="height:auto;margin:0 0 16px">Find a console by name or IP address.</p><p class="st" style="height:auto">${S.flt?`"${S.flt}": ${n} found of ${tot}`:`${tot} consoles`}</p>`;}
  else if(it.k==='pair'){const n=unpairedFound().length;h=`<h4>Pair new device</h4><p class="st" style="height:auto;margin:0 0 16px">Link a PS5 or PS4 to this Vita. Turn the console on and join the same network.</p>${kv('Paired',pairedCount()+(pairedCount()===1?' console':' consoles'))}${kv('Found nearby',!SET('disc').v?'Discovery off':n?n+' unpaired':S.scan==='searching'?'Searching...':'None')}`;}
  else if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
   const msg=c.hint?HINT[c.hint]:null;
@@ -226,11 +226,15 @@ function openPair(sel,off){
  const def=F.length?(showF?1:0):(showF?0:rows.length-1);
  const note=dOff?'Auto Discovery is off. Turn it on in Settings &gt; Network, or enter the IP address.':all.length?(F.length?'':'No consoles match filter'):S.scan==='searching'?'<span class="sp"></span>Searching your network...':'No unpaired consoles found';
  popup({size:'l',kind:'pair',title:'Pair new device',
-  body:'<div>PS5: Settings &gt; System &gt; Remote Play &gt; Link Device</div><div>PS4: Settings &gt; Remote Play Connection Settings &gt; Add Device</div>',
+  body:'<div>PS5: Settings &gt; System &gt; Remote Play &gt; Link Device</div><div>PS4: Remote Play Connection Settings &gt; Add Device</div>',
   head:'Found on your network',count:all.length?(S.pf?`${F.length} of ${all.length}`:`${all.length} found`):'',spin:!dOff&&S.scan==='searching'&&all.length>0,
   note,rows,sel:sel==null?def:Math.min(sel,rows.length-1),off:off||0,cancelLabel:'Close',
-  hintFn:r=>r.ip?[['confirm','Enter IP',{key:'ok'}],['cancel','Close',{key:'back'}]]:r.filter?[['confirm','Filter',{key:'ok'}]].concat(S.pf?[['sq','Clear',{key:'sq'}]]:[],[['cancel','Close',{key:'back'}]]):[['confirm','Pair',{key:'ok'}],['cancel','Close',{key:'back'}]],
+  hintFn:r=>{const pg=rows.length>5?[['LR','Page',{low:1}]]:[];return r.ip?[['confirm','Enter IP',{key:'ok'}]].concat(pg,[['cancel','Close',{key:'back'}]]):r.filter?[['confirm','Filter',{key:'ok'}]].concat(S.pf?[['sq','Clear',{key:'sq'}]]:[],pg,[['cancel','Close',{key:'back'}]]):[['confirm','Pair',{key:'ok'}]].concat(pg,[['cancel','Close',{key:'back'}]]);},
   onKey:k=>{const r=rows[S.pop.sel];
+   if(k==='L'||k==='R'){const m=rows.length-1,P=S.pop,vis=4;
+    if(k==='L'){if(P.sel===m)P.sel=m-1;else{P.off=Math.max(0,P.off-vis);P.sel=Math.max(0,P.sel-vis);}}
+    else if(P.sel<m){P.off=P.off+vis;P.sel=Math.min(m-1,P.sel+vis);}
+    paintPop();return true;}
    if(k==='sq'&&S.pf&&r.filter){S.pf='';openPair();return true;}
    if(k==='start'&&showF){if(S.pf){S.pf='';openPair();}else pairFilterKb();return true;}
    return false;},

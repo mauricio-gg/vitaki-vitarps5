@@ -72,17 +72,17 @@ const tbtn=(label,o={})=>`<button class="tb ${o.sm?'sm':''} ${o.sel?'sel':''} ${
 /* C11 PopupShell + C12 ListPopup + C13 Confirm + C14 Result. p: {size,tone,icon,title,sub,body,rows,grid,buttons,sel} */
 function popupHTML(p){
  if(p.kind==='pair'){
-  const m=p.rows.length-1,vis=3;
+  const m=p.rows.length-1,vis=4;
   if(p.sel<m){if(p.sel<p.off)p.off=p.sel;else if(p.sel>=p.off+vis)p.off=p.sel-vis+1;}
   p.off=Math.max(0,Math.min(Math.max(0,m+(p.note&&p.rows[0]&&p.rows[0].filter?1:0)-vis),p.off));
-  const rowH=(r,i)=>r.filter?`<div class="lr fl ${i===p.sel?'sel':''}" data-pop="${i}"><img src="icons/search.svg" width="24" height="24" alt="">${S.pf?`Filter: &ldquo;${S.pf}&rdquo;`:'Filter&hellip;'}${S.pf?`<span class="fr"><small>${p.count}</small><button class="tb sm" data-pfclr="1">Clear</button></span>`:''}</div>`
+  const rowH=(r,i)=>r.filter?`<div class="lr fl ${i===p.sel?'sel':''}" data-pop="${i}"><img src="icons/search.svg" width="24" height="24" alt="">${S.pf?`Filter: "${S.pf}"`:'Filter...'}${S.pf?`<span class="fr"><small>${p.count}</small><button class="tb sm" data-pfclr="1">Clear</button></span>`:''}</div>`
    :`<div class="lr ${i===p.sel?'sel':''}" data-pop="${i}">${r.label}<small>${r.sub}</small></div>`;
   const body=p.rows.slice(0,m).map((r,i)=>rowH(r,i));
   if(p.note)body.splice(p.rows[0]&&p.rows[0].filter?1:0,0,`<div class="lr note">${p.note}</div>`);
   const total=body.length;
   const ipr=p.rows[m];
   const inner=`<h3>${p.title}</h3><div class="body pbody">${p.body}</div><div class="phead"><span>${p.head}</span>${p.spin?'<span class="sp"></span>':''}<span class="cnt">${p.count&&!S.pf?p.count:''}</span></div>
-  <div class="lp l3"><div style="transform:translateY(${-p.off*48}px);transition:transform var(--d1) var(--ease)">${body.join('')}</div>${total>vis?`<div class="lscr"><i style="top:${p.off/total*100}%;height:${vis/total*100}%"></i></div>`:''}</div>
+  <div class="lp l4"><div style="transform:translateY(${-p.off*48}px);transition:transform var(--d1) var(--ease)">${body.join('')}</div>${total>vis?`<div class="lscr"><i style="top:${p.off/total*100}%;height:${vis/total*100}%"></i></div>`:''}</div>
   <div class="lr pinrow ${m===p.sel?'sel':''}" data-pop="${m}">${ipr.ip?'Enter IP address':''}<span class="ck">${ico('next',20)}</span></div>`;
   return `<div class="scrimlay" data-do="scrim"></div><div class="popup ${p.size}" role="dialog" aria-label="${p.title}">${inner}</div>`;
  }
