@@ -42,8 +42,6 @@ void ui_group_list_draw(const UiGroupList *list) {
                            UI_T28_LINE};
       ui_glow_draw_rect(text, UI_GROUP_GLOW,
                         ui_color_scale_alpha(UI_GLOW, (float)UI_GROUP_GLOW_PCT / 100.0f));
-    }
-    if (big) {
       /* The one focus bar while the list has focus; the pane draws none then. */
       ui_shape3_draw(UI_SHAPE3_BAR_56, row.x, row.y, row.w, UI_FILL_FOCUS);
     }
