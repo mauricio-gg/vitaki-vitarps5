@@ -4,7 +4,9 @@
  *
  * Rows are UI_GROUP_ROW_H high and UI_PAGE_GROUP_W wide, T20 labels. The current group is white
  * and has a UI_GROUP_BAR_W bar at the row's left edge. While the list has focus the current group
- * is drawn in T28 with a glow. Paper cost: one draw per label, one for the bar, one for the glow.
+ * is drawn in T28 with a glow and sits on a FILL_FOCUS bar (the page's one focus bar; the pane
+ * draws none then). Paper cost: one draw per label, one for the marker, and while the list has
+ * focus one for the glow and 3 for the focus bar.
  *
  * Key input is whatever the screen passes in: the screen gives the list the D-pad and Confirm
  * only while the list has focus, and L and R always.
