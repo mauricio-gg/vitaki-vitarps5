@@ -14,7 +14,7 @@
 #define FRONT_GRID_W 526
 #define FRONT_GRID_H 298
 #define REAR_SRC_W 720
-#define REAR_GRID_X 139
+#define REAR_GRID_X 137
 #define REAR_GRID_Y 45
 #define REAR_GRID_W 444
 #define REAR_GRID_H 188

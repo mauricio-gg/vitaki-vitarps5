@@ -130,7 +130,7 @@
 #define VITA_RTOUCH_W_RATIO 0.617f
 #define VITA_RTOUCH_H_RATIO 0.567f
 
-// Camera
-#define VITA_CAMERA_CX_RATIO 0.920f
+// Camera (upper left: the rear art is mirrored, see SPEC C20 #344)
+#define VITA_CAMERA_CX_RATIO 0.080f
 #define VITA_CAMERA_CY_RATIO 0.180f
 #define VITA_CAMERA_R_RATIO 0.020f

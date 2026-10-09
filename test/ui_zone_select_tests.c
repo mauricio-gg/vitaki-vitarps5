@@ -121,7 +121,7 @@ static void test_grid_rect_scales_with_diagram(void) {
   UiRect front = ui_zone_grid_rect_from_diagram(UI_ZONE_SIDE_FRONT, 0, 0, 874);
   assert(front.x == 178 && front.y == 30 && front.w == 526 && front.h == 298);
   UiRect rear = ui_zone_grid_rect_from_diagram(UI_ZONE_SIDE_REAR, 100, 200, 360);
-  assert(rear.x == 100 + 70 && rear.y == 200 + 23 && rear.w == 222 && rear.h == 94);
+  assert(rear.x == 100 + 69 && rear.y == 200 + 23 && rear.w == 222 && rear.h == 94);
 }
 
 int main(void) {

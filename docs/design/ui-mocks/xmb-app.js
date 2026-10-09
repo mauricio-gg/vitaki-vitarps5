@@ -351,7 +351,7 @@ function pageChange(d){
 const FRONT={x:164,y:176,w:630},BACK={x:170,y:176,w:620};
 const ZF={x:120,y:144,w:720},ZB={x:140,y:152,w:680};
 const frontRect=b=>{const s=b.w/874;return{x:b.x+178*s,y:b.y+30*s,w:526*s,h:298*s};};
-const backRect=b=>{const s=b.w/720;return{x:b.x+139*s,y:b.y+45*s,w:444*s,h:188*s};};
+const backRect=b=>{const s=b.w/720;return{x:b.x+137*s,y:b.y+45*s,w:444*s,h:188*s};};
 function zones(r,arr,mode){
  let h='';const cw=r.w/6,ch=r.h/3;
  for(let i=0;i<18;i++){const rr=Math.floor(i/6),cc=i%6,o=arr[i];

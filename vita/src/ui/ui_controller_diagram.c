@@ -3,7 +3,7 @@
  * @brief PS Vita controller diagram - procedural rendering
  *
  * Renders high-fidelity Vita controller diagrams using vita2d primitives.
- * No PNG assets required - all graphics are drawn procedurally using ratio-based
+ * Procedural drawing is the fallback when the PNG art fails to load; it uses ratio-based
  * coordinates from ui_constants.h for pixel-perfect scaling.
  *
  * Draws the front or rear art (the procedural drawing when the art did not load). The Controller
@@ -721,7 +721,7 @@ static void draw_back_grips(DiagramRenderCtx *ctx) {
 }
 
 /**
- * Draw camera decoration (small circle in upper right)
+ * Draw camera decoration (small circle in upper left)
  */
 static void draw_back_camera(DiagramRenderCtx *ctx) {
   int cam_x = RATIO_X(ctx, VITA_CAMERA_CX_RATIO);
