@@ -376,3 +376,11 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 .lr.note{height:auto;min-height:48px;padding:12px var(--s1);font-size:var(--t16);font-weight:var(--w-reg);line-height:24px;color:var(--text-3);cursor:default;pointer-events:none}
 .lr.note .sp{margin-right:var(--s1)}
 .lr .ck{color:inherit}
+
+/* revision: filter + pinned Enter IP row */
+.popup .pbody{height:72px}.popup .pbody div{white-space:normal}
+.phead .cnt{margin-left:auto}
+.lp.l3{height:144px;margin-top:var(--s1)}
+.lr.fl img{opacity:.8}.lr.fl .fr{margin-left:auto;display:flex;align-items:center;gap:var(--s2)}
+.lr.fl .fr small{margin-left:0}
+.lr.pinrow{margin-top:0;border-top:var(--lw1) solid var(--line-faint);flex:none}

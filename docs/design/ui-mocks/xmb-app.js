@@ -73,10 +73,12 @@ function popHints(p){
   const f=p.buttons[p.sel].label;
   return f===cl?[['confirm',f,{key:'ok'}]]:[['confirm',f,{key:'ok'}],['cancel',cl,{key:'back'}]];
  }
+ if(p.hintFn)return p.hintFn(p.rows[p.sel]);
  return [['confirm',p.okLabelFn?p.okLabelFn(p.rows[p.sel]):(p.okLabel||'Select'),{key:'ok'}],['cancel',cl,{key:'back'}]];
 }
 function popKey(k){
  const p=S.pop,n=(p.rows||p.buttons).length;
+ if(p.onKey&&p.onKey(k))return;
  if(k==='ok')return popPress(p.sel);
  if(k==='back'){closePop();p.onCancel&&p.onCancel();return;}
  if(p.grid){if(k==='left'&&p.sel%3>0)p.sel--;else if(k==='right'&&p.sel%3<2&&p.sel<n-1)p.sel++;else if(k==='up'&&p.sel>=3)p.sel-=3;else if(k==='down'&&p.sel+3<n)p.sel+=3;}
@@ -209,17 +211,31 @@ function repairPop(c){
 /* ---------------- PAIR NEW DEVICE (issue #330): guided popup, Enter IP address, probe ---------------- */
 const MANUAL={name:'PS5-204',model:'PS5',ip:'192.168.1.77',reg:false,disc:false,awake:true,net:false,room:'tv',manual:true};
 S.ipTry='ok'; /* mock only: what the probe finds for a typed address: ok | notfound | invalid */
-function openPair(sel){
- const F=unpairedFound(),off=!SET('disc').v;
- const rows=F.map(c=>({label:c.name,sub:`${c.model} &middot; ${c.ip}`,c}));
- rows.push({label:'Enter IP address',ip:true});
+/* the popup list: found consoles sorted by host name (case-insensitive, IP breaks ties). Discovery carries no owner or username, so "owner first" is not possible. */
+S.pf='';
+const PAIR_FILTER_MIN=4; /* the Filter row shows when more than this many are found, or while a filter is active (same rule as Home) */
+const pairMatches=c=>{const q=S.pf.trim().toLowerCase();return !q||c.name.toLowerCase().includes(q)||(c.ip||'').includes(q);};
+const sortFound=a=>a.slice().sort((x,y)=>{const m=x.name.toLowerCase(),n=y.name.toLowerCase();return m<n?-1:m>n?1:(x.ip<y.ip?-1:x.ip>y.ip?1:0);});
+function pairFilterKb(){keyboard({title:'Filter Found Consoles',text:S.pf,done:()=>{S.pf=S.pf?'':'bed';openPair();}});} /* mock: Done with an active filter clears it, otherwise types "bed" */
+function openPair(sel,off){
+ const all=sortFound(unpairedFound()),F=all.filter(pairMatches),dOff=!SET('disc').v;
+ const showF=all.length>PAIR_FILTER_MIN||!!S.pf;
+ const rows=[];if(showF)rows.push({filter:true});
+ F.forEach(c=>rows.push({label:c.name,sub:`${c.model} &middot; ${c.ip}`,c}));
+ rows.push({ip:true});
+ const def=F.length?(showF?1:0):(showF?0:rows.length-1);
+ const note=dOff?'Auto Discovery is off. Turn it on in Settings &gt; Network, or enter the IP address.':all.length?(F.length?'':'No consoles match filter'):S.scan==='searching'?'<span class="sp"></span>Searching your network...':'No unpaired consoles found';
  popup({size:'l',kind:'pair',title:'Pair new device',
-  body:'On your PS5, open Settings &gt; System &gt; Remote Play &gt; Link Device. Then pick it below and enter the PIN it shows.',
-  head:'Found on your network',spin:!off&&S.scan==='searching'&&F.length>0,
-  note:off?'Auto Discovery is off. Turn it on in Settings &gt; Network, or enter the IP address.':F.length?'':S.scan==='searching'?'<span class="sp"></span>Searching your network...':'No unpaired consoles found',
-  rows,sel:sel==null?0:sel,cancelLabel:'Close',okLabelFn:r=>r.ip?'Enter IP':'Pair',
+  body:'<div>PS5: Settings &gt; System &gt; Remote Play &gt; Link Device</div><div>PS4: Settings &gt; Remote Play Connection Settings &gt; Add Device</div>',
+  head:'Found on your network',count:all.length?(S.pf?`${F.length} of ${all.length}`:`${all.length} found`):'',spin:!dOff&&S.scan==='searching'&&all.length>0,
+  note,rows,sel:sel==null?def:Math.min(sel,rows.length-1),off:off||0,cancelLabel:'Close',
+  hintFn:r=>r.ip?[['confirm','Enter IP',{key:'ok'}],['cancel','Close',{key:'back'}]]:r.filter?[['confirm','Filter',{key:'ok'}]].concat(S.pf?[['sq','Clear',{key:'sq'}]]:[],[['cancel','Close',{key:'back'}]]):[['confirm','Pair',{key:'ok'}],['cancel','Close',{key:'back'}]],
+  onKey:k=>{const r=rows[S.pop.sel];
+   if(k==='sq'&&S.pf&&r.filter){S.pf='';openPair();return true;}
+   if(k==='start'&&showF){if(S.pf){S.pf='';openPair();}else pairFilterKb();return true;}
+   return false;},
   onCancel:()=>{S.cat=0;S.sel[0]=0;buildList(false);},
-  onSel:i=>{const r=rows[i];if(r.ip)ipKeyboard('');else startPin(r.c);}});
+  onSel:i=>{const r=rows[i];if(r.ip)ipKeyboard('');else if(r.filter){openPair(i,S.pop&&0);pairFilterKb();}else startPin(r.c);}});
 }
 function ipKeyboard(text){keyboard({title:'Console IP address',text,done:()=>ipSubmit('192.168.1.77')});}
 /* a typed address is checked as four numbers 0-255, then probed with one discovery packet; the reply gives the console's name and model */
@@ -662,6 +678,7 @@ document.addEventListener('click',e=>{
  if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
  if(S.opts&&!S.pop&&!e.target.closest('#opts')){S.opts=false;paintOpts();e.stopPropagation();return;}
+ if(S.pop&&S.pop.kind==='pair'&&e.target.closest('[data-pfclr]')&&!S.kb){S.pf='';openPair();return;}
  const p=e.target.closest('[data-pop]');if(p&&S.pop){S.pop.sel=+p.dataset.pop;popPress(+p.dataset.pop);return;}
  const el=e.target.closest('[data-do]');if(el){
   if(S.pop&&!['pop','scrim'].includes(el.dataset.do)&&el.dataset.do!=='btn')return;
@@ -677,7 +694,7 @@ document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint
 /* ---------------- mock chrome: deep links, toggles, device frame ---------------- */
 const JUMPS=[
  ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-nomatch','Empty: No match'],['Home','filter-item','Filter item focused'],['Home','filter','Filter active'],['Home','home-nohints','Button hints hidden'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
- ['Pair new device','pair-item','Item focused (paired consoles below)'],['Pair new device','pair-item-hint','Item hidden above; Up hint on the first console'],['Pair new device','pair-item-filter','Item focused, Filter row below it (5+ consoles)'],['Pair new device','home-first-run','No paired consoles, nothing found yet'],['Pair new device','home-first-run-found','No paired consoles, 1 found nearby'],['Pair new device','pair-popup-searching','Popup: searching'],['Pair new device','pair-popup-none','Popup: nothing found'],['Pair new device','pair-popup-one','Popup: 1 found'],['Pair new device','pair-popup-many','Popup: 3 found'],['Pair new device','pair-popup-scroll','Popup: 5 found, scrolled'],['Pair new device','pair-popup-discoff','Popup: Auto Discovery off'],['Pair new device','pair-popup-ip','Popup: Enter IP address focused'],['Pair new device','pair-ip-keyboard','Enter IP: system keyboard'],['Pair new device','pair-ip-looking','Enter IP: looking for console'],['Pair new device','pair-ip-notfound','Enter IP: console not found'],['Pair new device','pair-ip-invalid','Enter IP: not an IP address'],['Pair new device','pin-manual','Enter IP: on to the PIN screen'],
+ ['Pair new device','pair-item','Item focused (paired consoles below)'],['Pair new device','pair-item-hint','Item hidden above; Up hint on the first console'],['Pair new device','pair-item-filter','Item focused, Filter row below it (5+ consoles)'],['Pair new device','home-first-run','No paired consoles, nothing found yet'],['Pair new device','home-first-run-found','No paired consoles, 1 found nearby'],['Pair new device','pair-popup-searching','Popup: searching'],['Pair new device','pair-popup-none','Popup: nothing found'],['Pair new device','pair-popup-one','Popup: 1 found'],['Pair new device','pair-popup-many','Popup: 3 found'],['Pair new device','pair-popup-long','Popup: 12 found, Filter row available'],['Pair new device','pair-popup-scroll','Popup: 12 found, scrolled'],['Pair new device','pair-popup-filter-name','Popup: filtered by name (bed)'],['Pair new device','pair-popup-filter-ip','Popup: filtered by IP (192.168.1.4)'],['Pair new device','pair-popup-nomatch','Popup: no matches, Enter IP still offered'],['Pair new device','pair-popup-filter-kb','Popup: filter keyboard'],['Pair new device','pair-popup-discoff','Popup: Auto Discovery off'],['Pair new device','pair-popup-ip','Popup: Enter IP address focused'],['Pair new device','pair-ip-keyboard','Enter IP: system keyboard'],['Pair new device','pair-ip-looking','Enter IP: looking for console'],['Pair new device','pair-ip-notfound','Enter IP: console not found'],['Pair new device','pair-ip-invalid','Enter IP: not an IP address'],['Pair new device','pin-manual','Enter IP: on to the PIN screen'],
  ['XMB categories','xmb-settings','Settings category'],['XMB categories','xmb-controller','Controller category'],['XMB categories','xmb-profile','Profile category'],
  ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
@@ -689,9 +706,11 @@ const JUMPS=[
 const DL={};
 const C0=(c,i)=>{S.cat=c;S.sel[c]=(i||0)+(c===0?1+(hasFilterRow()?1:0):0);openHome(false);};
 const ORIG=CONSOLES.map(c=>Object.assign({},c));
-const mockConsole=()=>{CONSOLES.length=0;ORIG.forEach(o=>CONSOLES.push(Object.assign({},o)));S.flt='';S.noConsoles=false;S.scan='searching';SET('disc').v=true;S.ipTry='ok';Object.assign(MANUAL,{reg:false});};
+const mockConsole=()=>{CONSOLES.length=0;ORIG.forEach(o=>CONSOLES.push(Object.assign({},o)));S.flt='';S.noConsoles=false;S.scan='searching';S.pf='';SET('disc').v=true;S.ipTry='ok';Object.assign(MANUAL,{reg:false});};
 const UNP=[['Guest Room','PS4','192.168.1.52','bed'],['PS5-7F3A','PS5','192.168.1.61','tv'],['Studio','PS5','192.168.1.63','desk'],['Attic','PS4','192.168.1.66','house']];
 const moreUnpaired=n=>UNP.slice(0,n).forEach(u=>CONSOLES.push({name:u[0],model:u[1],ip:u[2],reg:false,disc:true,awake:true,net:false,room:u[3]}));
+const DORM=[['Alex PS5','PS5','192.168.1.40'],['bedroom-ps5','PS5','192.168.1.41'],['Chris','PS4','192.168.1.42'],['Dana PS5','PS5','192.168.1.43'],['Emma','PS5','192.168.1.45'],['Fatima PS5','PS5','192.168.1.46'],['Gus','PS4','192.168.1.47'],['Hao PS5','PS5','192.168.1.48'],['Ivy','PS5','192.168.1.49'],['Jonas PS5','PS5','192.168.1.50'],['PS5-7F3A','PS5','192.168.1.61']];
+const dormUnpaired=()=>DORM.forEach(u=>CONSOLES.push({name:u[0],model:u[1],ip:u[2],reg:false,disc:true,awake:true,net:false,room:'tv'}));
 const dropUnpaired=()=>{for(let i=CONSOLES.length-1;i>=0;i--)if(!CONSOLES[i].reg)CONSOLES.splice(i,1);};
 const withFifthPaired=()=>CONSOLES.splice(4,0,{name:'Garage',model:'PS5',ip:'192.168.1.38',reg:true,disc:true,awake:true,net:false,room:'house'});
 Object.assign(DL,{
@@ -712,7 +731,12 @@ Object.assign(DL,{
  'pair-popup-none':()=>{mockConsole();dropUnpaired();S.scan='done';C0(0,0);S.sel[0]=0;layout();openPair();},
  'pair-popup-one':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();openPair();},
  'pair-popup-many':()=>{mockConsole();moreUnpaired(2);C0(0,0);S.sel[0]=0;layout();openPair();},
- 'pair-popup-scroll':()=>{mockConsole();moreUnpaired(4);C0(0,0);S.sel[0]=0;layout();openPair(3);},
+ 'pair-popup-long':()=>{mockConsole();dormUnpaired();C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-scroll':()=>{mockConsole();dormUnpaired();C0(0,0);S.sel[0]=0;layout();openPair(8);},
+ 'pair-popup-filter-name':()=>{mockConsole();dormUnpaired();S.pf='bed';C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-filter-ip':()=>{mockConsole();dormUnpaired();S.pf='192.168.1.4';C0(0,0);S.sel[0]=0;layout();openPair(1);},
+ 'pair-popup-nomatch':()=>{mockConsole();dormUnpaired();S.pf='xyz';C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-filter-kb':()=>{mockConsole();dormUnpaired();S.pf='';C0(0,0);S.sel[0]=0;layout();openPair(0);pairFilterKb();},
  'pair-popup-discoff':()=>{mockConsole();dropUnpaired();SET('disc').v=false;C0(0,0);S.sel[0]=0;layout();openPair();},
  'pair-popup-ip':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();openPair(1);},
  'pair-ip-keyboard':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();ipKeyboard('192.168.1.77');},
