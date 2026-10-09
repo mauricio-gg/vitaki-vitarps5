@@ -50,15 +50,6 @@ typedef enum ui_host_action_t {
   UI_HOST_ACTION_REGISTER,  // Only for discovered hosts
 } UIHostAction;
 
-/**
- * Hints popup state
- */
-typedef struct hints_popup_state_t {
-  bool active;
-  uint64_t start_time_us;
-  const char *current_hint;
-} HintsPopupState;
-
 // ============================================================================
 // Console Card Types
 // ============================================================================

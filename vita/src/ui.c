@@ -101,9 +101,6 @@ static bool *touch_block_pending_clear = NULL;
 #define connection_overlay_stage ui_connection_stage()
 #define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
 
-// HintsPopupState type moved to ui_types.h
-// HintsPopupState instance moved to ui_components.c
-
 // Console card system (updated per UI spec)
 // Console card constants moved to ui_constants.h
 
@@ -113,7 +110,6 @@ static bool *touch_block_pending_clear = NULL;
 // CardFocusAnimState moved to ui_console_cards.c
 
 // Component functions moved to ui_components.c (accessible via ui_internal.h)
-static void render_loss_indicator_preview(void);
 
 // Debug menu configuration moved to ui_components.c
 
@@ -140,8 +136,7 @@ char *cancel_btn_str = "Circle";
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
  * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
- * the Network Unstable pill, where they have one), so the corner logo and the old loss
- * indicator are not drawn over them.
+ * the Network Unstable pill, where they have one), so the corner logo is not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
@@ -177,48 +172,6 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
   }
 }
 #endif
-
-static void render_loss_indicator_preview(void) {
-  if (context.stream.is_streaming)
-    return;
-  if (!context.config.show_network_indicator)
-    return;
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-  if (!context.stream.loss_alert_until_us || now_us >= context.stream.loss_alert_until_us)
-    return;
-
-  uint64_t duration = context.stream.loss_alert_duration_us ? context.stream.loss_alert_duration_us
-                                                            : VIDEO_LOSS_ALERT_DEFAULT_US;
-  if (!duration)
-    duration = VIDEO_LOSS_ALERT_DEFAULT_US;
-  uint64_t remaining = context.stream.loss_alert_until_us - now_us;
-  float alpha_ratio = (float)remaining / (float)duration;
-  if (alpha_ratio < 0.0f)
-    alpha_ratio = 0.0f;
-  uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
-
-  const char *headline = "Network Unstable";
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
-              UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
-  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
-  int box_x = VITA_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
-  int box_y = VITA_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
-
-  uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
-  if (bg_alpha < 40)
-    bg_alpha = 40;
-  ui_draw_rounded_rect(box_x, box_y, box_w, box_h, box_h / 2, RGBA8(0, 0, 0, bg_alpha));
-
-  int dot_x = box_x + UI_LOSS_INDICATOR_PADDING_X;
-  int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, UI_LOSS_INDICATOR_DOT_RADIUS,
-                          RGBA8(0xF4, 0x43, 0x36, alpha));
-
-  int text_x = dot_x + UI_LOSS_INDICATOR_DOT_RADIUS + UI_LOSS_INDICATOR_DOT_TEXT_GAP;
-  ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
-                          FONT_SIZE_SMALL, headline);
-}
 
 // Debug menu render and input functions moved to ui_components.c
 
@@ -750,13 +703,6 @@ void draw_ui() {
       drawn_screen = prev_screen;
       screen = next_screen;
 
-      // Render hints system (indicator + popup)
-      render_hints_indicator();
-      render_hints_popup();
-
-      // Home and Connecting show Network Unstable as a pill in their hint row (C06) instead
-      if (!screen_has_xmb_chrome(screen))
-        render_loss_indicator_preview();
       render_debug_menu();
       /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */
       if (next_screen != prev_screen)

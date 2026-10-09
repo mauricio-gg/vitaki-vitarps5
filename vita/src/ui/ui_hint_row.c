@@ -101,8 +101,7 @@ void ui_hint_row_init(void) {
 /**
  * network_unstable_active() - True while a Network Unstable alert is showing on a menu.
  *
- * The same signal the old menu indicator (render_loss_indicator_preview in ui.c) reads:
- * not streaming, the Show Network Alerts setting on, and the loss alert deadline in the
+ * True when not streaming, the Show Network Alerts setting on, and the loss alert deadline in the
  * future. The host side sets the deadline on packet-loss bursts.
  */
 static bool network_unstable_active(void) {

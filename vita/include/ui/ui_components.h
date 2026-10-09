@@ -83,26 +83,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
                          bool enabled);
 
 // ============================================================================
-// Hints Popup System
-// ============================================================================
-
-/**
- * Trigger hints popup with specified hint text
- * @param hint_text Text to display in the hints popup
- */
-void ui_hints_trigger(const char *hint_text);
-
-/**
- * Render the hints popup (call during draw loop)
- */
-void ui_hints_render(void);
-
-/**
- * Render hints indicator in top-right corner
- */
-void ui_hints_render_indicator(void);
-
-// ============================================================================
 // Debug Menu (VITARPS5_DEBUG_MENU must be enabled)
 // ============================================================================
 

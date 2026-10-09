@@ -175,7 +175,6 @@ void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color
 void ui_draw_card_with_shadow(int x, int y, int w, int h, int radius, uint32_t color);
 void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
 void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
-void ui_draw_loss_indicator(void);
 
 // Focus Manager (ui_focus.c)
 #include "ui_focus.h"
@@ -203,9 +202,6 @@ void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint3
                   int num_tabs, int selected);
 void draw_status_dot(int x, int y, int radius, int status);
 void draw_section_header(int x, int y, int width, const char *title);
-void trigger_hints_popup(const char *hint_text);
-void render_hints_popup(void);
-void render_hints_indicator(void);
 void open_debug_menu(void);
 void close_debug_menu(void);
 void render_debug_menu(void);

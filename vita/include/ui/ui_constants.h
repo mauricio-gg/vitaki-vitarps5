@@ -88,12 +88,6 @@
 #define CARD_TEXT_BASELINE_OFFSET 7     // Vertical baseline adjustment
 
 // ============================================================================
-// Hints Popup
-// ============================================================================
-#define HINTS_POPUP_DURATION_MS 7000
-#define HINTS_FADE_DURATION_MS 500
-
-// ============================================================================
 // Card Cache
 // ============================================================================
 #define CARD_CACHE_UPDATE_INTERVAL_US (10 * 1000000)  // 10 seconds
@@ -133,10 +127,6 @@
 #define VITARPS5_DEBUG_MENU 0
 #endif
 
-#ifndef VIDEO_LOSS_ALERT_DEFAULT_US
-#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
-#endif
-
 // ============================================================================
 // Graphics Primitives (ui_graphics.c)
 // ============================================================================
@@ -144,13 +134,6 @@
 #define UI_CIRCLE_OUTLINE_SEGMENTS \
   16  // Segments for circle outlines (reduced from 48 for PS Vita GPU performance)
 #define UI_OFFSCREEN_MARGIN 100  // Margin for offscreen culling
-
-// Loss indicator badge
-#define UI_LOSS_INDICATOR_MARGIN 18        // Margin from screen edge
-#define UI_LOSS_INDICATOR_PADDING_X 18     // Horizontal padding
-#define UI_LOSS_INDICATOR_PADDING_Y 6      // Vertical padding
-#define UI_LOSS_INDICATOR_DOT_RADIUS 6     // Status dot radius in pixels
-#define UI_LOSS_INDICATOR_DOT_TEXT_GAP 10  // Gap between status dot and text label
 
 // ============================================================================
 // Controller Layout (old screen constants)
