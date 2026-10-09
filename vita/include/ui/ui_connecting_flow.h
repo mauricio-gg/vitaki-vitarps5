@@ -71,12 +71,12 @@ const char *ui_connecting_flow_stage_detail(int stage);
  */
 int ui_connecting_flow_step(UiConnectingFlow flow, UIConnectionStage stage);
 
-/** ui_connecting_flow_title() - Page title: per flow, flipping only on a local standby's first
- * step. */
+/** ui_connecting_flow_title() - Page title: per flow, flipping only on the first step of either
+ * standby flow ("Waking Console", then the flow's own title). */
 const char *ui_connecting_flow_title(UiConnectingFlow flow, int step);
 
-/** ui_connecting_flow_icon() - Title icon: globe for Internet, moon on a local standby's first
- * step. */
+/** ui_connecting_flow_icon() - Title icon: globe on every step of both Internet flows, moon on a
+ * local standby's first step, LAN otherwise. */
 UiConnectingIcon ui_connecting_flow_icon(UiConnectingFlow flow, int step);
 
 /** ui_connecting_flow_route() - "via Internet" or "via Local Network". */

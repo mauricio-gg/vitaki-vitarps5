@@ -46,7 +46,7 @@ static void test_flow_is_decided_from_the_begin_stage_and_route(void) {
 }
 
 /** The old screen flipped its title per stage: an Internet connect read "Starting Remote Play"
- * until host.c reached the PSN stages. The title may change only on standby's first step. */
+ * until host.c reached the PSN stages. The title may change only on a standby flow's first step. */
 static void test_title_is_per_flow_not_per_stage(void) {
   for (int step = 0; step < UI_FLOW_MAX_STEPS; step++) {
     assert(strcmp(ui_connecting_flow_title(UI_FLOW_INTERNET, step),
@@ -64,14 +64,18 @@ static void test_title_is_per_flow_not_per_stage(void) {
   assert(strcmp(ui_connecting_flow_route(UI_FLOW_LOCAL_READY), "via Local Network") == 0);
 }
 
-/** #341: an Internet connect to a console in rest mode read "Waking Console" / "via Local
- * Network". Through decide(), it must read Internet from the first stage to the last. */
-static void test_internet_connect_to_a_standby_console_reads_internet_throughout(void) {
+/** #341: an Internet connect to a console in rest mode read "via Local Network" and the local
+ * icon. Through decide(), the wake step reads "Waking Console" with the globe (not the moon),
+ * every later step reads the Internet title with the globe, and the route is Internet throughout
+ * (CEO ruling 2026-10-09). */
+static void test_internet_connect_to_a_standby_console_wakes_then_reads_internet(void) {
   const UiConnectingFlow flow = ui_connecting_flow_decide(UI_CONNECTION_STAGE_WAKING, true);
-  assert(strcmp(ui_connecting_flow_route(flow), "via Internet") == 0);
-  for (int step = 0; step < ui_connecting_flow_step_count(flow); step++) {
+  assert(strcmp(ui_connecting_flow_title(flow, 0), "Waking Console") == 0);
+  for (int step = 1; step < ui_connecting_flow_step_count(flow); step++)
     assert(strcmp(ui_connecting_flow_title(flow, step), "Starting Internet Remote Play") == 0);
+  for (int step = 0; step < ui_connecting_flow_step_count(flow); step++) {
     assert(ui_connecting_flow_icon(flow, step) == UI_FLOW_ICON_GLOBE);
+    assert(strcmp(ui_connecting_flow_route(flow), "via Internet") == 0);
   }
   assert(
       strcmp(ui_connecting_flow_route(ui_connecting_flow_decide(UI_CONNECTION_STAGE_WAKING, false)),
@@ -121,7 +125,7 @@ int main(void) {
   test_flows_list_the_spec_stages();
   test_flow_is_decided_from_the_begin_stage_and_route();
   test_title_is_per_flow_not_per_stage();
-  test_internet_connect_to_a_standby_console_reads_internet_throughout();
+  test_internet_connect_to_a_standby_console_wakes_then_reads_internet();
   test_current_step_follows_the_stage();
   printf("ui_connecting_flow_tests: all passed\n");
   return 0;
