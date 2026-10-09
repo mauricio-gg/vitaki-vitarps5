@@ -59,7 +59,6 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_components.c
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
-    src/ui/ui_focus.c
     src/ui/ui_qr.c
     src/ui/ui_controller_diagram.c
     src/ui/ui_text.c

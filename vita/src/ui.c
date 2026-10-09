@@ -67,7 +67,6 @@
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
-#include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
 #include "ui/ui_text.h"
@@ -460,7 +459,6 @@ static void step_input(void) {
 
   ui_input_init();
   ui_state_init();
-  ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
   button_block_mask = ui_input_get_button_block_mask_ptr();
@@ -605,12 +603,11 @@ void draw_ui() {
   memset(&ctrl, 0, sizeof(ctrl));
 
   UIScreenType screen = UI_SCREEN_TYPE_MAIN;
-  /* Screen drawn on the previous frame; lets Home reset the focus manager and the old
-   * sidebar when it becomes active again. Starts as NONE so the first frame counts as entry. */
+  /* Screen drawn on the previous frame; lets Home reset its Options column and popups
+   * when it becomes active again. Starts as NONE so the first frame counts as entry. */
   UIScreenType drawn_screen = UI_SCREEN_TYPE_NONE;
   bool first_home_frame_logged = false;
   context.ui_state.debug_menu_active = false;
-  context.ui_state.debug_menu_modal_pushed = false;
   context.ui_state.debug_menu_selection = 0;
 
   while (true) {

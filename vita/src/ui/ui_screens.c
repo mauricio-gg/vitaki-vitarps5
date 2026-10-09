@@ -30,7 +30,6 @@
 #include "ui/ui_connecting.h"
 #include "ui/ui_reconnecting.h"
 #include "ui/ui_input.h"
-#include "ui/ui_focus.h"
 #include "ui/ui_state.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_text.h"

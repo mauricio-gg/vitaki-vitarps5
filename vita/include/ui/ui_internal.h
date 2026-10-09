@@ -147,9 +147,6 @@ void ui_draw_card_with_shadow(int x, int y, int w, int h, int radius, uint32_t c
 void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
 void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
 
-// Focus Manager (ui_focus.c)
-#include "ui_focus.h"
-
 // Console cards (ui_console_cards.c)
 #include "ui_console_cards.h"
 
