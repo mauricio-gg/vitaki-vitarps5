@@ -48,9 +48,10 @@ bool mac_addrs_match(MacAddr *a, MacAddr *b) {
   return memcmp(a, b, sizeof(MacAddr)) == 0;
 }
 
-void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
+bool save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
   (void)rhost;
   (void)new_hostname;
+  return true;
 }
 
 void delete_manual_host(VitaChiakiHost *mhost) {

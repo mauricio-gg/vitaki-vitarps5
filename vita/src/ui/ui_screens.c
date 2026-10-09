@@ -25,7 +25,6 @@
 #include "util.h"
 #include "video.h"
 #include "ui/ui_screens.h"
-#include "ui/ui_settings_actions.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_components.h"
 #include "ui/ui_connecting.h"
@@ -219,7 +218,9 @@ UIScreenType ui_screens_pair_probed_host(VitaChiakiHost *host) {
 }
 
 /**
- * ui_screens_repair_host() - Unregister @host and send the user to the PIN screen.
+ * ui_screens_repair_host() - Make @host the active host and send the user to the PIN screen.
+ * The old pairing is kept untouched (credentials, REGISTERED flag, registered table, config
+ * file) until a new pairing succeeds, so Cancel or a failure leaves the console paired.
  *
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or MAIN when @host is NULL or not paired
  */
@@ -228,25 +229,6 @@ UIScreenType ui_screens_repair_host(VitaChiakiHost *host) {
     return UI_SCREEN_TYPE_MAIN;
 
   LOGD("Re-pairing console: %s", host->hostname);
-  if (host->registered_state) {
-    free(host->registered_state);
-    host->registered_state = NULL;
-  }
-
-  for (int j = 0; j < context.config.num_registered_hosts; j++) {
-    if (context.config.registered_hosts[j] == host) {
-      for (int k = j; k < context.config.num_registered_hosts - 1; k++)
-        context.config.registered_hosts[k] = context.config.registered_hosts[k + 1];
-      context.config.registered_hosts[context.config.num_registered_hosts - 1] = NULL;
-      context.config.num_registered_hosts--;
-      break;
-    }
-  }
-
-  host->type &= ~REGISTERED;
-  ui_settings_persist_config();
-  LOGD("Registration data deleted for console: %s", host->hostname);
-
   context.active_host = host;
   return UI_SCREEN_TYPE_REGISTER_HOST;
 }

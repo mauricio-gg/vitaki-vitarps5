@@ -88,3 +88,17 @@ void discovery_probe_free_host(VitaChiakiHost *host);
  *         there is none.
  */
 VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host, bool *complete);
+
+/**
+ * Gives the credentials of @host (just paired) to every other live entry of the same console:
+ * the broadcast-discovered entry in context.hosts (so Home lists it as paired at once) and every
+ * saved manual host. @host itself is skipped, and so is an entry in use by a running session
+ * (host_in_active_use()); each failure is logged with the entry's hostname. The registered-table
+ * entry, if any, is left alone. UI thread only.
+ *
+ * @param host         The host that was just registered.
+ * @param all_updated  Set to false when any entry kept its old credentials; never set to true,
+ *                     so the caller initialises it to true. Must not be NULL.
+ * @return the discovered context.hosts entry that now stands for the console, or NULL.
+ */
+VitaChiakiHost *discovery_probe_sync_credentials(VitaChiakiHost *host, bool *all_updated);

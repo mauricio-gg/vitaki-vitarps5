@@ -381,7 +381,7 @@ static bool give_credentials(VitaChiakiHost *entry, const VitaChiakiHost *host) 
  * paired at once) and every saved manual host (so none keeps the old credentials of a re-pair).
  * Returns the discovered entry, or NULL. *all_updated is false when any entry kept its old
  * credentials. The old registered-table entry, if any, is left alone. */
-static VitaChiakiHost *sync_credentials(VitaChiakiHost *host, bool *all_updated) {
+VitaChiakiHost *discovery_probe_sync_credentials(VitaChiakiHost *host, bool *all_updated) {
   VitaChiakiHost *discovered = NULL;
   for (int i = 0; i < MAX_CONTEXT_HOSTS && !discovered; i++) {
     VitaChiakiHost *entry = context.hosts[i];
@@ -410,7 +410,7 @@ VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host, bool *com
   }
   const bool saved = save_manual_host(host, host->hostname);
   bool all_updated = true;
-  VitaChiakiHost *entry = sync_credentials(host, &all_updated);
+  VitaChiakiHost *entry = discovery_probe_sync_credentials(host, &all_updated);
   *complete = saved && all_updated;
   if (!*complete)
     CHIAKI_LOGW(&(context.log),
