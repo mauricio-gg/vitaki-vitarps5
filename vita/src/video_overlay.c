@@ -7,6 +7,8 @@
 #include "ui/ui_draw_stats.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_pill.h"
+#include "ui/ui_shapes.h"
+#include "ui/ui_stream_stats.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_text.h"
 
@@ -34,7 +36,6 @@ typedef struct {
 
 static indicator_status poor_net_indicator = {0};
 static uint64_t stream_exit_hint_start_us = 0;
-static bool stream_exit_hint_visible_this_frame = false;
 
 extern vita2d_font *font;
 
@@ -133,7 +134,6 @@ static int exit_hint_width = 0;
  * opacity, restored to 1 before returning.
  */
 static void draw_stream_exit_hint(void) {
-  stream_exit_hint_visible_this_frame = false;
   if (!context.config.show_stream_exit_hint)
     return;
 
@@ -163,78 +163,103 @@ static void draw_stream_exit_hint(void) {
                      UI_STREAM_OVERLAY_MARGIN, exit_hint_width, exit_hint_parts,
                      EXIT_HINT_PART_COUNT);
   ui_layer_set_alpha(1.0f);
-  stream_exit_hint_visible_this_frame = true;
 }
 
-static void draw_stream_stats_panel(void) {
-  if (!context.config.show_latency)
+/** Row labels of the stats panel, top to bottom; the value strings in StatsCache follow this order.
+ */
+static const char *const stats_labels[UI_STATS_ROWS] = {"Latency", "FPS"};
+static const char *const stats_title = "Stream Stats";
+
+/**
+ * The stats panel's text and measurements. Rebuilt at most once per UI_STATS_REBUILD_US so the
+ * numbers do not flicker and the draw path never formats or measures text.
+ */
+typedef struct {
+  bool valid;      /**< False until the first build after a stream start. */
+  bool latency_na; /**< The latency row already reads N/A, so no stale check is needed. */
+  uint64_t built_us;
+  char values[UI_STATS_ROWS][32];
+  int value_w[UI_STATS_ROWS];
+  int label_w[UI_STATS_ROWS];
+  int panel_w;
+} StatsCache;
+
+static StatsCache stats_cache;
+
+/** Measure the cached texts and set the panel width: the widest row or the title, never under
+ * UI_STATS_MIN_W. */
+static void stats_cache_measure(void) {
+  int content_w = ui_text_face_width(UI_FACE_T16, stats_title);
+  for (int i = 0; i < UI_STATS_ROWS; i++) {
+    stats_cache.label_w[i] = ui_text_face_width(UI_FACE_T16, stats_labels[i]);
+    stats_cache.value_w[i] = ui_text_face_width(UI_FACE_T16, stats_cache.values[i]);
+    int row_w = stats_cache.label_w[i] + UI_STATS_COL_GAP + stats_cache.value_w[i];
+    if (row_w > content_w)
+      content_w = row_w;
+  }
+  stats_cache.panel_w = content_w + UI_STATS_PAD_X * 2;
+  if (stats_cache.panel_w < UI_STATS_MIN_W)
+    stats_cache.panel_w = UI_STATS_MIN_W;
+}
+
+/**
+ * Keep the stats cache current. Rebuilds from the live stream metrics on the first call after a
+ * reset and then once per UI_STATS_REBUILD_US. Between rebuilds only the stale check runs: the
+ * frame the latency crosses UI_STREAM_STATS_STALE_US it switches to N/A at once.
+ */
+static void stats_cache_update(uint64_t now_us) {
+  if (!stats_cache.valid || now_us - stats_cache.built_us >= UI_STATS_REBUILD_US) {
+    ui_stream_stats_format(now_us, context.stream.metrics_last_update_us,
+                           context.stream.measured_rtt_ms, context.stream.measured_incoming_fps,
+                           context.stream.target_fps, context.stream.negotiated_fps,
+                           stats_cache.values[0], sizeof(stats_cache.values[0]),
+                           stats_cache.values[1], sizeof(stats_cache.values[1]));
+    stats_cache.latency_na = strcmp(stats_cache.values[0], UI_STREAM_STATS_NA) == 0;
+    stats_cache.built_us = now_us;
+    stats_cache.valid = true;
+    stats_cache_measure();
     return;
-
-  char latency_value[32] = "N/A";
-  char fps_value[32] = "N/A";
-  const char *labels[] = {"Latency", "FPS"};
-  const char *values[] = {latency_value, fps_value};
-  const int row_count = 2;
-
-  uint64_t now_us = sceKernelGetProcessTimeWide();
-  bool metrics_recent = context.stream.metrics_last_update_us != 0 &&
-                        (now_us - context.stream.metrics_last_update_us) <= 3000000ULL;
-  if (metrics_recent && context.stream.measured_rtt_ms > 0) {
-    snprintf(latency_value, sizeof(latency_value), "%u ms", context.stream.measured_rtt_ms);
   }
 
-  uint32_t incoming_fps = context.stream.measured_incoming_fps;
-  uint32_t target_fps =
-      context.stream.target_fps ? context.stream.target_fps : context.stream.negotiated_fps;
-  if (incoming_fps > 0 && target_fps > 0) {
-    snprintf(fps_value, sizeof(fps_value), "%u / %u", incoming_fps, target_fps);
-  } else if (incoming_fps > 0) {
-    snprintf(fps_value, sizeof(fps_value), "%u", incoming_fps);
+  if (!stats_cache.latency_na &&
+      ui_stream_stats_metrics_stale(now_us, context.stream.metrics_last_update_us)) {
+    snprintf(stats_cache.values[0], sizeof(stats_cache.values[0]), "%s", UI_STREAM_STATS_NA);
+    stats_cache.latency_na = true;
+    stats_cache_measure();
+  }
+}
+
+/**
+ * Draw the stream stats panel (C25, SPEC 3.5) in its fixed slot. Paper cost: 9-slice 9, title 1,
+ * one run per label and per value (14 in all).
+ */
+static void draw_stream_stats_panel(void) {
+  if (!context.config.show_latency) {
+    stats_cache.valid = false;  // switching it back on builds the text on the first frame
+    return;
   }
 
-  const char *title = "Stream Stats";
-  const int margin = 18;
-  const int top_offset = stream_exit_hint_visible_this_frame ? 44 : 0;
-  const int padding_x = 14;
-  const int padding_y = 10;
-  const int row_gap = 5;
-  const int col_gap = 14;
-  const int line_h = FONT_SIZE_SMALL + row_gap;
-  const int title_h = FONT_SIZE_SMALL + 6;
+  stats_cache_update(sceKernelGetProcessTimeWide());
 
-  int label_col_w = 0;
-  int value_col_w = 0;
-  for (int i = 0; i < row_count; i++) {
-    int label_w = ui_text_width(font, FONT_SIZE_SMALL, labels[i]);
-    int value_w = ui_text_width(font, FONT_SIZE_SMALL, values[i]);
-    if (label_w > label_col_w)
-      label_col_w = label_w;
-    if (value_w > value_col_w)
-      value_col_w = value_w;
-  }
-  int title_w = ui_text_width(font, FONT_SIZE_SMALL, title);
+  const int box_w = stats_cache.panel_w;
+  const int box_h =
+      UI_STATS_PAD_Y * 2 + UI_STATS_LINE_H + UI_STATS_TITLE_GAP + UI_STATS_ROWS * UI_STATS_LINE_H;
+  const int box_x = SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - box_w;
+  UiRect box = {box_x, UI_STATS_TOP, box_w, box_h};
+  ui_shape9_draw(UI_SHAPE9_MD, box, UI_PANEL);
 
-  int content_w = label_col_w + col_gap + value_col_w;
-  if (title_w > content_w)
-    content_w = title_w;
-
-  int box_w = content_w + (padding_x * 2);
-  int box_h = padding_y + title_h + (row_count * line_h) + padding_y;
-  int box_x = SCREEN_WIDTH - box_w - margin;
-  int box_y = margin + top_offset;
-
-  ui_draw_card_with_shadow(box_x, box_y, box_w, box_h, 10, RGBA8(20, 20, 24, 220));
-  ui_text_draw(font, box_x + padding_x, box_y + padding_y + FONT_SIZE_SMALL,
-               RGBA8(0xD8, 0xE8, 0xFF, 255), FONT_SIZE_SMALL, title);
-
-  int row_y = box_y + padding_y + title_h + FONT_SIZE_SMALL;
-  for (int i = 0; i < row_count; i++) {
-    int value_w = ui_text_width(font, FONT_SIZE_SMALL, values[i]);
-    int value_x = box_x + box_w - padding_x - value_w;
-    ui_text_draw(font, box_x + padding_x, row_y, RGBA8(0xB8, 0xC1, 0xCC, 255), FONT_SIZE_SMALL,
-                 labels[i]);
-    ui_text_draw(font, value_x, row_y, RGBA8(0xFF, 0xFF, 0xFF, 255), FONT_SIZE_SMALL, values[i]);
-    row_y += line_h;
+  const int text_x = box_x + UI_STATS_PAD_X;
+  int line_y = UI_STATS_TOP + UI_STATS_PAD_Y;
+  ui_text_draw_face_centered_v(UI_FACE_T16, text_x, line_y, UI_STATS_LINE_H, UI_TEXT_2,
+                               stats_title);
+  line_y += UI_STATS_LINE_H + UI_STATS_TITLE_GAP;
+  for (int i = 0; i < UI_STATS_ROWS; i++) {
+    ui_text_draw_face_centered_v(UI_FACE_T16, text_x, line_y, UI_STATS_LINE_H, UI_TEXT_3,
+                                 stats_labels[i]);
+    ui_text_draw_face_centered_v(UI_FACE_T16,
+                                 box_x + box_w - UI_STATS_PAD_X - stats_cache.value_w[i], line_y,
+                                 UI_STATS_LINE_H, UI_TEXT, stats_cache.values[i]);
+    line_y += UI_STATS_LINE_H;
   }
 }
 
@@ -251,12 +276,12 @@ void vitavideo_overlay_render(void) {
 
 void vitavideo_overlay_on_stream_start(void) {
   stream_exit_hint_start_us = 0;
-  stream_exit_hint_visible_this_frame = false;
+  memset(&stats_cache, 0, sizeof(stats_cache));
 }
 
 void vitavideo_overlay_on_stream_stop(void) {
   stream_exit_hint_start_us = 0;
-  stream_exit_hint_visible_this_frame = false;
+  memset(&stats_cache, 0, sizeof(stats_cache));
 }
 
 void vitavideo_overlay_show_poor_net_indicator(void) {
