@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "context.h"
 #include "controller.h"
@@ -84,23 +85,55 @@ static void test_empty_set_is_mixed(void) {
 }
 
 /**
- * With the real first-run seeds the whole front surface is Touchpad (the whole-surface input holds
- * it, the 18 front cells are empty) and the rear does nothing: its L2 and R2 sit on the legacy
- * quadrant inputs, which host_input.c never reads for a rear touch.
- * catches: the front reading "None, 0 zones" because only the 18 cells were looked at, or the
- * rear claiming L2/R2 zones that the stream never fires.
+ * A never-saved preset must start from the same mapping on the Controller page (and in the config)
+ * as in the stream, and its rear must really press L2 / R2: left three columns L2, right three
+ * R2, on grid zones the stream reads, all 18 shown by the page.
+ * catches: the page seed and the stream default drifting apart again (opening the page changing
+ * what a never-saved preset does), or L2 / R2 sitting on inputs the stream never reads on a rear
+ * touch, so the page shows no rear zones and the triggers do nothing.
  */
-static void test_seeds_front_is_touchpad_rear_does_nothing(void) {
-  const ControllerMapStorage map = seeds();
-  assert(map.in_out_btn[front_cell(0)] == OUT_NONE);
-  assert(!vitaki_ctrl_in_is_rear_grid((VitakiCtrlIn)map.in_l2));
+static void test_never_saved_preset_is_one_mapping_for_page_and_stream(void) {
+  for (int slot = 0; slot < 3; slot++)
+    context.config.custom_maps_valid[slot] = false;
 
-  assert(ui_controller_side_output(&map, UI_CTRL_SIDE_FRONT) == OUT_TOUCHPAD);
-  assert(ui_controller_mapped_zones(&map, UI_CTRL_SIDE_FRONT) == UI_CTRL_ZONES);
-  assert(ui_controller_zone_output(&map, UI_CTRL_SIDE_FRONT, 4) == OUT_TOUCHPAD);
+  VitakiCtrlMapInfo stream;
+  init_controller_map(&stream, VITAKI_CONTROLLER_MAP_CUSTOM_1);
 
-  assert(ui_controller_side_output(&map, UI_CTRL_SIDE_REAR) == OUT_NONE);
-  assert(ui_controller_mapped_zones(&map, UI_CTRL_SIDE_REAR) == 0);
+  const ControllerMapStorage page = seeds();
+  VitakiCtrlMapInfo from_page;
+  controller_map_storage_apply(&page, &from_page);
+
+  assert(memcmp(stream.in_out_btn, from_page.in_out_btn, sizeof(stream.in_out_btn)) == 0);
+  assert(stream.in_l2 == from_page.in_l2);
+  assert(stream.in_r2 == from_page.in_r2);
+
+  assert(ui_controller_zone_output(&page, UI_CTRL_SIDE_REAR, 6) == OUT_L2);
+  assert(ui_controller_zone_output(&page, UI_CTRL_SIDE_REAR, 11) == VITAKI_CTRL_OUT_R2);
+  assert(ui_controller_mapped_zones(&page, UI_CTRL_SIDE_REAR) == UI_CTRL_ZONES);
+  assert(ui_controller_side_output(&page, UI_CTRL_SIDE_FRONT) == OUT_TOUCHPAD);
+  assert(stream.in_out_btn[VITAKI_CTRL_IN_LEFT_SQUARE] == VITAKI_CTRL_OUT_L3);
+  assert(stream.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] == VITAKI_CTRL_OUT_R3);
+}
+
+/**
+ * A saved preset comes out of init_controller_map as stored, not as the defaults.
+ * catches: the shared default overwriting presets the user saved.
+ */
+static void test_saved_preset_is_not_replaced_by_the_defaults(void) {
+  ControllerMapStorage saved;
+  memset(&saved, 0, sizeof(saved));
+  saved.in_out_btn[rear_cell(0)] = VITAKI_CTRL_OUT_TRIANGLE;
+  context.config.custom_maps[1] = saved;
+  context.config.custom_maps_valid[1] = true;
+
+  VitakiCtrlMapInfo stream;
+  init_controller_map(&stream, VITAKI_CONTROLLER_MAP_CUSTOM_2);
+
+  assert(stream.in_out_btn[rear_cell(0)] == VITAKI_CTRL_OUT_TRIANGLE);
+  assert(stream.in_out_btn[rear_cell(17)] == OUT_NONE);
+  assert(stream.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] == OUT_NONE);
+  assert(stream.in_l2 == VITAKI_CTRL_IN_NONE);
+  context.config.custom_maps_valid[1] = false;
 }
 
 /**
@@ -145,7 +178,8 @@ static void test_assigning_the_whole_side_reads_back(void) {
     ui_controller_assign_side(&map, UI_CTRL_SIDE_FRONT, choices[i]);
     assert(ui_controller_side_output(&map, UI_CTRL_SIDE_FRONT) == (int)choices[i]);
     assert(map.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] == OUT_NONE);
-    assert(ui_controller_side_output(&map, UI_CTRL_SIDE_REAR) == OUT_NONE);
+    assert(ui_controller_mapped_zones(&map, UI_CTRL_SIDE_REAR) == UI_CTRL_ZONES);
+    assert(ui_controller_zone_output(&map, UI_CTRL_SIDE_REAR, 0) == OUT_L2);
   }
 
   ControllerMapStorage cleared = seeds();
@@ -183,6 +217,7 @@ static void test_assigning_one_zone_keeps_the_page_equal_to_the_stream(void) {
  */
 static void test_trigger_pointers_follow_the_assignment(void) {
   ControllerMapStorage map = seeds();
+  ui_controller_assign_side(&map, UI_CTRL_SIDE_REAR, VITAKI_CTRL_OUT_NONE);
   map.in_l2 = rear_cell(3);
   assert(ui_controller_zone_output(&map, UI_CTRL_SIDE_REAR, 3) == OUT_L2);
 
@@ -202,7 +237,8 @@ int main(void) {
   test_uniform_set_has_a_common_output();
   test_any_difference_is_mixed();
   test_empty_set_is_mixed();
-  test_seeds_front_is_touchpad_rear_does_nothing();
+  test_never_saved_preset_is_one_mapping_for_page_and_stream();
+  test_saved_preset_is_not_replaced_by_the_defaults();
   test_zone_disagreeing_with_whole_surface_is_mixed();
   test_assigning_the_whole_side_reads_back();
   test_assigning_one_zone_keeps_the_page_equal_to_the_stream();
