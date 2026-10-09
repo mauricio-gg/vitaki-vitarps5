@@ -824,12 +824,17 @@ typedef enum ui_face_t {
  * Controller page (ui_controller_page.c, SPEC C20 and section 3.8)
  * ============================================================================ */
 
-/** The Summary page 1 front diagram box. The height keeps the art's 874 : 396 shape at this
- * width, rounded up so the art is limited by the width. */
-#define UI_CTRL_FRONT_X 164
+/** Every diagram box ends UI_CTRL_DIAGRAM_BOTTOM_GAP above the footer buttons (UI_CTRL_FOOT_BTN_Y),
+ * so the Clear and Whole surface buttons never touch the art: the boxes below are as wide as that
+ * allows, centred on the page, with the height rounded up from the art's shape (so the art is
+ * limited by the width). */
+#define UI_CTRL_DIAGRAM_BOTTOM_GAP 8
+
+/** The Summary page 1 front diagram box (art 874 : 396). */
+#define UI_CTRL_FRONT_X 175
 #define UI_CTRL_FRONT_Y 176
-#define UI_CTRL_FRONT_W 630
-#define UI_CTRL_FRONT_H 286
+#define UI_CTRL_FRONT_W 609
+#define UI_CTRL_FRONT_H 276
 
 /** The preset switcher in the title row's right slot: chevron box, label box, chevron box, with
  * UI_CTRL_PRESET_GAP between them, ending at UI_CONTENT_RIGHT. The label is centred in its box. */
@@ -863,18 +868,18 @@ typedef enum ui_face_t {
 
 /** The Summary page 2 rear diagram box (art 720 : 327, the height rounded up like the front's) and
  * the two zone-view boxes, front (874 : 396) and rear. */
-#define UI_CTRL_REAR_X 170
+#define UI_CTRL_REAR_X 176
 #define UI_CTRL_REAR_Y 176
-#define UI_CTRL_REAR_W 620
-#define UI_CTRL_REAR_H 282
-#define UI_CTRL_ZONE_FRONT_X 120
-#define UI_CTRL_ZONE_FRONT_Y 144
-#define UI_CTRL_ZONE_FRONT_W 720
-#define UI_CTRL_ZONE_FRONT_H 327
-#define UI_CTRL_ZONE_REAR_X 140
-#define UI_CTRL_ZONE_REAR_Y 152
-#define UI_CTRL_ZONE_REAR_W 680
-#define UI_CTRL_ZONE_REAR_H 309
+#define UI_CTRL_REAR_W 607
+#define UI_CTRL_REAR_H 276
+#define UI_CTRL_ZONE_FRONT_X 132
+#define UI_CTRL_ZONE_FRONT_Y 136
+#define UI_CTRL_ZONE_FRONT_W 697
+#define UI_CTRL_ZONE_FRONT_H 316
+#define UI_CTRL_ZONE_REAR_X 132
+#define UI_CTRL_ZONE_REAR_Y 136
+#define UI_CTRL_ZONE_REAR_W 695
+#define UI_CTRL_ZONE_REAR_H 316
 
 /** The footers: the preset description at the left margin, the page label at the right. The page
  * label's hit rect reaches UI_CTRL_FOOT_HIT_PAD_X to each side and UI_CTRL_FOOT_HIT_PAD_Y above

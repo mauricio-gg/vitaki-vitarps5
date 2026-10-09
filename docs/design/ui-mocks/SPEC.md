@@ -279,6 +279,8 @@ h 32, padding 0 16, `HUD` fill, T16 TEXT, `R_PILL` corners. Variants: **warn** (
 
 **As built (#325).** The callout's arrow is a baked texture (`ui_arrow.c`, tinted like the text, one space from the name and from the output), because Roboto has no U+2192. The callout draws the shoulder name, the arrow and the output name as separate pieces. The font prewarm set lists only glyphs Roboto has and the UI draws as text (middle dot, almost-equal).
 
+**As built (#327).** The footer buttons (Clear; Whole surface and Clear in a zone view) are at y 460, so every diagram box now ends `UI_CTRL_DIAGRAM_BOTTOM_GAP` (8 px) above them, at y 452: Summary front 175, 176, 609 x 276; Summary rear 176, 176, 607 x 276; zone front 132, 136, 697 x 316; zone rear 132, 136, 695 x 316 (x, y, w x h; the zone-view top moved up from 144 / 152 to 136). The old gaps from the art's bottom edge to the button's top were -2, +2, -11 and -1 px. The buttons are in the D-pad focus order and show the C22 focused look (fill, white border, glow): on Summary page 1, Down from R1 focuses Clear and Up returns to R1 (the callouts show no focus meanwhile); on page 2, Down focuses Clear and Up releases it; in a zone view, Down from the grid's bottom row focuses Whole surface (left half) or Clear (right half), Left and Right switch between them, Up returns to the grid, and Confirm activates the focused button. Square and Triangle and touch work as before.
+
 ### C21 ZoneGrid (interactive)
 6 x 3 cells (columns A-F, rows 1-3) over the screen rect (front: x +178/874, y +30/396, 526 x 298 source px) or the rear pad rect (x +139/720, y +45/327, 444 x 188 source px), scaled with the diagram. Cell label T16 (OPT, SHR, TP, L1...; blank for None). Constants: `UI_ZONE_COLS` 6, `UI_ZONE_ROWS` 3.
 
