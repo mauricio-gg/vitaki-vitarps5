@@ -24,27 +24,11 @@ void ui_focus_init(void) {
 }
 
 // ============================================================================
-// Zone Queries
-// ============================================================================
-
-FocusZone ui_focus_get_zone(void) {
-  return CURRENT_FOCUS.zone;
-}
-
-int ui_focus_get_index(void) {
-  return CURRENT_FOCUS.index;
-}
-
-// ============================================================================
 // Zone Transitions
 // ============================================================================
 
 void ui_focus_set_zone(FocusZone zone) {
   CURRENT_FOCUS.zone = zone;
-}
-
-void ui_focus_set_index(int index) {
-  CURRENT_FOCUS.index = index;
 }
 
 void ui_focus_move_to_content(UIScreenType screen) {
@@ -86,10 +70,6 @@ bool ui_focus_has_modal(void) {
   return g_stack_depth > 0 && CURRENT_FOCUS.zone == FOCUS_ZONE_MODAL;
 }
 
-int ui_focus_get_stack_depth(void) {
-  return g_stack_depth;
-}
-
 // ============================================================================
 // Screen Zones
 // ============================================================================
@@ -98,8 +78,6 @@ FocusZone ui_focus_zone_for_screen(UIScreenType screen) {
   switch (screen) {
     case UI_SCREEN_TYPE_MAIN:
       return FOCUS_ZONE_MAIN_CONTENT;
-    case UI_SCREEN_TYPE_SETTINGS:
-      return FOCUS_ZONE_SETTINGS_ITEMS;
     case UI_SCREEN_TYPE_PROFILE:
       return FOCUS_ZONE_PROFILE_CARDS;
     default:

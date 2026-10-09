@@ -40,8 +40,5 @@ void ui_settings_apply_force_30fps(void) {
 }
 
 void ui_settings_apply_circle_confirm(void) {
-  const bool circle = context.config.circle_btn_confirm;
-  confirm_btn_str = circle ? "Circle" : "Cross";
-  cancel_btn_str = circle ? "Cross" : "Circle";
   ui_input_block_button(context.ui_state.button_state & (SCE_CTRL_CROSS | SCE_CTRL_CIRCLE));
 }

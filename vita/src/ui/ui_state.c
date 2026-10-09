@@ -25,8 +25,6 @@
 
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/processmgr.h>
-#include <vita2d.h>
-#include <string.h>
 
 // ============================================================================
 // Module State
@@ -53,14 +51,6 @@ static bool connection_overlay_modal_pushed = false;
  */
 static uint64_t waking_wait_for_stream_us = 0;
 
-/**
- * Text width cache
- * Simple optimization for static strings to avoid repeated font measurements
- */
-#define TEXT_WIDTH_CACHE_SIZE 16
-static TextWidthCacheEntry text_width_cache[TEXT_WIDTH_CACHE_SIZE] = {0};
-static int next_cache_slot = 0;
-
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -78,9 +68,6 @@ void ui_state_init(void) {
 
   // Reset timing state
   waking_wait_for_stream_us = 0;
-
-  // Clear text cache
-  ui_text_cache_clear();
 }
 
 // ============================================================================
@@ -240,37 +227,6 @@ bool ui_cooldown_takion_gate_active(void) {
 }
 
 // ============================================================================
-// Text Width Caching Implementation
-// ============================================================================
-
-int ui_text_width_cached(const char *text, int font_size) {
-  // Try to find in cache (pointer comparison for static strings)
-  for (int i = 0; i < TEXT_WIDTH_CACHE_SIZE; i++) {
-    if (text_width_cache[i].valid && text_width_cache[i].text == text &&  // Pointer comparison
-        text_width_cache[i].font_size == font_size) {
-      return text_width_cache[i].width;
-    }
-  }
-
-  // Not in cache - calculate and store
-  int width = vita2d_font_text_width(font, font_size, text);
-
-  // Store in cache using simple FIFO replacement
-  text_width_cache[next_cache_slot].text = text;
-  text_width_cache[next_cache_slot].font_size = font_size;
-  text_width_cache[next_cache_slot].width = width;
-  text_width_cache[next_cache_slot].valid = true;
-  next_cache_slot = (next_cache_slot + 1) % TEXT_WIDTH_CACHE_SIZE;
-
-  return width;
-}
-
-void ui_text_cache_clear(void) {
-  memset(text_width_cache, 0, sizeof(text_width_cache));
-  next_cache_slot = 0;
-}
-
-// ============================================================================
 // Waking & Reconnect State Accessors
 // ============================================================================
 
@@ -288,14 +244,6 @@ void ui_state_set_waking_wait_for_stream_us(uint64_t time_us) {
 
 bool ui_state_connection_thread_active(void) {
   return connection_thread_id >= 0;
-}
-
-/**
- * Check if stream cooldown is active (internal alias)
- * Original function name used in ui.c
- */
-bool stream_cooldown_active(void) {
-  return ui_cooldown_active();
 }
 
 /**
@@ -320,14 +268,6 @@ bool takion_cooldown_gate_active(void) {
  */
 bool start_connection_thread(VitaChiakiHost *host) {
   return ui_connection_start_thread(host);
-}
-
-/**
- * Get cached text width (internal alias)
- * Original function name used in ui.c
- */
-int get_text_width_cached(const char *text, int font_size) {
-  return ui_text_width_cached(text, font_size);
 }
 
 /**

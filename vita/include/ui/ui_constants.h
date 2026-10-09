@@ -57,7 +57,6 @@
 // Context-scoped sizes (used on specific hot-path surfaces):
 #define FONT_SIZE_CARD_TITLE 20   // Console card name text (home screen card name-bar)
 #define FONT_SIZE_HOME_HEADER 24  // Home-screen section prompt ("Which do you want to connect?")
-#define FONT_SIZE_PIN_DIGIT 40    // PIN-entry digit glyphs (oversized for legibility)
 
 // ============================================================================
 // Page Layout
@@ -91,11 +90,6 @@
 // Card Cache
 // ============================================================================
 #define CARD_CACHE_UPDATE_INTERVAL_US (10 * 1000000)  // 10 seconds
-
-// ============================================================================
-// Text Width Cache
-// ============================================================================
-#define TEXT_WIDTH_CACHE_SIZE 16
 
 // ============================================================================
 // Tooltip

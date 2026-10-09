@@ -59,6 +59,7 @@
 #include "ui/ui_freeze.h"
 #include "ui/ui_list_popup.h"
 #include "ui/ui_pin.h"
+#include "ui/ui_result_popup.h"
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
@@ -90,8 +91,6 @@ vita2d_texture *ps5_logo;
 
 // Input state (managed by ui_input.c - accessed via pointers for direct manipulation)
 static uint32_t *button_block_mask = NULL;
-static bool *touch_block_active = NULL;
-static bool *touch_block_pending_clear = NULL;
 
 // State management convenience macros (for legacy code compatibility)
 #define waking_wait_for_stream_us ui_state_get_waking_wait_for_stream_us()
@@ -121,10 +120,6 @@ char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
 
 /// Types of screens that can be rendered
 // UIScreenType enum moved to ui_types.h (included via ui_state.h)
-
-// Initialize Yes and No button from settings (will be updated in init_ui)
-char *confirm_btn_str = "Cross";
-char *cancel_btn_str = "Circle";
 
 // btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
@@ -348,6 +343,7 @@ void init_ui() {
   ui_glow_init();
   ui_shapes_init();
   ui_room_icons_init();
+  ui_result_popup_init();  // shared by Home and the PIN screen, so loaded before either
   ui_home_init();
   ui_connecting_init();
   ui_toast_init();
@@ -364,19 +360,13 @@ void init_ui() {
   sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchEnableTouchForce(SCE_TOUCH_PORT_FRONT);
 
-  // Set yes/no buttons (circle = yes on Japanese vitas, typically)
-  ui_settings_apply_circle_confirm();
-
   // Initialize UI modules
   ui_input_init();
-  ui_screens_init();
   ui_state_init();
   ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
   button_block_mask = ui_input_get_button_block_mask_ptr();
-  touch_block_active = ui_input_get_touch_block_active_ptr();
-  touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
 }
 
 // ============================================================================
@@ -557,30 +547,6 @@ void draw_ui() {
           (context.ui_state.old_button_state & DEBUG_MENU_COMBO_MASK) != DEBUG_MENU_COMBO_MASK) {
         open_debug_menu();
       }
-    }
-
-    // handle invalid items
-    int this_active_item = context.ui_state.next_active_item;
-    if (this_active_item == -1) {
-      this_active_item = context.ui_state.active_item;
-    }
-    if (this_active_item > -1) {
-      if (this_active_item & UI_MAIN_WIDGET_HOST_TILE) {
-        if (context.num_hosts == 0) {
-          // return to toolbar
-          context.ui_state.next_active_item = UI_MAIN_WIDGET_SETTINGS_BTN;
-        } else {
-          int host_j = this_active_item - UI_MAIN_WIDGET_HOST_TILE;
-          if (host_j >= context.num_hosts) {
-            context.ui_state.next_active_item = UI_MAIN_WIDGET_HOST_TILE | (context.num_hosts - 1);
-          }
-        }
-      }
-    }
-
-    if (context.ui_state.next_active_item >= 0) {
-      context.ui_state.active_item = context.ui_state.next_active_item;
-      context.ui_state.next_active_item = -1;
     }
 
     // Skip ALL rendering when streaming - match ywnico pattern

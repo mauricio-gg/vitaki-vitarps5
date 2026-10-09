@@ -335,19 +335,16 @@ static void test_root_level_bool_migration(void) {
       "[general]\n"
       "version = 1\n"
       "\n"
-      "show_nav_labels = true\n"
       "show_only_paired = true\n"
       "clamp_soft_restart_bitrate = false\n");
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.show_nav_labels == true);
   assert(cfg.show_only_paired == true);
   assert(cfg.clamp_soft_restart_bitrate == false);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "show_nav_labels = true") != NULL);
   assert(strstr(rewritten, "show_only_paired = true") != NULL);
   assert(strstr(rewritten, "clamp_soft_restart_bitrate = false") != NULL);
   free(rewritten);

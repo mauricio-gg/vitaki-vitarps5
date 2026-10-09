@@ -37,7 +37,6 @@ static const int UI_FONT_PREWARM_SIZES[] = {
     FONT_SIZE_CARD_TITLE,  /* 20 pt */
     FONT_SIZE_HOME_HEADER, /* 24 pt */
     FONT_SIZE_HEADER,      /* 28 pt */
-    FONT_SIZE_PIN_DIGIT,   /* 40 pt */
 };
 
 /* Number of entries in the regular-font prewarm size table. */
@@ -45,11 +44,11 @@ static const int UI_FONT_PREWARM_SIZES[] = {
   ((int)(sizeof(UI_FONT_PREWARM_SIZES) / sizeof(UI_FONT_PREWARM_SIZES[0])))
 
 /*
- * Compile-time guard: the size_index() switch has exactly 7 cases (one per
+ * Compile-time guard: the size_index() switch has exactly 6 cases (one per
  * entry in UI_FONT_PREWARM_SIZES).  If a new size is added to the table this
  * assertion fires immediately, reminding the author to extend size_index().
  */
-_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 7,
+_Static_assert(UI_FONT_PREWARM_SIZE_COUNT == 6,
                "UI_FONT_PREWARM_SIZES changed: update size_index() switch AND this assert literal");
 
 /*
@@ -196,7 +195,7 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
  * size_index() - Map a pt_size to its slot in s_metrics[].
  * @pt_size: One of the FONT_SIZE_* constants.
  *
- * Returns the table index (0–6), or -1 if pt_size is not a known size.
+ * Returns the table index (0–5), or -1 if pt_size is not a known size.
  * Using an explicit switch rather than a loop keeps the mapping O(1) and
  * makes compiler exhaustiveness warnings possible in the future.
  *
@@ -207,7 +206,6 @@ static int s_prewarm_needed = 0; /* armed to 1 only after a successful ui_text_i
  *   3 = 20 pt (FONT_SIZE_CARD_TITLE)
  *   4 = 24 pt (FONT_SIZE_HOME_HEADER)
  *   5 = 28 pt (FONT_SIZE_HEADER)
- *   6 = 40 pt (FONT_SIZE_PIN_DIGIT)
  */
 static int size_index(int pt_size) {
   switch (pt_size) {
@@ -223,8 +221,6 @@ static int size_index(int pt_size) {
       return 4;
     case FONT_SIZE_HEADER:
       return 5;
-    case FONT_SIZE_PIN_DIGIT:
-      return 6;
     default:
       return -1;
   }

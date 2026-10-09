@@ -41,19 +41,3 @@ void write_message_log(VitaChiakiMessageLog *ml, const char *text) {
   }
   ml->last_update = sceKernelGetProcessTimeWide();
 }
-
-char *get_message_log_line(VitaChiakiMessageLog *ml, size_t line) {
-  if (ml->lines == 0)
-    return ml->log[MLOG_LINES];
-
-  int line_offset = (ml->start_offset + line) % MLOG_LINES;
-
-  if (line_offset < 0)
-    line_offset = MLOG_LINES;
-  if (line_offset >= ml->lines)
-    line_offset = MLOG_LINES;
-  if (line_offset >= MLOG_LINES)
-    line_offset = MLOG_LINES;
-
-  return ml->log[line_offset];
-}

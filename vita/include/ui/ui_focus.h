@@ -15,10 +15,9 @@
 
 // Focus zones - each represents a distinct input handling region
 typedef enum {
-  FOCUS_ZONE_MAIN_CONTENT,    // Main menu console cards
-  FOCUS_ZONE_SETTINGS_ITEMS,  // Settings screen item list
-  FOCUS_ZONE_PROFILE_CARDS,   // Profile screen info/connection cards
-  FOCUS_ZONE_MODAL            // Modal overlay (registration, popups, etc.)
+  FOCUS_ZONE_MAIN_CONTENT,   // Main menu console cards
+  FOCUS_ZONE_PROFILE_CARDS,  // Profile screen info/connection cards
+  FOCUS_ZONE_MODAL           // Modal overlay (registration, popups, etc.)
 } FocusZone;
 
 // Focus state for a single level in the stack
@@ -34,18 +33,10 @@ typedef struct {
 void ui_focus_init(void);
 
 // ============================================================================
-// Zone Queries
-// ============================================================================
-
-FocusZone ui_focus_get_zone(void);
-int ui_focus_get_index(void);
-
-// ============================================================================
 // Zone Transitions
 // ============================================================================
 
 void ui_focus_set_zone(FocusZone zone);
-void ui_focus_set_index(int index);
 void ui_focus_move_to_content(UIScreenType screen);
 
 // ============================================================================
@@ -55,7 +46,6 @@ void ui_focus_move_to_content(UIScreenType screen);
 void ui_focus_push_modal(void);
 void ui_focus_pop_modal(void);
 bool ui_focus_has_modal(void);
-int ui_focus_get_stack_depth(void);
 
 // ============================================================================
 // Screen Zones

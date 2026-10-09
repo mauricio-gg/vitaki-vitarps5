@@ -29,10 +29,9 @@ ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPre
 void ui_settings_apply_force_30fps(void);
 
 /**
- * ui_settings_apply_circle_confirm() - Make the Circle Button Confirm setting take effect: the
- * legacy button names follow the config (the UiInput snapshot already reads the config every
- * frame). When a face button is held, it is blocked until released, so the press that flipped the
- * setting is not read again as the swapped button. Also called once at startup, to set the names
- * from the loaded config.
+ * ui_settings_apply_circle_confirm() - Make a change of the Circle Button Confirm setting take
+ * effect cleanly (the UiInput snapshot already reads the config every frame). A face button that is
+ * held is blocked until released, so the press that flipped the setting is not read again as the
+ * swapped button.
  */
 void ui_settings_apply_circle_confirm(void);

@@ -49,14 +49,6 @@
 #define COLOR_BLACK RGBA8(0, 0, 0, 255)
 
 // ============================================================================
-// Module-local state
-// ============================================================================
-
-// Touch input state pointers (initialized in ui_screens_init)
-static bool *touch_block_active = NULL;
-static bool *touch_block_pending_clear = NULL;
-
-// ============================================================================
 // Forward declarations for helper functions
 // ============================================================================
 
@@ -288,14 +280,4 @@ UIScreenType ui_screen_draw_reconnecting(void) {
 
   ui_reconnecting_frame();
   return UI_SCREEN_TYPE_RECONNECTING;
-}
-
-// ============================================================================
-// Public API Implementations (wrappers for internal functions)
-// ============================================================================
-
-void ui_screens_init(void) {
-  // Get touch input state pointers from ui_input module
-  touch_block_active = ui_input_get_touch_block_active_ptr();
-  touch_block_pending_clear = ui_input_get_touch_block_pending_clear_ptr();
 }

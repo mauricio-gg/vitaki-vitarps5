@@ -67,14 +67,6 @@ bool ui_input_btn_pressed(SceCtrlButtons btn);
 void ui_input_block_for_transition(void);
 
 /**
- * Clear all button blocks
- *
- * Resets the button block mask to allow all inputs again.
- * Typically called after a transition animation completes.
- */
-void ui_input_clear_button_blocks(void);
-
-/**
  * Block a specific button for the rest of this frame
  *
  * Prevents the specified button from being detected as pressed by subsequent
@@ -85,41 +77,6 @@ void ui_input_clear_button_blocks(void);
  * @param btn Button(s) to block
  */
 void ui_input_block_button(SceCtrlButtons btn);
-
-// ============================================================================
-// Touch Input
-// ============================================================================
-
-/**
- * Check if screen is currently being touched
- *
- * @return true if at least one touch point is active
- */
-bool ui_input_is_touching(void);
-
-/**
- * Get current touch X coordinate
- *
- * @return X coordinate of first touch point (0-1920), or 0 if not touching
- */
-float ui_input_get_touch_x(void);
-
-/**
- * Get current touch Y coordinate
- *
- * @return Y coordinate of first touch point (0-1088), or 0 if not touching
- */
-float ui_input_get_touch_y(void);
-
-/**
- * Check if touch blocking is currently active
- *
- * Touch blocking prevents touch input processing after screen transitions
- * until the user lifts their finger.
- *
- * @return true if touch events should be ignored
- */
-bool ui_input_is_touch_blocked(void);
 
 // ============================================================================
 // Per-Frame Snapshot

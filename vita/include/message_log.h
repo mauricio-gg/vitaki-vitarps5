@@ -17,4 +17,3 @@ typedef struct vita_chiaki_message_log_t {
 
 VitaChiakiMessageLog *message_log_create();
 void write_message_log(VitaChiakiMessageLog *ml, const char *text);
-char *get_message_log_line(VitaChiakiMessageLog *ml, size_t line);

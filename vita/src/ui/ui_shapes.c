@@ -121,12 +121,6 @@ void ui_shapes_init(void) {
   }
 }
 
-int ui_shape3_height(UiShape3 shape) {
-  if (shape < 0 || shape >= UI_SHAPE3_COUNT)
-    return 0;
-  return SHAPE3_SPECS[shape].height;
-}
-
 void ui_shape3_draw(UiShape3 shape, int x, int y, int w, uint32_t color) {
   if (shape < 0 || shape >= UI_SHAPE3_COUNT || !s_shape3[shape])
     return;
