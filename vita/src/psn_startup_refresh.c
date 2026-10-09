@@ -31,6 +31,7 @@
 #include "psn_auth_rules.h"
 #include "psn_remote.h"
 #include "ui/ui_console_cards.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_state.h"
 
 #if CHIAKI_CAN_USE_HOLEPUNCH
@@ -275,6 +276,7 @@ void psn_startup_refresh_poll(void) {
   const uint64_t worker_us = s_job.worker_us;
   job_release();
   const uint64_t end_us = now_us();
+  UI_WORK_NOTE("psn_commit", commit_start_us);
   LOGD("PIPE/PSN_STARTUP_REFRESH done us=%llu worker_us=%llu commit_us=%llu token=%s hosts=%s",
        (unsigned long long)end_us, (unsigned long long)worker_us,
        (unsigned long long)(end_us - commit_start_us), token_label, hosts_label);

@@ -39,6 +39,7 @@
 #include "ui/ui_text.h"
 #include "ui/ui_text_wrap.h"
 #include "ui/ui_theme.h"
+#include "ui/ui_draw_stats.h"
 #include "ui/ui_toast.h"
 #include "ui/ui_top_bar.h"
 #include "ui/ui_value_labels.h"
@@ -208,7 +209,10 @@ static const char *confirm_button_name(void) {
 /** Sign in: a saved token that refreshes needs nothing more; otherwise start the phone login. */
 static void psn_log_in(void) {
   const uint64_t now = (uint64_t)time(NULL);
-  if (psn_auth_refresh_token_if_needed(now, false))
+  const uint64_t work_start_us = UI_WORK_START();
+  const bool refreshed = psn_auth_refresh_token_if_needed(now, false);
+  UI_WORK_NOTE("psn_token", work_start_us);
+  if (refreshed)
     return;
   if (psn_auth_begin_device_login(now)) {
     char text[UI_TOAST_TEXT_MAX];
@@ -221,7 +225,10 @@ static void psn_log_in(void) {
 }
 
 static void psn_refresh_hosts(void) {
-  if (psn_remote_refresh_hosts() == 0) {
+  const uint64_t work_start_us = UI_WORK_START();
+  const int refresh_result = psn_remote_refresh_hosts();
+  UI_WORK_NOTE("psn_hosts", work_start_us);
+  if (refresh_result == 0) {
     ui_cards_update_cache(true);
     ui_toast_show(PSN_HOSTS_REFRESHED, UI_TOAST_OK);
   } else {

@@ -709,7 +709,9 @@ void draw_ui() {
           last_token_check_unix = s_startup_unix;
         if (now_unix - last_token_check_unix >= 60) {
           last_token_check_unix = now_unix;
+          const uint64_t work_start_us = UI_WORK_START();
           psn_auth_refresh_token_if_needed(now_unix, false);
+          UI_WORK_NOTE("psn_token", work_start_us);
         }
       }
     }
@@ -836,7 +838,9 @@ void draw_ui() {
         LOGD("PIPE/UI_FIRST_HOME_FRAME us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
         first_home_frame_logged = true;
       }
+      const uint64_t freeze_start_us = UI_WORK_START();
       ui_freeze_frame_end();
+      UI_WORK_NOTE("popup_freeze", freeze_start_us);
     } else {
       // Streaming active — render decoded frames from the UI thread.
       // This decouples GPU display from the Takion network receive thread,

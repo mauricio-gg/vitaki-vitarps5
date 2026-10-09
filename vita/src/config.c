@@ -10,6 +10,7 @@
 #include "context.h"
 #include "host.h"
 #include "room_icons.h"
+#include "ui/ui_draw_stats.h"
 #include "token_crypto.h"
 #include "util.h"
 
@@ -606,7 +607,8 @@ void config_free(VitaChiakiConfig *cfg) {
   free(cfg);
 }
 
-bool config_serialize(VitaChiakiConfig *cfg) {
+/** Writes the whole config file; config_serialize() wraps it so every caller gets timed. */
+static bool config_write_file(VitaChiakiConfig *cfg) {
   bool downgraded_resolution = false;
   cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
   if (downgraded_resolution) {
@@ -772,4 +774,11 @@ bool config_serialize(VitaChiakiConfig *cfg) {
     return false;
   }
   return true;
+}
+
+bool config_serialize(VitaChiakiConfig *cfg) {
+  const uint64_t start_us = UI_WORK_START();
+  const bool ok = config_write_file(cfg);
+  UI_WORK_NOTE("config_save", start_us);
+  return ok;
 }
