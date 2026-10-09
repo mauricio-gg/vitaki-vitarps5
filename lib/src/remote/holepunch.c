@@ -1399,7 +1399,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Retrieving profile information for PS4 wakeup command failed with HTTP code %ld.", http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Retrieving profile information for PS4 wakeup command failed with CURL error %d.", res);
@@ -1535,7 +1535,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Waking up ps4 console failed with HTTP code %ld.", http_code);
             log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Request Body: ", envelope_buf, strlen(envelope_buf));
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             if(http_code == 404)
                 CHIAKI_LOGE(session->log, "http_ps4_session_wakeup: Please make sure PS4 is registered to your account and on or in rest mode.");
             err = CHIAKI_ERR_HTTP_NONOK;
@@ -2334,7 +2334,7 @@ static void* websocket_thread_func(void *user) {
 
 /* Append a formatted WebSocket header to the curl slist, detecting truncation
  * and OOM from curl_slist_append.
- * On truncation: logs the (possibly partial) header_buf via %s to avoid
+ * On truncation: logs the (possibly partial) header_buf, redacted, to avoid
  *   re-expanding fmt with wrong args, sets err = CHIAKI_ERR_UNKNOWN, and
  *   jumps to cleanup_headers.
  * On curl_slist_append OOM: logs an error, sets err = CHIAKI_ERR_MEMORY, and
@@ -2342,13 +2342,13 @@ static void* websocket_thread_func(void *user) {
 #define APPEND_WS_HEADER(fmt, ...) do { \
     int _n = snprintf(header_buf, sizeof(header_buf), fmt, __VA_ARGS__); \
     if (_n < 0 || (size_t)_n >= sizeof(header_buf)) { \
-        CHIAKI_LOGE(session->log, "WebSocket header truncated: %s", header_buf); \
+        log_text_redacted(session->log, CHIAKI_LOG_ERROR, "WebSocket header truncated: ", header_buf, strlen(header_buf)); \
         err = CHIAKI_ERR_UNKNOWN; \
         goto cleanup_headers; \
     } \
     struct curl_slist *_tmp = curl_slist_append(headers, header_buf); \
     if (!_tmp) { \
-        CHIAKI_LOGE(session->log, "curl_slist_append OOM for header: %s", header_buf); \
+        log_text_redacted(session->log, CHIAKI_LOG_ERROR, "curl_slist_append OOM for header: ", header_buf, strlen(header_buf)); \
         err = CHIAKI_ERR_MEMORY; \
         goto cleanup_headers; \
     } \
@@ -3952,7 +3952,7 @@ static ChiakiErrorCode http_start_session(Session *session)
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "http_start_session: Starting holepunch session failed with HTTP code %ld.", http_code);
             log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Request Body: ", envelope_buf, strlen(envelope_buf));
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             CHIAKI_LOGE(session->log, "http_start_session: Starting holepunch session failed with CURL error %d.", res);
@@ -6228,7 +6228,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "Getting stun servers from %s failed with HTTP code %ld", STUN_HOSTS_URL, http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             /* Demoted to INFO: on Vita the psn-ca-bundle.pem covers Sony CAs only, so fetching
@@ -6315,7 +6315,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
             long http_code = 0;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
             CHIAKI_LOGE(session->log, "Getting IPV6 stun servers from %s failed with HTTP code %ld", STUN_HOSTS_URL, http_code);
-            CHIAKI_LOGV(session->log, "Response Body: %.*s.", response_data.size, response_data.data);
+            log_text_redacted(session->log, CHIAKI_LOG_VERBOSE, "Response Body: ", response_data.data, response_data.size);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
             /* Same as IPv4 list: non-fatal CA mismatch on Vita; built-in list used instead. */
