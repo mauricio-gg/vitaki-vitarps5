@@ -120,9 +120,9 @@ static void show_cooldown_hint(VitaChiakiHost *host) {
  */
 UIScreenType ui_screens_connect_host(VitaChiakiHost *host) {
   /* Capture and clear force_psn_holepunch so early-return paths never leak the
-   * flag into a future LAN attempt. Restored only where start_connection_thread
-   * is invoked — including the standby-wake path, where ui_screen_draw_waking()
-   * defers the actual thread start. */
+   * flag into a future LAN attempt. Restored only where the connect starts: before
+   * the overlay begins on the standby-wake path (ui_screen_draw_waking() defers the
+   * actual thread start), and before start_connection_thread() otherwise. */
   bool saved_force_psn = context.stream.force_psn_holepunch;
   context.stream.force_psn_holepunch = false;
 
@@ -156,14 +156,15 @@ UIScreenType ui_screens_connect_host(VitaChiakiHost *host) {
     return UI_SCREEN_TYPE_REGISTER_HOST;
   if (at_rest) {
     LOGD("Waking dormant console...");
+    /* Restore the flag before the overlay begins: ui_connection_begin() decides the flow
+     * (and so the route, title and steps) from it, and ui_screen_draw_waking()'s deferred
+     * start_connection_thread() honours the user's Internet choice with it. */
+    context.stream.force_psn_holepunch = saved_force_psn;
     ui_connection_begin(UI_CONNECTION_STAGE_WAKING);
-    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby", false)) {
-      /* Restore the flag so ui_screen_draw_waking()'s deferred
-       * start_connection_thread() honours the user's Internet choice. */
-      context.stream.force_psn_holepunch = saved_force_psn;
+    if (request_host_wakeup_with_feedback(context.active_host, "cross-standby", false))
       return UI_SCREEN_TYPE_WAKING;
-    }
-    /* Wake request failed — connection will not proceed; leave flag cleared. */
+    /* Wake request failed: the connection will not proceed, so clear the flag again. */
+    context.stream.force_psn_holepunch = false;
     ui_connection_cancel();
     return UI_SCREEN_TYPE_MAIN;
   }

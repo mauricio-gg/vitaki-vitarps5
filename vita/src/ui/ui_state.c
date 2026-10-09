@@ -83,6 +83,8 @@ void ui_connection_begin(UIConnectionStage stage) {
   connection_overlay.active = true;
   connection_overlay.stage = stage;
   connection_overlay.flow = ui_connecting_flow_decide(stage, internet);
+  LOGD("Connection begin: flow=%s internet=%d", ui_connecting_flow_name(connection_overlay.flow),
+       internet ? 1 : 0);
   connection_overlay.serial++;
   connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
   waking_wait_for_stream_us = 0;

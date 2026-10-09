@@ -456,6 +456,8 @@ Page shell, no groups. Title is set **per flow**, not per stage: a local standby
 | 7 | Starting stream | Launching video pipeline | all |
 
 Flows: local ready [4, 7]; local standby [0, 4, 7]; internet [1, 2, 3, 4, 5, 6, 7]. Deep links: `#waking` (standby, stage 0), `#connecting` (local), `#connecting-internet`, `#waking-all` (reference ladder of all 8, not a real flow).
+
+**As built (#341).** A fourth flow, internet standby, is the Internet connect to a console that must be woken first (Triangle, Connect via, Internet on a console in rest mode). It lists stages [0, 1, 3, 4, 5, 6, 7]: the internet flow with "Waking console" (0) in place of "Fetching internet consoles" (2), a stage no code ever reports. Seven rows is what the layout fits, so the list was swapped, not given an 8th row. Its title, icon and route are the Internet ones on every step ("Starting Internet Remote Play", the globe, "via Internet"), from the wake step to the last. The route follows the user's choice (Connect via Internet, or a PSN remote console), never the console's state: a begin at stage 0 is local standby only when the connect is local. When the console wakes, the connect moves to CONNECTING, which both internet flows show as the "Authenticating with PSN" step.
 **Reconnecting** (`#reconnecting`): same shell, title "Optimizing Stream"; spinner art only; right column: "Recovering from packet loss" T20, "Retrying at 1.80 Mbps" T28, "Attempt 2" and "Please wait..." T16 TEXT_3. No input, no hint row, not cancellable.
 
 ### 3.5 Stream overlay (no menu)

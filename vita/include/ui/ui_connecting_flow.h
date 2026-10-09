@@ -14,11 +14,12 @@
 
 #include "ui/ui_connection_stage.h"
 
-/** The three flows of SPEC 3.4. The title and the listed steps follow the flow, never the stage. */
+/** The flows of SPEC 3.4. The title and the listed steps follow the flow, never the stage. */
 typedef enum ui_connecting_flow_t {
-  UI_FLOW_LOCAL_READY = 0,  ///< stages 4, 7
-  UI_FLOW_LOCAL_STANDBY,    ///< stages 0, 4, 7
-  UI_FLOW_INTERNET,         ///< stages 1 to 7
+  UI_FLOW_LOCAL_READY = 0,   ///< stages 4, 7
+  UI_FLOW_LOCAL_STANDBY,     ///< stages 0, 4, 7
+  UI_FLOW_INTERNET,          ///< stages 1 to 7
+  UI_FLOW_INTERNET_STANDBY,  ///< stages 0, 1, 3, 4, 5, 6, 7: Internet to a console to wake first
   UI_FLOW_COUNT
 } UiConnectingFlow;
 
@@ -29,7 +30,7 @@ typedef enum ui_connecting_icon_t {
   UI_FLOW_ICON_MOON,
 } UiConnectingIcon;
 
-/** Most steps any flow lists (the Internet flow). */
+/** Most steps any flow lists (the two Internet flows). */
 #define UI_FLOW_MAX_STEPS 7
 
 /** Returned by ui_connecting_flow_step() for a stage the flow does not list. */
@@ -38,7 +39,8 @@ typedef enum ui_connecting_icon_t {
 /**
  * ui_connecting_flow_decide() - The flow of a connect, decided once when it begins.
  * @begin_stage: Stage the connect begins at: WAKING means a console in standby, anything else
- *               a console that is ready.
+ *               a console that is ready. WAKING with @internet is INTERNET_STANDBY, otherwise
+ *               LOCAL_STANDBY; the route follows the user's choice, never the stage.
  * @internet:    The connect goes through PSN: the host's source is PSN remote, or the one-shot
  *               force flag is set (the rule host_stream() uses).
  */
@@ -62,17 +64,19 @@ const char *ui_connecting_flow_stage_detail(int stage);
  *
  * Every step before it reads as done, which is how a stage host.c never reports (it sets
  * neither FETCH_DEVICES nor PUNCH_DATA) is still shown as passed. A connect begins at
- * CONNECTING even on the Internet flow, before host.c reports PSN_AUTH, so there CONNECTING
- * stands for the first step; host.c never reports CONNECTING again on that flow.
+ * CONNECTING even on an Internet flow (and ui_screen_draw_waking() sets it when a woken console
+ * is up), before host.c reports PSN_AUTH, so there CONNECTING stands for the PSN auth step.
  *
  * @return the step index, or UI_FLOW_STEP_NONE when @stage is not one of the flow's stages
  */
 int ui_connecting_flow_step(UiConnectingFlow flow, UIConnectionStage stage);
 
-/** ui_connecting_flow_title() - Page title: per flow, flipping only on standby's first step. */
+/** ui_connecting_flow_title() - Page title: per flow, flipping only on a local standby's first
+ * step. */
 const char *ui_connecting_flow_title(UiConnectingFlow flow, int step);
 
-/** ui_connecting_flow_icon() - Title icon: globe for Internet, moon on standby's first step. */
+/** ui_connecting_flow_icon() - Title icon: globe for Internet, moon on a local standby's first
+ * step. */
 UiConnectingIcon ui_connecting_flow_icon(UiConnectingFlow flow, int step);
 
 /** ui_connecting_flow_route() - "via Internet" or "via Local Network". */
