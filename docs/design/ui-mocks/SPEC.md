@@ -319,8 +319,8 @@ Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searchin
 | Mode | Method | Veil on top |
 |---|---|---|
 | None (default) | today's full-resolution wave | none |
-| Soft | wave rendered into a 240 x 136 render target (1/4), drawn upscaled to 960 x 544 with bilinear filtering; the upscale is the blur | `GLASS_VEIL`, 14% dark |
-| Strong | wave rendered into a 60 x 34 target (1/16), bilinear upscale | `GLASS_FROST` 5% white, then `GLASS_VEIL` 14% dark |
+| Soft | wave rendered into a 480 x 272 target (1/2) and averaged 2:1 down to 240 x 136 (1/4), drawn upscaled to 960 x 544 with bilinear filtering; the averaging and the upscale are the blur | `GLASS_VEIL`, 14% dark |
+| Strong | same chain continued 2:1 twice more, 120 x 68 then 60 x 34 (1/16), bilinear upscale | `GLASS_FROST` 5% white, then `GLASS_VEIL` 14% dark |
 | Dark | same 60 x 34 target | `GLASS_VEIL_DARK`, 20% dark, no white |
 
 The ribbons may be updated into the small target at 15 to 30 Hz while the upscaled quad is drawn every frame (the result is soft enough that the lower rate is invisible); None keeps the 30 Hz CPU vertex update. Freeze or halve updates while Connecting. Measurements, cost and the decision are in FEASIBILITY.md section 8. Replaces: `ui_particles`.

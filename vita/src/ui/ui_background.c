@@ -13,15 +13,26 @@
  * memory that outlives the call. Every draw copies its vertices into vita2d's per-frame pool.
  * The pool is reset by vita2d each frame; nothing here allocates on the heap.
  *
- * Blur levels Soft, Strong and Dark (ticket #302): the same geometry is drawn into a small render
- * target (240x136 for Soft, 60x34 for Strong and Dark), which the main scene then draws upscaled
- * with bilinear filtering, under a veil. Three vita2d facts shape the code:
- *  - A render target needs a scene of its own, so ui_background_prepare() renders it before the
+ * Blur levels Soft, Strong and Dark (tickets #302, #326): the wave is drawn into a 480x272 target
+ * (half the screen) and averaged down by exact 2:1 halvings, 480x272 -> 240x136 (Soft) -> 120x68
+ * -> 60x34 (Strong and Dark). The main scene then draws the Soft or Strong/Dark result upscaled
+ * with bilinear filtering, under a veil. The halvings matter: a target pass without MSAA takes
+ * ONE sample per texel, so drawing the wave straight into 240x136 or 60x34 point-samples it
+ * (dotted highlight lines, stair-stepped edges) and the upscale turns that into blocks. Drawing
+ * big and averaging is what the mock's canvas does. Five vita2d/GXM facts shape the code:
+ *  - A render target needs a scene of its own, so ui_background_prepare() renders them before the
  *    main scene opens. It also does the pool reset, because vita2d_start_drawing() would reset
- *    the pool after the target scene recorded its vertices, and the main scene would overwrite
+ *    the pool after the target scenes recorded their vertices, and the main scene would overwrite
  *    them before the GPU read them. vita2d_start_drawing_advanced() does not reset the pool.
- *  - vita2d's colour fragment program is built for the display's 4x MSAA; a scene on a non-MSAA
- *    target needs a program built for MSAA none. The target pass swaps one in for its duration.
+ *  - vita2d's colour and texture fragment programs are built for the display's 4x MSAA; a scene
+ *    on a non-MSAA target needs programs built for MSAA none. Each pass swaps one in for its
+ *    duration.
+ *  - vita2d's projection always maps 960x544 to the whole target, so a halving pass draws the
+ *    source as a 960x544 quad. Its texture coordinates run 0 to 1 over the whole texture, so with
+ *    bilinear filtering every destination texel centre lands on the corner shared by four source
+ *    texels: an exact 2x2 average.
+ *  - The colour program keeps destination alpha at 1 (alpha blends as "over"), so the upscaled
+ *    picture is fully opaque and the clear colour never shows through the ribbons.
  *  - vita2d creates the target surface with a stride of w pixels but the texture reads rows
  *    padded to a multiple of 8, which breaks widths such as 60; the surface is re-initialised
  *    with the padded stride.
@@ -96,8 +107,10 @@ static vita2d_color_vertex s_vig_vertical[VIG_VERTICAL_STOPS * VERTS_PER_STRIP_S
 static const uint32_t RIBBON_COLOUR[UI_BG_RIBBON_COLOURS] = {UI_BG_RIBBON_1, UI_BG_RIBBON_2,
                                                              UI_BG_RIBBON_3};
 
-/* The two blur targets: Soft has its own, Strong and Dark share the small one. */
-typedef enum { TARGET_SOFT = 0, TARGET_SMALL, TARGET_COUNT } BlurTargetId;
+/* The blur chain, each level half the size of the one before: the wave is rendered into BASE, and
+ * every later level is a 2:1 average of the previous one. Soft shows SOFT, Strong and Dark SMALL.
+ */
+typedef enum { TARGET_BASE = 0, TARGET_SOFT, TARGET_MID, TARGET_SMALL, TARGET_COUNT } BlurTargetId;
 
 typedef struct {
   vita2d_texture *tex;
@@ -107,16 +120,23 @@ typedef struct {
 } BlurTarget;
 
 static BlurTarget s_targets[TARGET_COUNT] = {
+    {NULL, UI_BG_BLUR_BASE_W, UI_BG_BLUR_BASE_H, false},
     {NULL, UI_BG_BLUR_SOFT_W, UI_BG_BLUR_SOFT_H, false},
+    {NULL, UI_BG_BLUR_MID_W, UI_BG_BLUR_MID_H, false},
     {NULL, UI_BG_BLUR_STRONG_W, UI_BG_BLUR_STRONG_H, false},
 };
 static SceGxmFragmentProgram *s_target_colour_program = NULL;
+static SceGxmFragmentProgram *s_target_texture_program = NULL;
+static SceGxmShaderPatcherId s_colour_program_id = NULL;
+static SceGxmShaderPatcherId s_texture_program_id = NULL;
 static bool s_targets_tried = false;
 static bool s_targets_ok = false;
 
 /* The colour shaders are linked into libvita2d; vita2d does not expose their ids. */
 extern const SceGxmProgram color_v_gxp_start;
 extern const SceGxmProgram color_f_gxp_start;
+extern const SceGxmProgram texture_v_gxp_start;
+extern const SceGxmProgram texture_f_gxp_start;
 
 static bool s_ready = false;
 static bool s_geometry_valid = false;
@@ -359,7 +379,8 @@ static bool refresh_geometry(bool slow) {
   return true;
 }
 
-/** Issues the wave's draws: backdrop, ribbons, dust. Used for the screen and for the targets. */
+/** Issues the wave's draws: backdrop, ribbons, dust. Used for the screen and for the base target.
+ */
 static void draw_wave(void) {
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, s_backdrop, BACKDROP_VERTS);
   for (int i = 0; i < UI_BG_RIBBON_COUNT; i++) {
@@ -405,58 +426,96 @@ static vita2d_texture *create_target(unsigned int w, unsigned int h) {
 }
 
 /**
- * Builds the colour fragment program the target pass uses: the same shader and alpha blending as
- * vita2d's, but for MSAA none, which is what the targets are. Returns false on failure.
+ * Registers @p fragment and builds an MSAA-none fragment program from it with @p vertex and
+ * @p blend (NULL replaces the destination). Returns false on failure, leaving nothing registered.
  */
-static bool create_target_colour_program(void) {
-  static const SceGxmBlendInfo blend = {
-      .colorFunc = SCE_GXM_BLEND_FUNC_ADD,
-      .alphaFunc = SCE_GXM_BLEND_FUNC_ADD,
-      .colorSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA,
-      .colorDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-      .alphaSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA,
-      .alphaDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-      .colorMask = SCE_GXM_COLOR_MASK_ALL,
-  };
+static bool create_program(const SceGxmProgram *fragment, const SceGxmProgram *vertex,
+                           const SceGxmBlendInfo *blend, SceGxmShaderPatcherId *id,
+                           SceGxmFragmentProgram **program) {
   SceGxmShaderPatcher *patcher = vita2d_get_shader_patcher();
-  SceGxmShaderPatcherId id;
-  int err = sceGxmShaderPatcherRegisterProgram(patcher, &color_f_gxp_start, &id);
+  int err = sceGxmShaderPatcherRegisterProgram(patcher, fragment, id);
   if (err < 0) {
-    LOGE("UI/BACKGROUND blur colour shader register failed (0x%08x)", (unsigned)err);
+    LOGE("UI/BACKGROUND blur shader register failed (0x%08x)", (unsigned)err);
+    *id = NULL;
     return false;
   }
-  err = sceGxmShaderPatcherCreateFragmentProgram(patcher, id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4,
-                                                 SCE_GXM_MULTISAMPLE_NONE, &blend,
-                                                 &color_v_gxp_start, &s_target_colour_program);
+  err =
+      sceGxmShaderPatcherCreateFragmentProgram(patcher, *id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4,
+                                               SCE_GXM_MULTISAMPLE_NONE, blend, vertex, program);
   if (err < 0) {
-    LOGE("UI/BACKGROUND blur colour shader create failed (0x%08x)", (unsigned)err);
-    s_target_colour_program = NULL;
+    LOGE("UI/BACKGROUND blur shader create failed (0x%08x)", (unsigned)err);
+    sceGxmShaderPatcherUnregisterProgram(patcher, *id);
+    *id = NULL;
+    *program = NULL;
     return false;
   }
   return true;
 }
 
 /**
- * Creates both targets and the shader on first use, so None costs nothing. A failure is logged
- * once and leaves the background at level None for the rest of the run.
+ * Builds the two fragment programs the target passes use, both for MSAA none (what the targets
+ * are). The colour one is vita2d's shader with colour blended as normal alpha and destination
+ * alpha blended as "over" (source alpha ONE, destination ONE_MINUS_SRC_ALPHA): over an opaque
+ * destination that stays exactly 1, where vita2d's SRC_ALPHA factors would drop it to a*a+(1-a)
+ * and let the clear colour show through the upscaled ribbons. The texture one copies the source
+ * with no blending, so a halving replaces whatever the target held. Returns false on failure.
+ */
+static bool create_target_programs(void) {
+  static const SceGxmBlendInfo colour_blend = {
+      .colorFunc = SCE_GXM_BLEND_FUNC_ADD,
+      .alphaFunc = SCE_GXM_BLEND_FUNC_ADD,
+      .colorSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA,
+      .colorDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+      .alphaSrc = SCE_GXM_BLEND_FACTOR_ONE,
+      .alphaDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+      .colorMask = SCE_GXM_COLOR_MASK_ALL,
+  };
+  return create_program(&color_f_gxp_start, &color_v_gxp_start, &colour_blend, &s_colour_program_id,
+                        &s_target_colour_program) &&
+         create_program(&texture_f_gxp_start, &texture_v_gxp_start, NULL, &s_texture_program_id,
+                        &s_target_texture_program);
+}
+
+/** Releases whichever target programs exist. */
+static void free_target_programs(void) {
+  SceGxmShaderPatcher *patcher = vita2d_get_shader_patcher();
+  if (s_target_colour_program)
+    sceGxmShaderPatcherReleaseFragmentProgram(patcher, s_target_colour_program);
+  if (s_target_texture_program)
+    sceGxmShaderPatcherReleaseFragmentProgram(patcher, s_target_texture_program);
+  if (s_colour_program_id)
+    sceGxmShaderPatcherUnregisterProgram(patcher, s_colour_program_id);
+  if (s_texture_program_id)
+    sceGxmShaderPatcherUnregisterProgram(patcher, s_texture_program_id);
+  s_target_colour_program = NULL;
+  s_target_texture_program = NULL;
+  s_colour_program_id = NULL;
+  s_texture_program_id = NULL;
+}
+
+/**
+ * Creates every target and both programs on first use, so None costs nothing. A failure is logged
+ * once, frees everything, and leaves the background at level None for the rest of the run.
  */
 static bool blur_targets_ready(void) {
   if (s_targets_tried)
     return s_targets_ok;
   s_targets_tried = true;
 
-  bool ok = create_target_colour_program();
+  bool ok = create_target_programs();
   for (int i = 0; ok && i < TARGET_COUNT; i++) {
     s_targets[i].tex = create_target(s_targets[i].width, s_targets[i].height);
     ok = s_targets[i].tex != NULL;
   }
   if (!ok) {
-    LOGE("UI/BACKGROUND blur unavailable (targets %ux%u and %ux%u), using blur None",
-         UI_BG_BLUR_SOFT_W, UI_BG_BLUR_SOFT_H, UI_BG_BLUR_STRONG_W, UI_BG_BLUR_STRONG_H);
+    LOGE("UI/BACKGROUND blur unavailable (targets %ux%u, %ux%u, %ux%u, %ux%u), using blur None",
+         UI_BG_BLUR_BASE_W, UI_BG_BLUR_BASE_H, UI_BG_BLUR_SOFT_W, UI_BG_BLUR_SOFT_H,
+         UI_BG_BLUR_MID_W, UI_BG_BLUR_MID_H, UI_BG_BLUR_STRONG_W, UI_BG_BLUR_STRONG_H);
     for (int i = 0; i < TARGET_COUNT; i++) {
       vita2d_free_texture(s_targets[i].tex);
       s_targets[i].tex = NULL;
     }
+    free_target_programs();
   }
   s_targets_ok = ok;
   return ok;
@@ -470,24 +529,69 @@ static VitaChiakiBackgroundBlur active_blur(void) {
   return blur_targets_ready() ? blur : VITA_BACKGROUND_BLUR_NONE;
 }
 
-/** Soft has the 1/4 target; Strong and Dark share the 1/16 one. */
+/** The level the main scene draws: Soft shows the 240x136 one; Strong and Dark the 60x34 one. */
 static BlurTarget *target_for(VitaChiakiBackgroundBlur blur) {
   return &s_targets[blur == VITA_BACKGROUND_BLUR_SOFT ? TARGET_SOFT : TARGET_SMALL];
 }
 
+/** Marks every level after @p id stale: they were averaged from a picture that just changed. */
+static void invalidate_after(int id) {
+  for (int i = id + 1; i < TARGET_COUNT; i++)
+    s_targets[i].valid = false;
+}
+
 /**
- * Renders the wave into @p target in a scene of its own. The scene scales the 960x544 geometry to
- * the target size (the default viewport is the whole target), and the swapped-in MSAA-none colour
- * program makes the draws valid for it. Needs no clear: the opaque gradient covers every pixel.
+ * Renders the wave into the base target in a scene of its own. The scene scales the 960x544
+ * geometry to the target size (the default viewport is the whole target), and the swapped-in
+ * MSAA-none colour program makes the draws valid for it. Needs no clear: the opaque gradient
+ * covers every pixel.
  */
-static void render_target(BlurTarget *target) {
+static void render_base(void) {
+  BlurTarget *base = &s_targets[TARGET_BASE];
   SceGxmFragmentProgram *saved_program = _vita2d_colorFragmentProgram;
-  vita2d_start_drawing_advanced(target->tex, 0);
+  vita2d_start_drawing_advanced(base->tex, 0);
   _vita2d_colorFragmentProgram = s_target_colour_program;
   draw_wave();
   _vita2d_colorFragmentProgram = saved_program;
   vita2d_end_drawing();
-  target->valid = true;
+  base->valid = true;
+  invalidate_after(TARGET_BASE);
+}
+
+/**
+ * Averages level @p id - 1 down 2:1 into level @p id, in a scene of its own. The source is drawn
+ * as one quad covering the whole 960x544 space (vita2d's projection maps that to the whole
+ * target) with texture coordinates 0 to 1, so each destination texel centre sits on the corner
+ * shared by four source texels and bilinear filtering returns their exact mean. The no-blend
+ * texture program replaces the destination.
+ */
+static void render_halving(int id) {
+  BlurTarget *src = &s_targets[id - 1];
+  BlurTarget *dst = &s_targets[id];
+  SceGxmFragmentProgram *saved_program = _vita2d_textureFragmentProgram;
+  vita2d_start_drawing_advanced(dst->tex, 0);
+  _vita2d_textureFragmentProgram = s_target_texture_program;
+  vita2d_draw_texture_scale(src->tex, 0.0f, 0.0f, (float)VITA_WIDTH / (float)src->width,
+                            (float)VITA_HEIGHT / (float)src->height);
+  _vita2d_textureFragmentProgram = saved_program;
+  vita2d_end_drawing();
+  dst->valid = true;
+  invalidate_after(id);
+}
+
+/**
+ * Brings the chain up to the level @p last (TARGET_SOFT or TARGET_SMALL) up to date, rendering
+ * only the levels whose picture is stale. Levels after @p last are left alone (they stay stale
+ * until a setting that needs them), so a live switch never shows a picture built from old
+ * geometry.
+ */
+static void render_chain(int last) {
+  if (!s_targets[TARGET_BASE].valid)
+    render_base();
+  for (int i = TARGET_BASE + 1; i <= last; i++) {
+    if (!s_targets[i].valid)
+      render_halving(i);
+  }
 }
 
 /** Fills the whole screen with @p colour. */
@@ -517,10 +621,8 @@ void ui_background_prepare(bool slow) {
   if (blur == VITA_BACKGROUND_BLUR_NONE)
     return;
 
-  BlurTarget *target = target_for(blur);
   refresh_geometry(slow);
-  if (!target->valid)
-    render_target(target);
+  render_chain(blur == VITA_BACKGROUND_BLUR_SOFT ? TARGET_SOFT : TARGET_SMALL);
 }
 
 void ui_background_draw(bool slow) {

@@ -260,11 +260,19 @@ typedef enum ui_face_t {
 #define UI_BG_DUST_BOB_TIME 0.0004f
 #define UI_BG_DUST_BOB_AMP 6.0f
 
-/* Blur levels: the wave is rendered into a small target and drawn upscaled with bilinear
- * filtering. Soft uses 1/4 scale, Strong and Dark 1/16 (SPEC C27, FEASIBILITY section 8).
- * Both sizes divide the screen exactly, so the upscale factor is VITA_WIDTH / width. */
+/* Blur levels (SPEC C27, FEASIBILITY section 8): the wave is rendered into a BASE target and
+ * averaged 2:1 down through the later levels. The base is twice Soft's size on purpose: a target
+ * pass has no MSAA, so GXM takes one sample per texel, and averaging each 2x2 block of a bigger
+ * picture is what turns that into a real blur instead of a point-sampled, blocky one (#326).
+ * Soft shows the 240x136 level and Strong/Dark the 60x34 one, both drawn upscaled with bilinear
+ * filtering. Every size divides the screen exactly and each is half the one before, so the
+ * upscale factor is VITA_WIDTH / width. */
+#define UI_BG_BLUR_BASE_W 480
+#define UI_BG_BLUR_BASE_H 272
 #define UI_BG_BLUR_SOFT_W 240
 #define UI_BG_BLUR_SOFT_H 136
+#define UI_BG_BLUR_MID_W 120
+#define UI_BG_BLUR_MID_H 68
 #define UI_BG_BLUR_STRONG_W 60
 #define UI_BG_BLUR_STRONG_H 34
 /* GXM reads a linear texture with rows padded to a multiple of this many pixels. */
