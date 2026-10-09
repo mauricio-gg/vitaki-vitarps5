@@ -163,5 +163,5 @@ void ui_top_bar_draw(const char *banner_reason) {
     build_banner(banner_reason, slot_w);
 
   ui_pill_draw(UI_PILL_WARN, slot_x + (slot_w - s_banner.pill_w) / 2,
-               UI_TOP_Y + (UI_TOPBAR_H - UI_PILL_H) / 2, s_banner.text);
+               UI_TOP_Y + (UI_TOPBAR_H - UI_PILL_H) / 2, s_banner.pill_w, s_banner.text);
 }

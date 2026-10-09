@@ -5,14 +5,12 @@
 #include "ui.h"
 #include "ui/ui_component.h"
 #include "ui/ui_draw_stats.h"
-#include "ui/ui_graphics.h"
 #include "ui/ui_pill.h"
 #include "ui/ui_shapes.h"
 #include "ui/ui_stream_stats.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_text.h"
 
-#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -21,97 +19,50 @@
 #include <psp2/kernel/processmgr.h>
 #include <vita2d.h>
 
-#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
-
 enum {
   SCREEN_WIDTH = 960,
   SCREEN_HEIGHT = 544,
 };
 
-typedef struct {
-  bool activated;
-  uint8_t alpha;
-  bool plus;
-} indicator_status;
-
-static indicator_status poor_net_indicator = {0};
+static bool poor_net_active = false;
 static uint64_t stream_exit_hint_start_us = 0;
 
-extern vita2d_font *font;
+#define POOR_NET_TEXT "Network Unstable"
 
-static void draw_pill(int x, int y, int width, int height, uint32_t color) {
-  if (height <= 0 || width <= 0)
-    return;
+/** Width of the Network Unstable pill; measured once on first use, 0 until then. */
+static int poor_net_width = 0;
 
-  int radius = height / 2;
-  if (radius <= 0) {
-    vita2d_draw_rectangle(x, y, width, height, color);
-    return;
-  }
+/** Alert length used when the stream has not set one (the Network Alerts default, 5 s). */
+#define POOR_NET_DEFAULT_DURATION_US (5 * 1000 * 1000ULL)
 
-  if (radius * 2 > width)
-    radius = width / 2;
-
-  int body_width = width - 2 * radius;
-  if (body_width > 0)
-    vita2d_draw_rectangle(x + radius, y, body_width, height, color);
-
-  int center_y = y + radius;
-  int radius_sq = radius * radius;
-  for (int py = 0; py < height; ++py) {
-    int dy = (y + py) - center_y;
-    int inside = radius_sq - dy * dy;
-    if (inside <= 0)
-      continue;
-    int dx = (int)ceilf(sqrtf((float)inside));
-    if (dx <= 0)
-      continue;
-
-    vita2d_draw_rectangle(x + radius - dx, y + py, dx, 1, color);
-    vita2d_draw_rectangle(x + width - radius, y + py, dx, 1, color);
-  }
-}
-
+/**
+ * Draw the Network Unstable pill (C19 unstable, SPEC 3.5) at the bottom right while the alert
+ * deadline is in the future. It fades linearly over the alert duration through the layer
+ * opacity (restored to 1 before returning), on top of the pill's own pulse.
+ */
 static void draw_indicators(void) {
-  if (!poor_net_indicator.activated)
+  if (!poor_net_active)
     return;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
   if (!context.stream.loss_alert_until_us || now_us >= context.stream.loss_alert_until_us) {
-    poor_net_indicator.activated = false;
+    poor_net_active = false;
     return;
   }
 
   uint64_t duration = context.stream.loss_alert_duration_us ? context.stream.loss_alert_duration_us
-                                                            : VIDEO_LOSS_ALERT_DEFAULT_US;
-  uint64_t remaining = context.stream.loss_alert_until_us - now_us;
-  float alpha_ratio = duration ? (float)remaining / (float)duration : 0.0f;
-  if (alpha_ratio < 0.0f)
-    alpha_ratio = 0.0f;
-  uint8_t alpha = (uint8_t)(alpha_ratio * 255.0f);
+                                                            : POOR_NET_DEFAULT_DURATION_US;
+  float opacity = (float)(context.stream.loss_alert_until_us - now_us) / (float)duration;
+  if (opacity > 1.0f)
+    opacity = 1.0f;
 
-  const char *headline = "Network Unstable";
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, headline);
-  int box_w = UI_LOSS_INDICATOR_PADDING_X * 2 + UI_LOSS_INDICATOR_DOT_RADIUS * 2 +
-              UI_LOSS_INDICATOR_DOT_TEXT_GAP + text_width;
-  int box_h = UI_LOSS_INDICATOR_PADDING_Y * 2 + FONT_SIZE_SMALL + 4;  // descender clearance
-  int box_x = SCREEN_WIDTH - box_w - UI_LOSS_INDICATOR_MARGIN;
-  int box_y = SCREEN_HEIGHT - box_h - UI_LOSS_INDICATOR_MARGIN;
+  if (poor_net_width == 0)
+    poor_net_width = ui_pill_width(UI_PILL_UNSTABLE, POOR_NET_TEXT);
 
-  uint8_t bg_alpha = (uint8_t)(alpha_ratio * 200.0f);
-  if (bg_alpha < 40)
-    bg_alpha = 40;
-  uint32_t bg_color = RGBA8(0, 0, 0, bg_alpha);
-  draw_pill(box_x, box_y, box_w, box_h, bg_color);
-
-  int dot_x = box_x + UI_LOSS_INDICATOR_PADDING_X;
-  int dot_y = box_y + box_h / 2;
-  vita2d_draw_fill_circle(dot_x, dot_y, UI_LOSS_INDICATOR_DOT_RADIUS,
-                          RGBA8(0xF4, 0x43, 0x36, alpha));
-
-  int text_x = dot_x + UI_LOSS_INDICATOR_DOT_RADIUS + UI_LOSS_INDICATOR_DOT_TEXT_GAP;
-  ui_text_draw_centered_v(font, text_x, box_y, box_h, RGBA8(0xFF, 0xFF, 0xFF, alpha),
-                          FONT_SIZE_SMALL, headline);
+  ui_layer_set_alpha(opacity);
+  ui_pill_draw(UI_PILL_UNSTABLE, SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - poor_net_width,
+               SCREEN_HEIGHT - UI_STREAM_OVERLAY_MARGIN - UI_PILL_H, poor_net_width, POOR_NET_TEXT);
+  ui_layer_set_alpha(1.0f);
 }
 
 /** Parts of the exit hint pill: "Back to menu: Hold [L] + [R] + [Start]". */
@@ -292,10 +243,9 @@ void vitavideo_overlay_show_poor_net_indicator(void) {
     return;
   context.stream.net_unstable_last_activated_us = now_us;
   LOGD("PIPE/NET_UNSTABLE activated");
-  poor_net_indicator.activated = true;
+  poor_net_active = true;
 }
 
 void vitavideo_overlay_hide_poor_net_indicator(void) {
-  poor_net_indicator.activated = false;
-  memset(&poor_net_indicator, 0, sizeof(indicator_status));
+  poor_net_active = false;
 }

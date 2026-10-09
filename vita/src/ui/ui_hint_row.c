@@ -239,7 +239,7 @@ void ui_hint_row_draw(const UiHintLayout *layout) {
 
   if (layout->alert) {
     const int w = ui_pill_width(UI_PILL_UNSTABLE, ALERT_TEXT);
-    ui_pill_draw(UI_PILL_UNSTABLE, UI_CONTENT_RIGHT - w, UI_HINT_Y + (UI_HINT_H - UI_PILL_H) / 2,
+    ui_pill_draw(UI_PILL_UNSTABLE, UI_CONTENT_RIGHT - w, UI_HINT_Y + (UI_HINT_H - UI_PILL_H) / 2, w,
                  ALERT_TEXT);
   }
 }

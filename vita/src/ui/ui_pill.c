@@ -34,8 +34,7 @@ int ui_pill_width(UiPillKind kind, const char *text) {
   return kind == UI_PILL_UNSTABLE ? w + DOT_SPACE : w;
 }
 
-void ui_pill_draw(UiPillKind kind, int x, int y, const char *text) {
-  const int w = ui_pill_width(kind, text);
+void ui_pill_draw(UiPillKind kind, int x, int y, int w, const char *text) {
   const float k = kind == UI_PILL_UNSTABLE ? pulse_opacity() : 1.0f;
   int text_x = x + UI_PILL_PAD;
 

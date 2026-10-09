@@ -18,14 +18,18 @@ typedef enum ui_pill_kind_t {
   UI_PILL_UNSTABLE,
 } UiPillKind;
 
-/** ui_pill_width() - Width the pill needs for @text (padding and, for unstable, the dot). */
+/**
+ * ui_pill_width() - Width the pill needs for @text (padding and, for unstable, the dot).
+ * Measures text, so call it once per text and keep the result, not once per frame.
+ */
 int ui_pill_width(UiPillKind kind, const char *text);
 
 /**
- * ui_pill_draw() - Draw a pill with its top-left corner at (@x, @y).
+ * ui_pill_draw() - Draw a pill of width @w (from ui_pill_width() for the same @kind and @text)
+ * with its top-left corner at (@x, @y). It does not measure text.
  * Warn costs 7 draws (fill 3, outline 3, text); unstable costs 5 (fill 3, dot, text).
  */
-void ui_pill_draw(UiPillKind kind, int x, int y, const char *text);
+void ui_pill_draw(UiPillKind kind, int x, int y, int w, const char *text);
 
 /**
  * One piece of a plain pill's label: a text run (@text set) or a button glyph (@text NULL,
