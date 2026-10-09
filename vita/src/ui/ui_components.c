@@ -18,6 +18,9 @@
 #include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
+#include "ui/ui_component.h"
+#include "ui/ui_shapes.h"
+#include "ui/ui_theme.h"
 #include "host_feedback.h"
 #include "video.h"
 
@@ -372,50 +375,67 @@ void ui_debug_close(void) {
   }
 }
 
+/** Debug menu panel size, in pixels. */
+#define DEBUG_MENU_PANEL_W 560
+#define DEBUG_MENU_PANEL_H 304
+/** Top of the title text box, below the panel's top edge. */
+#define DEBUG_MENU_TITLE_TOP UI_S3
+/** Top of the first option row, below the panel's top edge. */
+#define DEBUG_MENU_LIST_TOP 72
+/** Gap between option rows. */
+#define DEBUG_MENU_ROW_GAP 2
+/** Space between the option rows and the panel's left and right edges. */
+#define DEBUG_MENU_ROW_INSET UI_S4
+/** Space between the row label and the row's left edge. */
+#define DEBUG_MENU_ROW_PAD UI_S2
+/** Top of the hint text box, above the panel's bottom edge. */
+#define DEBUG_MENU_HINT_BOTTOM_GAP 28
+
 /**
- * Render the debug menu
+ * Render the debug menu in the popup style: scrim, panel with border, T28 title, focus-bar rows
+ * in T20, T14 hint.
  */
 void ui_debug_render(void) {
   if (!context.ui_state.debug_menu_active)
     return;
 
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
+  vita2d_draw_rectangle(0.0f, 0.0f, (float)VITA_WIDTH, (float)VITA_HEIGHT, UI_SCRIM);
 
-  // Panel dimensions
-  const int panel_w = 560;
-  const int panel_h = 290;
-  int panel_x = (VITA_WIDTH - panel_w) / 2;
-  int panel_y = (VITA_HEIGHT - panel_h) / 2;
-  ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18, RGBA8(0x14, 0x16, 0x1C, 240));
+  const UiRect panel = {(VITA_WIDTH - DEBUG_MENU_PANEL_W) / 2,
+                        (VITA_HEIGHT - DEBUG_MENU_PANEL_H) / 2, DEBUG_MENU_PANEL_W,
+                        DEBUG_MENU_PANEL_H};
+  ui_shape9_draw(UI_SHAPE9_MD, panel, UI_PANEL);
+  ui_shape9_draw(UI_SHAPE9_MD_BORDER, panel, UI_LINE);
 
-  // Title — baseline sits 40 px below panel top, leaving room for the panel's title-bar area.
   const char *title = "Debug Actions";
-  int title_w = ui_text_width(font, FONT_SIZE_HEADER, title);
-  ui_text_draw(font, panel_x + (panel_w - title_w) / 2, panel_y + 40, UI_COLOR_TEXT_PRIMARY,
-               FONT_SIZE_HEADER, title);
+  ui_text_draw_face_centered_v(UI_FACE_T28,
+                               panel.x + (panel.w - ui_text_face_width(UI_FACE_T28, title)) / 2,
+                               panel.y + DEBUG_MENU_TITLE_TOP, UI_T28_LINE, UI_TEXT, title);
 
-  // Option list
-  int list_y = panel_y + 70;
+  const int row_x = panel.x + DEBUG_MENU_ROW_INSET;
+  const int row_w = panel.w - 2 * DEBUG_MENU_ROW_INSET;
   for (int i = 0; i < DEBUG_MENU_OPTION_COUNT; i++) {
-    uint32_t row_color = RGBA8(0x30, 0x35, 0x40, 255);
-    if (i == context.ui_state.debug_menu_selection) {
-      row_color = RGBA8(0x34, 0x90, 0xFF, 160);
+    const bool focused = i == context.ui_state.debug_menu_selection;
+    const int row_y = panel.y + DEBUG_MENU_LIST_TOP + i * (UI_ROW_H + DEBUG_MENU_ROW_GAP);
+    const int text_x = row_x + DEBUG_MENU_ROW_PAD;
+    if (focused) {
+      const UiRect label = {text_x, row_y + (UI_ROW_H - UI_T20_LINE) / 2,
+                            ui_text_face_width(UI_FACE_T20, debug_menu_options[i]), UI_T20_LINE};
+      ui_glow_draw_rect(label, UI_ROW_GLOW,
+                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
+      ui_shape3_draw(UI_SHAPE3_BAR_48, row_x, row_y, row_w, UI_FILL_FOCUS);
+    } else {
+      vita2d_draw_rectangle((float)row_x, (float)(row_y + UI_ROW_H - UI_LW1), (float)row_w,
+                            (float)UI_LW1, UI_LINE_FAINT);
     }
-    int row_h = 44;
-    int row_margin = 6;
-    ui_draw_rounded_rect(panel_x + 30, list_y + i * (row_h + row_margin), panel_w - 60, row_h, 10,
-                         row_color);
-    // Row label centered vertically in the row box; box top is list_y + i*(row_h+row_margin).
-    ui_text_draw_centered_v(font, panel_x + 50, list_y + i * (row_h + row_margin), row_h,
-                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, debug_menu_options[i]);
+    ui_text_draw_face_centered_v(UI_FACE_T20, text_x, row_y, UI_ROW_H,
+                                 focused ? UI_TEXT : UI_TEXT_2, debug_menu_options[i]);
   }
 
-  // Hint text — baseline sits 20 px above panel bottom.
   const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
-  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  ui_text_draw(font, panel_x + (panel_w - hint_w) / 2, panel_y + panel_h - 20,
-               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
+  ui_text_draw_face_centered_v(
+      UI_FACE_T14, panel.x + (panel.w - ui_text_face_width(UI_FACE_T14, hint)) / 2,
+      panel.y + panel.h - DEBUG_MENU_HINT_BOTTOM_GAP, UI_T14_LINE, UI_TEXT_3, hint);
 }
 
 /**
