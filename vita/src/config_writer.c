@@ -97,7 +97,7 @@ static void *writer_main(void *arg) {
     s_writing = false;
     s_done_seq = job.seq;
     s_last_ok = ok;
-    chiaki_cond_signal(&s_done_cond);
+    chiaki_cond_broadcast(&s_done_cond);
   }
   return NULL;
 }
@@ -168,8 +168,6 @@ bool config_writer_submit(char *data, size_t len, uint64_t format_us, bool wait)
     while (s_done_seq < seq)
       chiaki_cond_wait(&s_done_cond, &s_mutex);
     ok = s_last_ok;
-    /* Signal wakes one waiter; pass it on so another caller waiting for its own write wakes. */
-    chiaki_cond_signal(&s_done_cond);
   }
   chiaki_mutex_unlock(&s_mutex);
   return ok;
@@ -181,6 +179,5 @@ void config_writer_flush(void) {
   chiaki_mutex_lock(&s_mutex);
   while (s_pending.data || s_writing)
     chiaki_cond_wait(&s_done_cond, &s_mutex);
-  chiaki_cond_signal(&s_done_cond);
   chiaki_mutex_unlock(&s_mutex);
 }
