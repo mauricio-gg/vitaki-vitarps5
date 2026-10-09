@@ -14,6 +14,8 @@
 
 #include <vita2d.h>
 
+#include "ui/ui_gesture.h"
+
 /* ============================================================================
  * Colour (SPEC 1.1). Every colour is a vita2d ABGR value with alpha baked in.
  * ============================================================================ */
@@ -164,8 +166,8 @@ typedef enum ui_face_t {
 #define UI_REPEAT_DELAY_MS 400
 #define UI_REPEAT_INTERVAL_MS 100
 
-/* Touch: a finger that moves further than this from touch-down is never also a tap. */
-#define UI_TOUCH_DRAG_PX 8
+/* Touch thresholds (UI_TOUCH_DRAG_PX, UI_LONG_PRESS_MS) live in ui_gesture.h, which has no SDK
+ * dependency so the gesture rules can be tested natively. */
 
 /* ============================================================================
  * C27 Background (ui_background.c). Constants are the formulas of paintRibbons in

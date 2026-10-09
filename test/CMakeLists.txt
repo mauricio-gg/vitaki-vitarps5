@@ -221,3 +221,13 @@ target_include_directories(ui_login_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_login_tests COMMAND ui_login_tests)
+
+# ui_gesture_tests.c has its own main() and tests the pure tap / long-press / swipe rules.
+# Cross-compiled but never run by ./tools/build.sh test; the native command is at the top of the file.
+add_executable(ui_gesture_tests ui_gesture_tests.c ../vita/src/ui/ui_gesture.c)
+
+target_include_directories(ui_gesture_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_gesture_tests COMMAND ui_gesture_tests)

@@ -17,6 +17,7 @@
 // Including context.h first ensures ui.h types take precedence
 #include "context.h"
 
+#include "ui/ui_gesture.h"
 #include "ui/ui_input.h"
 #include "ui/ui_internal.h"
 
@@ -140,6 +141,9 @@ typedef struct {
 /** Touch-snapshot state carried between frames. */
 static bool snap_touch_active = false;  ///< last frame's unblocked touch-down state
 static bool snap_touch_dragged = false;
+static bool snap_touch_long_press_fired = false;  ///< the long-press already fired in this touch
+static bool snap_touch_consumed = false;          ///< a screen acted on this touch
+static uint64_t snap_touch_down_us = 0;
 static float snap_touch_start_x = 0.0f;
 static float snap_touch_start_y = 0.0f;
 static float snap_touch_x = 0.0f;
@@ -183,8 +187,11 @@ static void snapshot_dpad_repeat(UiInput *out, uint64_t now_us) {
   }
 }
 
-/** Fill out->touch from the front panel, honouring the transition touch block. */
-static void snapshot_touch(UiInput *out, bool suppressed) {
+/**
+ * Fill out->touch from the front panel, honouring the transition touch block. Tap, swipe and
+ * long-press are decided by ui_gesture_classify(); @now_us is the frame's clock.
+ */
+static void snapshot_touch(UiInput *out, bool suppressed, uint64_t now_us) {
   const SceTouchData *panel = &context.ui_state.touch_state_front;
   bool raw_down = panel->reportNum > 0;
 
@@ -211,21 +218,46 @@ static void snapshot_touch(UiInput *out, bool suppressed) {
     snap_touch_start_x = snap_touch_x;
     snap_touch_start_y = snap_touch_y;
     snap_touch_dragged = false;
+    snap_touch_long_press_fired = false;
+    snap_touch_consumed = false;
+    snap_touch_down_us = now_us;
   }
   t->x = snap_touch_x;
   t->y = snap_touch_y;
   t->dx = snap_touch_x - snap_touch_start_x;
   t->dy = snap_touch_y - snap_touch_start_y;
-  if (active && (t->dx * t->dx + t->dy * t->dy) > (float)(UI_TOUCH_DRAG_PX * UI_TOUCH_DRAG_PX)) {
-    snap_touch_dragged = true;
+
+  t->long_press = false;
+  if (active || t->released) {
+    const UiGestureTouch gesture = {
+        .released = t->released,
+        .held_ms = (uint32_t)((now_us - snap_touch_down_us) / 1000ULL),
+        .dx = t->dx,
+        .dy = t->dy,
+        .swiped = snap_touch_dragged,
+        .long_press_fired = snap_touch_long_press_fired,
+        .consumed = snap_touch_consumed,
+    };
+    const UiGestureKind kind = ui_gesture_classify(&gesture);
+    if (kind == UI_GESTURE_SWIPE)
+      snap_touch_dragged = true;
+    if (kind == UI_GESTURE_LONG_PRESS) {
+      snap_touch_long_press_fired = true;
+      t->long_press = true;
+    }
   }
   t->dragged = (active || t->released) && snap_touch_dragged;
+  t->consumed = (active || t->released) && snap_touch_consumed;
 
   /* A touch that becomes blocked mid-way is swallowed: it neither taps nor releases. */
   snap_touch_active = active;
 }
 
 static UiInput frame_snapshot;
+
+void ui_input_consume_touch(void) {
+  snap_touch_consumed = true;
+}
 
 void ui_input_update_snapshot(void) {
   UiInput *out = &frame_snapshot;
@@ -258,8 +290,9 @@ void ui_input_update_snapshot(void) {
     out->released = to_logical(~state & old_state & unblocked, map, map_count);
   }
 
-  snapshot_dpad_repeat(out, sceKernelGetProcessTimeWide());
-  snapshot_touch(out, suppressed);
+  const uint64_t now_us = sceKernelGetProcessTimeWide();
+  snapshot_dpad_repeat(out, now_us);
+  snapshot_touch(out, suppressed, now_us);
 }
 
 const UiInput *ui_input_snapshot(void) {

@@ -138,6 +138,14 @@ bool ui_input_is_touch_blocked(void);
 void ui_input_update_snapshot(void);
 
 /**
+ * Mark the touch that is down right now as used by the screen (a long-press that opened
+ * Options). The release of that touch is then not a tap anywhere (ui_touch_tap() is false), so
+ * lifting the finger neither closes what the long-press opened nor activates the row under it.
+ * Takes effect from the next frame's snapshot and resets on the next touch-down.
+ */
+void ui_input_consume_touch(void);
+
+/**
  * The snapshot built by the last ui_input_update_snapshot() call (never NULL).
  */
 const UiInput *ui_input_snapshot(void);
