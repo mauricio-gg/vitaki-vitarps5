@@ -45,12 +45,6 @@ void ui_controller_model_step_preset(int delta);
 VitakiCtrlOut ui_controller_model_output(VitakiCtrlIn input);
 
 /**
- * ui_controller_model_common_output() - The output every one of @inputs is mapped to.
- * @return that output (as an int, a VitakiCtrlOut value), or UI_CTRL_MIXED when they differ
- */
-int ui_controller_model_common_output(const VitakiCtrlIn *inputs, int count);
-
-/**
  * ui_controller_model_assign() - Map every one of @inputs to @output in the current preset, keep
  * the L2/R2 assignments consistent and save the config. Inputs out of range are skipped. For
  * touch zones use the zone functions below, which keep the stream equal to what the page shows.

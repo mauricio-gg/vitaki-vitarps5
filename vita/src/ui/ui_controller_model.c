@@ -106,15 +106,6 @@ VitakiCtrlOut ui_controller_model_output(VitakiCtrlIn input) {
   return controller_map_get_output_for_input(&s_preview, input);
 }
 
-int ui_controller_model_common_output(const VitakiCtrlIn *inputs, int count) {
-  if (!inputs || count <= 0 || count > VITAKI_CTRL_IN_COUNT)
-    return UI_CTRL_MIXED;
-  int outputs[VITAKI_CTRL_IN_COUNT];
-  for (int i = 0; i < count; i++)
-    outputs[i] = (int)ui_controller_model_output(inputs[i]);
-  return ui_controller_common_output(outputs, count);
-}
-
 /** The stored map of the current preset's slot. */
 static ControllerMapStorage *current_map(void) {
   return &context.config.custom_maps[current_slot()];
