@@ -198,6 +198,19 @@ target_include_directories(ui_downsample_tests PRIVATE
 
 add_test(NAME vitarps5_ui_downsample_tests COMMAND ui_downsample_tests)
 
+# ui_stream_stats_tests.c checks the Latency and FPS value rules of the stream stats panel.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_stream_stats_tests
+    ui_stream_stats_tests.c
+    ../vita/src/ui/ui_stream_stats.c
+)
+
+target_include_directories(ui_stream_stats_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_stream_stats_tests COMMAND ui_stream_stats_tests)
+
 # ui_login_tests.c has its own main() and tests the phone login helpers (QR module size, keyboard
 # text conversion). Cross-compiled but never run by ./tools/build.sh test; the native command is at
 # the top of the file.
