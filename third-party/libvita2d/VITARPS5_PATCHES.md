@@ -141,9 +141,9 @@ no longer changes how it looks, it only bakes its glyphs on first use
 (a one-off hitch in a frame instead of on the splash). The cost of a new
 size is real, though: it adds a full charset of 2x bitmaps to that
 weight's atlas (about 100 glyphs; roughly 2% of 1024 x 1024 at size 14
-and 18% at size 40, since the area grows with the square of the size). Add new sizes to `ui_text.c`'s face table so
-they are baked during the splash, and check the atlas still fits
-(Light is at 31.6%).
+and 18% at size 40, since the area grows with the square of the size).
+Add new sizes to `ui_text.c`'s face table so they are baked during the
+splash, and check the atlas still fits (Light is at 31.6%).
 
 ---
 
@@ -153,18 +153,10 @@ they are baked during the splash, and check the atlas still fits
 |----------|--------|-------|
 | Atlas texture | 512x512 R8 = 256 KB | 1024x1024 R8 = 1 MB per font (Regular and Light: 2 MB), unchanged by the size key |
 | Largest glyph | 40 px tall | 80 px tall |
-| Prewarm work | baseline | 588 glyphs rasterised (Regular 297, Light 291) against 194 with the index-only key, about 3.2 times the FreeType work in a native run, spent once during the splash |
+| Prewarm work | baseline | 588 glyphs rasterised (Regular 297, Light 291) against 194 with the index-only key, about 3 times the FreeType work in a native run, spent once during the splash |
 
 2 MB on a 256 MB-of-RAM Vita is acceptable. Prewarm runs once during
 the splash phase; Home starts after it ends.
-
-----------|--------|-------|
-| Atlas texture | 512×512 R8 = 256 KB | 1024×1024 R8 = 1 MB |
-| Largest glyph | 40 px tall | 80 px tall |
-| Prewarm time | baseline | ~4× FreeType raster work, one-time at startup |
-
-1 MB on a 256 MB-of-RAM Vita is acceptable. Prewarm runs once during
-the splash phase, well before the user sees the first frame.
 
 ---
 

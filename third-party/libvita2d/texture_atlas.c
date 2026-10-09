@@ -47,10 +47,11 @@
  * VitaRPS5 patch: both filters set to LINEAR. The active patch in
  * vita2d_font.c renders every glyph at 2x its display size (the cache is
  * keyed by size, so each size has its own bake), so draw_scale = 0.5 at
- * draw time and the sampler is doing 2:1 minification. LINEAR min then averages 4 source texels per output
- * pixel — proper antialiasing — and the texel-edge UV problem that
- * made LINEAR fail at 1:1 mapping does not apply because the sample
- * point lands halfway between source texels by construction.
+ * draw time and the sampler is doing 2:1 minification. LINEAR min then
+ * averages 4 source texels per output pixel — proper antialiasing — and
+ * the texel-edge UV problem that made LINEAR fail at 1:1 mapping does not
+ * apply because the sample point lands halfway between source texels by
+ * construction.
  *
  * VitaRPS5 patch: the packer's root rectangle starts at (ATLAS_GLYPH_GAP,
  * ATLAS_GLYPH_GAP), so the top and left atlas edges are always zero
