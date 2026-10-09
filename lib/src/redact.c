@@ -12,12 +12,19 @@
 /** Longest header name looked at; anything longer is not one of ours. */
 #define REDACT_HEADER_NAME_MAX 64
 
-/** JSON keys and form or query parameter names whose value is a credential (case-insensitive). */
-static const char *const redact_keys[] = {
-	"access_token", "refresh_token", "id_token", "code", "client_secret", "npsso",
-	"accessToken", "refreshToken", "idToken", "clientSecret", "authCode", "skey"
+/**
+ * Fail-safe name rule: a header, JSON key or form/query parameter whose name contains any of
+ * these words (case-insensitive) holds a credential. New credential names are covered without
+ * having to be listed.
+ */
+static const char *const redact_name_words[] = {
+	"token", "key", "auth", "secret", "credential", "cookie"
 };
-#define REDACT_KEY_COUNT (sizeof(redact_keys) / sizeof(redact_keys[0]))
+#define REDACT_NAME_WORD_COUNT (sizeof(redact_name_words) / sizeof(redact_name_words[0]))
+
+/** Credential names that contain none of the words above (case-insensitive, whole name). */
+static const char *const redact_extra_names[] = { "code", "npsso" };
+#define REDACT_EXTRA_NAME_COUNT (sizeof(redact_extra_names) / sizeof(redact_extra_names[0]))
 
 /** Bounded output cursor; always leaves room for the closing NUL. */
 typedef struct
@@ -56,10 +63,36 @@ static bool name_equals_ci(const char *s, size_t n, const char *lit)
 	return true;
 }
 
-static bool name_ends_with_ci(const char *s, size_t n, const char *lit)
+static bool name_contains_ci(const char *s, size_t n, const char *word)
 {
-	size_t ln = strlen(lit);
-	return n >= ln && name_equals_ci(s + (n - ln), ln, lit);
+	size_t wl = strlen(word);
+	for(size_t i = 0; i + wl <= n; i++)
+		if(name_equals_ci(s + i, wl, word))
+			return true;
+	return false;
+}
+
+/** Does the name contain one of the redact_name_words? */
+static bool name_has_secret_word(const char *name, size_t n)
+{
+	for(size_t j = 0; j < REDACT_NAME_WORD_COUNT; j++)
+		if(name_contains_ci(name, n, redact_name_words[j]))
+			return true;
+	return false;
+}
+
+/** Is name the name of a JSON key or form parameter whose value is a credential? */
+static bool is_secret_name(const char *name, size_t n)
+{
+	for(size_t j = 0; j < REDACT_EXTRA_NAME_COUNT; j++)
+		if(name_equals_ci(name, n, redact_extra_names[j]))
+			return true;
+	return name_has_secret_word(name, n);
+}
+
+static bool is_param_name_char(char c)
+{
+	return isalnum((unsigned char)c) || c == '_' || c == '-';
 }
 
 /** How the value of a secret header is laid out. */
@@ -71,28 +104,25 @@ typedef enum
 	HEADER_VALUE_COOKIE_LIST // "<name>=<credential>; <name>=<credential>", every pair is one
 } HeaderValueKind;
 
-/** Is name the name of a header whose value is a credential? */
+/**
+ * Is name the name of a header whose value is a credential? Only plain header names qualify,
+ * so a pretty-printed JSON line such as `"skey" : "..."` is left to match_json().
+ */
 static bool is_secret_header(const char *name, size_t n, HeaderValueKind *kind)
 {
 	*kind = HEADER_VALUE_PLAIN;
+	if(n == 0)
+		return false;
+	for(size_t i = 0; i < n; i++)
+		if(!is_param_name_char(name[i]))
+			return false;
 	if(name_equals_ci(name, n, "authorization"))
-	{
 		*kind = HEADER_VALUE_SCHEME;
-		return true;
-	}
-	if(name_equals_ci(name, n, "cookie"))
-	{
+	else if(name_equals_ci(name, n, "cookie"))
 		*kind = HEADER_VALUE_COOKIE_LIST;
-		return true;
-	}
-	if(name_equals_ci(name, n, "set-cookie"))
-	{
+	else if(name_equals_ci(name, n, "set-cookie"))
 		*kind = HEADER_VALUE_COOKIE;
-		return true;
-	}
-	return name_equals_ci(name, n, "rp-key") || name_equals_ci(name, n, "rp-auth") ||
-		name_equals_ci(name, n, "user-credential") || name_ends_with_ci(name, n, "registkey") ||
-		name_ends_with_ci(name, n, "-token");
+	return name_has_secret_word(name, n);
 }
 
 /**
@@ -170,26 +200,33 @@ static bool match_cookie_pair(const char *in, size_t len, size_t i, size_t *pref
 	return true;
 }
 
+/** Is in[i] the start of an escaped quote, a backslash followed by a quote? */
+static bool is_escaped_quote(const char *in, size_t len, size_t i)
+{
+	return i + 1 < len && in[i] == '\\' && in[i + 1] == '"';
+}
+
 /**
- * Match `"key" : "value"` at the opening quote in[i], for a secret key and a string value.
+ * Match `"key" : "value"` at the opening quote in[i], for a secret key and a string value. The
+ * same shape with every quote written as backslash-quote (JSON nested inside a JSON string, as in
+ * the holepunch session message) is matched too.
  *
  * @param[out] prefix_len Bytes up to and including the value's opening quote
  * @param[out] secret_len Bytes of the value, up to its closing quote or the end of input
  */
 static bool match_json(const char *in, size_t len, size_t i, size_t *prefix_len, size_t *secret_len)
 {
-	size_t k = i + 1;
-	while(k < len && in[k] != '"' && in[k] != '\n')
+	bool escaped = in[i] == '\\';
+	size_t quote_len = escaped ? 2 : 1;
+	if(escaped && !is_escaped_quote(in, len, i))
+		return false;
+	size_t key_start = i + quote_len;
+	size_t k = key_start;
+	while(k < len && in[k] != '\n' && !(escaped ? is_escaped_quote(in, len, k) : in[k] == '"'))
 		k++;
-	if(k >= len || in[k] != '"')
+	if(k >= len || in[k] == '\n' || !is_secret_name(in + key_start, k - key_start))
 		return false;
-	bool is_key = false;
-	for(size_t j = 0; j < REDACT_KEY_COUNT; j++)
-		if(name_equals_ci(in + i + 1, k - i - 1, redact_keys[j]))
-			is_key = true;
-	if(!is_key)
-		return false;
-	size_t p = k + 1;
+	size_t p = k + quote_len;
 	while(p < len && (in[p] == ' ' || in[p] == '\t'))
 		p++;
 	if(p >= len || in[p] != ':')
@@ -197,11 +234,13 @@ static bool match_json(const char *in, size_t len, size_t i, size_t *prefix_len,
 	p++;
 	while(p < len && (in[p] == ' ' || in[p] == '\t' || in[p] == '\r' || in[p] == '\n'))
 		p++;
-	if(p >= len || in[p] != '"')
+	if(escaped ? !is_escaped_quote(in, len, p) : (p >= len || in[p] != '"'))
 		return false;
-	p++;
+	p += quote_len;
 	size_t end = p;
-	while(end < len && in[end] != '"')
+	// Skip escaped characters (json-c writes "/" as "\/"); an unescaped value ends at a quote,
+	// a nested one at a backslash-quote.
+	while(end < len && !(escaped ? is_escaped_quote(in, len, end) : in[end] == '"'))
 		end += (in[end] == '\\' && end + 1 < len) ? 2 : 1;
 	if(end > len)
 		end = len;
@@ -210,13 +249,8 @@ static bool match_json(const char *in, size_t len, size_t i, size_t *prefix_len,
 	return true;
 }
 
-static bool is_param_name_char(char c)
-{
-	return isalnum((unsigned char)c) || c == '_' || c == '-';
-}
-
 /**
- * Match `key=value` at in[i] where key starts at a parameter boundary.
+ * Match `key=value` at in[i], where key is a whole parameter name (so `error_code=` is not `code=`).
  *
  * @param[out] prefix_len Bytes of `key=`
  * @param[out] secret_len Bytes of the value, up to &, blank, quote or the end of input
@@ -225,20 +259,18 @@ static bool match_param(const char *in, size_t len, size_t i, size_t *prefix_len
 {
 	if(i > 0 && is_param_name_char(in[i - 1]))
 		return false;
-	for(size_t j = 0; j < REDACT_KEY_COUNT; j++)
-	{
-		size_t kl = strlen(redact_keys[j]);
-		if(i + kl >= len || !name_equals_ci(in + i, kl, redact_keys[j]) || in[i + kl] != '=')
-			continue;
-		size_t p = i + kl + 1;
-		size_t end = p;
-		while(end < len && in[end] != '&' && in[end] != '"' && in[end] != '\'' && !isspace((unsigned char)in[end]))
-			end++;
-		*prefix_len = p - i;
-		*secret_len = end - p;
-		return true;
-	}
-	return false;
+	size_t name_end = i;
+	while(name_end < len && is_param_name_char(in[name_end]))
+		name_end++;
+	if(name_end == i || name_end >= len || in[name_end] != '=' || !is_secret_name(in + i, name_end - i))
+		return false;
+	size_t p = name_end + 1;
+	size_t end = p;
+	while(end < len && in[end] != '&' && in[end] != '"' && in[end] != '\'' && !isspace((unsigned char)in[end]))
+		end++;
+	*prefix_len = p - i;
+	*secret_len = end - p;
+	return true;
 }
 
 CHIAKI_EXPORT size_t chiaki_redact_secrets(const char *in, size_t in_size, char *out, size_t out_size)
@@ -256,7 +288,7 @@ CHIAKI_EXPORT size_t chiaki_redact_secrets(const char *in, size_t in_size, char 
 		bool cookie_pair = cookie_line && i > 0 && (in[i - 1] == ';' || (in[i - 1] == ' ' && i > 1 && in[i - 2] == ';'));
 		bool matched = (cookie_pair && match_cookie_pair(in, in_size, i, &prefix_len, &secret_len))
 			|| (line_start && match_header(in, in_size, i, &prefix_len, &secret_len, &cookie_line))
-			|| (in[i] == '"' && match_json(in, in_size, i, &prefix_len, &secret_len))
+			|| ((in[i] == '"' || in[i] == '\\') && match_json(in, in_size, i, &prefix_len, &secret_len))
 			|| match_param(in, in_size, i, &prefix_len, &secret_len);
 		if(matched)
 		{
