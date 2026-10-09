@@ -39,7 +39,7 @@ typedef struct ui_zone_selection_t {
  * @diagram_w: Drawn width of the diagram image (its height follows the art's aspect ratio).
  *
  * The grid rect is a fixed rectangle in the source art (front 526 x 298 at +178/+30 of 874 px,
- * rear 444 x 188 at +139/+45 of 720 px), scaled by diagram_w / source width and rounded.
+ * rear 444 x 188 at +137/+45 of 720 px), scaled by diagram_w / source width and rounded.
  */
 UiRect ui_zone_grid_rect_from_diagram(UiZoneSide side, int diagram_x, int diagram_y, int diagram_w);
 
