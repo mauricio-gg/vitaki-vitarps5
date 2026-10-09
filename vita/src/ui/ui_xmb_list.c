@@ -257,7 +257,7 @@ static UiEvent follow_swipe(UiXmbList *list, const UiTouch *touch) {
     list->swipe_base = list->focus;
   }
   const int target =
-      clamp_focus(list, list->swipe_base + ui_gesture_swipe_steps(-touch->dy, UI_LIST_ROW_H));
+      clamp_focus(list, list->swipe_base + ui_gesture_swipe_steps(-touch->dy, UI_LIST_SWIPE_PX));
   if (target == list->focus)
     return UI_EVENT_NONE;
   slide_focus_to(list, target);
