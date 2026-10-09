@@ -579,14 +579,14 @@ Touch: tap the preset chevrons or the label; tap a callout; tap the diagram to e
 ---
 
 ### 3.9 Splash (`splash.html`, issue #366) - approved by the CEO 2026-10-09
-Build: in progress on feature/366-splash (#366)
+Built in #366 (`ui_splash.c`); awaiting the CEO's check on hardware.
 
 Black screen, the VitaRPS5 logo big and centred, rebuilt from particles that fly in from around the screen, dim at first and brighter as they arrive. Fills the about 2.4 s of load before Home. Preview: `splash.html` (replay on click, scrub, Home fade toggle).
 
 | Item | Spec |
 |---|---|
 | Logo art | `Vita_RPS5_Logo.png` (688x297, the same file the app ships at `vita/assets/Vita_RPS5_Logo.png` and draws in the TopBar C23), drawn at 640x276, centred (x 160, y 134). Background pure black (#000000), no wave, no top bar, no hints. |
-| Particles | **973** in the mock (budget 800 to 1500). Sampled once at splash start from the logo rendered at display size: one random pick per 9x9 px cell, among pixels with alpha > 200 and red > 200 (so the thin dark outline is skipped), and only for cells where more than 35% of the pixels qualify. Fixed seed 366 (the mock's LCG) so every launch is identical. Each particle is a solid white square, 2 px (55%) or 3 px (45%), whole-pixel positions. |
+| Particles | **980** in the build, sampled from the shipped logo with nearest-neighbour sampling (the mock gives 973 with the browser's smoothing; budget 800 to 1500). Sampled once at splash start from the logo rendered at display size: one random pick per 9x9 px cell, among pixels with alpha > 200 and red > 200 (so the thin dark outline is skipped), and only for cells where more than 35% of the pixels qualify. Fixed seed 366 (the mock's LCG) so every launch is identical. Each particle is a solid white square, 2 px (55%) or 3 px (45%), whole-pixel positions. |
 | Start points | A random side of the four, from 10 px inside to 60 px beyond the screen border. |
 | Motion | Time-based. Stagger delay 0 to 0.30 s (random), then a 0.60 s flight with `easeOutCubic`, so the last particle lands at 0.90 s. A sideways bow of up to 70 px either way that dies to 0 on arrival (`4k(1-k)*curve`, curve in -70..70). |
 | Brightness | Alpha rises from 0.12 to 1.0 with the particle's eased progress. |
@@ -597,6 +597,7 @@ Black screen, the VitaRPS5 logo big and centred, rebuilt from particles that fly
 | Hold | The logo stays until loading is done. **About 2.4 s today** (log 19445058006). If loading ends sooner, the animation still plays to 1.0 s and never cuts off. |
 | Exit | 0.3 s fade: splash opacity 1 to 0 over Home. |
 | Skip | Any button or a tap jumps to the 1.0 s state. It never skips loading. |
+| Draws | 3 per frame: black rectangle, logo, and all particles batched in one triangle list. |
 | Frames during load | The splash is drawn from right after graphics init, with one frame between loading steps. Time-based, so a slow step only drops frames. Particle arrays are allocated once at splash start and freed at the end. |
 
 ## 4. Input model
