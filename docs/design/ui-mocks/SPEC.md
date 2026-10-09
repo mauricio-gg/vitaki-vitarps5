@@ -578,6 +578,23 @@ Touch: tap the preset chevrons or the label; tap a callout; tap the diagram to e
 
 ---
 
+### 3.9 Splash (`splash.html`, issue #366) - mock, awaiting CEO approval
+Not built. Black screen, the VitaRPS5 logo big and centred, rebuilt from particles that fly in from around the screen, dim at first and brighter as they arrive. Fills the about 2.4 s of load before Home. Preview: `splash.html` (replay on click, scrub, Home fade toggle).
+
+| Item | Spec |
+|---|---|
+| Logo art | `Vita_RPS5_Logo.png` (688x297, white "V / VITA RPS5" with a thin dark outline; the same mark as the TopBar C23), drawn at 640x276, centred (x 160, y 134). Background pure black (#000000), no wave, no top bar, no hints. |
+| Particles | **About 970** (973 in the mock; budget 800 to 1500). Sampled once at splash start: one jittered pick per 9x9 px cell of the logo, from bright opaque pixels only (the dark outline is skipped). Each is one solid white square quad, 2 px (55%) or 3 px (45%), whole-pixel positions, alpha only. No blur, no per-particle texture. One draw each, so about 970 draws plus 1 for the logo. |
+| Start points | Random on or up to 60 px beyond the screen border (all four sides), fixed seed so the build is the same every launch. |
+| Motion | Time-based, never frame-count based. Each particle waits a stagger delay (0 to 0.35 s, random), then flies 0.65 s to its logo pixel with `easeOutCubic` (fast in, soft landing), on a slight sideways bow (up to 70 px, dying to 0 on arrival). The assembly ends at 1.0 s. |
+| Brightness | Alpha rises from 0.12 to 1.0 with the particle's own flight progress. |
+| Resolve | 1.0 to 1.3 s: the crisp logo texture fades in (0 to 1) while the particles fade out (1 to 0). |
+| Hold | Crisp logo from 1.3 s until loading is done. **2.4 s in total today** (log 19445058006: first UI frame at 2.66 s, first log line at 0.31 s). If loading takes longer, the logo just holds; if it ends sooner, the animation still plays to 1.3 s and never cuts off. |
+| Exit | Short fade, 0.3 s: splash opacity 1 to 0 over Home (mock: 2.4 to 2.7 s). Optional; if the CEO prefers, a hard cut. |
+| Skip | Any button or a tap jumps to the resolved logo (1.3 s state). It skips the animation only and never skips past loading. |
+| Glow (optional) | A 14 px soft dot drawn additive behind each landed particle at 25% alpha. Doubles the draws, so off by default; add only if the plain version looks flat on the Vita. |
+| Frames during load | The splash must be drawn while prewarm runs (ticket #366: draw one frame between prewarm steps, time-based so a slow step only drops frames). Particle arrays are allocated once at splash start and freed at the end. |
+
 ## 4. Input model
 
 Physical Vita buttons are mapped to logical actions once, at the top of the frame.
