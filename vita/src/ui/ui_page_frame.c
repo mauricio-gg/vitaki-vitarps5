@@ -11,6 +11,7 @@
 
 #include "context.h"
 #include "ui/ui_constants.h"
+#include "ui/ui_chevron.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -25,6 +26,8 @@ static const char *const PAGE_ICON_FILES[UI_PAGE_ICON_COUNT] = {
 };
 
 static vita2d_texture *s_icons[UI_PAGE_ICON_COUNT];
+static vita2d_texture *s_back_icon;
+static const UiRect BACK_HIT = {0, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
 
 void ui_page_frame_init(void) {
   char path[PAGE_ICON_PATH_MAX];
@@ -32,6 +35,7 @@ void ui_page_frame_init(void) {
     snprintf(path, sizeof(path), "app0:/assets/icons/page_%s.png", PAGE_ICON_FILES[i]);
     s_icons[i] = ui_load_png_linear(path);
   }
+  s_back_icon = ui_chevron_bake(UI_CHEVRON_LEFT, UI_PAGE_BACK_ART, UI_PAGE_BACK_STROKE);
 }
 
 vita2d_texture *ui_page_frame_icon(UiPageIcon icon) {
@@ -51,4 +55,15 @@ void ui_page_frame_draw(UiPageIcon icon, const char *title) {
                                title);
   vita2d_draw_rectangle((float)UI_MARGIN_X, (float)UI_RULE_Y,
                         (float)(UI_CONTENT_RIGHT - UI_MARGIN_X), (float)UI_LW1, UI_LINE);
+}
+
+void ui_page_frame_back_draw(void) {
+  if (!s_back_icon)
+    return;
+  vita2d_draw_texture_tint(s_back_icon, (float)(BACK_HIT.x + (BACK_HIT.w - UI_PAGE_BACK_ART) / 2),
+                           (float)(BACK_HIT.y + (BACK_HIT.h - UI_PAGE_BACK_ART) / 2), UI_TEXT_2);
+}
+
+bool ui_page_frame_back_tapped(const UiInput *in) {
+  return in && ui_touch_tap(in) && ui_rect_contains(BACK_HIT, in->touch.x, in->touch.y);
 }

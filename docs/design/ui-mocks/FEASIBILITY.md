@@ -62,6 +62,32 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 
 **As built (#305), draw counts per frame:** Controller Summary page 1 draws 56, page 2 draws 44 to 80 (by how many zones are mapped) and a zone view draws 79. Page 1 and the zone view are over the paper budgets above (49 and 70) by the touch controls of SPEC 4.1 (the back chevron, the small Clear and Whole surface buttons) and, in the zone view, because the grid is a baked grid-lines texture plus a baked state texture per mapped, cursor or picked cell instead of one baked grid. All stay at or under the ~80 call budget of Home.
 
+**As built (#307), touch parity.** The shared back chevron adds 1 draw to Settings and Profile (Controller already counted it). The swipes and the long-press add no draws. This ticket added no instrumentation: the testing build's `UI/DRAWS` line is how each screen is measured on hardware, and the last column below is filled in from it. Phone login + toast (87) is the only screen over the ~80 budget on paper. The as-built paper counts from #300 to #306:
+
+| Screen | FEASIBILITY paper | As built paper | Measured on hardware |
+|---|---|---|---|
+| Home Consoles | 67 | 66 | |
+| Home + Options | 75 | about 79 | |
+| Settings Video worst | 62 | about 69-71 (68-70 + chevron) | |
+| Profile Account | 55 | 49 (48 + chevron) | |
+| Profile Account + toast | - | 59 | |
+| Profile Connection | 55 | about 58 | |
+| Profile PSN | - | 49-52 | |
+| Profile phone login | - | 79 | |
+| Profile phone login + toast | - | 87 | |
+| Controller summary | 49 | 56 (page 2: 44-80) | |
+| Controller zone view | 70 | 79 | |
+| PIN | 62 | 61-63 | |
+| Connecting local | 44 | 44 | |
+| Connecting standby | 46 | 46 | |
+| Connecting Internet | 54 (the earlier figure was 51) | 54 | |
+| Reconnecting | 27 | 27 | |
+| Re-pair popup | about 36 | 36 | |
+| Results popup | about 36 | 32-40 | |
+| Connect via popup | about 36 | 39 | |
+| Change icon popup | about 36 | 45 | |
+| Stream overlay | 26 | 28 (38 in testing builds) | |
+
 Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.
 
 ## 5. Texture budget (paper)

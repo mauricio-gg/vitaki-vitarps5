@@ -14,6 +14,8 @@
 
 #include <vita2d.h>
 
+#include "ui/ui_gesture.h"
+
 /* ============================================================================
  * Colour (SPEC 1.1). Every colour is a vita2d ABGR value with alpha baked in.
  * ============================================================================ */
@@ -164,8 +166,8 @@ typedef enum ui_face_t {
 #define UI_REPEAT_DELAY_MS 400
 #define UI_REPEAT_INTERVAL_MS 100
 
-/* Touch: a finger that moves further than this from touch-down is never also a tap. */
-#define UI_TOUCH_DRAG_PX 8
+/* Touch thresholds (UI_TOUCH_DRAG_PX, UI_LONG_PRESS_MS) live in ui_gesture.h, which has no SDK
+ * dependency so the gesture rules can be tested natively. */
 
 /* ============================================================================
  * C27 Background (ui_background.c). Constants are the formulas of paintRibbons in
@@ -299,6 +301,7 @@ typedef enum ui_face_t {
 #define UI_CAT_STRIP_Y 64
 #define UI_CAT_STRIP_H 112
 #define UI_CAT_HIT 64
+#define UI_CAT_SWIPE_PX 56 /* horizontal swipe distance per category step (SPEC C01) */
 
 /* ============================================================================
  * C02 XmbList
@@ -547,6 +550,10 @@ typedef enum ui_face_t {
 #define UI_PAGE_ICON 32
 #define UI_PAGE_TITLE_X 96
 #define UI_PAGE_TITLE_H 48
+/** The back chevron at the left of the title row (Settings, Profile, Controller): a UI_TAP_MIN box
+ * at x 0 holding the art. */
+#define UI_PAGE_BACK_ART 24
+#define UI_PAGE_BACK_STROKE 2.0f
 
 /* Page body: the group list on the left, the setting pane on the right, a description line under
  * both (SPEC C07). The pane shows UI_PAGE_PANE_ROWS rows of UI_ROW_H. */
@@ -823,10 +830,6 @@ typedef enum ui_face_t {
 #define UI_CTRL_FRONT_Y 176
 #define UI_CTRL_FRONT_W 630
 #define UI_CTRL_FRONT_H 286
-
-/** The back chevron at the left of the title row: a UI_TAP_MIN box at x 0 holding the art. */
-#define UI_CTRL_BACK_ART 24
-#define UI_CTRL_BACK_STROKE 2.0f
 
 /** The preset switcher in the title row's right slot: chevron box, label box, chevron box, with
  * UI_CTRL_PRESET_GAP between them, ending at UI_CONTENT_RIGHT. The label is centred in its box. */

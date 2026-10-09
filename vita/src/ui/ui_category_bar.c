@@ -6,6 +6,7 @@
 #include "ui/ui_category_bar.h"
 
 #include "ui/ui_animation.h"
+#include "ui/ui_gesture.h"
 #include "ui/ui_motion.h"
 #include "ui/ui_text.h"
 
@@ -54,6 +55,8 @@ void ui_category_bar_init(UiCategoryBar *bar, vita2d_texture *const icons[UI_CAT
   }
   bar->focus = 0;
   bar->slide_start_us = 0;
+  bar->swipe_active = false;
+  bar->swipe_base = 0;
   layout_rects(bar);
 }
 
@@ -127,18 +130,43 @@ void ui_category_bar_draw(const UiCategoryBar *bar) {
   }
 }
 
-UiEvent ui_category_bar_input(UiCategoryBar *bar, const UiInput *in) {
-  int target = bar->focus;
+/**
+ * swipe_target() - Category a horizontal swipe on the strip points at: the focus at touch-down
+ * plus whole steps of finger travel (swipe left = next), clamped. Returns the current focus when
+ * no swipe is under way.
+ */
+static int swipe_target(UiCategoryBar *bar, const UiTouch *touch) {
+  if (touch->pressed) {
+    bar->swipe_active =
+        touch->y >= (float)UI_CAT_STRIP_Y && touch->y < (float)(UI_CAT_STRIP_Y + UI_CAT_STRIP_H);
+    bar->swipe_base = bar->focus;
+  }
+  if (!bar->swipe_active)
+    return bar->focus;
+  if (!touch->down) {
+    bar->swipe_active = false;
+    return bar->focus;
+  }
+  if (!touch->dragged)
+    return bar->focus;
+  const int target = bar->swipe_base + ui_gesture_swipe_steps(-touch->dx, UI_CAT_SWIPE_PX);
+  return target < 0 ? 0 : (target >= UI_CAT_COUNT ? UI_CAT_COUNT - 1 : target);
+}
 
-  if ((in->pressed & UI_BTN_L) || (in->repeat & UI_BTN_LEFT))
-    target--;
-  else if ((in->pressed & UI_BTN_R) || (in->repeat & UI_BTN_RIGHT))
-    target++;
-  else if (ui_touch_tap(in)) {
-    for (int i = 0; i < UI_CAT_COUNT; i++) {
-      if (ui_rect_contains(bar->hit[i], in->touch.x, in->touch.y)) {
-        target = i;
-        break;
+UiEvent ui_category_bar_input(UiCategoryBar *bar, const UiInput *in) {
+  int target = swipe_target(bar, &in->touch);
+
+  if (target == bar->focus) {
+    if ((in->pressed & UI_BTN_L) || (in->repeat & UI_BTN_LEFT)) {
+      target--;
+    } else if ((in->pressed & UI_BTN_R) || (in->repeat & UI_BTN_RIGHT)) {
+      target++;
+    } else if (ui_touch_tap(in)) {
+      for (int i = 0; i < UI_CAT_COUNT; i++) {
+        if (ui_rect_contains(bar->hit[i], in->touch.x, in->touch.y)) {
+          target = i;
+          break;
+        }
       }
     }
   }
