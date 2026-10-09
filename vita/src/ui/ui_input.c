@@ -141,7 +141,8 @@ typedef struct {
 /** Touch-snapshot state carried between frames. */
 static bool snap_touch_active = false;  ///< last frame's unblocked touch-down state
 static bool snap_touch_dragged = false;
-static bool snap_touch_long_pressed = false;  ///< a long-press already fired in this touch
+static bool snap_touch_long_press_fired = false;  ///< the long-press already fired in this touch
+static bool snap_touch_consumed = false;          ///< a screen acted on this touch
 static uint64_t snap_touch_down_us = 0;
 static float snap_touch_start_x = 0.0f;
 static float snap_touch_start_y = 0.0f;
@@ -217,7 +218,8 @@ static void snapshot_touch(UiInput *out, bool suppressed, uint64_t now_us) {
     snap_touch_start_x = snap_touch_x;
     snap_touch_start_y = snap_touch_y;
     snap_touch_dragged = false;
-    snap_touch_long_pressed = false;
+    snap_touch_long_press_fired = false;
+    snap_touch_consumed = false;
     snap_touch_down_us = now_us;
   }
   t->x = snap_touch_x;
@@ -233,24 +235,29 @@ static void snapshot_touch(UiInput *out, bool suppressed, uint64_t now_us) {
         .dx = t->dx,
         .dy = t->dy,
         .swiped = snap_touch_dragged,
-        .long_pressed = snap_touch_long_pressed,
+        .long_press_fired = snap_touch_long_press_fired,
+        .consumed = snap_touch_consumed,
     };
     const UiGestureKind kind = ui_gesture_classify(&gesture);
     if (kind == UI_GESTURE_SWIPE)
       snap_touch_dragged = true;
     if (kind == UI_GESTURE_LONG_PRESS) {
-      snap_touch_long_pressed = true;
+      snap_touch_long_press_fired = true;
       t->long_press = true;
     }
   }
   t->dragged = (active || t->released) && snap_touch_dragged;
-  t->long_pressed = (active || t->released) && snap_touch_long_pressed;
+  t->consumed = (active || t->released) && snap_touch_consumed;
 
   /* A touch that becomes blocked mid-way is swallowed: it neither taps nor releases. */
   snap_touch_active = active;
 }
 
 static UiInput frame_snapshot;
+
+void ui_input_consume_touch(void) {
+  snap_touch_consumed = true;
+}
 
 void ui_input_update_snapshot(void) {
   UiInput *out = &frame_snapshot;

@@ -19,17 +19,29 @@ static void test_quick_still_touch_is_a_tap(void) {
   assert(ui_gesture_classify(&t) == UI_GESTURE_TAP);
 }
 
-/* catches: the long-press never fires, fires on every frame of the hold, or the release after it
- * still counts as a tap (which would connect to the console the user only wanted Options for). */
-static void test_hold_fires_long_press_once_and_release_is_not_a_tap(void) {
+/* catches: the long-press never fires, or fires again on every frame of the hold. */
+static void test_hold_fires_long_press_once(void) {
   UiGestureTouch t = {.held_ms = UI_LONG_PRESS_MS};
   assert(ui_gesture_classify(&t) == UI_GESTURE_LONG_PRESS);
 
-  t.long_pressed = true;
+  t.long_press_fired = true;
   t.held_ms = UI_LONG_PRESS_MS + 16;
   assert(ui_gesture_classify(&t) == UI_GESTURE_NONE);
+}
 
-  t.released = true;
+/* catches: a slow, deliberate press nobody used as a long-press is silently ignored on release,
+ * on every screen where a long-press means nothing (Settings toggle, PIN key, popup button). */
+static void test_unconsumed_long_hold_release_is_still_a_tap(void) {
+  UiGestureTouch t = {
+      .released = true, .held_ms = 600, .long_press_fired = true, .consumed = false};
+  assert(ui_gesture_classify(&t) == UI_GESTURE_TAP);
+}
+
+/* catches: after a long-press opened Options, lifting the finger still taps, so the row connects
+ * to the console or the Options column closes the moment the finger is released. */
+static void test_consumed_touch_release_is_not_a_tap(void) {
+  UiGestureTouch t = {
+      .released = true, .held_ms = 600, .long_press_fired = true, .consumed = true};
   assert(ui_gesture_classify(&t) == UI_GESTURE_NONE);
 }
 
@@ -70,7 +82,9 @@ static void test_swipe_steps_truncate_toward_zero(void) {
 
 int main(void) {
   test_quick_still_touch_is_a_tap();
-  test_hold_fires_long_press_once_and_release_is_not_a_tap();
+  test_hold_fires_long_press_once();
+  test_unconsumed_long_hold_release_is_still_a_tap();
+  test_consumed_touch_release_is_not_a_tap();
   test_just_under_threshold_is_not_a_long_press();
   test_nine_px_move_is_a_swipe_never_a_tap_or_long_press();
   test_eight_px_move_is_still_a_tap();

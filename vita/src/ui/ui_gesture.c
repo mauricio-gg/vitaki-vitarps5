@@ -12,8 +12,8 @@ UiGestureKind ui_gesture_classify(const UiGestureTouch *touch) {
     return UI_GESTURE_SWIPE;
 
   if (touch->released)
-    return touch->long_pressed ? UI_GESTURE_NONE : UI_GESTURE_TAP;
-  if (!touch->long_pressed && touch->held_ms >= UI_LONG_PRESS_MS)
+    return touch->consumed ? UI_GESTURE_NONE : UI_GESTURE_TAP;
+  if (!touch->long_press_fired && touch->held_ms >= UI_LONG_PRESS_MS)
     return UI_GESTURE_LONG_PRESS;
   return UI_GESTURE_NONE;
 }

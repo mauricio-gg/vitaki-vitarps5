@@ -545,7 +545,8 @@ static UiHomeOptionsTarget options_target(void) {
 
 /**
  * Long-press on a console row focuses it and opens its Options column, the touch path for
- * Triangle. The Filter row and anything that is not a console do nothing.
+ * Triangle. The Filter row and anything that is not a console do nothing. Opening Options
+ * consumes the touch so its release neither closes the column nor activates the row.
  */
 static void update_long_press(const UiInput *in) {
   if (!in->touch.long_press)
@@ -563,6 +564,7 @@ static void update_long_press(const UiInput *in) {
     ui_cards_set_selected_index(focused_console_index());
     const UiHomeOptionsTarget target = options_target();
     ui_home_options_open(&target);
+    ui_input_consume_touch();
     LOGD("Home: long-press opened Options for console row %d", i);
     return;
   }

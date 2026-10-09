@@ -21,8 +21,8 @@
 
 /** What a touch is on a given frame. */
 typedef enum ui_gesture_kind_t {
-  UI_GESTURE_NONE = 0,   /**< still undecided, or already consumed */
-  UI_GESTURE_TAP,        /**< the finger lifted without moving or long-pressing */
+  UI_GESTURE_NONE = 0,   /**< still undecided, or the touch was consumed by a screen */
+  UI_GESTURE_TAP,        /**< the finger lifted without swiping and without being consumed */
   UI_GESTURE_LONG_PRESS, /**< held still for UI_LONG_PRESS_MS; reported on that one frame only */
   UI_GESTURE_SWIPE, /**< moved past UI_TOUCH_DRAG_PX; stays a swipe for the rest of the touch */
 } UiGestureKind;
@@ -33,8 +33,9 @@ typedef struct ui_gesture_touch_t {
   uint32_t held_ms; /**< time since touch-down */
   float dx;         /**< movement since touch-down */
   float dy;
-  bool swiped;       /**< an earlier frame of this touch already became a swipe */
-  bool long_pressed; /**< an earlier frame of this touch already fired a long-press */
+  bool swiped;           /**< an earlier frame of this touch already became a swipe */
+  bool long_press_fired; /**< an earlier frame of this touch already fired its long-press */
+  bool consumed; /**< a screen acted on this touch (e.g. opened Options): no tap on release */
 } UiGestureTouch;
 
 /**
@@ -42,8 +43,9 @@ typedef struct ui_gesture_touch_t {
  * @touch: The touch this frame; NULL gives UI_GESTURE_NONE.
  *
  * Movement strictly over UI_TOUCH_DRAG_PX makes a swipe, and a swipe is never a tap or a
- * long-press. A still finger held UI_LONG_PRESS_MS fires one long-press while it is down; the
- * release after a long-press is nothing, not a tap.
+ * long-press. A still finger held UI_LONG_PRESS_MS fires one long-press while it is down. The
+ * release of any other touch is a tap, however long it was held, unless a screen consumed the
+ * touch (it acted on the long-press), in which case the release is nothing.
  */
 UiGestureKind ui_gesture_classify(const UiGestureTouch *touch);
 

@@ -126,8 +126,8 @@ typedef struct ui_touch_t {
   bool released;   /**< touch-up edge */
   bool dragged;    /**< the finger moved more than UI_TOUCH_DRAG_PX from touch-down; never a tap */
   bool long_press; /**< true only on the frame a still finger reaches UI_LONG_PRESS_MS */
-  bool long_pressed; /**< a long-press fired during this touch; the release is never a tap */
-  float dx;          /**< movement since touch-down */
+  bool consumed;   /**< a screen acted on this touch (ui_input_consume_touch()); never a tap */
+  float dx;        /**< movement since touch-down */
   float dy;
 } UiTouch;
 
@@ -140,9 +140,9 @@ typedef struct ui_input_t {
   UiTouch touch;
 } UiInput;
 
-/** ui_touch_tap() - True on the frame a finger lifts without having dragged or long-pressed. */
+/** ui_touch_tap() - True on the frame a finger lifts without having dragged or been consumed. */
 static inline bool ui_touch_tap(const UiInput *in) {
-  return in->touch.released && !in->touch.dragged && !in->touch.long_pressed;
+  return in->touch.released && !in->touch.dragged && !in->touch.consumed;
 }
 
 /* ============================================================================
