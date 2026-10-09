@@ -67,7 +67,8 @@ typedef enum
 {
 	HEADER_VALUE_PLAIN, // the whole value is the credential
 	HEADER_VALUE_SCHEME, // "<scheme> <credential>", as in Authorization: Bearer ...
-	HEADER_VALUE_COOKIE // "<name>=<credential>..."
+	HEADER_VALUE_COOKIE, // "<name>=<credential>; attributes", only the first pair is a credential
+	HEADER_VALUE_COOKIE_LIST // "<name>=<credential>; <name>=<credential>", every pair is one
 } HeaderValueKind;
 
 /** Is name the name of a header whose value is a credential? */
@@ -79,7 +80,12 @@ static bool is_secret_header(const char *name, size_t n, HeaderValueKind *kind)
 		*kind = HEADER_VALUE_SCHEME;
 		return true;
 	}
-	if(name_equals_ci(name, n, "cookie") || name_equals_ci(name, n, "set-cookie"))
+	if(name_equals_ci(name, n, "cookie"))
+	{
+		*kind = HEADER_VALUE_COOKIE_LIST;
+		return true;
+	}
+	if(name_equals_ci(name, n, "set-cookie"))
 	{
 		*kind = HEADER_VALUE_COOKIE;
 		return true;
@@ -94,8 +100,11 @@ static bool is_secret_header(const char *name, size_t n, HeaderValueKind *kind)
  *
  * @param[out] prefix_len Bytes to copy as they are (name, colon, blanks, scheme word)
  * @param[out] secret_len Bytes of the credential following the prefix
+ * @param[out] cookie_list Set when the line is a Cookie request header, whose later pairs are
+ *             credentials too (see match_cookie_pair())
  */
-static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_len, size_t *secret_len)
+static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_len, size_t *secret_len,
+	bool *cookie_list)
 {
 	size_t p = i;
 	while(p < len && in[p] != ':' && in[p] != '\n' && in[p] != '\r' && p - i <= REDACT_HEADER_NAME_MAX)
@@ -111,13 +120,17 @@ static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_le
 	size_t end = p;
 	while(end < len && in[end] != '\r' && in[end] != '\n')
 		end++;
-	if(kind == HEADER_VALUE_COOKIE)
+	*cookie_list = kind == HEADER_VALUE_COOKIE_LIST;
+	if(kind == HEADER_VALUE_COOKIE || kind == HEADER_VALUE_COOKIE_LIST)
 	{
 		size_t s = p;
-		while(s < end && in[s] != '=')
+		while(s < end && in[s] != '=' && in[s] != ';')
 			s++;
-		if(s < end)
+		if(s < end && in[s] == '=')
 			p = s + 1;
+		const char *semicolon = memchr(in + p, ';', end - p);
+		if(semicolon)
+			end = (size_t)(semicolon - in);
 	}
 	else if(kind == HEADER_VALUE_SCHEME)
 	{
@@ -129,6 +142,29 @@ static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_le
 		if(s < end)
 			p = s;
 	}
+	*prefix_len = p - i;
+	*secret_len = end - p;
+	return true;
+}
+
+/**
+ * Match a later `name=value` pair of a Cookie request header at in[i], the start of the pair
+ * (after "; "). The caller knows the line is a Cookie header.
+ *
+ * @param[out] prefix_len Bytes of `name=`
+ * @param[out] secret_len Bytes of the value, up to ; or the end of the line
+ */
+static bool match_cookie_pair(const char *in, size_t len, size_t i, size_t *prefix_len, size_t *secret_len)
+{
+	size_t p = i;
+	while(p < len && in[p] != '=' && in[p] != ';' && in[p] != '\r' && in[p] != '\n')
+		p++;
+	if(p >= len || in[p] != '=')
+		return false;
+	p++;
+	size_t end = p;
+	while(end < len && in[end] != ';' && in[end] != '\r' && in[end] != '\n')
+		end++;
 	*prefix_len = p - i;
 	*secret_len = end - p;
 	return true;
@@ -211,12 +247,15 @@ CHIAKI_EXPORT size_t chiaki_redact_secrets(const char *in, size_t in_size, char 
 		return 0;
 	RedactOut o = { out, out_size, 0 };
 	size_t i = 0;
+	bool cookie_line = false; // inside a Cookie request header: every pair is a credential
 	while(in && i < in_size)
 	{
 		size_t prefix_len = 0;
 		size_t secret_len = 0;
 		bool line_start = i == 0 || in[i - 1] == '\n';
-		bool matched = (line_start && match_header(in, in_size, i, &prefix_len, &secret_len))
+		bool cookie_pair = cookie_line && i > 0 && (in[i - 1] == ';' || (in[i - 1] == ' ' && i > 1 && in[i - 2] == ';'));
+		bool matched = (cookie_pair && match_cookie_pair(in, in_size, i, &prefix_len, &secret_len))
+			|| (line_start && match_header(in, in_size, i, &prefix_len, &secret_len, &cookie_line))
 			|| (in[i] == '"' && match_json(in, in_size, i, &prefix_len, &secret_len))
 			|| match_param(in, in_size, i, &prefix_len, &secret_len);
 		if(matched)
@@ -227,6 +266,8 @@ CHIAKI_EXPORT size_t chiaki_redact_secrets(const char *in, size_t in_size, char 
 		}
 		else
 		{
+			if(in[i] == '\n')
+				cookie_line = false;
 			out_put(&o, in + i, 1);
 			i++;
 		}

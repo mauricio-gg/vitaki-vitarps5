@@ -10,6 +10,8 @@
 //   cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c lib/src/log.c \
 //      -o /tmp/redact_tests && /tmp/redact_tests
 
+// The checks are plain assert()s; keep them live in Release configs too.
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -136,10 +138,12 @@ static void test_session_request_headers(void)
 
 static void test_cookie_and_token_headers(void)
 {
-	const char *in = "Cookie: sid=abcd1234fake; other=zz\r\nSet-Cookie: npsso=wxyz5678fake; Path=/\r\n"
-		"X-Foo-Token: qrst9012fake\r\nX-Foo-Tokens: visible\r\n";
-	const char *expected = "Cookie: sid=abcd***\r\nSet-Cookie: npsso=wxyz***\r\n"
-		"X-Foo-Token: qrst***\r\nX-Foo-Tokens: visible\r\n";
+	const char *in = "Cookie: sid=abcd1234fake; npsso=wxyz5678fake;other=zzzzzz\r\n"
+		"Set-Cookie: npsso=qrst9012fake; Path=/; Secure\r\n"
+		"X-Foo-Token: uvwx3456fake\r\nX-Foo-Tokens: visible\r\n";
+	const char *expected = "Cookie: sid=abcd***; npsso=wxyz***;other=zzzz***\r\n"
+		"Set-Cookie: npsso=qrst***; Path=/; Secure\r\n"
+		"X-Foo-Token: uvwx***\r\nX-Foo-Tokens: visible\r\n";
 	char out[OUT_SIZE];
 	redact(in, out, sizeof(out));
 	assert(!strcmp(out, expected));
