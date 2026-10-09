@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <chiaki/remote/holepunch.h>
+#include <chiaki/redact.h>
 
 #include "config.h"
 #include "context.h"
@@ -376,6 +377,9 @@ static void log_oauth_transport_probe(const char *url) {
  * generate a support bundle — credentials and tokens will leak.
  */
 #ifdef VITARPS5_DEBUG_OAUTH
+/* Size of the stack buffer that holds a redacted copy of one curl debug chunk. */
+#define OAUTH_CURL_DEBUG_REDACT_BUF_SIZE 2048
+
 static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data, size_t size,
                                void *userp) {
   (void)handle;
@@ -384,15 +388,20 @@ static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data, siz
   if (!data || size == 0)
     return 0;
 
+  char redacted[OAUTH_CURL_DEBUG_REDACT_BUF_SIZE];
+  size_t redacted_len = 0;
+  if (type == CURLINFO_TEXT || type == CURLINFO_HEADER_OUT || type == CURLINFO_HEADER_IN)
+    redacted_len = chiaki_redact_secrets(data, size, redacted, sizeof(redacted));
+
   switch (type) {
     case CURLINFO_TEXT:
-      LOGD("PSN auth curl info url=%s text=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl info url=%s text=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_HEADER_OUT:
-      LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_HEADER_IN:
-      LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_SSL_DATA_OUT:
       LOGD("PSN auth curl ssl_data_out url=%s size=%u", url, (unsigned)size);

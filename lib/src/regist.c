@@ -8,6 +8,7 @@
 #include <chiaki/random.h>
 #include <chiaki/time.h>
 #include <chiaki/base64.h>
+#include <chiaki/redact.h>
 #include <chiaki/session.h>
 
 #include <string.h>
@@ -27,6 +28,8 @@ typedef uint32_t in_addr_t;
 #define SEARCH_REQUEST_SLEEP_MS 100
 #define REGIST_SEARCH_TIMEOUT_MS 3000
 #define REGIST_REPONSE_TIMEOUT_MS 3000
+/** Stack buffer for the redacted text copy of the regist response that is logged. */
+#define REGIST_LOG_PAYLOAD_BUF_SIZE 1024
 
 static void *regist_thread_func(void *user);
 static ChiakiErrorCode regist_search(ChiakiRegist *regist, struct addrinfo *addrinfos, struct sockaddr *recv_addr, socklen_t *recv_addr_size);
@@ -286,7 +289,7 @@ static void *regist_thread_func(void *user)
 	}
 
 	CHIAKI_LOGV(regist->log, "Regist formatted request header:");
-	chiaki_log_hexdump(regist->log, CHIAKI_LOG_VERBOSE, (uint8_t *)request_header, request_header_size);
+	chiaki_log_hexdump_redacted(regist->log, CHIAKI_LOG_VERBOSE, (uint8_t *)request_header, request_header_size);
 
 	chiaki_socket_t sock = CHIAKI_INVALID_SOCKET;
 	uint16_t remote_counter = 0;
@@ -685,7 +688,7 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 #endif
 
 	CHIAKI_LOGV(regist->log, "Regist response HTTP header:");
-	chiaki_log_hexdump(regist->log, CHIAKI_LOG_VERBOSE, buf, header_size);
+	chiaki_log_hexdump_redacted(regist->log, CHIAKI_LOG_VERBOSE, buf, header_size);
 
 	ChiakiHttpResponse http_response;
 	err = chiaki_http_response_parse(&http_response, (char *)buf, header_size);
@@ -772,8 +775,11 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 	size_t payload_size = buf_filled_size - header_size;
 	chiaki_rpcrypt_decrypt(rpcrypt, 0, payload, payload, payload_size);
 
+	// The payload holds the console's pairing keys, so only a redacted text copy is logged.
+	char redacted_payload[REGIST_LOG_PAYLOAD_BUF_SIZE];
+	size_t redacted_len = chiaki_redact_secrets((const char *)payload, payload_size, redacted_payload, sizeof(redacted_payload));
 	CHIAKI_LOGI(regist->log, "Regist response payload (decrypted):");
-	chiaki_log_hexdump(regist->log, CHIAKI_LOG_VERBOSE, payload, payload_size);
+	CHIAKI_LOGV(regist->log, "%.*s", (int)redacted_len, redacted_payload);
 
 	err = regist_parse_response_payload(regist, host, (char *)payload, payload_size);
 	if(err != CHIAKI_ERR_SUCCESS)

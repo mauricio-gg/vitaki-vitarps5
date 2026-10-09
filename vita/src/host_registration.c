@@ -307,8 +307,7 @@ int host_wakeup(VitaChiakiHost *host) {
   char *parse_end = NULL;
   uint64_t credential = (uint64_t)strtoull(host->registered_state->rp_regist_key, &parse_end, 16);
   if (parse_end == host->registered_state->rp_regist_key || *parse_end != '\0') {
-    LOGE("Invalid wake credential format for %s: \"%s\"", host->hostname,
-         host->registered_state->rp_regist_key);
+    LOGE("Invalid wake credential format for %s", host->hostname);
     return 1;
   }
 
