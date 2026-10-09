@@ -4,20 +4,15 @@
 
 #include "context.h"
 #include "host_input.h"
-#include "ui/ui_constants.h"
-#include "ui/ui_graphics.h"
+#include "ui/ui_component.h"
+#include "ui/ui_shapes.h"
 #include "ui/ui_text.h"
+#include "ui/ui_theme.h"
 
 #include <psp2/kernel/processmgr.h>
-#include <vita2d.h>
 
-#define DEBUG_WIDGET_CORNER_RADIUS 8
 #define DEBUG_WIDGET_TEXT_PADDING_X 10
-#define DEBUG_WIDGET_BG_COLOR RGBA8(20, 20, 24, 220)
-#define DEBUG_WIDGET_TEXT_COLOR RGBA8(0xD8, 0xE8, 0xFF, 255)
 #define DEBUG_WIDGET_TEXT "tap: resync"
-
-extern vita2d_font *font;
 
 /* Resync bookkeeping, from an accepted tap until the new session's first frame. The UI thread
  * owns it except resync_first_frame_pending, which the video callback thread clears. */
@@ -40,11 +35,10 @@ void debug_tools_draw_widget(void) {
   if (!context.stream.is_streaming || context.stream.reconnect_overlay_active)
     return;
 
-  ui_draw_card_with_shadow(DEBUG_WIDGET_X, DEBUG_WIDGET_Y, DEBUG_WIDGET_W, DEBUG_WIDGET_H,
-                           DEBUG_WIDGET_CORNER_RADIUS, DEBUG_WIDGET_BG_COLOR);
-  ui_text_draw_centered_v(font, DEBUG_WIDGET_X + DEBUG_WIDGET_TEXT_PADDING_X, DEBUG_WIDGET_Y,
-                          DEBUG_WIDGET_H, DEBUG_WIDGET_TEXT_COLOR, FONT_SIZE_SMALL,
-                          DEBUG_WIDGET_TEXT);
+  UiRect box = {DEBUG_WIDGET_X, DEBUG_WIDGET_Y, DEBUG_WIDGET_W, DEBUG_WIDGET_H};
+  ui_shape9_draw(UI_SHAPE9_SM, box, UI_PANEL);
+  ui_text_draw_face_centered_v(UI_FACE_T16, DEBUG_WIDGET_X + DEBUG_WIDGET_TEXT_PADDING_X,
+                               DEBUG_WIDGET_Y, DEBUG_WIDGET_H, UI_TEXT_2, DEBUG_WIDGET_TEXT);
 }
 
 /* Returns why a tap must be dropped right now, or NULL when a resync may start. A resync needs a

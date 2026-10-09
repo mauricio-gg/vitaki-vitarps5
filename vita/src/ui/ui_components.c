@@ -30,9 +30,6 @@
 // Internal State
 // ============================================================================
 
-// Hints popup state
-static HintsPopupState hints_popup = {0};
-
 // Debug menu configuration
 const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
 const uint32_t DEBUG_MENU_COMBO_MASK = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_START;
@@ -143,73 +140,6 @@ void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool sel
   int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
   int text_x = x + (w - text_w) / 2;
   ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
-
-// ============================================================================
-// Hints Popup System
-// ============================================================================
-
-/**
- * Trigger hints popup with specified hint text
- */
-void ui_hints_trigger(const char *hint_text) {
-  hints_popup.active = true;
-  hints_popup.start_time_us = sceKernelGetProcessTimeWide();
-  hints_popup.current_hint = hint_text;
-}
-
-/**
- * Render the hints popup
- */
-void ui_hints_render(void) {
-  if (!hints_popup.active || !hints_popup.current_hint)
-    return;
-
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - hints_popup.start_time_us;
-  float elapsed_ms = elapsed_us / 1000.0f;
-
-  // Calculate opacity with fade out
-  float opacity = 1.0f;
-  if (elapsed_ms > HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS) {
-    float fade_progress =
-        (elapsed_ms - (HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS)) / HINTS_FADE_DURATION_MS;
-    opacity = 1.0f - fade_progress;
-    if (opacity < 0.0f)
-      opacity = 0.0f;
-  }
-
-  // Deactivate when duration complete
-  if (elapsed_ms >= HINTS_POPUP_DURATION_MS) {
-    hints_popup.active = false;
-    return;
-  }
-
-  // Render hint pill at bottom of screen
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
-  int pill_w = text_width + 40;
-  int pill_h = 36;
-  int pill_x = (VITA_WIDTH - pill_w) / 2;
-  int pill_y = VITA_HEIGHT - pill_h - 20;
-
-  uint8_t alpha = (uint8_t)(opacity * 200);
-  ui_draw_rounded_rect(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
-
-  // Text centered vertically in the pill box; +20 inset from left edge.
-  int text_x = pill_x + 20;
-  ui_text_draw_centered_v(font, text_x, pill_y, pill_h, RGBA8(255, 255, 255, alpha),
-                          FONT_SIZE_SMALL, hints_popup.current_hint);
-}
-
-/**
- * Render hints indicator in top-right corner
- */
-void ui_hints_render_indicator(void) {
-  const char *indicator = "(Select) Hints";
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, indicator);
-  int text_x = VITA_WIDTH - text_width - 100;  // Left of logo
-  // Baseline at y=35 is a fixed screen-top anchor, not a box center.
-  ui_text_draw(font, text_x, 35, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
 }
 
 // ============================================================================
@@ -545,18 +475,6 @@ void draw_status_dot(int x, int y, int radius, int status) {
 
 void draw_section_header(int x, int y, int width, const char *title) {
   ui_draw_section_header(x, y, width, title);
-}
-
-void trigger_hints_popup(const char *hint_text) {
-  ui_hints_trigger(hint_text);
-}
-
-void render_hints_popup(void) {
-  ui_hints_render();
-}
-
-void render_hints_indicator(void) {
-  ui_hints_render_indicator();
 }
 
 void open_debug_menu(void) {

@@ -112,26 +112,6 @@ void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t col
 void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_t top_color,
                                     uint32_t bottom_color, int radius);
 
-// ============================================================================
-// Overlay & Effect Drawing
-// ============================================================================
-
-/**
- * Render network loss indicator badge
- *
- * Displays a small badge in the bottom-right corner showing "Network Unstable"
- * with a red dot. Badge fades out based on alert duration.
- *
- * @note Only renders when:
- *   - Not currently streaming (context.stream.is_streaming == false)
- *   - Network indicator enabled (context.config.show_network_indicator == true)
- *   - Alert timer active (context.stream.loss_alert_until_us set)
- * @note Fades out proportionally to remaining alert time
- * @note Badge includes: red dot (6px radius) + "Network Unstable" text (FONT_SIZE_SMALL)
- * @note Positioned 18px from bottom-right corner
- */
-void ui_draw_loss_indicator(void);
-
 #ifdef __cplusplus
 }
 #endif

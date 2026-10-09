@@ -448,6 +448,33 @@ typedef enum ui_face_t {
 /** The unstable pill pulses its opacity between 100% and UI_PILL_PULSE_MIN_PCT over this period. */
 #define UI_PILL_PULSE_MS 1400
 #define UI_PILL_PULSE_MIN_PCT 55
+/** Space either side of a button glyph drawn inside a plain pill's label. */
+#define UI_PILL_GLYPH_MARGIN 2
+
+/** Stream overlay (SPEC 3.5): the exit hint pill sits UI_STREAM_OVERLAY_MARGIN from the top and
+ * right edges, stays UI_STREAM_HINT_VISIBLE_MS after the stream starts, then fades out linearly
+ * over UI_STREAM_HINT_FADE_MS. */
+#define UI_STREAM_OVERLAY_MARGIN UI_S2
+#define UI_STREAM_HINT_VISIBLE_MS 5000
+#define UI_STREAM_HINT_FADE_MS 500
+
+/* ============================================================================
+ * C25 StatsPanel
+ * ============================================================================ */
+
+/** Fixed slot: right edge UI_STREAM_OVERLAY_MARGIN from the screen's right, top at y 64. */
+#define UI_STATS_TOP 64
+#define UI_STATS_MIN_W 176
+#define UI_STATS_PAD_X UI_S2
+#define UI_STATS_PAD_Y UI_S1
+#define UI_STATS_LINE_H 24
+/** Space under the title line. */
+#define UI_STATS_TITLE_GAP 4
+/** Smallest space between a row's label and its value. */
+#define UI_STATS_COL_GAP UI_S2
+#define UI_STATS_ROWS 2
+/** The value text is rebuilt this often (microseconds), never per frame. */
+#define UI_STATS_REBUILD_US 1000000ULL
 
 /* ============================================================================
  * C23 TopBar

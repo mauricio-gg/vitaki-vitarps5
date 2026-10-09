@@ -76,6 +76,7 @@ int ui_hint_row_glyph_width(uint32_t action);
 
 /**
  * ui_hint_row_glyph_draw() - Draw the glyph of @action at @x, vertically centred in the band
- * (@y, @h), in @tint. For a screen that needs the same glyph inside a label. Paper cost 1.
+ * (@y, @h), in @tint (times the layer opacity). For a screen that needs the same glyph inside a
+ * label. Paper cost 1.
  */
 void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint);

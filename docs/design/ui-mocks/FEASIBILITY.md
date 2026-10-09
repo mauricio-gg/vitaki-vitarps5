@@ -58,6 +58,8 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 | Stream overlay | 26 worst case | exit pill 7 (3-slice, 3 glyphs, text), stats panel 14 (9-slice 9, title, 2 rows x 2), unstable badge 5 |
 | Any popup | about 36 | **the screen behind is frozen into one half-resolution copy when the popup opens (1 draw)**, scrim 1, popup body 9-slice 9, title and text 3 to 4, buttons 2 x 4 or list rows (6 x 2 + focused 3-slice bar 3 + scroll 2), hint row 4. Popups are not drawn over the live screen because that would exceed the budget (Home 67 + a 31-draw list popup = 98) |
 
+**As built (#306), stream overlay:** the paper worst case is 28, not 26: exit pill 9 (3-slice 3, 3 text runs, 3 glyphs; the paper's 7 counted the label as one run), stats panel 14, Network Unstable pill 5. Testing builds add the debug resync widget: 10 (9-slice 9, text 1), so 38 there. While streaming the `UI/DRAWS` line reports `screen=overlay`. Not yet measured on hardware.
+
 **As built (#305), draw counts per frame:** Controller Summary page 1 draws 56, page 2 draws 44 to 80 (by how many zones are mapped) and a zone view draws 79. Page 1 and the zone view are over the paper budgets above (49 and 70) by the touch controls of SPEC 4.1 (the back chevron, the small Clear and Whole surface buttons) and, in the zone view, because the grid is a baked grid-lines texture plus a baked state texture per mapped, cursor or picked cell instead of one baked grid. All stay at or under the ~80 call budget of Home.
 
 Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.

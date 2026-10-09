@@ -43,7 +43,6 @@
 // Constants (use definitions from ui_constants.h via ui_internal.h)
 // ============================================================================
 
-#define VIDEO_LOSS_ALERT_DEFAULT_US (5 * 1000 * 1000ULL)
 #define WAKE_ERROR_HINT_DURATION_US (7 * 1000 * 1000ULL)
 
 // Legacy colors not yet in ui_constants.h

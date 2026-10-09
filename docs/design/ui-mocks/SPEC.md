@@ -258,6 +258,8 @@ QR art 160 x 160 on a `QR_PLATE` plate (`R_SM` corners) with 8 px quiet zone (17
 ### C19 Pill (display-only)
 h 32, padding 0 16, `HUD` fill, T16 TEXT, `R_PILL` corners. Variants: **warn** (1 px `WARN` outline: cooldown banner), **unstable** (12 px `ERR` dot, pulse 1.4 s), **plain** (exit hint). Used by: stream overlay (exit hint top-right, Network Unstable bottom-right at 16 px margins), hint-row alert slot, top-bar banner slot. Replaces: overlay `draw_pill`, `UI_LOSS_INDICATOR_*`.
 
+**As built (#306).** The plain variant's label is a list of parts, each a text run or a button glyph, measured once by `ui_pill_plain_layout()`, which returns the pill width; `ui_pill_plain_draw()` then draws it with no measuring. A glyph part is the glyph's width plus `UI_PILL_GLYPH_MARGIN` (2 px) on each side, and the space around it comes from the neighbouring text runs ("Hold ", " + "); glyphs draw in TEXT. `ui_pill_draw()` (warn and unstable) takes the width from the caller, measured once with `ui_pill_width()`, so no pill measures text per frame. The old overlay pill and the old menu indicator (`render_loss_indicator_preview()`, `ui_draw_loss_indicator()`, `UI_LOSS_INDICATOR_*`) are deleted; every live menu screen has XMB chrome and shows the alert as the hint-row pill, and the cooldown banner is the top-bar pill.
+
 ### C20 ControllerDiagram + Callout (display-only)
 | | |
 |---|---|
@@ -293,6 +295,8 @@ y 16, h 32, x 48..912. Three slots: logo (h 32, `Vita_RPS5_Logo.png`) left; cent
 
 ### C25 StatsPanel (display-only)
 `PANEL` fill, `R_MD` corners, padding 8 x 16, min w 176, right 16, top 64. Title "Stream Stats" T16 TEXT_2; rows label T16 TEXT_3, value T16 white right aligned. **Latency** = `measured_rtt_ms`, shown as "N ms"; "N/A" when there is no value or the metrics are older than 3.0 s (today's rule). **FPS** = incoming frames per second measured over the last metrics window, shown as "in / target" (target = `target_fps`, else the negotiated fps; "in" alone when no target; "N/A" when none). Unit is whole frames per second. Cadence: the panel text is rebuilt **once per second** (not per frame) so numbers do not flicker; stale detection runs per frame. Shown only when Show Latency is on. Replaces: `draw_stream_stats_panel`.
+
+**As built (#306).** The value rules are pure and live in `ui_stream_stats.c`: `ui_stream_stats_format()` writes the two strings and `ui_stream_stats_metrics_stale()` says whether the latency metrics are too old. Metrics last updated exactly 3.0 s ago still count as fresh; older, or never updated, reads N/A. `video_overlay.c` keeps the strings and their measured widths in a cache rebuilt on the first frame after a stream start and then once per second. Between rebuilds only the stale check runs each frame, and the frame the latency crosses 3.0 s it switches to N/A at once. Turning Show Latency off drops the cache, so turning it on rebuilds on its first frame. The gap between a label and its value is at least 16 px, there are 4 px under the title line (as in the mock), and the width is the widest of the title and the rows plus the 16 px side padding, never under 176.
 
 ### C26 EmptyState (display-only)
 Single line T20 TEXT_2 at x 304, y 208, with a 16 px inline spinner for Searching. Used by: Home consoles.
@@ -406,6 +410,8 @@ Full-bleed video. Only three things draw, all C19/C25, all gated by settings:
 | Exit hint pill "Back to menu: Hold [L] + [R] + [Start]" | right 16, top 16 | Show Exit Shortcut Hint; visible 5.0 s then 0.5 s fade |
 | Stream Stats panel | right 16, top 64 (fixed slot) | Show Latency. Latency in ms, FPS as "in / target" whole frames per second; rebuilt once per second; "N/A" when metrics are older than 3.0 s (C25) |
 | Network Unstable pill | right 16, bottom 16 | Show Network Alerts; shown 5.0 s after each event, fading |
+
+**As built (#306).** The exit hint is visible 5.0 s from the first overlay frame of the stream, then fades linearly over 0.5 s (`UI_STREAM_HINT_VISIBLE_MS`, `UI_STREAM_HINT_FADE_MS`); the fade is the layer opacity. Network Unstable fades linearly over its alert (5.0 s unless the stream set another length), on top of the pill's own 1.4 s pulse. The old "(Select) Hints" indicator at the top right and the old Select-hints toast are gone (`ui_hints_*` and their wrappers are deleted); the hint row replaced them. In testing builds the debug resync widget ("tap: resync", `debug_tools_draw_widget()`, a `UI_PANEL` box on the small 9-slice with T16 TEXT_2) also draws on the stream, in the bottom-right corner at 6 px margins, so it overlaps the Network Unstable pill while that shows.
 
 **Stream stats exist only here.** Profile has no streaming metrics (there is no menu while streaming). Exit: hold L + R + Start about 1 s (today). Select = Share and Start = Options still go to the PS5. Deep links: `#stream`, `#stream-stats`, `#unstable`, `#stream-quiet` (after the hint faded). The mock also lets Esc leave (mock only).
 

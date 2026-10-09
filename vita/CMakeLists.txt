@@ -70,6 +70,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_background.c
     src/ui/ui_shapes.c
     src/ui/ui_pill.c
+    src/ui/ui_stream_stats.c
     src/ui/ui_top_bar.c
     src/ui/ui_hint_row.c
     src/ui/ui_chrome_layout.c

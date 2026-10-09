@@ -11,6 +11,7 @@
 #include <psp2/kernel/processmgr.h>
 
 #include "ui/ui_component.h"
+#include "ui/ui_hint_row.h"
 #include "ui/ui_shapes.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -33,8 +34,7 @@ int ui_pill_width(UiPillKind kind, const char *text) {
   return kind == UI_PILL_UNSTABLE ? w + DOT_SPACE : w;
 }
 
-void ui_pill_draw(UiPillKind kind, int x, int y, const char *text) {
-  const int w = ui_pill_width(kind, text);
+void ui_pill_draw(UiPillKind kind, int x, int y, int w, const char *text) {
   const float k = kind == UI_PILL_UNSTABLE ? pulse_opacity() : 1.0f;
   int text_x = x + UI_PILL_PAD;
 
@@ -48,4 +48,35 @@ void ui_pill_draw(UiPillKind kind, int x, int y, const char *text) {
   }
   ui_text_draw_face_centered_v(UI_FACE_T16, text_x, y, UI_PILL_H, ui_color_scale_alpha(UI_TEXT, k),
                                text);
+}
+
+/** Width @part takes in the label. */
+static int part_width(const UiPillPart *part) {
+  if (part->text)
+    return ui_text_face_width(UI_FACE_T16, part->text);
+  const int glyph_w = ui_hint_row_glyph_width(part->glyph);
+  return glyph_w > 0 ? glyph_w + UI_PILL_GLYPH_MARGIN * 2 : 0;
+}
+
+int ui_pill_plain_layout(UiPillPart *parts, int count) {
+  int w = UI_PILL_PAD * 2;
+  for (int i = 0; i < count; i++) {
+    parts[i].width = part_width(&parts[i]);
+    w += parts[i].width;
+  }
+  return w;
+}
+
+void ui_pill_plain_draw(int x, int y, int w, const UiPillPart *parts, int count) {
+  ui_shape3_draw(UI_SHAPE3_PILL_32, x, y, w, UI_HUD);
+
+  int part_x = x + UI_PILL_PAD;
+  for (int i = 0; i < count; i++) {
+    if (parts[i].text) {
+      ui_text_draw_face_centered_v(UI_FACE_T16, part_x, y, UI_PILL_H, UI_TEXT, parts[i].text);
+    } else if (parts[i].width > 0) {
+      ui_hint_row_glyph_draw(parts[i].glyph, part_x + UI_PILL_GLYPH_MARGIN, y, UI_PILL_H, UI_TEXT);
+    }
+    part_x += parts[i].width;
+  }
 }

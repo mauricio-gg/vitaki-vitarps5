@@ -101,8 +101,7 @@ void ui_hint_row_init(void) {
 /**
  * network_unstable_active() - True while a Network Unstable alert is showing on a menu.
  *
- * The same signal the old menu indicator (render_loss_indicator_preview in ui.c) reads:
- * not streaming, the Show Network Alerts setting on, and the loss alert deadline in the
+ * True when not streaming, the Show Network Alerts setting on, and the loss alert deadline in the
  * future. The host side sets the deadline on packet-loss bursts.
  */
 static bool network_unstable_active(void) {
@@ -212,7 +211,7 @@ int ui_hint_row_glyph_width(uint32_t action) {
 }
 
 void ui_hint_row_glyph_draw(uint32_t action, int x, int y, int h, uint32_t tint) {
-  draw_glyph(glyph_texture(action), x, y + (h - UI_HINT_GLYPH_H) / 2, tint);
+  draw_glyph(glyph_texture(action), x, y + (h - UI_HINT_GLYPH_H) / 2, ui_layer_color(tint));
 }
 
 void ui_hint_row_draw(const UiHintLayout *layout) {
@@ -239,7 +238,7 @@ void ui_hint_row_draw(const UiHintLayout *layout) {
 
   if (layout->alert) {
     const int w = ui_pill_width(UI_PILL_UNSTABLE, ALERT_TEXT);
-    ui_pill_draw(UI_PILL_UNSTABLE, UI_CONTENT_RIGHT - w, UI_HINT_Y + (UI_HINT_H - UI_PILL_H) / 2,
+    ui_pill_draw(UI_PILL_UNSTABLE, UI_CONTENT_RIGHT - w, UI_HINT_Y + (UI_HINT_H - UI_PILL_H) / 2, w,
                  ALERT_TEXT);
   }
 }
