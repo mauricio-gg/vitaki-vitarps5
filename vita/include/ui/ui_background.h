@@ -8,9 +8,11 @@
  * level None; the Home vignette adds 3.
  *
  * Blur levels Soft, Strong and Dark (config.background_blur, read every frame) render the same
- * wave into a small render target and draw it upscaled with bilinear filtering plus a veil:
- * 2, 3 and 2 draw calls on the screen. The target pass runs in ui_background_prepare(), before
- * the main scene opens, because vita2d can only draw into a render target in a scene of its own.
+ * wave into a 480x272 target, average it 2:1 down to 240x136 (Soft) or on to 60x34 (Strong and
+ * Dark), and draw that upscaled with bilinear filtering plus a veil: 2, 3 and 2 draw calls on
+ * the screen. The target passes (1 for the wave, 1 to 3 for the averaging) run in
+ * ui_background_prepare(), before the main scene opens, because vita2d can only draw into a
+ * render target in a scene of its own.
  */
 
 #pragma once
@@ -24,7 +26,7 @@
 void ui_background_init(void);
 
 /**
- * ui_background_prepare() - Start the menu frame's pool and render the blur target if due.
+ * ui_background_prepare() - Start the menu frame's pool and render the blur targets if due.
  * @slow: same meaning as for ui_background_draw().
  *
  * Call once per menu frame, immediately before opening the main scene with

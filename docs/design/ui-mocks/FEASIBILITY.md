@@ -131,8 +131,8 @@ Settings > Display > Background Blur, default **None** (CEO decision, round 7). 
 | Mode | Method | Veil | Look |
 |---|---|---|---|
 | None | today's full-resolution wave | none | sharp ribbons with thin bright highlight lines |
-| Soft | wave into a 240 x 136 render target (1/4), bilinear upscale | 14% dark | nearly identical to None, ribbons slightly softer; still reads as XMB |
-| Strong | wave into a 60 x 34 target (1/16), bilinear upscale | 5% white + 14% dark | soft clouds of light, hazy; the ribbons lose their lines |
+| Soft | wave into a 480 x 272 target, averaged 2:1 to 240 x 136 (1/4), bilinear upscale | 14% dark | nearly identical to None, ribbons slightly softer; still reads as XMB |
+| Strong | same chain continued to 120 x 68 and 60 x 34 (1/16), bilinear upscale | 5% white + 14% dark | soft clouds of light, hazy; the ribbons lose their lines |
 | Dark | same 60 x 34 target | 20% dark | deep calm gradient with a faint glow; flattest look |
 
 Panels (frosted rectangles behind the content zones) were tried and rejected: they read as cards.
@@ -141,11 +141,14 @@ Panels (frosted rectangles behind the content zones) were tried and rejected: th
 
 | | None | Soft | Strong / Dark |
 |---|---|---|---|
-| Extra texture memory | 0 | one 240 x 136 RGBA target, about 0.13 MB (up to 0.15 MB aligned) | one 60 x 34 target, 8 KB |
-| Draw calls | wave about 12 | same geometry, drawn into the target, plus 1 upscaled quad and 1 veil rect: about +2 | same: about +2 (Strong adds one more tint rect: about +3) |
-| Fill | wave shaded at full resolution (about 5 overlapping strips over 522k pixels) | wave shaded at 1/16 of the pixels, then one bilinear quad and the veil over 522k pixels: likely equal or cheaper | wave shaded at 1/256 of the pixels, same quad and veil: cheapest |
-| Update rate | 30 Hz CPU vertices | target can refresh at 15 to 30 Hz while the quad is drawn every frame | 15 to 30 Hz is invisible at this softness |
-| Unknown | none | cost of switching to a render target and back on GXM (one extra pass per frame), skipped on frames where the ribbons are not updated; measure | same |
+| Extra texture memory | 0 | 480 x 272 RGBA about 0.52 MB, plus 240 x 136 about 0.13 MB | the same two, plus 120 x 68 about 32 KB and 60 x 34 about 8 KB |
+| Draw calls | wave about 12 | about 12 for the wave into the 480 x 272 target, 1 halving, then 1 upscaled quad and 1 veil rect on screen; the main scene's count is unchanged | about 12 for the wave, 3 halvings, then the quad and the veil (Strong adds one more tint rect) |
+| Scenes per refresh | 0 | 2 (wave, one halving) | 4 (wave, three halvings) |
+| Fill | wave shaded at full resolution (about 5 overlapping strips over 522k pixels) | wave shaded at 1/4 of the screen's pixels, then the halvings (tiny), then one bilinear quad and the veil over 522k pixels | same wave fill, the halvings are tiny, same quad and veil |
+| Update rate | 30 Hz CPU vertices | targets refresh when the vertices do (15 to 30 Hz) while the quad is drawn every frame | same; 15 to 30 Hz is invisible at this softness |
+| Unknown | none | cost of the extra scenes on GXM (each switch to a render target and back), only on frames where the ribbons update; measure | same, with two more scenes |
+
+Why a bigger base and halvings (#326): the first version drew the wave straight into the 240 x 136 or 60 x 34 target. A GXM target pass has no MSAA, so each target texel took one sample at its centre. That is point sampling, not averaging: the thin highlight lines came out dotted and the ribbon edges stair-stepped, and the bilinear upscale stretched those hard texels into visible blocks on hardware. The mock does not show this because a browser canvas antialiases into its small canvas, so each small pixel is the average of the full-size picture. Drawing at 480 x 272 and averaging each 2 x 2 block (one bilinear draw at half size per step) gives the same kind of average. The costs above are paper estimates, not measured.
 
 The mock renders exactly this way (small canvas, upscaled with bilinear smoothing), so for Soft, Strong and Dark it is a faithful preview; only the browser's smoothing kernel differs a little from GXM's. Resolution choice for Strong and Dark was made by trying 1/8 (visible grid artefacts from the 8x upscale), 1/4 then 1/8 (smooth but needs the 1/4 pass anyway) and 1/16 (smooth, one tiny pass): 1/16 ships.
 
