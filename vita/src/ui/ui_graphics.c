@@ -206,18 +206,6 @@ void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_
 // ============================================================================
 
 /**
- * Render semi-transparent focus overlay
- *
- * Dims content area when navigation sidebar is expanded.
- */
-void ui_draw_content_focus_overlay(void) {
-  if (nav_collapse.state != NAV_STATE_EXPANDED) {
-    return;
-  }
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 80));
-}
-
-/**
  * Render network loss indicator badge
  *
  * Shows "Network Unstable" badge with red dot in bottom-right corner.

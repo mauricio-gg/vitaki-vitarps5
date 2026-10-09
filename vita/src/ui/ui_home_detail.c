@@ -16,6 +16,7 @@
 #include "ui/ui_console_cards.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
+#include "ui/ui_controller_rules.h"
 #include "ui/ui_detail_panel.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_theme.h"
@@ -189,16 +190,6 @@ static const ControllerMapStorage *preset_map(int slot) {
   return &s_default_map;
 }
 
-/** Number of the @count inputs from @first that are mapped to something. */
-static int mapped_zones(const ControllerMapStorage *map, int first, int count) {
-  int mapped = 0;
-  for (int i = 0; i < count; i++) {
-    if (map->in_out_btn[first + i] != VITAKI_CTRL_OUT_NONE)
-      mapped++;
-  }
-  return mapped;
-}
-
 /** Rewrite @text as "N zones" when @zones differs from the count it shows. */
 static const char *zones_text(char *text, size_t size, int *shown, int zones) {
   if (*shown != zones) {
@@ -211,10 +202,8 @@ static const char *zones_text(char *text, size_t size, int *shown, int zones) {
 /** Fill the rows of controller preset @slot: shoulder buttons and touch zones. */
 static void build_preset_rows(int slot) {
   const ControllerMapStorage *map = preset_map(slot);
-  int front =
-      mapped_zones(map, VITAKI_CTRL_IN_FRONTTOUCH_GRID_START, VITAKI_CTRL_IN_FRONTTOUCH_GRID_COUNT);
-  int rear =
-      mapped_zones(map, VITAKI_CTRL_IN_REARTOUCH_GRID_START, VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT);
+  int front = ui_controller_mapped_zones(map, UI_CTRL_SIDE_FRONT);
+  int rear = ui_controller_mapped_zones(map, UI_CTRL_SIDE_REAR);
 
   add_row("L1", controller_output_name((VitakiCtrlOut)map->in_out_btn[VITAKI_CTRL_IN_L1]), 0);
   add_row("R1", controller_output_name((VitakiCtrlOut)map->in_out_btn[VITAKI_CTRL_IN_R1]), 0);

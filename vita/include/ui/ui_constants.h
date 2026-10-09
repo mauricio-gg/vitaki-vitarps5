@@ -60,63 +60,9 @@
 #define FONT_SIZE_PIN_DIGIT 40    // PIN-entry digit glyphs (oversized for legibility)
 
 // ============================================================================
-// Navigation Layout (per UI spec)
+// Page Layout
 // ============================================================================
-#define WAVE_NAV_WIDTH 130  // Per UI spec line 45
-#define CONTENT_AREA_X WAVE_NAV_WIDTH
-#define CONTENT_AREA_WIDTH (VITA_WIDTH - WAVE_NAV_WIDTH)  // 830px
-#define CONTENT_CENTER_X (WAVE_NAV_WIDTH + (CONTENT_AREA_WIDTH / 2))
-#define CONTENT_START_Y 80  // Unified page content start Y (below nav pill)
-
-// Wave navigation icons
-#define WAVE_NAV_ICON_SIZE 48               // Increased from 32 for clarity
-#define WAVE_NAV_ICON_X 50                  // Positioned left of center
-#define WAVE_NAV_ICON_SPACING 80            // Spacing between icon centers
-#define WAVE_NAV_ICON_START_Y 152           // Vertically centered start
-#define WAVE_NAV_ICON_SELECTED_SCALE 1.25f  // Pop on selection (48px → 60px)
-#define WAVE_NAV_ICON_HIGHLIGHT_SIZE 72     // Highlight background size for 60px icons
-#define WAVE_NAV_ICON_BASE_ALPHA 230        // ~90% opacity for icon blending
-#define WAVE_NAV_ICON_TINT_R 200            // Grayish tint RGB (matches profile icon style)
-#define WAVE_NAV_ICON_TINT_G 200
-#define WAVE_NAV_ICON_TINT_B 200
-#define WAVE_NAV_SELECTED_ICON_SCALE 1.05f  // Always-visible selected icon emphasis
-#define WAVE_NAV_FOCUSED_ICON_SCALE 1.10f   // Stronger emphasis when nav has focus
-#define WAVE_NAV_GLASS_RADIUS 34            // Glass sphere radius around selected icon
-#define WAVE_NAV_GLASS_BASE_ALPHA 30        // Transparent base sphere alpha
-#define WAVE_NAV_GLASS_FOCUS_BOOST 12       // Small alpha boost when nav item is focused
-#define WAVE_NAV_GLASS_GLOW_RADIUS 40       // Soft glow halo radius
-#define WAVE_NAV_GLASS_GLOW_ALPHA 10        // Very subtle halo opacity
-#define WAVE_NAV_GLASS_GLOSS_RADIUS 12      // Top gloss highlight radius
-#define WAVE_NAV_GLASS_GLOSS_ALPHA 44       // Gloss highlight alpha
-#define WAVE_NAV_GLASS_GLOSS_OFFSET_X 10    // Gloss center X offset
-#define WAVE_NAV_GLASS_GLOSS_OFFSET_Y 12    // Gloss center Y offset
-#define WAVE_NAV_SELECTION_COLOR_R 0x34     // PlayStation blue selection color
-#define WAVE_NAV_SELECTION_COLOR_G 0x90
-#define WAVE_NAV_SELECTION_COLOR_B 0xFF
-
-// ============================================================================
-// Wave Animation (per SCOPING_UI_POLISH.md)
-// ============================================================================
-#define WAVE_SPEED_BOTTOM 0.7f  // radians per second for bottom wave
-#define WAVE_SPEED_TOP 1.1f     // radians per second for top wave
-#define WAVE_ALPHA_BOTTOM 160   // 160/255 opacity for bottom wave
-#define WAVE_ALPHA_TOP 100      // 100/255 opacity for top wave
-
-// ============================================================================
-// Collapsible Navigation (per SCOPING_NAV_COLLAPSIBLE_BAR.md)
-// ============================================================================
-#define NAV_COLLAPSE_DURATION_MS 280  // Total animation duration
-#define NAV_PHASE1_END_MS 80          // Preparation phase end
-#define NAV_PHASE2_END_MS 200         // Collapse phase end
-#define NAV_PILL_ICON_SIZE 20         // Icon size for collapsed menu pill
-#define NAV_PILL_ICON_GAP 6           // Gap between icon and text in pill
-#define NAV_PILL_WIDTH 140            // Pill width when fully collapsed
-#define NAV_PILL_HEIGHT 44            // Pill height
-#define NAV_PILL_X 16                 // Pill X position
-#define NAV_PILL_Y 16                 // Pill Y position
-#define NAV_PILL_RADIUS 22            // Pill corner radius (fully rounded)
-#define NAV_TOAST_DURATION_MS 2000    // Toast display duration
-#define NAV_TOAST_FADE_MS 300         // Toast fade in/out duration
+#define CONTENT_START_Y 80  // Unified page content start Y
 
 // ============================================================================
 // Console Cards (updated per UI spec)
@@ -207,17 +153,15 @@
 #define UI_LOSS_INDICATOR_DOT_TEXT_GAP 10  // Gap between status dot and text label
 
 // ============================================================================
-// Controller Layout (Standard Wave Nav)
+// Controller Layout (old screen constants)
 // ============================================================================
 #define CTRL_DIAGRAM_WIDTH 500  // Controller diagram width (fits in 830px content area)
 #define CTRL_DIAGRAM_HEIGHT \
   228  // Controller diagram height (2.2:1 aspect ratio for Vita landscape)
-#define CTRL_DIAGRAM_X (WAVE_NAV_WIDTH + 40)                      // 40px margin from nav
-#define CTRL_DIAGRAM_Y (CONTENT_START_Y + 50)                     // Below title
-#define CTRL_LEGEND_WIDTH 250                                     // Legend panel width
-#define CTRL_LEGEND_X (CTRL_DIAGRAM_X + CTRL_DIAGRAM_WIDTH + 20)  // Right of diagram
-#define CTRL_LEGEND_Y CTRL_DIAGRAM_Y                              // Aligned with diagram
-#define CTRL_PRESET_COUNT 3  // Number of controller presets (Custom 1, 2, 3)
+#define CTRL_DIAGRAM_Y (CONTENT_START_Y + 50)  // Below title
+#define CTRL_LEGEND_WIDTH 250                  // Legend panel width
+#define CTRL_LEGEND_Y CTRL_DIAGRAM_Y           // Aligned with diagram
+#define CTRL_PRESET_COUNT 3                    // Number of controller presets (Custom 1, 2, 3)
 
 // Controller diagram colors (PlayStation Blue tint for PNG outlines)
 #define CTRL_OUTLINE_COLOR RGBA8(0, 212, 170, 255)            // Teal/cyan #00D4AA
@@ -305,16 +249,6 @@
 #define VITA_RTOUCH_Y_RATIO 0.149f
 #define VITA_RTOUCH_W_RATIO 0.617f
 #define VITA_RTOUCH_H_RATIO 0.567f
-
-// Zone centers
-#define VITA_RZONE_UL_CX_RATIO (VITA_RTOUCH_X_RATIO + VITA_RTOUCH_W_RATIO * 0.25f)
-#define VITA_RZONE_UL_CY_RATIO (VITA_RTOUCH_Y_RATIO + VITA_RTOUCH_H_RATIO * 0.25f)
-#define VITA_RZONE_UR_CX_RATIO (VITA_RTOUCH_X_RATIO + VITA_RTOUCH_W_RATIO * 0.75f)
-#define VITA_RZONE_UR_CY_RATIO (VITA_RTOUCH_Y_RATIO + VITA_RTOUCH_H_RATIO * 0.25f)
-#define VITA_RZONE_LL_CX_RATIO (VITA_RTOUCH_X_RATIO + VITA_RTOUCH_W_RATIO * 0.25f)
-#define VITA_RZONE_LL_CY_RATIO (VITA_RTOUCH_Y_RATIO + VITA_RTOUCH_H_RATIO * 0.75f)
-#define VITA_RZONE_LR_CX_RATIO (VITA_RTOUCH_X_RATIO + VITA_RTOUCH_W_RATIO * 0.75f)
-#define VITA_RZONE_LR_CY_RATIO (VITA_RTOUCH_Y_RATIO + VITA_RTOUCH_H_RATIO * 0.75f)
 
 // Camera
 #define VITA_CAMERA_CX_RATIO 0.920f

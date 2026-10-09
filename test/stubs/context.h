@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+
+#include "controller.h"
 
 typedef struct vita_chiaki_context_t {
   ChiakiLog log;
@@ -11,6 +14,11 @@ typedef struct vita_chiaki_context_t {
     bool is_streaming;
   } stream;
   void *mlog;
+  /* The controller maps controller.c reads (its custom preset slots). */
+  struct {
+    ControllerMapStorage custom_maps[3];
+    bool custom_maps_valid[3];
+  } config;
 } VitaChiakiContext;
 
 extern VitaChiakiContext context;

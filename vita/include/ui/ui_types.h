@@ -51,55 +51,6 @@ typedef enum ui_host_action_t {
 } UIHostAction;
 
 /**
- * Focus areas for D-pad navigation
- * @deprecated Use FocusZone from ui_focus.h instead (Phase 4 cleanup)
- * Kept only for potential external compatibility
- */
-typedef enum ui_focus_area_t {
-  FOCUS_NAV_BAR = 0,       // Wave navigation sidebar (use FOCUS_ZONE_NAV_BAR)
-  FOCUS_CONSOLE_CARDS = 1  // Console cards area (use FOCUS_ZONE_MAIN_CONTENT)
-} FocusArea;
-
-/**
- * Navigation sidebar collapse states
- */
-typedef enum nav_sidebar_state_t {
-  NAV_STATE_EXPANDED = 0,  // Full sidebar visible (130px), waves animating
-  NAV_STATE_COLLAPSING,    // Animation: 130px -> 0px -> pill reveal
-  NAV_STATE_COLLAPSED,     // Pill visible at top-left
-  NAV_STATE_EXPANDING      // Animation: pill -> 0px -> 130px sidebar
-} NavSidebarState;
-
-// ============================================================================
-// Animation State Structures
-// ============================================================================
-
-/**
- * Wave layer animation state
- */
-typedef struct wave_layer_state_t {
-  float phase;  // Current phase (radians, accumulates)
-  float speed;  // radians per second
-} WaveLayerState;
-
-/**
- * Navigation collapse animation state
- */
-typedef struct nav_collapse_state_t {
-  NavSidebarState state;           // Current state
-  uint64_t anim_start_us;          // Animation start timestamp
-  float anim_progress;             // 0.0 to 1.0 animation progress
-  float stored_wave_bottom_phase;  // For resume after collapse
-  float stored_wave_top_phase;     // For resume after collapse
-  float current_width;             // 0.0 to 130.0 animated sidebar width
-  float pill_width;                // 36 to 120 animated pill width
-  float pill_opacity;              // 0.0 to 1.0 pill visibility
-  bool toast_shown_this_session;   // Only show toast once per app launch
-  bool toast_active;               // Currently displaying toast
-  uint64_t toast_start_us;         // Toast display start time
-} NavCollapseState;
-
-/**
  * Hints popup state
  */
 typedef struct hints_popup_state_t {

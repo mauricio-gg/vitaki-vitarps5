@@ -49,7 +49,6 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_input.c
     src/ui/ui_state.c
     src/ui/ui_components.c
-    src/ui/ui_navigation.c
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
     src/ui/ui_focus.c
@@ -84,6 +83,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_connecting_flow.c
     src/ui/ui_connecting.c
     src/ui/ui_group_list.c
+    src/ui/ui_zone_select.c
+    src/ui/ui_zone_grid.c
     src/ui/ui_setting_list.c
     src/ui/ui_scroll_indicator.c
     src/ui/ui_settings_actions.c
@@ -105,6 +106,12 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_pin_digits.c
     src/ui/ui_options_column.c
     src/ui/ui_home_options.c
+    src/ui/ui_chevron.c
+    src/ui/ui_controller_page.c
+    src/ui/ui_controller_mapping.c
+    src/ui/ui_controller_zones.c
+    src/ui/ui_controller_rules.c
+    src/ui/ui_controller_model.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -287,7 +294,7 @@ if(CHIAKI_IS_VITA)
         # Textures, other assets
         FILE res/assets/ps4.png assets/ps4.png
         FILE res/assets/controller_front.png assets/controller_front.png
-        FILE res/assets/controller_back.png assets/controller_back.png
+        FILE res/assets/controller_back_clean.png assets/controller_back_clean.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
         FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
@@ -331,6 +338,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
         FILE assets/icons/page_lock.png assets/icons/page_lock.png
         FILE assets/icons/page_profile.png assets/icons/page_profile.png
+        FILE assets/icons/page_controller.png assets/icons/page_controller.png
         FILE assets/icons/popup_check.png assets/icons/popup_check.png
         FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
         FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png

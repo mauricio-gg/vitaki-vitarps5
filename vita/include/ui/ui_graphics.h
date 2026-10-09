@@ -117,18 +117,6 @@ void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_
 // ============================================================================
 
 /**
- * Render semi-transparent focus overlay
- *
- * Draws a full-screen semi-transparent black overlay (80 alpha) used when
- * the navigation sidebar is expanded to dim the content area.
- *
- * @note Only renders when navigation is in NAV_STATE_EXPANDED
- * @note Uses 960x544 full screen dimensions
- * @note Alpha value: RGBA8(0, 0, 0, 80)
- */
-void ui_draw_content_focus_overlay(void);
-
-/**
  * Render network loss indicator badge
  *
  * Displays a small badge in the bottom-right corner showing "Network Unstable"

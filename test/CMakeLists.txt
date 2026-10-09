@@ -89,6 +89,17 @@ target_include_directories(ui_detail_tests PRIVATE
 
 add_test(NAME vitarps5_ui_detail_tests COMMAND ui_detail_tests)
 
+# ui_zone_select_tests.c has its own main() and tests the pure ZoneGrid selection rules (cell from
+# point, finger-paint backtrack). Cross-compiled but never run by ./tools/build.sh test; the native
+# command is at the top of the file.
+add_executable(ui_zone_select_tests ui_zone_select_tests.c ../vita/src/ui/ui_zone_select.c)
+
+target_include_directories(ui_zone_select_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_zone_select_tests COMMAND ui_zone_select_tests)
+
 # ui_connecting_flow_tests.c has its own main() and tests the pure Connecting screen rules (flow,
 # steps, title). Cross-compiled but never run by ./tools/build.sh test; the native command is at
 # the top of the file.
@@ -156,6 +167,23 @@ target_include_directories(ui_console_rows_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
+
+# ui_controller_rules_tests.c checks the pure Controller page rules (what touching a zone does,
+# the whole-side value or Mixed, assignments) against the real first-run seeds of controller.c.
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_controller_rules_tests
+    ui_controller_rules_tests.c
+    ../vita/src/ui/ui_controller_rules.c
+    ../vita/src/controller.c
+)
+
+target_include_directories(ui_controller_rules_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
+)
+
+add_test(NAME vitarps5_ui_controller_rules_tests COMMAND ui_controller_rules_tests)
 
 # ui_downsample_tests.c checks the pure 2 x 2 pixel averaging behind the popup background freeze.
 # Standalone binary with its own main(); run natively (see the file header).

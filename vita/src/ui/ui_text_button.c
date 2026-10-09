@@ -19,11 +19,26 @@ int ui_text_button_width(const char *label) {
 
 void ui_text_button_init(UiTextButton *btn, const char *label, int x, int y) {
   btn->label = label;
+  btn->small = false;
   btn->focused = false;
   btn->disabled = false;
   btn->press_start_us = 0;
   btn->label_w = ui_text_face_width(UI_FACE_T20, label);
   btn->visible = (UiRect){x, y, ui_text_button_width(label), UI_BUTTON_H};
+  btn->hit = ui_rect_hit_from_visible(btn->visible, UI_TAP_MIN, UI_TAP_MIN);
+}
+
+void ui_text_button_init_small(UiTextButton *btn, const char *label, int x, int y) {
+  btn->label = label;
+  btn->small = true;
+  btn->focused = false;
+  btn->disabled = false;
+  btn->press_start_us = 0;
+  btn->label_w = ui_text_face_width(UI_FACE_T16, label);
+  int w = btn->label_w + 2 * UI_BUTTON_SMALL_PAD;
+  if (w < UI_BUTTON_SMALL_MIN_W)
+    w = UI_BUTTON_SMALL_MIN_W;
+  btn->visible = (UiRect){x, y, w, UI_BUTTON_SMALL_H};
   btn->hit = ui_rect_hit_from_visible(btn->visible, UI_TAP_MIN, UI_TAP_MIN);
 }
 
@@ -42,20 +57,21 @@ void ui_text_button_draw(const UiTextButton *btn) {
   const float k = btn->disabled ? (float)UI_BUTTON_DISABLED_PCT / 100.0f : 1.0f;
   const bool pressed = is_pressed(btn);
   const UiRect v = btn->visible;
-  const UiRect text = {v.x + (v.w - btn->label_w) / 2, v.y + (v.h - UI_T20_LINE) / 2, btn->label_w,
-                       UI_T20_LINE};
+  const UiFace face = btn->small ? UI_FACE_T16 : UI_FACE_T20;
+  const int line = btn->small ? UI_T16_LINE : UI_T20_LINE;
+  const UiRect text = {v.x + (v.w - btn->label_w) / 2, v.y + (v.h - line) / 2, btn->label_w, line};
 
   if (btn->focused) {
     ui_glow_draw_rect(text, UI_BUTTON_GLOW,
                       ui_color_scale_alpha(UI_GLOW, (float)UI_BUTTON_GLOW_PCT / 100.0f * k));
   }
   if (pressed || btn->focused) {
-    ui_shape3_draw(UI_SHAPE3_PILL_48, v.x, v.y, v.w,
+    ui_shape3_draw(btn->small ? UI_SHAPE3_PILL_32 : UI_SHAPE3_PILL_48, v.x, v.y, v.w,
                    ui_color_scale_alpha(pressed ? UI_FILL_ON : UI_FILL_FOCUS, k));
   }
-  ui_shape3_draw(UI_SHAPE3_PILL_48_OUTLINE, v.x, v.y, v.w,
+  ui_shape3_draw(btn->small ? UI_SHAPE3_PILL_32_OUTLINE : UI_SHAPE3_PILL_48_OUTLINE, v.x, v.y, v.w,
                  ui_color_scale_alpha(btn->focused ? UI_TEXT : UI_LINE, k));
-  ui_text_draw_face_centered_v(UI_FACE_T20, text.x, v.y, v.h,
+  ui_text_draw_face_centered_v(face, text.x, v.y, v.h,
                                ui_color_scale_alpha(btn->focused ? UI_TEXT : UI_TEXT_2, k),
                                btn->label);
 }

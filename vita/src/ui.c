@@ -12,7 +12,6 @@
  * - ui_input.c: Button/touch input handling and gesture detection
  * - ui_state.c: UI state management and transitions
  * - ui_components.c: Reusable UI widgets (toggles, dropdowns, popups)
- * - ui_navigation.c: Wave navigation sidebar and menu system
  * - ui_console_cards.c: Console selection card grid
  * - ui_screens.c: Full-screen rendering (main, settings, profile, etc.)
  *
@@ -63,7 +62,6 @@
 #include "ui/ui_input.h"
 #include "ui/ui_state.h"
 #include "ui/ui_components.h"
-#include "ui/ui_navigation.h"
 #include "ui/ui_focus.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_controller_diagram.h"
@@ -72,6 +70,7 @@
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
 #include "ui/ui_room_icons.h"
+#include "ui/ui_controller_page.h"
 #include "ui/ui_profile.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_settings_actions.h"
@@ -86,8 +85,7 @@ vita2d_texture *img_ps4;
 vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
 vita2d_texture *button_add_new;
-vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
-vita2d_texture *icon_button_triangle;
+vita2d_texture *icon_play, *icon_settings;
 vita2d_texture *vita_rps5_logo;
 vita2d_texture *ps5_logo;
 
@@ -103,12 +101,6 @@ static bool *touch_block_pending_clear = NULL;
 #define connection_overlay_stage ui_connection_stage()
 #define connection_thread_id (-1)  // Thread ID access not needed in ui.c (managed by ui_state.c)
 
-// Wave navigation constants moved to vita/include/ui/ui_constants.h
-// (removed duplicate definitions - canonical versions are in ui_constants.h)
-
-// Navigation state moved to ui_navigation.c
-// Access via ui_nav_* functions or extern declarations in ui_internal.h
-
 // HintsPopupState type moved to ui_types.h
 // HintsPopupState instance moved to ui_components.c
 
@@ -123,16 +115,11 @@ static bool *touch_block_pending_clear = NULL;
 // Component functions moved to ui_components.c (accessible via ui_internal.h)
 static void render_loss_indicator_preview(void);
 
-// Navigation functions moved to ui_navigation.c (accessible via ui_internal.h)
-
 // Debug menu configuration moved to ui_components.c
 
 // Connection overlay, cooldown, thread management, and text cache moved to ui_state.c
 
-// Wave navigation sidebar uses simple colored bar (no animation)
-
 // FocusArea and UIHostAction enums moved to ui_types.h (included via ui_state.h)
-// current_focus and last_console_selection moved to ui_navigation.c
 
 #define MAX_TOOLTIP_CHARS 200
 char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS] = {0};
@@ -148,24 +135,19 @@ char *cancel_btn_str = "Circle";
 
 // btn_pressed() and block_inputs_for_transition() moved to ui_input.c
 
-// ============================================================================
-// Navigation functions moved to ui_navigation.c
-// ============================================================================
-
-// Pill rendering, overlay, and touch functions moved to ui_navigation.c
-
 // Error popup and debug menu functions moved to ui_components.c
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings, Profile, PIN). They draw their own top bar (and hint row with the Network
- * Unstable pill, where they have one), so the corner logo, the wave sidebar and the old loss
+ * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
+ * the Network Unstable pill, where they have one), so the corner logo and the old loss
  * indicator are not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
          screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
-         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_REGISTER_HOST;
+         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_CONTROLLER ||
+         screen == UI_SCREEN_TYPE_REGISTER_HOST;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -186,6 +168,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "settings";
     case UI_SCREEN_TYPE_PROFILE:
       return "profile";
+    case UI_SCREEN_TYPE_CONTROLLER:
+      return "controller";
     case UI_SCREEN_TYPE_REGISTER_HOST:
       return "pin";
     default:
@@ -284,12 +268,9 @@ void load_textures() {
   ellipse_red = ui_load_png_linear("app0:/assets/ellipse_red.png");
   button_add_new = ui_load_png_linear("app0:/assets/button_add_new.png");
 
-  // Load navigation icons
+  // Load the Home category icons
   icon_play = ui_load_png_linear("app0:/assets/icon_play.png");
   icon_settings = ui_load_png_linear("app0:/assets/icon_settings.png");
-  icon_controller = ui_load_png_linear("app0:/assets/icon_controller.png");
-  icon_profile = ui_load_png_linear("app0:/assets/icon_profile.png");
-  icon_button_triangle = ui_load_png_linear("app0:/assets/icon_button_triangle.png");
 
   // Load new professional assets
   vita_rps5_logo = ui_load_png_linear("app0:/assets/Vita_RPS5_Logo.png");
@@ -388,7 +369,6 @@ bool ui_reload_psn_account_id(void) {
 // ============================================================================
 // All screen rendering functions moved to ui_screens.c:
 // - ui_screen_draw_main()
-// - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
 // - ui_screen_draw_stream()
@@ -438,6 +418,7 @@ void init_ui() {
   ui_toast_init();
   ui_settings_init();
   ui_profile_init();
+  ui_controller_page_init();
   ui_pin_init();
   ui_list_popup_init();
 
@@ -455,7 +436,6 @@ void init_ui() {
   ui_input_init();
   ui_screens_init();
   ui_state_init();
-  ui_nav_init();    // Initialize navigation module
   ui_focus_init();  // Initialize centralized focus manager (Phase 1)
 
   // Get pointers to input state for direct manipulation (legacy compatibility)
@@ -717,10 +697,6 @@ void draw_ui() {
                            screen == UI_SCREEN_TYPE_RECONNECTING);
       }
 
-      // Wave navigation area removed - nav is a pure overlay with no background
-
-      // Focus overlay moved to after screen rendering for correct z-order
-
       // Old screens only: Home and Connecting draw the logo in their own top bar (C23)
       if (vita_rps5_logo && !screen_has_xmb_chrome(screen)) {
         int logo_w = vita2d_texture_get_width(vita_rps5_logo);
@@ -738,10 +714,6 @@ void draw_ui() {
 
       UIScreenType prev_screen = screen;
       UIScreenType next_screen = screen;
-
-      // Handle zone-crossing navigation (LEFT/RIGHT between nav bar and content)
-      // This must happen before screen-specific input handling
-      ui_focus_handle_zone_crossing(screen);
 
       // Render the current screen
       if (screen == UI_SCREEN_TYPE_MAIN) {
@@ -769,25 +741,14 @@ void draw_ui() {
       } else if (screen == UI_SCREEN_TYPE_PROFILE) {
         next_screen = ui_profile_frame();
       } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
-        // Phase 2: Controller Configuration screen
-        next_screen = ui_screen_draw_controller();
+        next_screen = ui_controller_page_frame();
       }
 
       if (next_screen != prev_screen) {
         block_inputs_for_transition();
-        // Menu stays in current state - user controls collapse via Triangle or content tap
       }
       drawn_screen = prev_screen;
       screen = next_screen;
-
-      // The wave sidebar belongs to the old screens only; Home has its own category bar.
-      if (!screen_has_xmb_chrome(screen)) {
-        // Render focus overlay after all screen content (correct z-order)
-        ui_nav_render_content_overlay();
-
-        // Render navigation menu overlay (on top of tint)
-        render_wave_navigation();
-      }
 
       // Render hints system (indicator + popup)
       render_hints_indicator();

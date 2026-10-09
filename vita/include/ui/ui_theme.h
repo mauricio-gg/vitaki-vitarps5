@@ -687,6 +687,11 @@ typedef enum ui_face_t {
 #define UI_BUTTON_H UI_SHAPE_H_BUTTON
 #define UI_BUTTON_MIN_W 128
 #define UI_BUTTON_PAD UI_S3
+/** The small variant (SPEC 4.1 footer buttons): a 32 px pill, T16 label, UI_S2 padding, at least
+ * 96 wide, with a UI_TAP_MIN high hit rect. */
+#define UI_BUTTON_SMALL_H 32
+#define UI_BUTTON_SMALL_MIN_W 96
+#define UI_BUTTON_SMALL_PAD UI_S2
 #define UI_BUTTON_PRESS_MS UI_D1_MS
 #define UI_BUTTON_DISABLED_PCT 45
 #define UI_BUTTON_GLOW 12
@@ -780,3 +785,69 @@ typedef enum ui_face_t {
 #define UI_RECON_NOTE_GAP UI_S2
 /** Bitrate shown when no recovery bitrate is set yet (the old screen's fallback). */
 #define UI_RECON_DEFAULT_KBPS 800
+
+/* ============================================================================
+ * Controller page (ui_controller_page.c, SPEC C20 and section 3.8)
+ * ============================================================================ */
+
+/** The Summary page 1 front diagram box. The height keeps the art's 874 : 396 shape at this
+ * width, rounded up so the art is limited by the width. */
+#define UI_CTRL_FRONT_X 164
+#define UI_CTRL_FRONT_Y 176
+#define UI_CTRL_FRONT_W 630
+#define UI_CTRL_FRONT_H 286
+
+/** The back chevron at the left of the title row: a UI_TAP_MIN box at x 0 holding the art. */
+#define UI_CTRL_BACK_ART 24
+#define UI_CTRL_BACK_STROKE 2.0f
+
+/** The preset switcher in the title row's right slot: chevron box, label box, chevron box, with
+ * UI_CTRL_PRESET_GAP between them, ending at UI_CONTENT_RIGHT. The label is centred in its box. */
+#define UI_CTRL_PRESET_LABEL_W 96
+#define UI_CTRL_PRESET_GAP UI_S1
+
+/** The L1 and R1 callouts: a UI_CTRL_CALLOUT_W box (wider when the text is) UI_CTRL_CALLOUT_H high
+ * at UI_CTRL_CALLOUT_Y, the left one at UI_CTRL_CALLOUT_LEFT_X, the right one ending at
+ * UI_CTRL_CALLOUT_RIGHT_EDGE. The hit rect reaches UI_CTRL_CALLOUT_HIT_PAD above and below. */
+#define UI_CTRL_CALLOUT_Y 136
+#define UI_CTRL_CALLOUT_H 32
+#define UI_CTRL_CALLOUT_W 136
+#define UI_CTRL_CALLOUT_HIT_PAD 8
+#define UI_CTRL_CALLOUT_LEFT_X 64
+#define UI_CTRL_CALLOUT_RIGHT_EDGE 896
+#define UI_CTRL_CALLOUT_TEXT_MAX 48
+/** The leader ends at the shoulder: this far from the diagram's top, and from its left (L1) or
+ * right (R1) side, in percent of the diagram box. It ends in a UI_CTRL_DOT px dot. */
+#define UI_CTRL_SHOULDER_X_PCT 10
+#define UI_CTRL_SHOULDER_Y_PCT 10
+#define UI_CTRL_DOT 6
+
+/** The Summary page 2 rear diagram box (art 720 : 327, the height rounded up like the front's) and
+ * the two zone-view boxes, front (874 : 396) and rear. */
+#define UI_CTRL_REAR_X 170
+#define UI_CTRL_REAR_Y 176
+#define UI_CTRL_REAR_W 620
+#define UI_CTRL_REAR_H 282
+#define UI_CTRL_ZONE_FRONT_X 120
+#define UI_CTRL_ZONE_FRONT_Y 144
+#define UI_CTRL_ZONE_FRONT_W 720
+#define UI_CTRL_ZONE_FRONT_H 327
+#define UI_CTRL_ZONE_REAR_X 140
+#define UI_CTRL_ZONE_REAR_Y 152
+#define UI_CTRL_ZONE_REAR_W 680
+#define UI_CTRL_ZONE_REAR_H 309
+
+/** The footers: the preset description at the left margin, the page label at the right. The page
+ * label's hit rect reaches UI_CTRL_FOOT_HIT_PAD_X to each side and UI_CTRL_FOOT_HIT_PAD_Y above
+ * and below, to UI_TAP_MIN high. */
+#define UI_CTRL_FOOT_Y 464
+#define UI_CTRL_FOOT_H 24
+#define UI_CTRL_FOOT_HIT_PAD_X 8
+#define UI_CTRL_FOOT_HIT_PAD_Y 12
+
+/** The small Clear and Whole surface buttons, centred as a row in the footer band, UI_S2 apart. */
+#define UI_CTRL_FOOT_BTN_Y 460
+#define UI_CTRL_FOOT_BTN_GAP UI_S2
+
+/** In a zone view the preset name follows the title as a T16 sub, this far after the title. */
+#define UI_CTRL_SUB_GAP (UI_S2 + UI_S1)
