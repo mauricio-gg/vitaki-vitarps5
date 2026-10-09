@@ -235,8 +235,6 @@ void ui_home_init(void) {
 }
 
 void ui_home_on_enter(void) {
-  if (!ui_focus_has_modal())
-    ui_focus_set_zone(FOCUS_ZONE_MAIN_CONTENT);
   ui_home_options_reset();
   s_hints.count = 0;
   ui_xmb_list_cascade_in(&s_list);
@@ -612,7 +610,6 @@ static UIScreenType open_category_screen(void) {
     ui_controller_page_open(s_list.focus);
   else if (s_bar.focus == HOME_CAT_PROFILE)
     ui_profile_open(s_list.focus);
-  ui_focus_move_to_content(target);
   return target;
 }
 

@@ -19,7 +19,6 @@
 #include "ui/ui_console_status.h"
 #include "ui/ui_text.h"
 #include "ui/ui_filter_keyboard.h"
-#include "ui/ui_focus.h"
 #include "context.h"
 #include "host.h"
 #include "psn_auth.h"

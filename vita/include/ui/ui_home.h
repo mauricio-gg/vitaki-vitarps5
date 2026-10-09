@@ -21,9 +21,8 @@ void ui_home_init(void);
 /**
  * ui_home_on_enter() - Make Home the active screen cleanly.
  *
- * Returns the focus manager to the main-content zone (unless a modal is open) and
- * collapses the old wave sidebar, so input can never be left routed to a sidebar
- * that Home does not draw. Call on the frame the UI switches to Home.
+ * Closes the Options column and any popup it opened, clears the hint taps, then restarts the list
+ * cascade and the detail panel rise. Call on the frame the UI switches to Home.
  */
 void ui_home_on_enter(void);
 
