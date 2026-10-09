@@ -9,7 +9,7 @@ What the code on `main` does today. Paths are relative to the repo root. Detail 
 | `vita/src/`, `vita/include/` | The Vita client app (C). UI modules are in `vita/src/ui/` and `vita/include/ui/`. |
 | `lib/` | The Chiaki core (session, control channel, Takion transport, video and audio receivers, discovery, registration, PSN hole punching in `lib/src/remote/`). It is a fork of upstream Chiaki with local changes, so treat it as upstream unless a change is needed. |
 | `third-party/` | Bundled dependencies (curl, jerasure, gf-complete, libvita2d, nanopb, and others). |
-| `tools/` | `tools/build.sh` is the only supported way to build: it runs the VitaSDK toolchain in Docker. |
+| `tools/` | `tools/build.sh` is the only supported way to build: it runs the VitaSDK toolchain in Docker. Test and local builds carry version `0.1.N` (N bumped every build, `APP_VER` `00.06`). A release build passes `VITARPS5_RELEASE_VERSION` (e.g. `4.0.0`, set by the release workflow); that sets `version.h`, the versioned VPK name and `APP_VER` (major.minor only, a Vita format limit) and does not bump N. |
 | `assets/` | Images, SVGs and `psn-ca-bundle.pem`. |
 
 Layering rule: `vita/` calls into `lib/`, never the other way round. Where `vita/` needs a `lib/` value it cannot include, it keeps a hand-copied constant (for example the priorities logged in `vita/src/host.c:512-513`).

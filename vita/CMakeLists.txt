@@ -2,8 +2,11 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "VitaRPS5")
 set(VITA_TITLEID  "VRPS50001")  # VitaRPS5 unique ID (changed from CHIAKI001 to force LiveArea refresh)
-# TODO: Make it dynamic
-set(VITA_VERSION "00.06")
+# NN.NN app version for param.sfo. tools/build.sh always passes -DVITA_VERSION;
+# the default only applies to a bare cmake run.
+if(NOT VITA_VERSION)
+    set(VITA_VERSION "00.06")
+endif()
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
