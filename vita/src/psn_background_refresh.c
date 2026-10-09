@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
-/* The startup PSN refresh off the UI thread (GH #366).
+/* The PSN token refresh and device-list fetch off the UI thread (GH #366, #353).
+ *
+ * One job at a time, started from the startup step, the idle timer, the Profile "refresh hosts"
+ * action or a finished phone login (the origin, used in the log).
  *
  * Who writes what, and when:
  *   main thread, before the worker starts: decides whether a token refresh is needed and copies
@@ -12,7 +15,7 @@
  * The only field both threads touch while the worker runs is job.done, under job.mutex; the
  * main thread reads the worker's fields only after seeing done and joining the thread. */
 
-#include "psn_startup_refresh.h"
+#include "psn_background_refresh.h"
 
 #include <chiaki/common.h>
 #include <chiaki/thread.h>
@@ -36,7 +39,7 @@
 
 #if CHIAKI_CAN_USE_HOLEPUNCH
 
-#define WORKER_NAME "PsnStartupRefresh"
+#define WORKER_NAME "PsnBackgroundRefresh"
 /* Lower priority than the UI thread, which runs at the default (160): a higher number is a lower
  * priority on Vita. 176 keeps the worker from ever competing with the draw loop. */
 #define WORKER_PRIORITY 176
@@ -58,6 +61,8 @@ typedef struct {
   char *access_token; /* copy of the stored token, used when no refresh is needed */
   uint32_t grant_generation;
   uint64_t begin_us;
+  PsnRefreshOrigin origin;
+  PsnRefreshDoneFn on_done; /* main thread only; may be attached while the worker runs */
 
   /* Written by the worker only. */
   PsnAuthRefreshResult refresh_result;
@@ -66,9 +71,16 @@ typedef struct {
   ChiakiHolepunchDeviceInfo *devices;
   size_t device_count;
   uint64_t worker_us;
-} StartupJob;
+} RefreshJob;
 
-static StartupJob s_job;
+static RefreshJob s_job;
+
+static const char *const ORIGIN_NAMES[] = {
+    [PSN_REFRESH_STARTUP] = "startup",
+    [PSN_REFRESH_IDLE] = "idle",
+    [PSN_REFRESH_PROFILE] = "profile",
+    [PSN_REFRESH_LOGIN] = "login",
+};
 
 static uint64_t now_us(void) {
   return sceKernelGetProcessTimeWide();
@@ -77,12 +89,12 @@ static uint64_t now_us(void) {
 /** save_config() - Write the config and clear the pending-persist flag, logging a failure. */
 static void save_config(const char *why) {
   if (!config_serialize(&context.config))
-    CHIAKI_LOGW(&(context.log), "PSN startup refresh: failed to persist config (%s)", why);
+    CHIAKI_LOGW(&(context.log), "PSN background refresh: failed to persist config (%s)", why);
   context.config_persist_pending = false;
 }
 
-/** startup_worker() - Network half: token refresh if needed, then the device list. */
-static int startup_worker(SceSize args, void *argp) {
+/** refresh_worker() - Network half: token refresh if needed, then the device list. */
+static int refresh_worker(SceSize args, void *argp) {
   (void)args;
   (void)argp;
   const uint64_t start_us = now_us();
@@ -116,19 +128,19 @@ static void job_release(void) {
 /** start_worker() - Create and start the worker thread. Returns false (logged) on failure. */
 static bool start_worker(void) {
   if (chiaki_mutex_init(&s_job.mutex, false) != CHIAKI_ERR_SUCCESS) {
-    LOGE("PSN startup refresh: mutex init failed");
+    LOGE("PSN background refresh: mutex init failed");
     return false;
   }
-  s_job.thread_id = sceKernelCreateThread(WORKER_NAME, startup_worker, WORKER_PRIORITY,
+  s_job.thread_id = sceKernelCreateThread(WORKER_NAME, refresh_worker, WORKER_PRIORITY,
                                           WORKER_STACK_BYTES, 0, 0, NULL);
   if (s_job.thread_id < 0) {
-    LOGE("PSN startup refresh: failed to create worker thread (%d)", s_job.thread_id);
+    LOGE("PSN background refresh: failed to create worker thread (%d)", s_job.thread_id);
     chiaki_mutex_fini(&s_job.mutex);
     return false;
   }
   int status = sceKernelStartThread(s_job.thread_id, 0, NULL);
   if (status < 0) {
-    LOGE("PSN startup refresh: failed to start worker thread (%d)", status);
+    LOGE("PSN background refresh: failed to start worker thread (%d)", status);
     sceKernelDeleteThread(s_job.thread_id);
     chiaki_mutex_fini(&s_job.mutex);
     return false;
@@ -136,38 +148,61 @@ static bool start_worker(void) {
   return true;
 }
 
-/** run_synchronously() - The fallback when no worker can be started: the old blocking path. */
-static void run_synchronously(void) {
-  psn_remote_refresh_hosts();
+/**
+ * run_synchronously() - The fallback when no worker can be started: the old blocking path.
+ *
+ * @return true when the host list was refreshed (what the done callback is told)
+ */
+static bool run_synchronously(PsnRefreshOrigin origin) {
+  bool hosts_ok = false;
+  if (origin == PSN_REFRESH_IDLE)
+    psn_auth_refresh_token_if_needed((uint64_t)time(NULL), false);
+  else
+    hosts_ok = psn_remote_refresh_hosts() == 0;
   /* Drain any token refresh that happened but didn't persist (e.g. host fetch failed after a
    * successful token refresh). */
   if (context.config_persist_pending)
     save_config("synchronous fallback");
+  return hosts_ok;
 }
 
-void psn_startup_refresh_begin(void) {
-  if (s_job.running)
-    return;
+bool psn_background_refresh_begin(PsnRefreshOrigin origin, PsnRefreshDoneFn on_done) {
+  if (s_job.running) {
+    /* Hand the caller's callback to the job already running instead of starting a second one. */
+    if (on_done) {
+      s_job.on_done = on_done;
+      return true;
+    }
+    return false;
+  }
   const uint64_t now_unix = (uint64_t)time(NULL);
-  psn_remote_log_refresh_begin(now_unix);
+  if (origin != PSN_REFRESH_IDLE)
+    psn_remote_log_refresh_begin(now_unix);
   if (!psn_auth_enabled()) {
-    LOGD("PSN host refresh skipped: PSN internet mode disabled");
-    return;
+    if (origin != PSN_REFRESH_IDLE)
+      LOGD("PSN host refresh skipped: PSN internet mode disabled");
+    return false;
   }
 
   memset(&s_job, 0, sizeof(s_job));
   s_job.thread_id = -1;
+  s_job.origin = origin;
+  s_job.on_done = on_done;
   switch (psn_auth_refresh_prepare(now_unix, false, true, &s_job.request)) {
     case PSN_AUTH_REFRESH_PREP_SKIPPED:
-      LOGD("PSN host refresh skipped: OAuth token invalid and cannot be refreshed");
-      return;
+      if (origin != PSN_REFRESH_IDLE)
+        LOGD("PSN host refresh skipped: OAuth token invalid and cannot be refreshed");
+      return false;
     case PSN_AUTH_REFRESH_PREP_VALID:
+      /* The idle timer exists to renew the token; a valid one needs no job. */
+      if (origin == PSN_REFRESH_IDLE)
+        return false;
       s_job.access_token = strdup(psn_auth_access_token() ? psn_auth_access_token() : "");
       if (!s_job.access_token) {
         /* No psn_auth_refresh_background_finished() here: the in-flight flag is set only by a
          * prepare that returned READY. Any new early return after that point must clear it. */
-        LOGE("PSN startup refresh: out of memory copying the access token");
-        return;
+        LOGE("PSN background refresh: out of memory copying the access token");
+        return false;
       }
       break;
     case PSN_AUTH_REFRESH_PREP_READY:
@@ -178,14 +213,19 @@ void psn_startup_refresh_begin(void) {
   s_job.begin_us = now_us();
 
   if (!start_worker()) {
-    LOGE("PSN startup refresh: falling back to a blocking refresh");
+    LOGE("PSN background refresh: falling back to a blocking refresh");
+    PsnRefreshDoneFn fallback_done = s_job.on_done;
     psn_auth_refresh_background_finished();
     job_release();
-    run_synchronously();
-    return;
+    const bool hosts_ok = run_synchronously(origin);
+    if (fallback_done)
+      fallback_done(hosts_ok);
+    return true;
   }
   s_job.running = true;
-  LOGD("PIPE/PSN_STARTUP_REFRESH begin us=%llu", (unsigned long long)s_job.begin_us);
+  LOGD("PIPE/PSN_REFRESH begin origin=%s us=%llu", ORIGIN_NAMES[origin],
+       (unsigned long long)s_job.begin_us);
+  return true;
 }
 
 /**
@@ -215,7 +255,7 @@ static bool commit_hosts(char *label, size_t label_size) {
   return true;
 }
 
-void psn_startup_refresh_poll(void) {
+void psn_background_refresh_poll(void) {
   if (!s_job.running)
     return;
   chiaki_mutex_lock(&s_job.mutex);
@@ -238,7 +278,7 @@ void psn_startup_refresh_poll(void) {
       psn_auth_state(now_unix), s_job.grant_generation, psn_auth_grant_generation());
   if (verdict != PSN_AUTH_COMMIT_APPLY) {
     const bool login = verdict == PSN_AUTH_COMMIT_DROP_LOGIN_STARTED;
-    CHIAKI_LOGW(&(context.log), "PSN startup refresh: result dropped, %s while it was in flight",
+    CHIAKI_LOGW(&(context.log), "PSN background refresh: result dropped, %s while it was in flight",
                 login ? "a phone login started" : "the PSN tokens were replaced or cleared");
     token_label = login ? "dropped_login" : "dropped_grant_changed";
     snprintf(hosts_label, sizeof(hosts_label), "dropped");
@@ -274,20 +314,29 @@ void psn_startup_refresh_poll(void) {
 
   psn_auth_refresh_background_finished();
   const uint64_t worker_us = s_job.worker_us;
+  const PsnRefreshOrigin origin = s_job.origin;
+  PsnRefreshDoneFn on_done = s_job.on_done;
   job_release();
   const uint64_t end_us = now_us();
   UI_WORK_NOTE("psn_commit", commit_start_us);
-  LOGD("PIPE/PSN_STARTUP_REFRESH done us=%llu worker_us=%llu commit_us=%llu token=%s hosts=%s",
-       (unsigned long long)end_us, (unsigned long long)worker_us,
+  LOGD("PIPE/PSN_REFRESH done origin=%s us=%llu worker_us=%llu commit_us=%llu token=%s hosts=%s",
+       ORIGIN_NAMES[origin], (unsigned long long)end_us, (unsigned long long)worker_us,
        (unsigned long long)(end_us - commit_start_us), token_label, hosts_label);
+  if (on_done)
+    on_done(hosts_applied);
 }
 
 #else /* !CHIAKI_CAN_USE_HOLEPUNCH */
 
-void psn_startup_refresh_begin(void) {
-  psn_remote_refresh_hosts();
+bool psn_background_refresh_begin(PsnRefreshOrigin origin, PsnRefreshDoneFn on_done) {
+  if (origin == PSN_REFRESH_IDLE)
+    return false;
+  const bool hosts_ok = psn_remote_refresh_hosts() == 0;
+  if (on_done)
+    on_done(hosts_ok);
+  return true;
 }
 
-void psn_startup_refresh_poll(void) {}
+void psn_background_refresh_poll(void) {}
 
 #endif

@@ -14,14 +14,12 @@
 
 #include "context.h"
 #include "psn_auth.h"
-#include "psn_remote.h"
-#include "ui/ui_console_cards.h"
+#include "psn_background_refresh.h"
 #include "ui/ui_qr_panel.h"
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_text.h"
 #include "ui/ui_text_button.h"
 #include "ui/ui_theme.h"
-#include "ui/ui_draw_stats.h"
 #include "ui/ui_toast.h"
 #include "ui/ui_utf16.h"
 
@@ -208,11 +206,7 @@ static void submit_text(const char *text) {
   if (psn_auth_submit_authorization_response(text, (uint64_t)time(NULL))) {
     ui_settings_persist_config();
     ui_toast_show(TOAST_COMPLETE, UI_TOAST_OK);
-    const uint64_t work_start_us = UI_WORK_START();
-    const int refresh_result = psn_remote_refresh_hosts();
-    UI_WORK_NOTE("psn_hosts", work_start_us);
-    if (refresh_result == 0)
-      ui_cards_update_cache(true);
+    psn_background_refresh_begin(PSN_REFRESH_LOGIN, NULL);
     return;
   }
   const char *error = psn_auth_last_error();

@@ -53,7 +53,7 @@
 #include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
-#include "psn_startup_refresh.h"
+#include "psn_background_refresh.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_asset_preload.h"
@@ -481,7 +481,7 @@ static void step_psn_refresh(void) {
   time_t startup_t = time(NULL);
   if (startup_t != (time_t)-1) {
     s_startup_unix = (uint64_t)startup_t;
-    psn_startup_refresh_begin();
+    psn_background_refresh_begin(PSN_REFRESH_STARTUP, NULL);
   } else {
     CHIAKI_LOGW(&(context.log), "PSN auth: skipping startup host refresh — system clock not set");
   }
@@ -693,13 +693,14 @@ void draw_ui() {
       context.config_persist_pending = false;
     }
 
-    /* Commit the startup PSN refresh once its worker has finished (ticket #366). */
+    /* Commit the background PSN refresh once its worker has finished (tickets #366, #353). */
     if (!context.stream.is_streaming)
-      psn_startup_refresh_poll();
+      psn_background_refresh_poll();
 
     /* Proactively refresh PSN token once per minute while idle so it never
-     * expires unnoticed between user actions. Skip during streaming to avoid
-     * network contention with the media path. */
+     * expires unnoticed between user actions. The refresh runs in the background and starts
+     * only when the token needs it. Skip during streaming to avoid network contention with
+     * the media path. */
     if (!context.stream.is_streaming) {
       static uint64_t last_token_check_unix = 0;
       time_t t = time(NULL);
@@ -709,9 +710,7 @@ void draw_ui() {
           last_token_check_unix = s_startup_unix;
         if (now_unix - last_token_check_unix >= 60) {
           last_token_check_unix = now_unix;
-          const uint64_t work_start_us = UI_WORK_START();
-          psn_auth_refresh_token_if_needed(now_unix, false);
-          UI_WORK_NOTE("psn_token", work_start_us);
+          psn_background_refresh_begin(PSN_REFRESH_IDLE, NULL);
         }
       }
     }

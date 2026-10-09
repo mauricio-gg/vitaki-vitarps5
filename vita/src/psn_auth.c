@@ -52,7 +52,7 @@
 #define RESPONSE_CAP_BYTES (16 * 1024)
 #define AUTH_VERIFICATION_URL_MAX 1536
 #define PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
-/* How long a non-UI thread (the connect worker) waits for the startup refresh to be committed.
+/* How long a non-UI thread (the connect worker) waits for a background refresh to be committed.
  * The worker runs the OAuth POST (15 s curl timeout) and then the device-list fetch (10 s), so
  * 30 s covers both plus the wait for the next main-loop frame. */
 #define BACKGROUND_REFRESH_WAIT_MAX_US (30ULL * 1000000ULL)
@@ -1341,7 +1341,7 @@ PsnAuthRefreshPrep psn_auth_refresh_prepare(uint64_t now_unix, bool force, bool 
   /* Sony may rotate the refresh token on use; a second request with the same one could be
    * answered 400 and lock the user out. */
   if (!background && g_psn_auth.background_refresh_in_flight) {
-    LOGD("PSN auth refresh skipped: startup refresh in flight");
+    LOGD("PSN auth refresh skipped: background refresh in flight");
     return PSN_AUTH_REFRESH_PREP_SKIPPED;
   }
   if (!oauth_configured_for_refresh()) {
@@ -1446,9 +1446,9 @@ uint32_t psn_auth_grant_generation(void) {
 }
 
 /**
- * wait_for_background_refresh() - Let the startup refresh finish before a refresh from a worker.
+ * wait_for_background_refresh() - Let a background refresh finish before a refresh from a worker.
  *
- * The connect worker must not fail with "session expired" just because the startup refresh is
+ * The connect worker must not fail with "session expired" just because a background refresh is
  * still in flight; the UI thread commits it, then this caller re-runs the normal logic. The UI
  * thread itself never waits (it is the one that commits).
  *
@@ -1466,11 +1466,11 @@ static uint64_t wait_for_background_refresh(uint64_t now_unix) {
     waited_us = sceKernelGetProcessTimeWide() - start_us;
   }
   if (g_psn_auth.background_refresh_in_flight) {
-    LOGE("PSN auth: startup refresh still in flight after %llu ms; continuing without it",
+    LOGE("PSN auth: background refresh still in flight after %llu ms; continuing without it",
          (unsigned long long)(waited_us / 1000ULL));
     return now_unix;
   }
-  LOGD("PSN auth: waited %llu ms for the startup refresh to commit",
+  LOGD("PSN auth: waited %llu ms for the background refresh to commit",
        (unsigned long long)(waited_us / 1000ULL));
   return now_unix + waited_us / 1000000ULL;
 }

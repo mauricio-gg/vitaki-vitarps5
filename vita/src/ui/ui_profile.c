@@ -20,6 +20,7 @@
 #include "context.h"
 #include "logging.h"
 #include "psn_auth.h"
+#include "psn_background_refresh.h"
 #include "psn_remote.h"
 #include "ui.h"
 #include "ui/ui_animation.h"
@@ -224,16 +225,18 @@ static void psn_log_in(void) {
   ui_toast_show(error && error[0] ? error : PSN_LOGIN_FAILED, UI_TOAST_ERR);
 }
 
-static void psn_refresh_hosts(void) {
-  const uint64_t work_start_us = UI_WORK_START();
-  const int refresh_result = psn_remote_refresh_hosts();
-  UI_WORK_NOTE("psn_hosts", work_start_us);
-  if (refresh_result == 0) {
-    ui_cards_update_cache(true);
+/** Show the result of the Profile host refresh, once the background job has been committed. */
+static void psn_hosts_refresh_done(bool hosts_applied) {
+  if (hosts_applied)
     ui_toast_show(PSN_HOSTS_REFRESHED, UI_TOAST_OK);
-  } else {
+  else
     ui_toast_show(PSN_HOSTS_FAILED, UI_TOAST_ERR);
-  }
+}
+
+/** Reload the consoles in the background; the toast follows when the job is committed. */
+static void psn_refresh_hosts(void) {
+  if (!psn_background_refresh_begin(PSN_REFRESH_PROFILE, psn_hosts_refresh_done))
+    ui_toast_show(PSN_HOSTS_FAILED, UI_TOAST_ERR);
 }
 
 /** Remove the saved PSN login: tokens, cached internet consoles, then save and refresh the cards.

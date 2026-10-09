@@ -20,7 +20,7 @@ int psn_remote_refresh_hosts(void);
 
 #if CHIAKI_CAN_USE_HOLEPUNCH
 /*
- * The two halves of psn_remote_refresh_hosts(), split so the startup refresh can run the network
+ * The two halves of psn_remote_refresh_hosts(), split so the background refresh can run the network
  * half on a worker thread and the apply half on the main thread (GH #366).
  */
 
