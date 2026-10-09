@@ -1,10 +1,12 @@
 /**
  * @file ui_controller_page.c
- * @brief The XMB Controller page, Summary page 1 "Buttons" (SPEC.md C20 and section 3.8)
+ * @brief The XMB Controller page: Summary pages 1 "Buttons" and 2 "Back Touch", and the Front and
+ *        Rear Touch zone views (SPEC.md C20 and section 3.8)
  *
- * Input goes to the Shoulder Mapping popup while it is open, otherwise to the page. The page keeps
- * no copy of the mapping: callout text is rebuilt only when the output it names changes, and the
- * model (ui_controller_model.c) holds the data and saves every change.
+ * Input goes to the mapping popup while it is open, otherwise to the page. The page keeps no copy
+ * of the mapping: callout text and the zone grids are rebuilt only when the output they show
+ * changes, and the model (ui_controller_model.c) holds the data and saves every change. The grids
+ * are ui_controller_zones.c's and the popup ui_controller_mapping.c's.
  */
 
 #include "ui/ui_controller_page.h"
@@ -19,29 +21,46 @@
 #include "ui/ui_bake.h"
 #include "ui/ui_chevron.h"
 #include "ui/ui_component.h"
+#include "ui/ui_constants.h"
 #include "ui/ui_controller_diagram.h"
+#include "ui/ui_controller_mapping.h"
 #include "ui/ui_controller_model.h"
+#include "ui/ui_controller_zones.h"
 #include "ui/ui_freeze.h"
 #include "ui/ui_hint_row.h"
 #include "ui/ui_home.h"
 #include "ui/ui_input.h"
-#include "ui/ui_list_popup.h"
 #include "ui/ui_page_frame.h"
 #include "ui/ui_text.h"
+#include "ui/ui_text_button.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_top_bar.h"
 
 /* Copy (SPEC section 5) */
 static const char TITLE[] = "Controller";
-static const char PAGE_LABEL[] = "Page 1/2 \xC2\xB7 Buttons";
+static const char TITLE_FRONT[] = "Front Touch";
+static const char TITLE_REAR[] = "Rear Touch";
+static const char PAGE_LABEL_BUTTONS[] = "Page 1/2 \xC2\xB7 Buttons";
+static const char PAGE_LABEL_REAR_FORMAT[] = "Page 2/2 \xC2\xB7 Back Touch \xC2\xB7 %d %s";
+static const char ZONES_ONE[] = "zone";
+static const char ZONES_MANY[] = "zones";
+static const char FOOT_ZONE_FORMAT[] = "Zone %s";
+static const char FOOT_SELECTED_FORMAT[] = "%d Zones Selected";
 static const char CALLOUT_FORMAT[] = "%s \xE2\x86\x92 %s";
-static const char MAPPING_TITLE[] = "Shoulder Mapping";
+static const char SUBTITLE_L1[] = "Left Shoulder (L1)";
+static const char SUBTITLE_R1[] = "Right Shoulder (R1)";
+static const char BUTTON_CLEAR[] = "Clear";
+static const char BUTTON_WHOLE[] = "Whole surface";
 static const char HINT_PRESET[] = "Preset";
+static const char HINT_PAGE[] = "Page";
 static const char HINT_SHOULDER_PICK[] = "L1 / R1";
 static const char HINT_SHOULDER[] = "Shoulder";
+static const char HINT_ZONES[] = "Zones";
+static const char HINT_CLEAR[] = "Clear";
 static const char HINT_BACK[] = "Back";
+static const char HINT_MOVE[] = "Move";
 static const char HINT_ASSIGN[] = "Assign";
-static const char HINT_CANCEL[] = "Cancel";
+static const char HINT_WHOLE[] = "Whole surface";
 
 /** The two shoulder buttons, in callout order (left, right). */
 typedef enum shoulder_t {
@@ -52,8 +71,13 @@ typedef enum shoulder_t {
 
 static const VitakiCtrlIn SHOULDER_INPUT[SHOULDER_COUNT] = {VITAKI_CTRL_IN_L1, VITAKI_CTRL_IN_R1};
 static const char *const SHOULDER_NAME[SHOULDER_COUNT] = {"L1", "R1"};
-static const char *const SHOULDER_SUBTITLE[SHOULDER_COUNT] = {"Left Shoulder (L1)",
-                                                              "Right Shoulder (R1)"};
+static const char *const SHOULDER_SUBTITLE[SHOULDER_COUNT] = {SUBTITLE_L1, SUBTITLE_R1};
+
+/** The two Summary pages: the front buttons and the rear touch pad. */
+typedef enum page_t {
+  PAGE_BUTTONS = 0,
+  PAGE_BACK_TOUCH,
+} Page;
 
 /** One callout: its text, rects and leader, rebuilt only when the output it names changes. */
 typedef struct callout_t {
@@ -69,6 +93,7 @@ typedef struct callout_t {
 } Callout;
 
 #define NO_OUTPUT (-2)
+#define FOOT_TEXT_MAX 48
 
 /* ============================================================================
  * State
@@ -83,15 +108,33 @@ static vita2d_texture *s_dot = NULL;
 
 static Callout s_callouts[SHOULDER_COUNT];
 static Shoulder s_focus = SHOULDER_L1;
+
+/** Which view is showing: a Summary page, or the zone view of that page's side. */
+static Page s_page = PAGE_BUTTONS;
+static bool s_in_zones = false;
+
 /** The preset the label's position was computed for; -1 before the first frame. */
 static int s_label_preset = -1;
 static int s_label_text_x = 0;
-static int s_footer_page_x = 0;
 
-/** The Shoulder Mapping popup, and the inputs its choice is assigned to. */
-static UiListPopup s_popup;
-static VitakiCtrlIn s_targets[UI_CTRL_ZONE_COUNT + 1];
-static int s_target_count = 0;
+/** The page label at the footer's right: its text, position and tap rect. They are rebuilt when
+ * the page or the rear zone count changes (s_footer_key). */
+static char s_page_text[FOOT_TEXT_MAX];
+static int s_page_text_x = 0;
+static UiRect s_page_hit;
+static int s_footer_key = -1;
+
+/** The footer's left text in a zone view ("Zone C2", "N Zones Selected"), rebuilt when the cursor
+ * or the number of picked cells changes (s_zone_foot_key). */
+static char s_zone_foot[FOOT_TEXT_MAX];
+static int s_zone_foot_key = -1;
+
+/** Where the preset name sits after the title in a zone view. */
+static int s_sub_x = 0;
+
+/** The small Clear and Whole surface buttons. */
+static UiTextButton s_clear_btn;
+static UiTextButton s_whole_btn;
 
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
@@ -101,6 +144,60 @@ static UiRect s_back_hit;
 static UiRect s_chevron_left_hit;
 static UiRect s_label_hit;
 static UiRect s_chevron_right_hit;
+
+/* ============================================================================
+ * Views
+ * ============================================================================ */
+
+/** The zone grid shown by the current view: the zone view's, or Summary page 2's read-only one. */
+static UiCtrlZoneView zone_view(void) {
+  if (s_in_zones)
+    return s_page == PAGE_BUTTONS ? UI_CTRL_VIEW_FRONT : UI_CTRL_VIEW_REAR;
+  return UI_CTRL_VIEW_SUMMARY_REAR;
+}
+
+/** The touch surface the current Summary page, or zone view, is about. */
+static UiCtrlSide current_side(void) {
+  return s_page == PAGE_BUTTONS ? UI_CTRL_SIDE_FRONT : UI_CTRL_SIDE_REAR;
+}
+
+/** Centre the footer buttons of the current view as a row in the footer band. */
+static void layout_footer_buttons(void) {
+  ui_text_button_init_small(&s_whole_btn, BUTTON_WHOLE, 0, UI_CTRL_FOOT_BTN_Y);
+  ui_text_button_init_small(&s_clear_btn, BUTTON_CLEAR, 0, UI_CTRL_FOOT_BTN_Y);
+  int total = s_clear_btn.visible.w;
+  if (s_in_zones)
+    total += UI_CTRL_FOOT_BTN_GAP + s_whole_btn.visible.w;
+  int x = (VITA_WIDTH - total) / 2;
+  if (s_in_zones) {
+    ui_text_button_init_small(&s_whole_btn, BUTTON_WHOLE, x, UI_CTRL_FOOT_BTN_Y);
+    x += s_whole_btn.visible.w + UI_CTRL_FOOT_BTN_GAP;
+  }
+  ui_text_button_init_small(&s_clear_btn, BUTTON_CLEAR, x, UI_CTRL_FOOT_BTN_Y);
+}
+
+/** Show the zone view of the current page's side, the cursor on A1 with nothing picked. */
+static void enter_zones(void) {
+  s_in_zones = true;
+  ui_controller_zones_reset(zone_view());
+  s_zone_foot_key = -1;
+  const char *title = s_page == PAGE_BUTTONS ? TITLE_FRONT : TITLE_REAR;
+  s_sub_x = UI_PAGE_TITLE_X + ui_text_face_width(UI_FACE_T28, title) + UI_CTRL_SUB_GAP;
+  layout_footer_buttons();
+}
+
+/** Go back from a zone view to the Summary page it came from. */
+static void leave_zones(void) {
+  ui_controller_zones_reset(zone_view());
+  s_in_zones = false;
+  layout_footer_buttons();
+}
+
+/** Switch to the other Summary page. */
+static void toggle_page(void) {
+  s_page = s_page == PAGE_BUTTONS ? PAGE_BACK_TOUCH : PAGE_BUTTONS;
+  s_footer_key = -1;
+}
 
 /* ============================================================================
  * Setup
@@ -128,10 +225,10 @@ void ui_controller_page_init(void) {
   s_chevron_left_hit =
       (UiRect){s_label_hit.x - UI_CTRL_PRESET_GAP - UI_TAP_MIN, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
 
-  memset(&s_popup, 0, sizeof(s_popup));
   for (int i = 0; i < SHOULDER_COUNT; i++)
     s_callouts[i].output = NO_OUTPUT;
   s_hints.count = 0;
+  layout_footer_buttons();
 }
 
 /** Load the diagram textures the first time the page is drawn (as the old screen did). */
@@ -139,16 +236,20 @@ static void ensure_diagram(void) {
   if (s_diagram_ready)
     return;
   ui_diagram_init(&s_diagram);
-  s_diagram.mode = CTRL_VIEW_FRONT;
-  s_diagram.detail_view = CTRL_DETAIL_SUMMARY;
   s_diagram_ready = true;
 }
 
 void ui_controller_page_open(int preset) {
   ui_controller_model_select_preset(preset);
   s_focus = SHOULDER_L1;
+  s_page = PAGE_BUTTONS;
+  s_in_zones = false;
   s_label_preset = -1;
-  ui_list_popup_close(&s_popup);
+  s_footer_key = -1;
+  ui_controller_mapping_close();
+  ui_controller_zones_reset(UI_CTRL_VIEW_FRONT);
+  ui_controller_zones_reset(UI_CTRL_VIEW_REAR);
+  layout_footer_buttons();
   s_hints.count = 0;
 }
 
@@ -181,84 +282,67 @@ static void layout_callout(int i) {
   c->leader_y2 = UI_CTRL_FRONT_Y + UI_CTRL_FRONT_H * UI_CTRL_SHOULDER_Y_PCT / 100;
 }
 
-/** Place the preset name in its label box and the page label at the right margin, when the
- * preset changed. */
-static void layout_labels(void) {
+/** Place the preset name in its label box when the preset changed. */
+static void layout_preset_label(void) {
   const int preset = ui_controller_model_preset();
   if (preset == s_label_preset)
     return;
   s_label_preset = preset;
   const int name_w = ui_text_face_width(UI_FACE_T20, g_controller_presets[preset].name);
   s_label_text_x = s_label_hit.x + (s_label_hit.w - name_w) / 2;
-  s_footer_page_x = UI_CONTENT_RIGHT - ui_text_face_width(UI_FACE_T16, PAGE_LABEL);
 }
 
-/** Bring the labels and both callouts up to date with the model. */
-static void layout_all(void) {
-  layout_labels();
-  for (int i = 0; i < SHOULDER_COUNT; i++)
-    layout_callout(i);
-}
-
-/* ============================================================================
- * Shoulder Mapping popup
- * ============================================================================ */
-
-/**
- * open_mapping_popup() - Open the mapping popup (C11 size L, C12 list) for @count inputs.
- * @title:    "Shoulder Mapping", or a touch mapping title.
- * @subtitle: What the inputs are ("Left Shoulder (L1)", "Front C2", "N Zones Selected").
- * @targets:  The inputs the chosen output is assigned to; copied.
- *
- * The 11 outputs are the rows; the one every input holds is ticked and focused. When the inputs
- * differ nothing is ticked and the first row is focused.
- */
-static void open_mapping_popup(const char *title, const char *subtitle, const VitakiCtrlIn *targets,
-                               int count) {
-  if (count <= 0 || count > (int)(sizeof(s_targets) / sizeof(s_targets[0]))) {
-    LOGE("Controller page: cannot open the mapping popup for %d inputs", count);
+/** Rebuild the page label at the footer's right, with its tap rect, when the page or the number
+ * of mapped rear zones it shows changed. */
+static void layout_page_label(void) {
+  const int zones =
+      s_page == PAGE_BACK_TOUCH ? ui_controller_model_mapped_zones(UI_CTRL_SIDE_REAR) : 0;
+  const int key = (int)s_page * (UI_CTRL_ZONES + 1) + zones;
+  if (key == s_footer_key)
     return;
+  s_footer_key = key;
+  if (s_page == PAGE_BUTTONS) {
+    snprintf(s_page_text, sizeof(s_page_text), "%s", PAGE_LABEL_BUTTONS);
+  } else {
+    snprintf(s_page_text, sizeof(s_page_text), PAGE_LABEL_REAR_FORMAT, zones,
+             zones == 1 ? ZONES_ONE : ZONES_MANY);
   }
-  memcpy(s_targets, targets, (size_t)count * sizeof(targets[0]));
-  s_target_count = count;
-
-  const int common = ui_controller_model_common_output(targets, count);
-  const int current_row =
-      common == UI_CTRL_MIXED ? -1 : ui_controller_model_output_row((VitakiCtrlOut)common);
-
-  UiListRow rows[UI_CTRL_OUTPUT_COUNT] = {0};
-  for (int i = 0; i < UI_CTRL_OUTPUT_COUNT; i++) {
-    snprintf(rows[i].label, sizeof(rows[i].label), "%s",
-             controller_output_name(ui_controller_model_output_choice(i)));
-    rows[i].current = i == current_row;
-  }
-  ui_list_popup_open(&s_popup, &(UiListPopupSpec){
-                                   .size = UI_POPUP_SIZE_L,
-                                   .title = title,
-                                   .subtitle = subtitle,
-                                   .confirm_label = HINT_ASSIGN,
-                                   .cancel_label = HINT_CANCEL,
-                                   .rows = rows,
-                                   .count = UI_CTRL_OUTPUT_COUNT,
-                                   .focus = current_row >= 0 ? current_row : 0,
-                               });
+  const int w = ui_text_face_width(UI_FACE_T16, s_page_text);
+  s_page_text_x = UI_CONTENT_RIGHT - w;
+  s_page_hit =
+      (UiRect){s_page_text_x - UI_CTRL_FOOT_HIT_PAD_X, UI_CTRL_FOOT_Y - UI_CTRL_FOOT_HIT_PAD_Y,
+               w + 2 * UI_CTRL_FOOT_HIT_PAD_X, UI_TAP_MIN};
 }
 
-/** Open the Shoulder Mapping popup for shoulder @which. */
-static void open_shoulder_popup(Shoulder which) {
-  open_mapping_popup(MAPPING_TITLE, SHOULDER_SUBTITLE[which], &SHOULDER_INPUT[which], 1);
+/** Rebuild the zone view's left footer when the cursor or the picked count changed. */
+static void layout_zone_footer(void) {
+  const UiCtrlZoneView view = zone_view();
+  const int picked = ui_controller_zones_selection(view)->count;
+  const int cursor = ui_controller_zones_cursor(view);
+  const int key = picked > 1 ? UI_CTRL_ZONES + picked : cursor;
+  if (key == s_zone_foot_key)
+    return;
+  s_zone_foot_key = key;
+  if (picked > 1) {
+    snprintf(s_zone_foot, sizeof(s_zone_foot), FOOT_SELECTED_FORMAT, picked);
+  } else {
+    snprintf(s_zone_foot, sizeof(s_zone_foot), FOOT_ZONE_FORMAT, ui_controller_zones_name(cursor));
+  }
 }
 
-/** Drive the popup: a choice is assigned and saved, Cancel and a tap outside close it unchanged. */
-static void update_popup(const UiInput *in) {
-  const UiEvent event = ui_list_popup_input(&s_popup, in);
-  if (event == UI_EVENT_ACTIVATED) {
-    ui_controller_model_assign(s_targets, s_target_count,
-                               ui_controller_model_output_choice(s_popup.activated));
-    ui_list_popup_close(&s_popup);
-  } else if (event == UI_EVENT_CANCELLED) {
-    ui_list_popup_close(&s_popup);
+/** Bring everything the current view shows up to date with the model and the input. */
+static void layout_all(void) {
+  layout_preset_label();
+  if (s_in_zones) {
+    ui_controller_zones_sync(zone_view());
+    layout_zone_footer();
+  } else if (s_page == PAGE_BUTTONS) {
+    for (int i = 0; i < SHOULDER_COUNT; i++)
+      layout_callout(i);
+  } else {
+    ui_controller_zones_sync(UI_CTRL_VIEW_SUMMARY_REAR);
   }
+  layout_page_label();
 }
 
 /* ============================================================================
@@ -270,11 +354,29 @@ static bool tapped_in(const UiInput *in, UiRect r) {
   return ui_touch_tap(in) && ui_rect_contains(r, in->touch.x, in->touch.y);
 }
 
+/** Open the Shoulder Mapping popup for shoulder @which. */
+static void open_shoulder_popup(Shoulder which) {
+  ui_controller_mapping_open_shoulder(SHOULDER_INPUT[which], SHOULDER_SUBTITLE[which]);
+}
+
+/** Open the popup for the zones the grid just reported picked. */
+static void open_selection_popup(void) {
+  const UiZoneSelection *sel = ui_controller_zones_selection(zone_view());
+  ui_controller_mapping_open_zones(current_side(), sel->cells, sel->count);
+}
+
+/** The box a tap on the diagram of the current Summary page opens the zone view from. */
+static UiRect summary_diagram_rect(void) {
+  if (s_page == PAGE_BUTTONS)
+    return (UiRect){UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y, UI_CTRL_FRONT_W, UI_CTRL_FRONT_H};
+  return ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_REAR);
+}
+
 /**
- * update_page() - Act on this frame's input.
+ * update_summary() - Act on this frame's input on a Summary page.
  * @return true when the page should go back to Home
  */
-static bool update_page(const UiInput *in) {
+static bool update_summary(const UiInput *in) {
   if ((in->pressed & UI_BTN_CANCEL) || tapped_in(in, s_back_hit))
     return true;
 
@@ -284,13 +386,23 @@ static bool update_page(const UiInput *in) {
     ui_controller_model_step_preset(-1);
   } else if (tapped_in(in, s_chevron_right_hit) || tapped_in(in, s_label_hit)) {
     ui_controller_model_step_preset(1);
+  } else if (tapped_in(in, s_page_hit)) {
+    toggle_page();
+  } else if (tapped_in(in, s_clear_btn.hit)) {
+    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
   } else {
-    for (int i = 0; i < SHOULDER_COUNT; i++) {
-      if (tapped_in(in, s_callouts[i].hit)) {
-        s_focus = (Shoulder)i;
-        open_shoulder_popup(s_focus);
-        return false;
+    if (s_page == PAGE_BUTTONS) {
+      for (int i = 0; i < SHOULDER_COUNT; i++) {
+        if (tapped_in(in, s_callouts[i].hit)) {
+          s_focus = (Shoulder)i;
+          open_shoulder_popup(s_focus);
+          return false;
+        }
       }
+    }
+    if (tapped_in(in, summary_diagram_rect())) {
+      enter_zones();
+      return false;
     }
   }
 
@@ -300,14 +412,46 @@ static bool update_page(const UiInput *in) {
   else if (in->pressed & UI_BTN_RIGHT)
     ui_controller_model_step_preset(1);
 
-  if (in->pressed & UI_BTN_UP)
-    s_focus = SHOULDER_L1;
-  else if (in->pressed & UI_BTN_DOWN)
-    s_focus = SHOULDER_R1;
+  if (in->pressed & (UI_BTN_L | UI_BTN_R))
+    toggle_page();
 
-  if (in->pressed & UI_BTN_CONFIRM)
-    open_shoulder_popup(s_focus);
+  if (s_page == PAGE_BUTTONS) {
+    if (in->pressed & UI_BTN_UP)
+      s_focus = SHOULDER_L1;
+    else if (in->pressed & UI_BTN_DOWN)
+      s_focus = SHOULDER_R1;
+  }
+
+  if (in->pressed & UI_BTN_OPTIONS) {
+    enter_zones();
+  } else if (in->pressed & UI_BTN_CLEAR) {
+    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
+  } else if (in->pressed & UI_BTN_CONFIRM) {
+    if (s_page == PAGE_BUTTONS)
+      open_shoulder_popup(s_focus);
+    else
+      enter_zones();
+  }
   return false;
+}
+
+/** Act on this frame's input in a zone view: back, Whole surface, Clear, or the grid. */
+static void update_zones(const UiInput *in) {
+  if ((in->pressed & UI_BTN_CANCEL) || tapped_in(in, s_back_hit)) {
+    leave_zones();
+  } else if ((in->pressed & UI_BTN_OPTIONS) || tapped_in(in, s_whole_btn.hit)) {
+    ui_controller_mapping_open_side(current_side());
+  } else if ((in->pressed & UI_BTN_CLEAR) || tapped_in(in, s_clear_btn.hit)) {
+    ui_controller_model_assign_side(current_side(), VITAKI_CTRL_OUT_NONE);
+  } else if (ui_controller_zones_input(zone_view(), in) == UI_EVENT_ACTIVATED) {
+    open_selection_popup();
+  }
+}
+
+/** Drive the open popup; when it closes, drop the picks the grid still shows. */
+static void update_popup(const UiInput *in) {
+  if (ui_controller_mapping_update(in) && s_in_zones)
+    ui_controller_zones_clear_selection(zone_view());
 }
 
 /* ============================================================================
@@ -322,9 +466,8 @@ static void draw_centered(vita2d_texture *tex, UiRect box, int art, uint32_t col
                            (float)(box.y + (box.h - art) / 2), color);
 }
 
-/** Draw the back chevron and the preset switcher. Paper cost 4. */
-static void draw_title_row_controls(void) {
-  draw_centered(s_back_icon, s_back_hit, UI_CTRL_BACK_ART, UI_TEXT_2);
+/** Draw the preset switcher of a Summary page. Paper cost 3. */
+static void draw_preset_switcher(void) {
   draw_centered(s_chevron_left, s_chevron_left_hit, UI_CHOICE_ARROW_ART, UI_TEXT_2);
   ui_text_draw_face_centered_v(UI_FACE_T20, s_label_text_x, UI_TITLE_Y, UI_TAP_MIN, UI_TEXT,
                                g_controller_presets[s_label_preset].name);
@@ -359,37 +502,97 @@ static void draw_callout(int i) {
                         (float)c->visible.w, (float)line, focused ? UI_TEXT : UI_LEADER);
 }
 
-/** Draw the footers: the preset description at the left, the page label at the right. Paper cost 2.
- */
-static void draw_footers(void) {
-  ui_text_draw_face_centered_v(UI_FACE_T16, UI_MARGIN_X, UI_CTRL_FOOT_Y, UI_CTRL_FOOT_H, UI_TEXT_2,
-                               g_controller_presets[s_label_preset].description);
-  ui_text_draw_face_centered_v(UI_FACE_T16, s_footer_page_x, UI_CTRL_FOOT_Y, UI_CTRL_FOOT_H,
-                               UI_TEXT_2, PAGE_LABEL);
+/** Draw the front or rear art in @rect. Paper cost 1. */
+static void draw_diagram(ControllerViewMode mode, UiRect rect) {
+  s_diagram.mode = mode;
+  ui_diagram_render(&s_diagram, rect.x, rect.y, rect.w, rect.h);
 }
 
-/** Draw the page behind the popup layer: frame, top bar, controls, diagram, callouts, footers. */
-static void draw_page(void) {
-  ui_page_frame_draw(UI_PAGE_ICON_CONTROLLER, TITLE);
-  ui_top_bar_draw(NULL);
-  draw_title_row_controls();
-  ui_diagram_render(&s_diagram, ui_controller_model_map(), UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y,
-                    UI_CTRL_FRONT_W, UI_CTRL_FRONT_H);
+/** Draw a footer text at the left margin. Paper cost 1. */
+static void draw_left_footer(const char *text) {
+  ui_text_draw_face_centered_v(UI_FACE_T16, UI_MARGIN_X, UI_CTRL_FOOT_Y, UI_CTRL_FOOT_H, UI_TEXT_2,
+                               text);
+}
+
+/** Draw Summary page 1: preset switcher, front art, callouts and footers. */
+static void draw_buttons_page(void) {
+  draw_preset_switcher();
+  draw_diagram(CTRL_VIEW_FRONT,
+               (UiRect){UI_CTRL_FRONT_X, UI_CTRL_FRONT_Y, UI_CTRL_FRONT_W, UI_CTRL_FRONT_H});
   for (int i = 0; i < SHOULDER_COUNT; i++)
     draw_callout(i);
-  draw_footers();
+  draw_left_footer(g_controller_presets[s_label_preset].description);
 }
 
-/** Fill @out with the hint row (SPEC 3.8) and return how many. Page, Zones and Clear join the row
- * with the features they trigger. */
+/** Draw Summary page 2: preset switcher, rear art with the read-only zone grid, footers. */
+static void draw_back_touch_page(void) {
+  draw_preset_switcher();
+  draw_diagram(CTRL_VIEW_BACK, ui_controller_zones_diagram_rect(UI_CTRL_VIEW_SUMMARY_REAR));
+  ui_controller_zones_draw(UI_CTRL_VIEW_SUMMARY_REAR);
+  draw_left_footer(g_controller_presets[s_label_preset].description);
+}
+
+/** Draw a zone view: the preset name after the title, the art, the interactive grid and the
+ * cursor or selection footer. */
+static void draw_zone_view(void) {
+  ui_text_draw_face_centered_v(UI_FACE_T16, s_sub_x, UI_TITLE_Y, UI_PAGE_TITLE_H, UI_TEXT_2,
+                               g_controller_presets[s_label_preset].name);
+  const UiCtrlZoneView view = zone_view();
+  draw_diagram(s_page == PAGE_BUTTONS ? CTRL_VIEW_FRONT : CTRL_VIEW_BACK,
+               ui_controller_zones_diagram_rect(view));
+  ui_controller_zones_draw(view);
+  draw_left_footer(s_zone_foot);
+}
+
+/** The page title of the current view. */
+static const char *page_title(void) {
+  if (!s_in_zones)
+    return TITLE;
+  return s_page == PAGE_BUTTONS ? TITLE_FRONT : TITLE_REAR;
+}
+
+/** Draw the page behind the popup layer: frame, top bar, back chevron, the view and the footer
+ * buttons (Clear on a Summary page; Whole surface and Clear in a zone view, 4 draws each). */
+static void draw_page(void) {
+  ui_page_frame_draw(UI_PAGE_ICON_CONTROLLER, page_title());
+  ui_top_bar_draw(NULL);
+  draw_centered(s_back_icon, s_back_hit, UI_CTRL_BACK_ART, UI_TEXT_2);
+  if (s_in_zones) {
+    draw_zone_view();
+    ui_text_button_draw(&s_whole_btn);
+  } else {
+    if (s_page == PAGE_BUTTONS)
+      draw_buttons_page();
+    else
+      draw_back_touch_page();
+    ui_text_draw_face_centered_v(UI_FACE_T16, s_page_text_x, UI_CTRL_FOOT_Y, UI_CTRL_FOOT_H,
+                                 UI_TEXT_2, s_page_text);
+  }
+  ui_text_button_draw(&s_clear_btn);
+}
+
+/** Fill @out with the hint row of the current view (SPEC 3.8) and return how many. */
 static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
-  if (ui_list_popup_is_open(&s_popup))
-    return ui_list_popup_hints(&s_popup, out);
+  if (ui_controller_mapping_is_open())
+    return ui_controller_mapping_hints(out);
   int n = 0;
+  if (s_in_zones) {
+    out[n++] = (UiHintItem){.action = UI_BTN_DPAD, .label = HINT_MOVE};
+    out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_ASSIGN};
+    out[n++] = (UiHintItem){.action = UI_BTN_OPTIONS, .label = HINT_WHOLE};
+    out[n++] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CLEAR};
+    out[n++] = (UiHintItem){.action = UI_BTN_CANCEL, .label = HINT_BACK};
+    return n;
+  }
   out[n++] = (UiHintItem){
       .action = UI_BTN_LEFT | UI_BTN_RIGHT, .label = HINT_PRESET, .low_priority = true};
-  out[n++] = (UiHintItem){.action = UI_BTN_UP | UI_BTN_DOWN, .label = HINT_SHOULDER_PICK};
-  out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_SHOULDER};
+  out[n++] = (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_PAGE};
+  if (s_page == PAGE_BUTTONS) {
+    out[n++] = (UiHintItem){.action = UI_BTN_UP | UI_BTN_DOWN, .label = HINT_SHOULDER_PICK};
+    out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_SHOULDER};
+  }
+  out[n++] = (UiHintItem){.action = UI_BTN_OPTIONS, .label = HINT_ZONES};
+  out[n++] = (UiHintItem){.action = UI_BTN_CLEAR, .label = HINT_CLEAR, .low_priority = true};
   out[n++] = (UiHintItem){.action = UI_BTN_CANCEL, .label = HINT_BACK};
   return n;
 }
@@ -406,11 +609,14 @@ UIScreenType ui_controller_page_frame(void) {
    * known only after input, which is what opens the popup (see Home's frame). */
   const bool frozen = ui_freeze_is_ready();
 
-  /* A tapped hint acts as that button pressed in one frame; the D-pad hints have no action. */
+  /* A tapped hint acts as that button pressed in one frame; the D-pad hints have no action. In a
+   * zone view a tapped Confirm is a press and a release, which assigns the cursor's cell. */
   UiInput in = *ui_input_snapshot();
   const uint32_t tapped = ui_hint_row_tap(&s_hints, &in);
   if (tapped) {
     in.pressed |= tapped & ~(uint32_t)UI_BTN_DPAD;
+    if (s_in_zones)
+      in.released |= tapped & UI_BTN_CONFIRM;
     in.touch.pressed = false;
     in.touch.released = false;
     in.touch.down = false;
@@ -419,19 +625,21 @@ UIScreenType ui_controller_page_frame(void) {
   layout_all();
 
   bool back = false;
-  if (ui_list_popup_is_open(&s_popup))
+  if (ui_controller_mapping_is_open())
     update_popup(&in);
+  else if (s_in_zones)
+    update_zones(&in);
   else
-    back = update_page(&in);
+    back = update_summary(&in);
 
-  /* Input may have changed the preset or an output: lay out again before drawing. */
+  /* Input may have changed the view, the preset or an output: lay out again before drawing. */
   layout_all();
 
   const bool capturing = ui_freeze_is_capturing();
   if (!frozen)
     draw_page();
   if (!capturing)
-    ui_list_popup_draw(&s_popup);
+    ui_controller_mapping_draw();
 
   if (capturing) {
     s_hints.count = 0;

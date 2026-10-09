@@ -687,6 +687,11 @@ typedef enum ui_face_t {
 #define UI_BUTTON_H UI_SHAPE_H_BUTTON
 #define UI_BUTTON_MIN_W 128
 #define UI_BUTTON_PAD UI_S3
+/** The small variant (SPEC 4.1 footer buttons): a 32 px pill, T16 label, UI_S2 padding, at least
+ * 96 wide, with a UI_TAP_MIN high hit rect. */
+#define UI_BUTTON_SMALL_H 32
+#define UI_BUTTON_SMALL_MIN_W 96
+#define UI_BUTTON_SMALL_PAD UI_S2
 #define UI_BUTTON_PRESS_MS UI_D1_MS
 #define UI_BUTTON_DISABLED_PCT 45
 #define UI_BUTTON_GLOW 12
@@ -817,6 +822,32 @@ typedef enum ui_face_t {
 #define UI_CTRL_SHOULDER_Y_PCT 10
 #define UI_CTRL_DOT 6
 
-/** The footers: the preset description at the left margin, the page label at the right. */
+/** The Summary page 2 rear diagram box (art 720 : 327, the height rounded up like the front's) and
+ * the two zone-view boxes, front (874 : 396) and rear. */
+#define UI_CTRL_REAR_X 170
+#define UI_CTRL_REAR_Y 176
+#define UI_CTRL_REAR_W 620
+#define UI_CTRL_REAR_H 282
+#define UI_CTRL_ZONE_FRONT_X 120
+#define UI_CTRL_ZONE_FRONT_Y 144
+#define UI_CTRL_ZONE_FRONT_W 720
+#define UI_CTRL_ZONE_FRONT_H 327
+#define UI_CTRL_ZONE_REAR_X 140
+#define UI_CTRL_ZONE_REAR_Y 152
+#define UI_CTRL_ZONE_REAR_W 680
+#define UI_CTRL_ZONE_REAR_H 309
+
+/** The footers: the preset description at the left margin, the page label at the right. The page
+ * label's hit rect reaches UI_CTRL_FOOT_HIT_PAD_X to each side and UI_CTRL_FOOT_HIT_PAD_Y above
+ * and below, to UI_TAP_MIN high. */
 #define UI_CTRL_FOOT_Y 464
 #define UI_CTRL_FOOT_H 24
+#define UI_CTRL_FOOT_HIT_PAD_X 8
+#define UI_CTRL_FOOT_HIT_PAD_Y 12
+
+/** The small Clear and Whole surface buttons, centred as a row in the footer band, UI_S2 apart. */
+#define UI_CTRL_FOOT_BTN_Y 460
+#define UI_CTRL_FOOT_BTN_GAP UI_S2
+
+/** In a zone view the preset name follows the title as a T16 sub, this far after the title. */
+#define UI_CTRL_SUB_GAP (UI_S2 + UI_S1)

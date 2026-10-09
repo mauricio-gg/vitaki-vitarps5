@@ -18,6 +18,7 @@
 typedef struct ui_text_button_t {
   const char *label;        ///< borrowed; must outlive the button
   bool focused;             ///< set by the screen that owns the button
+  bool small;               ///< the 32 px footer variant (ui_text_button_init_small)
   bool disabled;            ///< drawn at UI_BUTTON_DISABLED_PCT and ignores input
   uint64_t press_start_us;  ///< when the button was activated; 0 when it never was
   int label_w;              ///< label width, measured once at init
@@ -31,6 +32,13 @@ int ui_text_button_width(const char *label);
 
 /** ui_text_button_init() - Set @btn up with its top-left corner at (@x, @y); not focused. */
 void ui_text_button_init(UiTextButton *btn, const char *label, int x, int y);
+
+/**
+ * ui_text_button_init_small() - Set @btn up as the small variant (SPEC 4.1): a 32 px pill with a
+ * T16 label, at least UI_BUTTON_SMALL_MIN_W wide, with its top-left corner at (@x, @y). Its hit
+ * rect is UI_TAP_MIN high. Draw and input are the same calls as for the 48 px button.
+ */
+void ui_text_button_init_small(UiTextButton *btn, const char *label, int x, int y);
 
 /**
  * ui_text_button_set_width() - Make the pill @w wide (a popup's button bar shares its width

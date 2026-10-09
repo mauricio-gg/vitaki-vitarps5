@@ -109,6 +109,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_home_options.c
     src/ui/ui_chevron.c
     src/ui/ui_controller_page.c
+    src/ui/ui_controller_mapping.c
+    src/ui/ui_controller_zones.c
     src/ui/ui_controller_rules.c
     src/ui/ui_controller_model.c
 
@@ -293,7 +295,7 @@ if(CHIAKI_IS_VITA)
         # Textures, other assets
         FILE res/assets/ps4.png assets/ps4.png
         FILE res/assets/controller_front.png assets/controller_front.png
-        FILE res/assets/controller_back.png assets/controller_back.png
+        FILE res/assets/controller_back_clean.png assets/controller_back_clean.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
         FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
         FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf

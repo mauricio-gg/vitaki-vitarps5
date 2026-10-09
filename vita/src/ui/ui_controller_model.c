@@ -99,11 +99,6 @@ void ui_controller_model_step_preset(int delta) {
   ui_controller_model_select_preset((s_preset + delta + CTRL_PRESET_COUNT) % CTRL_PRESET_COUNT);
 }
 
-const VitakiCtrlMapInfo *ui_controller_model_map(void) {
-  ensure_ready();
-  return &s_preview;
-}
-
 VitakiCtrlOut ui_controller_model_output(VitakiCtrlIn input) {
   ensure_ready();
   if (input < 0 || input >= VITAKI_CTRL_IN_COUNT)
@@ -120,61 +115,60 @@ int ui_controller_model_common_output(const VitakiCtrlIn *inputs, int count) {
   return ui_controller_common_output(outputs, count);
 }
 
-/**
- * Point in_l2 and in_r2 of @map at the first input mapped to L2 and to R2 (None when no input is),
- * as the preview map and the stream read them.
- */
-static void sync_trigger_assignments(ControllerMapStorage *map) {
-  map->in_l2 = VITAKI_CTRL_IN_NONE;
-  map->in_r2 = VITAKI_CTRL_IN_NONE;
-  for (int i = 0; i < VITAKI_CTRL_IN_COUNT; i++) {
-    const VitakiCtrlOut output = (VitakiCtrlOut)map->in_out_btn[i];
-    if (output == VITAKI_CTRL_OUT_L2 && map->in_l2 == VITAKI_CTRL_IN_NONE) {
-      map->in_l2 = i;
-    } else if (output == VITAKI_CTRL_OUT_R2 && map->in_r2 == VITAKI_CTRL_IN_NONE) {
-      map->in_r2 = i;
-    }
-  }
+/** The stored map of the current preset's slot. */
+static ControllerMapStorage *current_map(void) {
+  return &context.config.custom_maps[current_slot()];
+}
+
+/** Rebuild the preview from the stored map, mark the slot saved and persist the config. */
+static void commit_current_map(void) {
+  const int slot = current_slot();
+  context.config.custom_maps_valid[slot] = true;
+  controller_map_storage_apply(&context.config.custom_maps[slot], &s_preview);
+  ui_settings_persist_config();
 }
 
 void ui_controller_model_assign(const VitakiCtrlIn *inputs, int count, VitakiCtrlOut output) {
   ensure_ready();
   if (!inputs || count <= 0)
     return;
-
-  const int slot = current_slot();
-  ControllerMapStorage *map = &context.config.custom_maps[slot];
-  for (int i = 0; i < count; i++) {
-    if (inputs[i] < 0 || inputs[i] >= VITAKI_CTRL_IN_COUNT) {
-      LOGE("Controller model: input %d out of range, skipped", (int)inputs[i]);
-      continue;
-    }
-    map->in_out_btn[inputs[i]] = output;
-  }
-
-  sync_trigger_assignments(map);
-  context.config.custom_maps_valid[slot] = true;
-  controller_map_storage_apply(map, &s_preview);
-  ui_settings_persist_config();
+  ui_controller_assign_inputs(current_map(), inputs, count, output);
+  commit_current_map();
 }
 
-/** Map the @count zones from @first, and the whole-surface input @any, to None. */
-static void clear_surface(VitakiCtrlIn first, int count, VitakiCtrlIn any) {
-  VitakiCtrlIn inputs[UI_CTRL_ZONE_COUNT + 1];
-  for (int i = 0; i < count; i++)
-    inputs[i] = (VitakiCtrlIn)(first + i);
-  inputs[count] = any;
-  ui_controller_model_assign(inputs, count + 1, VITAKI_CTRL_OUT_NONE);
+int ui_controller_model_zone_output(UiCtrlSide side, int zone) {
+  ensure_ready();
+  return ui_controller_zone_output(current_map(), side, zone);
 }
 
-void ui_controller_model_clear_front(void) {
-  clear_surface(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START, VITAKI_CTRL_IN_FRONTTOUCH_GRID_COUNT,
-                VITAKI_CTRL_IN_FRONTTOUCH_ANY);
+int ui_controller_model_zones_output(UiCtrlSide side, const int *zones, int count) {
+  ensure_ready();
+  return ui_controller_zones_output(current_map(), side, zones, count);
 }
 
-void ui_controller_model_clear_rear(void) {
-  clear_surface(VITAKI_CTRL_IN_REARTOUCH_GRID_START, VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT,
-                VITAKI_CTRL_IN_REARTOUCH_ANY);
+int ui_controller_model_side_output(UiCtrlSide side) {
+  ensure_ready();
+  return ui_controller_side_output(current_map(), side);
+}
+
+int ui_controller_model_mapped_zones(UiCtrlSide side) {
+  ensure_ready();
+  return ui_controller_mapped_zones(current_map(), side);
+}
+
+void ui_controller_model_assign_zones(UiCtrlSide side, const int *zones, int count,
+                                      VitakiCtrlOut output) {
+  ensure_ready();
+  if (!zones || count <= 0)
+    return;
+  ui_controller_assign_zones(current_map(), side, zones, count, output);
+  commit_current_map();
+}
+
+void ui_controller_model_assign_side(UiCtrlSide side, VitakiCtrlOut output) {
+  ensure_ready();
+  ui_controller_assign_side(current_map(), side, output);
+  commit_current_map();
 }
 
 VitakiCtrlOut ui_controller_model_output_choice(int index) {

@@ -6,10 +6,8 @@
  * No PNG assets required - all graphics are drawn procedurally using ratio-based
  * coordinates from ui_constants.h for pixel-perfect scaling.
  *
- * Three view modes:
- * - Summary: the bare diagram; the Controller page draws its callouts and chrome
- * - Front Mapping: Interactive front view for remapping buttons
- * - Back Mapping: Interactive rear touchpad view for zone mapping
+ * Draws the front or rear art (the procedural drawing when the art did not load). The Controller
+ * page draws everything else: callouts, the zone grid, footers and buttons.
  */
 
 #include "ui/ui_controller_diagram.h"
@@ -28,31 +26,12 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-
 // ============================================================================
 // Internal Constants
 // ============================================================================
 
-// Animation durations
-#define FLIP_DURATION_MS 220
-#define COLOR_TWEEN_DURATION_MS 300
-#define PULSE_PERIOD_MS 1000
-
-// Zone/mapping label baseline offsets (relative to control-dot center)
-/* Pixels above the control-dot center where the zone label baseline sits. */
-#define DIAGRAM_ZONE_LABEL_BASELINE_OFFSET 6
-/* Pixels below the control-dot center where the mapping label baseline sits. */
-#define DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET 10
-
 #define CONTROLLER_FRONT_TEXTURE_PATH TEXTURE_PATH "controller_front.png"
-#define CONTROLLER_BACK_TEXTURE_PATH TEXTURE_PATH "controller_back.png"
+#define CONTROLLER_BACK_TEXTURE_PATH TEXTURE_PATH "controller_back_clean.png"
 #define FRONT_TEXTURE_ALPHA_THRESHOLD 64
 #define BACK_TEXTURE_ALPHA_THRESHOLD 0
 #define FRONT_TEXTURE_TINT RGBA8(255, 255, 255, 255)
@@ -65,27 +44,18 @@ typedef struct ratio_point_t {
   float y;
 } RatioPoint;
 
-#define FRONT_GRID_CELL_COUNT (VITAKI_FRONT_TOUCH_GRID_ROWS * VITAKI_FRONT_TOUCH_GRID_COLS)
-#define BACK_GRID_CELL_COUNT (VITAKI_REAR_TOUCH_GRID_ROWS * VITAKI_REAR_TOUCH_GRID_COLS)
-
-typedef struct touch_region_info_t {
-  bool active;
-  VitakiCtrlOut output;
-  int min_x;
-  int min_y;
-  int max_x;
-  int max_y;
-  int center_sum_x;
-  int center_sum_y;
-  int center_x;
-  int center_y;
-  int cell_count;
-} TouchRegionInfo;
-
-static const char *g_touch_grid_labels[VITAKI_REAR_TOUCH_GRID_ROWS][VITAKI_REAR_TOUCH_GRID_COLS] = {
-    {"A1", "B1", "C1", "D1", "E1", "F1"},
-    {"A2", "B2", "C2", "D2", "E2", "F2"},
-    {"A3", "B3", "C3", "D3", "E3", "F3"}};
+/** Where and how large the diagram is drawn, and the colours of the procedural drawing. */
+typedef struct diagram_render_ctx_t {
+  int base_x, base_y;          // Top-left position of diagram
+  int width, height;           // Diagram dimensions
+  float scale;                 // Scale factor applied to all elements
+  uint32_t outline_color;      // Primary outline color (PlayStation Blue)
+  uint32_t outline_color_dim;  // Dimmed outline color
+  uint32_t fill_color;         // Body fill color
+  uint32_t screen_color;       // Screen area color
+  uint32_t highlight_color;    // Highlight/glow color
+  int line_width;              // Outline stroke width (scaled)
+} DiagramRenderCtx;
 
 // ============================================================================
 // Helper Macros
@@ -97,65 +67,78 @@ static const char *g_touch_grid_labels[VITAKI_REAR_TOUCH_GRID_ROWS][VITAKI_REAR_
 #define RATIO_H(ctx, r) ((int)((ctx)->height * (r)))
 #define RATIO_SIZE(ctx, r) RATIO_W(ctx, r)  // Backward compatibility, defaults to width
 
-static const uint32_t k_mapping_fill_colors[] = {
-    RGBA8(84, 132, 255, 120),   // Blue
-    RGBA8(255, 159, 67, 120),   // Orange
-    RGBA8(84, 222, 164, 120),   // Mint
-    RGBA8(255, 99, 178, 120),   // Pink
-    RGBA8(155, 132, 255, 120),  // Violet
-    RGBA8(255, 205, 86, 120)    // Yellow
-};
-
-static const VitakiCtrlOut k_priority_outputs[] = {
-    VITAKI_CTRL_OUT_OPTIONS, VITAKI_CTRL_OUT_SHARE, VITAKI_CTRL_OUT_TOUCHPAD, VITAKI_CTRL_OUT_L2,
-    VITAKI_CTRL_OUT_R2,      VITAKI_CTRL_OUT_L3,    VITAKI_CTRL_OUT_R3,       VITAKI_CTRL_OUT_PS};
-
-static inline uint32_t color_for_output(VitakiCtrlOut output) {
-  if (output <= VITAKI_CTRL_OUT_NONE)
-    return RGBA8(80, 130, 255, 90);
-
-  size_t palette_count = sizeof(k_mapping_fill_colors) / sizeof(k_mapping_fill_colors[0]);
-  for (size_t i = 0; i < CTRL_ARRAY_SIZE(k_priority_outputs); i++) {
-    if (k_priority_outputs[i] == output) {
-      return k_mapping_fill_colors[i % palette_count];
-    }
-  }
-
-  uint32_t hash = (uint32_t)output * 2654435761u;
-  return k_mapping_fill_colors[hash % palette_count];
-}
-
-// ============================================================================
-// External References
-// ============================================================================
-
-extern vita2d_font *font;
-
 // ============================================================================
 // Internal Helpers
 // ============================================================================
 
-/**
- * Get current time in microseconds
- */
-static uint64_t get_time_us(void) {
-  SceRtcTick tick;
-  sceRtcGetCurrentTick(&tick);
-  return tick.tick;
-}
-
-/**
- * Linear interpolation
- */
 static inline float lerp(float a, float b, float t) {
   return a + (b - a) * t;
 }
 
 /**
- * Ease-in-out cubic interpolation
+ * Draw a stadium/pill shape outline with semicircular arc ends
+ *
+ * Uses 24 line segments per semicircle for smooth curves.
+ * Matches the authentic PS Vita controller outline.
+ *
+ * @param x Left edge X coordinate
+ * @param y Top edge Y coordinate
+ * @param w Total width including semicircular ends
+ * @param h Height (semicircle radius = h/2)
+ * @param color Outline color
  */
-static inline float ease_in_out_cubic(float t) {
-  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+static void draw_stadium_outline(int x, int y, int w, int h, uint32_t color) {
+  // Bounds validation: reject degenerate shapes
+  if (w <= 0 || h <= 0)
+    return;
+
+  int radius = h / 2;
+
+  // Clamp radius to valid range
+  if (radius < 1)
+    radius = 1;
+  if (radius > w / 2)
+    radius = w / 2;
+
+  int left_cx = x + radius;
+  int right_cx = x + w - radius;
+  int cy = y + radius;
+
+  // Top horizontal line (between semicircles)
+  vita2d_draw_line(left_cx, y, right_cx, y, color);
+
+  // Bottom horizontal line (between semicircles)
+  vita2d_draw_line(left_cx, y + h - 1, right_cx, y + h - 1, color);
+
+  // Left semicircle arc (8 segments, from top to bottom)
+  // Goes from PI/2 (top) to 3*PI/2 (bottom) on the left side
+  // Reduced from 24 for PS Vita GPU performance (prevents crash from excessive draw calls)
+  int arc_segments = 8;
+  float start = (float)M_PI / 2.0f;
+  float step = (float)M_PI / (float)arc_segments;
+
+  for (int i = 0; i < arc_segments; i++) {
+    float a1 = start + i * step;
+    float a2 = start + (i + 1) * step;
+    int x1 = left_cx - (int)(cosf(a1) * radius);
+    int y1 = cy + (int)(sinf(a1) * radius);
+    int x2 = left_cx - (int)(cosf(a2) * radius);
+    int y2 = cy + (int)(sinf(a2) * radius);
+    vita2d_draw_line(x1, y1, x2, y2, color);
+  }
+
+  // Right semicircle arc (8 segments, from top to bottom)
+  // Goes from -PI/2 (top) to PI/2 (bottom) on the right side
+  start = -(float)M_PI / 2.0f;
+  for (int i = 0; i < arc_segments; i++) {
+    float a1 = start + i * step;
+    float a2 = start + (i + 1) * step;
+    int x1 = right_cx + (int)(cosf(a1) * radius);
+    int y1 = cy + (int)(sinf(a1) * radius);
+    int x2 = right_cx + (int)(cosf(a2) * radius);
+    int y2 = cy + (int)(sinf(a2) * radius);
+    vita2d_draw_line(x1, y1, x2, y2, color);
+  }
 }
 
 static void draw_ratio_polyline(DiagramRenderCtx *ctx, const RatioPoint *pts, int count,
@@ -193,37 +176,6 @@ static void draw_ratio_circle_outline(DiagramRenderCtx *ctx, float rx, float ry,
   int cy = RATIO_Y(ctx, ry);
   int r = RATIO_SIZE(ctx, rr);
   ui_draw_circle_outline(cx, cy, r, color);
-}
-
-static void draw_dashed_rect_outline(int x, int y, int w, int h, uint32_t color, int dash_len,
-                                     int gap_len) {
-  if (w <= 0 || h <= 0 || dash_len <= 0)
-    return;
-  if (gap_len < 0)
-    gap_len = 0;
-  int step = dash_len + gap_len;
-  if (step <= 0)
-    step = dash_len;
-
-  for (int offset = 0; offset < w; offset += step) {
-    int seg = dash_len;
-    if (offset + seg > w)
-      seg = w - offset;
-    if (seg <= 0)
-      break;
-    vita2d_draw_rectangle(x + offset, y, seg, 1, color);
-    vita2d_draw_rectangle(x + offset, y + h - 1, seg, 1, color);
-  }
-
-  for (int offset = 0; offset < h; offset += step) {
-    int seg = dash_len;
-    if (offset + seg > h)
-      seg = h - offset;
-    if (seg <= 0)
-      break;
-    vita2d_draw_rectangle(x, y + offset, 1, seg, color);
-    vita2d_draw_rectangle(x + w - 1, y + offset, 1, seg, color);
-  }
 }
 
 static void draw_symbol_square(int x, int y, int size, uint32_t color) {
@@ -302,682 +254,8 @@ static void draw_back_texture(DiagramRenderCtx *ctx, vita2d_texture *texture) {
   vita2d_draw_texture_tint_scale(texture, draw_x, draw_y, scale, scale, BACK_TEXTURE_TINT);
 }
 
-bool ui_diagram_front_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y,
-                                int *out_w, int *out_h) {
-  int screen_x = RATIO_X(ctx, VITA_SCREEN_X_RATIO);
-  int screen_y = RATIO_Y(ctx, VITA_SCREEN_Y_RATIO);
-  int screen_w = RATIO_W(ctx, VITA_SCREEN_W_RATIO);
-  int screen_h = RATIO_H(ctx, VITA_SCREEN_H_RATIO);
-
-  int zone_x = screen_x;
-  int zone_y = screen_y;
-  int zone_w = screen_w;
-  int zone_h = screen_h;
-
-  if (vitaki_ctrl_in_is_front_grid(input)) {
-    int col = vitaki_ctrl_in_front_grid_col(input);
-    int row = vitaki_ctrl_in_front_grid_row(input);
-
-    int base_w = screen_w / VITAKI_FRONT_TOUCH_GRID_COLS;
-    int extra_w = screen_w % VITAKI_FRONT_TOUCH_GRID_COLS;
-    int base_h = screen_h / VITAKI_FRONT_TOUCH_GRID_ROWS;
-    int extra_h = screen_h % VITAKI_FRONT_TOUCH_GRID_ROWS;
-
-    int offset_x = col * base_w + ((col < extra_w) ? col : extra_w);
-    int offset_y = row * base_h + ((row < extra_h) ? row : extra_h);
-    int cell_w = base_w + (col < extra_w ? 1 : 0);
-    int cell_h = base_h + (row < extra_h ? 1 : 0);
-
-    zone_x = screen_x + offset_x;
-    zone_y = screen_y + offset_y;
-    zone_w = cell_w;
-    zone_h = cell_h;
-    if (zone_w < 1)
-      zone_w = 1;
-    if (zone_h < 1)
-      zone_h = 1;
-
-    if (out_x)
-      *out_x = zone_x;
-    if (out_y)
-      *out_y = zone_y;
-    if (out_w)
-      *out_w = zone_w;
-    if (out_h)
-      *out_h = zone_h;
-    return true;
-  }
-
-  switch (input) {
-    case VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC:
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC:
-      zone_x += screen_w / 2;
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC:
-      zone_w /= 2;
-      zone_y += screen_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC:
-      zone_x += screen_w / 2;
-      zone_w /= 2;
-      zone_y += screen_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_CENTER:
-      zone_x += screen_w / 5;
-      zone_w = (screen_w * 3) / 5;
-      zone_y += screen_h / 5;
-      zone_h = (screen_h * 3) / 5;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_ANY:
-      break;
-    default:
-      return false;
-  }
-
-  if (out_x)
-    *out_x = zone_x;
-  if (out_y)
-    *out_y = zone_y;
-  if (out_w)
-    *out_w = zone_w;
-  if (out_h)
-    *out_h = zone_h;
-  return true;
-}
-
-bool ui_diagram_back_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y,
-                               int *out_w, int *out_h) {
-  int pad_x = RATIO_X(ctx, VITA_RTOUCH_X_RATIO);
-  int pad_y = RATIO_Y(ctx, VITA_RTOUCH_Y_RATIO);
-  int pad_w = RATIO_W(ctx, VITA_RTOUCH_W_RATIO);
-  int pad_h = RATIO_H(ctx, VITA_RTOUCH_H_RATIO);
-
-  int zone_x = pad_x;
-  int zone_y = pad_y;
-  int zone_w = pad_w;
-  int zone_h = pad_h;
-
-  if (vitaki_ctrl_in_is_rear_grid(input)) {
-    zone_w /= VITAKI_REAR_TOUCH_GRID_COLS;
-    zone_h /= VITAKI_REAR_TOUCH_GRID_ROWS;
-    int col = vitaki_ctrl_in_rear_grid_col(input);
-    int row = vitaki_ctrl_in_rear_grid_row(input);
-    zone_x += col * zone_w;
-    zone_y += row * zone_h;
-    if (out_x)
-      *out_x = zone_x;
-    if (out_y)
-      *out_y = zone_y;
-    if (out_w)
-      *out_w = zone_w;
-    if (out_h)
-      *out_h = zone_h;
-    return true;
-  }
-
-  switch (input) {
-    case VITAKI_CTRL_IN_REARTOUCH_UL:
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_UR:
-      zone_x += pad_w / 2;
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LL:
-      zone_w /= 2;
-      zone_y += pad_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LR:
-      zone_x += pad_w / 2;
-      zone_w /= 2;
-      zone_y += pad_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LEFT:
-      zone_w /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_RIGHT:
-      zone_x += pad_w / 2;
-      zone_w /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LEFT_L1:
-      zone_x = pad_x - RATIO_W(ctx, 0.08f);
-      zone_w = RATIO_W(ctx, 0.12f);
-      zone_y = pad_y + pad_h / 6;
-      zone_h = (pad_h * 2) / 3;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1:
-      zone_x = pad_x + pad_w - RATIO_W(ctx, 0.04f);
-      zone_w = RATIO_W(ctx, 0.12f);
-      zone_y = pad_y + pad_h / 6;
-      zone_h = (pad_h * 2) / 3;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_ANY:
-      break;
-    default:
-      return false;
-  }
-
-  if (out_x)
-    *out_x = zone_x;
-  if (out_y)
-    *out_y = zone_y;
-  if (out_w)
-    *out_w = zone_w;
-  if (out_h)
-    *out_h = zone_h;
-  return true;
-}
-
-/**
- * Get button name for mapping display
- */
-static const char *get_button_name(VitakiCtrlOut button) {
-  switch (button) {
-    case VITAKI_CTRL_OUT_TRIANGLE:
-      return "△";
-    case VITAKI_CTRL_OUT_CIRCLE:
-      return "○";
-    case VITAKI_CTRL_OUT_CROSS:
-      return "✕";
-    case VITAKI_CTRL_OUT_SQUARE:
-      return "□";
-    case VITAKI_CTRL_OUT_L1:
-      return "L1";
-    case VITAKI_CTRL_OUT_R1:
-      return "R1";
-    case VITAKI_CTRL_OUT_L2:
-      return "L2";
-    case VITAKI_CTRL_OUT_R2:
-      return "R2";
-    case VITAKI_CTRL_OUT_L3:
-      return "L3";
-    case VITAKI_CTRL_OUT_R3:
-      return "R3";
-    case VITAKI_CTRL_OUT_TOUCHPAD:
-      return "Touchpad";
-    default:
-      return "None";
-  }
-}
-
-static void draw_zone_mapping_text(int cx, int cy, const char *zone_label,
-                                   const char *mapping_text) {
-  if (!mapping_text) {
-    mapping_text = "None";
-  }
-  uint32_t label_color = UI_COLOR_TEXT_TERTIARY;
-  uint32_t mapping_color = UI_COLOR_TEXT_PRIMARY;
-  int zone_w = zone_label ? ui_text_width(font, FONT_SIZE_SMALL, zone_label) : 0;
-  int map_w = ui_text_width(font, FONT_SIZE_SMALL, mapping_text);
-
-  if (zone_label && zone_label[0] != '\0') {
-    int zone_x = cx - zone_w / 2;
-    ui_text_draw(font, zone_x, cy - DIAGRAM_ZONE_LABEL_BASELINE_OFFSET, label_color,
-                 FONT_SIZE_SMALL, zone_label);
-  }
-
-  int map_x = cx - map_w / 2;
-  ui_text_draw(font, map_x, cy + DIAGRAM_MAPPING_LABEL_BASELINE_OFFSET, mapping_color,
-               FONT_SIZE_SMALL, mapping_text);
-}
-
-static void draw_front_touch_overlay(DiagramRenderCtx *ctx, const VitakiCtrlMapInfo *map,
-                                     const bool *selection_mask) {
-  if (!ctx || !map)
-    return;
-
-  int screen_x = RATIO_X(ctx, VITA_SCREEN_X_RATIO);
-  int screen_y = RATIO_Y(ctx, VITA_SCREEN_Y_RATIO);
-  int screen_w = RATIO_W(ctx, VITA_SCREEN_W_RATIO);
-  int screen_h = RATIO_H(ctx, VITA_SCREEN_H_RATIO);
-
-  uint32_t mask_color = RGBA8(5, 10, 18, 165);
-  vita2d_draw_rectangle(screen_x, screen_y, screen_w, screen_h, mask_color);
-
-  VitakiCtrlOut cell_outputs[FRONT_GRID_CELL_COUNT];
-  memset(cell_outputs, 0, sizeof(cell_outputs));
-  for (int idx = 0; idx < FRONT_GRID_CELL_COUNT; idx++) {
-    VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
-    cell_outputs[idx] = controller_map_get_output_for_input(map, input);
-  }
-
-  int region_ids[FRONT_GRID_CELL_COUNT];
-  for (int i = 0; i < FRONT_GRID_CELL_COUNT; i++)
-    region_ids[i] = -1;
-  TouchRegionInfo regions[FRONT_GRID_CELL_COUNT];
-  int region_count = 0;
-
-  int queue[FRONT_GRID_CELL_COUNT];
-
-  for (int idx = 0; idx < FRONT_GRID_CELL_COUNT; idx++) {
-    if (cell_outputs[idx] == VITAKI_CTRL_OUT_NONE || region_ids[idx] >= 0)
-      continue;
-    TouchRegionInfo region = {0};
-    region.active = true;
-    region.output = cell_outputs[idx];
-    region.min_x = region.min_y = INT_MAX;
-    region.max_x = region.max_y = INT_MIN;
-    int head = 0, tail = 0;
-    queue[tail++] = idx;
-    region_ids[idx] = region_count;
-    while (head < tail) {
-      int current = queue[head++];
-      int row = current / VITAKI_FRONT_TOUCH_GRID_COLS;
-      int col = current % VITAKI_FRONT_TOUCH_GRID_COLS;
-      VitakiCtrlIn cell_input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + current);
-      int zx, zy, zw, zh;
-      if (!ui_diagram_front_zone_rect(ctx, cell_input, &zx, &zy, &zw, &zh))
-        continue;
-      int cx = zx + zw / 2;
-      int cy = zy + zh / 2;
-      if (zx < region.min_x)
-        region.min_x = zx;
-      if (zy < region.min_y)
-        region.min_y = zy;
-      if (zx + zw > region.max_x)
-        region.max_x = zx + zw;
-      if (zy + zh > region.max_y)
-        region.max_y = zy + zh;
-      region.center_sum_x += cx;
-      region.center_sum_y += cy;
-      region.cell_count++;
-
-      int neighbors[4] = {-1, -1, -1, -1};
-      if (col > 0)
-        neighbors[0] = current - 1;
-      if (col < VITAKI_FRONT_TOUCH_GRID_COLS - 1)
-        neighbors[1] = current + 1;
-      if (row > 0)
-        neighbors[2] = current - VITAKI_FRONT_TOUCH_GRID_COLS;
-      if (row < VITAKI_FRONT_TOUCH_GRID_ROWS - 1)
-        neighbors[3] = current + VITAKI_FRONT_TOUCH_GRID_COLS;
-      for (int n = 0; n < 4; n++) {
-        int next = neighbors[n];
-        if (next < 0)
-          continue;
-        if (cell_outputs[next] != region.output)
-          continue;
-        if (region_ids[next] >= 0)
-          continue;
-        region_ids[next] = region_count;
-        queue[tail++] = next;
-      }
-    }
-    if (region.cell_count > 0) {
-      region.center_x = region.center_sum_x / region.cell_count;
-      region.center_y = region.center_sum_y / region.cell_count;
-    }
-    regions[region_count++] = region;
-  }
-
-  uint32_t selection_fill = RGBA8(70, 120, 255, 110);
-  uint32_t selection_border = RGBA8(255, 90, 180, 230);
-  uint32_t mapped_border = RGBA8(255, 65, 170, 220);
-  uint32_t dashed_border = RGBA8(255, 255, 255, 190);
-  const int dashed_len = 6;
-  const int dashed_gap = 4;
-  const int mapped_border_thickness = 2;
-
-  for (int idx = 0; idx < FRONT_GRID_CELL_COUNT; idx++) {
-    int row = idx / VITAKI_FRONT_TOUCH_GRID_COLS;
-    int col = idx % VITAKI_FRONT_TOUCH_GRID_COLS;
-    VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + idx);
-    int zx, zy, zw, zh;
-    if (!ui_diagram_front_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
-      continue;
-
-    bool is_selected = selection_mask && selection_mask[idx];
-    bool has_mapping = cell_outputs[idx] != VITAKI_CTRL_OUT_NONE;
-
-    if (is_selected) {
-      vita2d_draw_rectangle(zx + 1, zy + 1, zw - 2, zh - 2, selection_fill);
-      ui_draw_rectangle_outline(zx, zy, zw, zh, selection_border);
-      continue;
-    }
-
-    if (has_mapping) {
-      uint32_t fill_color = color_for_output(cell_outputs[idx]);
-      vita2d_draw_rectangle(zx, zy, zw, zh, fill_color);
-      bool same_left = (col > 0) && (cell_outputs[idx - 1] == cell_outputs[idx]);
-      bool same_right =
-          (col < VITAKI_FRONT_TOUCH_GRID_COLS - 1) && (cell_outputs[idx + 1] == cell_outputs[idx]);
-      bool same_top =
-          (row > 0) && (cell_outputs[idx - VITAKI_FRONT_TOUCH_GRID_COLS] == cell_outputs[idx]);
-      bool same_bottom = (row < VITAKI_FRONT_TOUCH_GRID_ROWS - 1) &&
-                         (cell_outputs[idx + VITAKI_FRONT_TOUCH_GRID_COLS] == cell_outputs[idx]);
-
-      int thick_w = mapped_border_thickness;
-      if (thick_w > zw)
-        thick_w = zw;
-      int thick_h = mapped_border_thickness;
-      if (thick_h > zh)
-        thick_h = zh;
-
-      if (!same_top) {
-        vita2d_draw_rectangle(zx, zy, zw, thick_h, mapped_border);
-      }
-      if (!same_bottom) {
-        int yb = zy + zh - thick_h;
-        if (yb < zy)
-          yb = zy;
-        vita2d_draw_rectangle(zx, yb, zw, thick_h, mapped_border);
-      }
-      if (!same_left) {
-        vita2d_draw_rectangle(zx, zy, thick_w, zh, mapped_border);
-      }
-      if (!same_right) {
-        int xr = zx + zw - thick_w;
-        if (xr < zx)
-          xr = zx;
-        vita2d_draw_rectangle(xr, zy, thick_w, zh, mapped_border);
-      }
-    } else {
-      draw_dashed_rect_outline(zx, zy, zw, zh, dashed_border, dashed_len, dashed_gap);
-    }
-  }
-
-  for (int r = 0; r < region_count; r++) {
-    if (!regions[r].active || regions[r].cell_count == 0)
-      continue;
-    const char *label = controller_output_symbol(regions[r].output);
-    draw_zone_mapping_text(regions[r].center_x, regions[r].center_y, "", label);
-  }
-}
-
-static void draw_back_touch_overlay(DiagramRenderCtx *ctx, const VitakiCtrlMapInfo *map,
-                                    const bool *selection_mask) {
-  if (!ctx || !map)
-    return;
-
-  int pad_x = RATIO_X(ctx, VITA_RTOUCH_X_RATIO);
-  int pad_y = RATIO_Y(ctx, VITA_RTOUCH_Y_RATIO);
-  int pad_w = RATIO_W(ctx, VITA_RTOUCH_W_RATIO);
-  int pad_h = RATIO_H(ctx, VITA_RTOUCH_H_RATIO);
-  uint32_t mask_color = RGBA8(5, 10, 18, 140);
-
-  vita2d_draw_rectangle(pad_x, pad_y, pad_w, pad_h, mask_color);
-
-  VitakiCtrlOut slot_outputs[BACK_GRID_CELL_COUNT];
-  for (int idx = 0; idx < BACK_GRID_CELL_COUNT; idx++) {
-    VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
-    slot_outputs[idx] = controller_map_get_output_for_input(map, input);
-  }
-
-  int region_ids[BACK_GRID_CELL_COUNT];
-  for (int i = 0; i < BACK_GRID_CELL_COUNT; i++)
-    region_ids[i] = -1;
-  TouchRegionInfo regions[BACK_GRID_CELL_COUNT];
-  int region_count = 0;
-  int queue[BACK_GRID_CELL_COUNT];
-
-  for (int idx = 0; idx < BACK_GRID_CELL_COUNT; idx++) {
-    if (slot_outputs[idx] == VITAKI_CTRL_OUT_NONE || region_ids[idx] >= 0)
-      continue;
-    TouchRegionInfo region = {0};
-    region.active = true;
-    region.output = slot_outputs[idx];
-    region.min_x = region.min_y = INT_MAX;
-    region.max_x = region.max_y = INT_MIN;
-    int head = 0, tail = 0;
-    queue[tail++] = idx;
-    region_ids[idx] = region_count;
-    while (head < tail) {
-      int current = queue[head++];
-      int row = current / VITAKI_REAR_TOUCH_GRID_COLS;
-      int col = current % VITAKI_REAR_TOUCH_GRID_COLS;
-      VitakiCtrlIn cell_input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + current);
-      int zx, zy, zw, zh;
-      if (!ui_diagram_back_zone_rect(ctx, cell_input, &zx, &zy, &zw, &zh))
-        continue;
-      int cx = zx + zw / 2;
-      int cy = zy + zh / 2;
-      if (zx < region.min_x)
-        region.min_x = zx;
-      if (zy < region.min_y)
-        region.min_y = zy;
-      if (zx + zw > region.max_x)
-        region.max_x = zx + zw;
-      if (zy + zh > region.max_y)
-        region.max_y = zy + zh;
-      region.center_sum_x += cx;
-      region.center_sum_y += cy;
-      region.cell_count++;
-
-      int neighbors[4] = {-1, -1, -1, -1};
-      if (col > 0)
-        neighbors[0] = current - 1;
-      if (col < VITAKI_REAR_TOUCH_GRID_COLS - 1)
-        neighbors[1] = current + 1;
-      if (row > 0)
-        neighbors[2] = current - VITAKI_REAR_TOUCH_GRID_COLS;
-      if (row < VITAKI_REAR_TOUCH_GRID_ROWS - 1)
-        neighbors[3] = current + VITAKI_REAR_TOUCH_GRID_COLS;
-      for (int n = 0; n < 4; n++) {
-        int next = neighbors[n];
-        if (next < 0)
-          continue;
-        if (slot_outputs[next] != region.output)
-          continue;
-        if (region_ids[next] >= 0)
-          continue;
-        region_ids[next] = region_count;
-        queue[tail++] = next;
-      }
-    }
-    if (region.cell_count > 0) {
-      region.center_x = region.center_sum_x / region.cell_count;
-      region.center_y = region.center_sum_y / region.cell_count;
-    }
-    regions[region_count++] = region;
-  }
-
-  uint32_t selection_fill = RGBA8(70, 120, 255, 110);
-  uint32_t selection_border = RGBA8(255, 90, 180, 230);
-  uint32_t mapped_border = RGBA8(255, 65, 170, 220);
-  uint32_t dashed_border = RGBA8(255, 255, 255, 190);
-  const int dashed_len = 6;
-  const int dashed_gap = 4;
-  const int mapped_border_thickness = 2;
-
-  for (int idx = 0; idx < BACK_GRID_CELL_COUNT; idx++) {
-    int row = idx / VITAKI_REAR_TOUCH_GRID_COLS;
-    int col = idx % VITAKI_REAR_TOUCH_GRID_COLS;
-    VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
-    int zx, zy, zw, zh;
-    if (!ui_diagram_back_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
-      continue;
-
-    bool is_selected = selection_mask && selection_mask[idx];
-    bool has_mapping = slot_outputs[idx] != VITAKI_CTRL_OUT_NONE;
-    if (is_selected) {
-      vita2d_draw_rectangle(zx + 1, zy + 1, zw - 2, zh - 2, selection_fill);
-      ui_draw_rectangle_outline(zx, zy, zw, zh, selection_border);
-      continue;
-    }
-    if (has_mapping) {
-      uint32_t fill_color = color_for_output(slot_outputs[idx]);
-      vita2d_draw_rectangle(zx, zy, zw, zh, fill_color);
-
-      bool same_left = (col > 0) && (slot_outputs[idx - 1] == slot_outputs[idx]);
-      bool same_right =
-          (col < VITAKI_REAR_TOUCH_GRID_COLS - 1) && (slot_outputs[idx + 1] == slot_outputs[idx]);
-      bool same_top =
-          (row > 0) && (slot_outputs[idx - VITAKI_REAR_TOUCH_GRID_COLS] == slot_outputs[idx]);
-      bool same_bottom = (row < VITAKI_REAR_TOUCH_GRID_ROWS - 1) &&
-                         (slot_outputs[idx + VITAKI_REAR_TOUCH_GRID_COLS] == slot_outputs[idx]);
-
-      int thick_w = mapped_border_thickness;
-      if (thick_w > zw)
-        thick_w = zw;
-      int thick_h = mapped_border_thickness;
-      if (thick_h > zh)
-        thick_h = zh;
-
-      if (!same_top) {
-        vita2d_draw_rectangle(zx, zy, zw, thick_h, mapped_border);
-      }
-      if (!same_bottom) {
-        int yb = zy + zh - thick_h;
-        if (yb < zy)
-          yb = zy;
-        vita2d_draw_rectangle(zx, yb, zw, thick_h, mapped_border);
-      }
-      if (!same_left) {
-        vita2d_draw_rectangle(zx, zy, thick_w, zh, mapped_border);
-      }
-      if (!same_right) {
-        int xr = zx + zw - thick_w;
-        if (xr < zx)
-          xr = zx;
-        vita2d_draw_rectangle(xr, zy, thick_w, zh, mapped_border);
-      }
-    } else {
-      draw_dashed_rect_outline(zx, zy, zw, zh, dashed_border, dashed_len, dashed_gap);
-    }
-  }
-
-  for (int r = 0; r < region_count; r++) {
-    if (!regions[r].active || regions[r].cell_count == 0)
-      continue;
-    const char *label = controller_output_symbol(regions[r].output);
-    draw_zone_mapping_text(regions[r].center_x, regions[r].center_y, "", label);
-  }
-
-  for (int row = 0; row < VITAKI_REAR_TOUCH_GRID_ROWS; row++) {
-    for (int col = 0; col < VITAKI_REAR_TOUCH_GRID_COLS; col++) {
-      int idx = row * VITAKI_REAR_TOUCH_GRID_COLS + col;
-      VitakiCtrlIn input = (VitakiCtrlIn)(VITAKI_CTRL_IN_REARTOUCH_GRID_START + idx);
-      int zx, zy, zw, zh;
-      if (!ui_diagram_back_zone_rect(ctx, input, &zx, &zy, &zw, &zh))
-        continue;
-      int cx = zx + zw / 2;
-      int cy = zy + zh / 2;
-      VitakiCtrlOut mapped = slot_outputs[idx];
-      if (mapped == VITAKI_CTRL_OUT_NONE) {
-        const char *label = g_touch_grid_labels[row][col];
-        draw_zone_mapping_text(cx, cy, label, "None");
-      }
-    }
-  }
-}
-// ============================================================================
 // Procedural Drawing Functions - Front View
 // ============================================================================
-
-/**
- * Draw a stadium/pill shape fill (rectangle with semicircular ends)
- *
- * Stadium shape: (===) where the left and right ends are perfect semicircles
- * The semicircle radius = height / 2, creating the authentic PS Vita body shape
- *
- * @param x Left edge X coordinate
- * @param y Top edge Y coordinate
- * @param w Total width including semicircular ends
- * @param h Height (semicircle radius = h/2)
- * @param color Fill color
- */
-static void draw_stadium_fill(int x, int y, int w, int h, uint32_t color) {
-  // Bounds validation: reject degenerate shapes
-  if (w <= 0 || h <= 0)
-    return;
-
-  int radius = h / 2;
-
-  // Clamp radius to valid range
-  if (radius < 1)
-    radius = 1;
-  if (radius > w / 2)
-    radius = w / 2;
-
-  // Center rectangle (between semicircles)
-  int rect_x = x + radius;
-  int rect_w = w - 2 * radius;
-  if (rect_w > 0) {
-    vita2d_draw_rectangle(rect_x, y, rect_w, h, color);
-  }
-
-  // Left and right semicircles (filled)
-  int cy = y + radius;
-  vita2d_draw_fill_circle(x + radius, cy, radius, color);
-  vita2d_draw_fill_circle(x + w - radius, cy, radius, color);
-}
-
-/**
- * Draw a stadium/pill shape outline with semicircular arc ends
- *
- * Uses 24 line segments per semicircle for smooth curves.
- * Matches the authentic PS Vita controller outline.
- *
- * @param x Left edge X coordinate
- * @param y Top edge Y coordinate
- * @param w Total width including semicircular ends
- * @param h Height (semicircle radius = h/2)
- * @param color Outline color
- */
-static void draw_stadium_outline(int x, int y, int w, int h, uint32_t color) {
-  // Bounds validation: reject degenerate shapes
-  if (w <= 0 || h <= 0)
-    return;
-
-  int radius = h / 2;
-
-  // Clamp radius to valid range
-  if (radius < 1)
-    radius = 1;
-  if (radius > w / 2)
-    radius = w / 2;
-
-  int left_cx = x + radius;
-  int right_cx = x + w - radius;
-  int cy = y + radius;
-
-  // Top horizontal line (between semicircles)
-  vita2d_draw_line(left_cx, y, right_cx, y, color);
-
-  // Bottom horizontal line (between semicircles)
-  vita2d_draw_line(left_cx, y + h - 1, right_cx, y + h - 1, color);
-
-  // Left semicircle arc (8 segments, from top to bottom)
-  // Goes from PI/2 (top) to 3*PI/2 (bottom) on the left side
-  // Reduced from 24 for PS Vita GPU performance (prevents crash from excessive draw calls)
-  int arc_segments = 8;
-  float start = (float)M_PI / 2.0f;
-  float step = (float)M_PI / (float)arc_segments;
-
-  for (int i = 0; i < arc_segments; i++) {
-    float a1 = start + i * step;
-    float a2 = start + (i + 1) * step;
-    int x1 = left_cx - (int)(cosf(a1) * radius);
-    int y1 = cy + (int)(sinf(a1) * radius);
-    int x2 = left_cx - (int)(cosf(a2) * radius);
-    int y2 = cy + (int)(sinf(a2) * radius);
-    vita2d_draw_line(x1, y1, x2, y2, color);
-  }
-
-  // Right semicircle arc (8 segments, from top to bottom)
-  // Goes from -PI/2 (top) to PI/2 (bottom) on the right side
-  start = -(float)M_PI / 2.0f;
-  for (int i = 0; i < arc_segments; i++) {
-    float a1 = start + i * step;
-    float a2 = start + (i + 1) * step;
-    int x1 = right_cx + (int)(cosf(a1) * radius);
-    int y1 = cy + (int)(sinf(a1) * radius);
-    int x2 = right_cx + (int)(cosf(a2) * radius);
-    int y2 = cy + (int)(sinf(a2) * radius);
-    vita2d_draw_line(x1, y1, x2, y2, color);
-  }
-}
 
 static const RatioPoint FRONT_BODY_TOP[] = {
     {0.044838f, 0.431193f}, {0.049009f, 0.357798f}, {0.053180f, 0.318807f}, {0.057351f, 0.288991f},
@@ -1477,80 +755,6 @@ static void draw_back_screws(DiagramRenderCtx *ctx) {
 // Highlight Functions
 // ============================================================================
 
-/**
- * Draw pulsing highlight on a specific button
- */
-void ui_diagram_draw_highlight(DiagramRenderCtx *ctx, int btn_id, float pulse) {
-  if (btn_id < 0 || btn_id >= VITA_BTN_ID_COUNT) {
-    return;
-  }
-
-  DiagramButtonPos *btn = &ctx->buttons[btn_id];
-  uint8_t alpha = (uint8_t)(200 + 55 * pulse);
-  uint32_t glow_color = (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | alpha;
-
-  if (btn->is_circular) {
-    // Draw glow circles
-    ui_draw_circle_outline(btn->cx, btn->cy, btn->radius + 4, glow_color);
-    ui_draw_circle_outline(btn->cx, btn->cy, btn->radius + 6,
-                           (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | 100);
-  } else {
-    // Draw glow rectangle
-    ui_draw_rectangle_outline(btn->x - 2, btn->y - 2, btn->w + 4, btn->h + 4, glow_color);
-    ui_draw_rectangle_outline(btn->x - 4, btn->y - 4, btn->w + 8, btn->h + 8,
-                              (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | 100);
-  }
-}
-
-/**
- * Draw pulsing highlight on a rear touchpad zone
- */
-void ui_diagram_draw_zone_highlight(DiagramRenderCtx *ctx, int zone_index, float pulse) {
-  if (zone_index < 0 || zone_index > 3) {
-    return;
-  }
-
-  int pad_x = RATIO_X(ctx, VITA_RTOUCH_X_RATIO);
-  int pad_y = RATIO_Y(ctx, VITA_RTOUCH_Y_RATIO);
-  int pad_w = RATIO_W(ctx, VITA_RTOUCH_W_RATIO);
-  int pad_h = RATIO_H(ctx, VITA_RTOUCH_H_RATIO);
-
-  int zone_w = pad_w / 2;
-  int zone_h = pad_h / 2;
-  int zone_x = pad_x + (zone_index % 2) * zone_w;
-  int zone_y = pad_y + (zone_index / 2) * zone_h;
-
-  uint8_t alpha = (uint8_t)(150 + 105 * pulse);
-  uint32_t glow_color = (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | alpha;
-
-  // Draw highlight rectangle
-  ui_draw_rectangle_outline(zone_x + 2, zone_y + 2, zone_w - 4, zone_h - 4, glow_color);
-  ui_draw_rectangle_outline(zone_x + 4, zone_y + 4, zone_w - 8, zone_h - 8,
-                            (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | 100);
-}
-
-static void draw_zone_highlight_rect(int x, int y, int w, int h, float pulse) {
-  uint8_t alpha = (uint8_t)(150 + 105 * pulse);
-  uint32_t glow_color = (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | alpha;
-  vita2d_draw_rectangle(x, y, w, h, RGBA8(52, 144, 255, alpha / 3));
-  ui_draw_rectangle_outline(x, y, w, h, glow_color);
-  ui_draw_rectangle_outline(x + 3, y + 3, w - 6, h - 6, (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | 100);
-}
-
-void ui_diagram_draw_front_zone_highlight(DiagramRenderCtx *ctx, VitakiCtrlIn input, float pulse) {
-  int zone_x, zone_y, zone_w, zone_h;
-  if (!ui_diagram_front_zone_rect(ctx, input, &zone_x, &zone_y, &zone_w, &zone_h))
-    return;
-  draw_zone_highlight_rect(zone_x, zone_y, zone_w, zone_h, pulse);
-}
-
-void ui_diagram_draw_back_slot_highlight(DiagramRenderCtx *ctx, VitakiCtrlIn input, float pulse) {
-  int zone_x, zone_y, zone_w, zone_h;
-  if (!ui_diagram_back_zone_rect(ctx, input, &zone_x, &zone_y, &zone_w, &zone_h))
-    return;
-  draw_zone_highlight_rect(zone_x, zone_y, zone_w, zone_h, pulse);
-}
-
 // ============================================================================
 // Context Initialization
 // ============================================================================
@@ -1558,7 +762,7 @@ void ui_diagram_draw_back_slot_highlight(DiagramRenderCtx *ctx, VitakiCtrlIn inp
 /**
  * Initialize procedural render context with all computed positions
  */
-void ui_diagram_init_context(DiagramRenderCtx *ctx, int x, int y, int w, int h) {
+static void init_context(DiagramRenderCtx *ctx, int x, int y, int w, int h) {
   // Set base position and dimensions
   ctx->base_x = x;
   ctx->base_y = y;
@@ -1577,140 +781,6 @@ void ui_diagram_init_context(DiagramRenderCtx *ctx, int x, int y, int w, int h) 
   ctx->line_width = RATIO_SIZE(ctx, VITA_OUTLINE_WIDTH_RATIO);
   if (ctx->line_width < 1)
     ctx->line_width = 1;
-
-  // Pre-compute all button positions for hit detection and highlighting
-  // This is done once per render for efficiency
-
-  // D-pad (rectangular)
-  ctx->buttons[VITA_BTN_ID_DPAD].cx = RATIO_X(ctx, VITA_DPAD_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_DPAD].cy = RATIO_Y(ctx, VITA_DPAD_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_DPAD].radius = RATIO_SIZE(ctx, VITA_DPAD_ARM_LENGTH_RATIO);
-  ctx->buttons[VITA_BTN_ID_DPAD].is_circular = false;
-  ctx->buttons[VITA_BTN_ID_DPAD].x =
-      ctx->buttons[VITA_BTN_ID_DPAD].cx - ctx->buttons[VITA_BTN_ID_DPAD].radius;
-  ctx->buttons[VITA_BTN_ID_DPAD].y =
-      ctx->buttons[VITA_BTN_ID_DPAD].cy - ctx->buttons[VITA_BTN_ID_DPAD].radius;
-  ctx->buttons[VITA_BTN_ID_DPAD].w = ctx->buttons[VITA_BTN_ID_DPAD].radius * 2;
-  ctx->buttons[VITA_BTN_ID_DPAD].h = ctx->buttons[VITA_BTN_ID_DPAD].radius * 2;
-
-  // Face buttons (circular)
-  int face_r = RATIO_SIZE(ctx, VITA_FACE_BTN_RADIUS_RATIO);
-
-  ctx->buttons[VITA_BTN_ID_TRIANGLE].cx = RATIO_X(ctx, VITA_BTN_TRIANGLE_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_TRIANGLE].cy = RATIO_Y(ctx, VITA_BTN_TRIANGLE_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_TRIANGLE].radius = face_r;
-  ctx->buttons[VITA_BTN_ID_TRIANGLE].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_CIRCLE].cx = RATIO_X(ctx, VITA_BTN_CIRCLE_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_CIRCLE].cy = RATIO_Y(ctx, VITA_BTN_CIRCLE_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_CIRCLE].radius = face_r;
-  ctx->buttons[VITA_BTN_ID_CIRCLE].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_CROSS].cx = RATIO_X(ctx, VITA_BTN_CROSS_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_CROSS].cy = RATIO_Y(ctx, VITA_BTN_CROSS_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_CROSS].radius = face_r;
-  ctx->buttons[VITA_BTN_ID_CROSS].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_SQUARE].cx = RATIO_X(ctx, VITA_BTN_SQUARE_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_SQUARE].cy = RATIO_Y(ctx, VITA_BTN_SQUARE_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_SQUARE].radius = face_r;
-  ctx->buttons[VITA_BTN_ID_SQUARE].is_circular = true;
-
-  // Shoulder buttons (rectangular)
-  int shoulder_w = RATIO_W(ctx, VITA_L_BTN_W_RATIO);
-  int shoulder_h = RATIO_H(ctx, VITA_L_BTN_H_RATIO);
-
-  ctx->buttons[VITA_BTN_ID_L].x = RATIO_X(ctx, VITA_L_BTN_X_RATIO);
-  ctx->buttons[VITA_BTN_ID_L].y = RATIO_Y(ctx, VITA_L_BTN_Y_RATIO);
-  ctx->buttons[VITA_BTN_ID_L].w = shoulder_w;
-  ctx->buttons[VITA_BTN_ID_L].h = shoulder_h;
-  ctx->buttons[VITA_BTN_ID_L].cx = ctx->buttons[VITA_BTN_ID_L].x + shoulder_w / 2;
-  ctx->buttons[VITA_BTN_ID_L].cy = ctx->buttons[VITA_BTN_ID_L].y + shoulder_h / 2;
-  ctx->buttons[VITA_BTN_ID_L].is_circular = false;
-
-  ctx->buttons[VITA_BTN_ID_R].x = RATIO_X(ctx, VITA_R_BTN_X_RATIO);
-  ctx->buttons[VITA_BTN_ID_R].y = RATIO_Y(ctx, VITA_R_BTN_Y_RATIO);
-  ctx->buttons[VITA_BTN_ID_R].w = shoulder_w;
-  ctx->buttons[VITA_BTN_ID_R].h = shoulder_h;
-  ctx->buttons[VITA_BTN_ID_R].cx = ctx->buttons[VITA_BTN_ID_R].x + shoulder_w / 2;
-  ctx->buttons[VITA_BTN_ID_R].cy = ctx->buttons[VITA_BTN_ID_R].y + shoulder_h / 2;
-  ctx->buttons[VITA_BTN_ID_R].is_circular = false;
-
-  // Analog sticks (circular)
-  int stick_r = RATIO_SIZE(ctx, VITA_STICK_OUTER_R_RATIO);
-
-  ctx->buttons[VITA_BTN_ID_LSTICK].cx = RATIO_X(ctx, VITA_LSTICK_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_LSTICK].cy = RATIO_Y(ctx, VITA_LSTICK_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_LSTICK].radius = stick_r;
-  ctx->buttons[VITA_BTN_ID_LSTICK].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_RSTICK].cx = RATIO_X(ctx, VITA_RSTICK_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_RSTICK].cy = RATIO_Y(ctx, VITA_RSTICK_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_RSTICK].radius = stick_r;
-  ctx->buttons[VITA_BTN_ID_RSTICK].is_circular = true;
-
-  // System buttons (circular)
-  int ps_r = RATIO_SIZE(ctx, VITA_PS_BTN_R_RATIO);
-  int sys_r = RATIO_SIZE(ctx, VITA_SYS_BTN_R_RATIO);
-
-  ctx->buttons[VITA_BTN_ID_PS].cx = RATIO_X(ctx, VITA_PS_BTN_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_PS].cy = RATIO_Y(ctx, VITA_PS_BTN_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_PS].radius = ps_r;
-  ctx->buttons[VITA_BTN_ID_PS].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_START].cx = RATIO_X(ctx, VITA_START_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_START].cy = RATIO_Y(ctx, VITA_START_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_START].radius = sys_r;
-  ctx->buttons[VITA_BTN_ID_START].is_circular = true;
-
-  ctx->buttons[VITA_BTN_ID_SELECT].cx = RATIO_X(ctx, VITA_SELECT_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_SELECT].cy = RATIO_Y(ctx, VITA_SELECT_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_SELECT].radius = sys_r;
-  ctx->buttons[VITA_BTN_ID_SELECT].is_circular = true;
-
-  // Rear touchpad zones (rectangular) - computed from touchpad dimensions
-  int pad_x = RATIO_X(ctx, VITA_RTOUCH_X_RATIO);
-  int pad_y = RATIO_Y(ctx, VITA_RTOUCH_Y_RATIO);
-  int pad_w = RATIO_W(ctx, VITA_RTOUCH_W_RATIO);
-  int pad_h = RATIO_H(ctx, VITA_RTOUCH_H_RATIO);
-  int zone_w = pad_w / 2;
-  int zone_h = pad_h / 2;
-
-  // Upper Left
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].x = pad_x;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].y = pad_y;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].w = zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].h = zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].cx = RATIO_X(ctx, VITA_RZONE_UL_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].cy = RATIO_Y(ctx, VITA_RZONE_UL_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UL].is_circular = false;
-
-  // Upper Right
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].x = pad_x + zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].y = pad_y;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].w = zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].h = zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].cx = RATIO_X(ctx, VITA_RZONE_UR_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].cy = RATIO_Y(ctx, VITA_RZONE_UR_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_UR].is_circular = false;
-
-  // Lower Left
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].x = pad_x;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].y = pad_y + zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].w = zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].h = zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].cx = RATIO_X(ctx, VITA_RZONE_LL_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].cy = RATIO_Y(ctx, VITA_RZONE_LL_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LL].is_circular = false;
-
-  // Lower Right
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].x = pad_x + zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].y = pad_y + zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].w = zone_w;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].h = zone_h;
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].cx = RATIO_X(ctx, VITA_RZONE_LR_CX_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].cy = RATIO_Y(ctx, VITA_RZONE_LR_CY_RATIO);
-  ctx->buttons[VITA_BTN_ID_RTOUCH_LR].is_circular = false;
 }
 
 // ============================================================================
@@ -1721,7 +791,7 @@ void ui_diagram_init_context(DiagramRenderCtx *ctx, int x, int y, int w, int h) 
  * Draw front view of Vita controller using procedural rendering
  * Layer order: body fill → screen → shoulders → outline → dpad → face → sticks → system
  */
-void ui_diagram_draw_front(DiagramRenderCtx *ctx) {
+static void draw_procedural_front(DiagramRenderCtx *ctx) {
   // Layer 1: Body fill using traced outline
   draw_front_body(ctx);
 
@@ -1757,7 +827,7 @@ void ui_diagram_draw_front(DiagramRenderCtx *ctx) {
  * Draw back view of Vita controller with rear touchpad zones
  * Layer order: body fill → touchpad bg → zone dividers → outline → touchpad outline → camera
  */
-void ui_diagram_draw_back(DiagramRenderCtx *ctx) {
+static void draw_procedural_back(DiagramRenderCtx *ctx) {
   // Layer 1: Body fill
   draw_front_body(ctx);
   draw_back_grips(ctx);
@@ -1783,113 +853,26 @@ void ui_diagram_draw_back(DiagramRenderCtx *ctx) {
 /**
  * Main diagram render function (delegates to procedural rendering)
  */
-void ui_diagram_render(DiagramState *state, const VitakiCtrlMapInfo *map, int x, int y, int w,
-                       int h) {
-  // Initialize render context
+void ui_diagram_render(DiagramState *state, int x, int y, int w, int h) {
   DiagramRenderCtx ctx = {0};
-  ui_diagram_init_context(&ctx, x, y, w, h);
+  init_context(&ctx, x, y, w, h);
 
-  bool skip_background_card = false;
-  if ((state->mode == CTRL_VIEW_FRONT && state->texture_front) ||
-      (state->mode == CTRL_VIEW_BACK && state->texture_back)) {
-    skip_background_card = true;
-  }
-  if (!skip_background_card) {
-    ui_draw_card_with_shadow(x, y, w, h, 8, UI_COLOR_CARD_BG);
-  }
-
-  // Apply flip animation scale if active
-  if (state->flip_in_progress) {
-    float t = state->flip_animation;
-    float anim_scale =
-        (t < 0.5f) ? lerp(1.0f, 0.95f, t * 2.0f) : lerp(0.95f, 1.0f, (t - 0.5f) * 2.0f);
-    ctx.scale *= anim_scale;
-    // Recalculate dimensions with animation scale
-    ctx.width = (int)(w * ctx.scale);
-    ctx.height = (int)(h * ctx.scale);
-    ctx.base_x = x + (w - ctx.width) / 2;
-    ctx.base_y = y + (h - ctx.height) / 2;
+  const bool back = state->mode == CTRL_VIEW_BACK;
+  vita2d_texture *art = back ? state->texture_back : state->texture_front;
+  if (art) {
+    if (back)
+      draw_back_texture(&ctx, art);
+    else
+      draw_front_texture(&ctx, art);
+    return;
   }
 
-  bool front_texture_drawn = false;
-
-  // Draw appropriate view
-  bool back_texture_drawn = false;
-
-  if (state->mode == CTRL_VIEW_BACK) {
-    if (state->texture_back) {
-      draw_back_texture(&ctx, state->texture_back);
-      back_texture_drawn = true;
-    }
-    if (!back_texture_drawn) {
-      ui_diagram_draw_back(&ctx);
-    }
-  } else {
-    if (state->texture_front) {
-      draw_front_texture(&ctx, state->texture_front);
-      front_texture_drawn = true;
-    }
-    if (!front_texture_drawn) {
-      ui_diagram_draw_front(&ctx);
-    }
-  }
-
-  /* The front summary shows no zone labels: its callouts name the shoulders only. */
-  if (state->mode == CTRL_VIEW_FRONT && state->detail_view == CTRL_DETAIL_FRONT_MAPPING) {
-    draw_front_touch_overlay(&ctx, map, state->front_selection);
-  } else if (state->mode == CTRL_VIEW_BACK && (state->detail_view == CTRL_DETAIL_SUMMARY ||
-                                               state->detail_view == CTRL_DETAIL_BACK_MAPPING)) {
-    const bool *selection =
-        (state->detail_view == CTRL_DETAIL_BACK_MAPPING) ? state->back_selection : NULL;
-    draw_back_touch_overlay(&ctx, map, selection);
-  }
-
-  // Draw overlays based on detail view
-  if (state->detail_view == CTRL_DETAIL_SUMMARY) {
-    if (state->selected_button >= 0) {
-      float pulse = sinf(state->highlight_pulse * 2.0f * (float)M_PI);
-      if (state->selected_button == VITAKI_CTRL_IN_L1) {
-        ui_diagram_draw_highlight(&ctx, VITA_BTN_ID_L, pulse);
-      } else if (state->selected_button == VITAKI_CTRL_IN_R1) {
-        ui_diagram_draw_highlight(&ctx, VITA_BTN_ID_R, pulse);
-      } else {
-        ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button, pulse);
-      }
-    }
-    if (state->selected_zone >= 0) {
-      ui_diagram_draw_back_slot_highlight(&ctx, (VitakiCtrlIn)state->selected_zone,
-                                          sinf(state->highlight_pulse * 2.0f * (float)M_PI));
-    }
-  } else if (state->detail_view == CTRL_DETAIL_FRONT_MAPPING) {
-    if (state->selected_button >= 0) {
-      ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button,
-                                           sinf(state->highlight_pulse * 2.0f * (float)M_PI));
-    }
-  } else if (state->detail_view == CTRL_DETAIL_BACK_MAPPING) {
-    if (state->selected_zone >= 0) {
-      ui_diagram_draw_back_slot_highlight(&ctx, (VitakiCtrlIn)state->selected_zone,
-                                          sinf(state->highlight_pulse * 2.0f * (float)M_PI));
-    }
-  }
-
-  // Draw BOTH view mode (front + back stacked) - not commonly used, kept for compatibility
-  if (state->mode == CTRL_VIEW_BOTH) {
-    float small_scale = 0.6f;
-    int small_w = (int)(w * small_scale);
-    int small_h = (int)(h * small_scale);
-
-    // Reuse single context for both views to minimize stack usage
-    DiagramRenderCtx both_ctx = {0};
-
-    // Draw front view
-    ui_diagram_init_context(&both_ctx, x + (w - small_w) / 2, y + 20, small_w, small_h);
-    ui_diagram_draw_front(&both_ctx);
-
-    // Reinitialize same context for back view
-    ui_diagram_init_context(&both_ctx, x + (w - small_w) / 2, y + 20 + small_h + 10, small_w,
-                            small_h);
-    ui_diagram_draw_back(&both_ctx);
-  }
+  /* No art: a card and the procedural drawing. */
+  ui_draw_card_with_shadow(x, y, w, h, 8, UI_COLOR_CARD_BG);
+  if (back)
+    draw_procedural_back(&ctx);
+  else
+    draw_procedural_front(&ctx);
 }
 
 // ============================================================================
@@ -1899,65 +882,10 @@ void ui_diagram_render(DiagramState *state, const VitakiCtrlMapInfo *map, int x,
 void ui_diagram_init(DiagramState *state) {
   memset(state, 0, sizeof(DiagramState));
   state->mode = CTRL_VIEW_FRONT;
-  state->detail_view = CTRL_DETAIL_SUMMARY;
-  state->map_id = VITAKI_CONTROLLER_MAP_0;
-  state->selected_button = -1;
-  state->selected_zone = -1;
-  state->highlight_pulse = 0.0f;
-  state->flip_animation = 0.0f;
-  state->color_tween = 0.0f;
-  state->animation_start_us = 0;
-  state->flip_in_progress = false;
-  state->color_tween_active = false;
   state->texture_front = ui_load_png_linear(CONTROLLER_FRONT_TEXTURE_PATH);
   if (state->texture_front)
     sanitize_outline_texture(state->texture_front, FRONT_TEXTURE_ALPHA_THRESHOLD);
   state->texture_back = ui_load_png_linear(CONTROLLER_BACK_TEXTURE_PATH);
   if (state->texture_back)
     sanitize_outline_texture(state->texture_back, BACK_TEXTURE_ALPHA_THRESHOLD);
-}
-
-void ui_diagram_set_preset(DiagramState *state, VitakiControllerMapId map_id) {
-  if (state->map_id != map_id) {
-    state->map_id = map_id;
-
-    // Trigger color tween animation
-    state->color_tween = 0.0f;
-    state->color_tween_active = true;
-    state->animation_start_us = get_time_us();
-  }
-}
-
-void ui_diagram_update(DiagramState *state) {
-  uint64_t now_us = get_time_us();
-
-  // Update highlight pulse (always active)
-  uint64_t elapsed_ms = (now_us / 1000) % PULSE_PERIOD_MS;
-  state->highlight_pulse = (float)elapsed_ms / (float)PULSE_PERIOD_MS;
-
-  // Update flip animation
-  if (state->flip_in_progress) {
-    uint64_t anim_elapsed_us = now_us - state->animation_start_us;
-    float t = (float)anim_elapsed_us / (FLIP_DURATION_MS * 1000.0f);
-
-    if (t >= 1.0f) {
-      state->flip_in_progress = false;
-      state->flip_animation = 0.0f;
-    } else {
-      state->flip_animation = ease_in_out_cubic(t);
-    }
-  }
-
-  // Update color tween
-  if (state->color_tween_active) {
-    uint64_t anim_elapsed_us = now_us - state->animation_start_us;
-    float t = (float)anim_elapsed_us / (COLOR_TWEEN_DURATION_MS * 1000.0f);
-
-    if (t >= 1.0f) {
-      state->color_tween_active = false;
-      state->color_tween = 0.0f;
-    } else {
-      state->color_tween = t;
-    }
-  }
 }
