@@ -3,7 +3,7 @@
  * @brief C07 PageShell frame: wash, title icon, title and rule (SPEC.md C07)
  *
  * Display-only draw helper for the pages that are not Home (Connecting, Reconnecting, Settings,
- * PIN, Profile, and the Controller page later). Draw it after the wave and before the top bar
+ * PIN, Profile and Controller). Draw it after the wave and before the top bar
  * and the page body. Paper cost: 4 draws (wash, icon, title, rule).
  */
 
@@ -20,6 +20,7 @@ typedef enum ui_page_icon_t {
   UI_PAGE_ICON_GEAR,
   UI_PAGE_ICON_LOCK,
   UI_PAGE_ICON_PROFILE,
+  UI_PAGE_ICON_CONTROLLER,
   UI_PAGE_ICON_COUNT
 } UiPageIcon;
 

@@ -105,6 +105,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_pin_digits.c
     src/ui/ui_options_column.c
     src/ui/ui_home_options.c
+    src/ui/ui_chevron.c
+    src/ui/ui_controller_page.c
     src/ui/ui_controller_rules.c
     src/ui/ui_controller_model.c
 
@@ -333,6 +335,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/page_gear.png assets/icons/page_gear.png
         FILE assets/icons/page_lock.png assets/icons/page_lock.png
         FILE assets/icons/page_profile.png assets/icons/page_profile.png
+        FILE assets/icons/page_controller.png assets/icons/page_controller.png
         FILE assets/icons/popup_check.png assets/icons/popup_check.png
         FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
         FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png

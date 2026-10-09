@@ -72,6 +72,7 @@
 #include "ui/ui_connecting.h"
 #include "ui/ui_home.h"
 #include "ui/ui_room_icons.h"
+#include "ui/ui_controller_page.h"
 #include "ui/ui_profile.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_settings_actions.h"
@@ -158,14 +159,15 @@ char *cancel_btn_str = "Circle";
 
 /**
  * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings, Profile, PIN). They draw their own top bar (and hint row with the Network
- * Unstable pill, where they have one), so the corner logo, the wave sidebar and the old loss
- * indicator are not drawn over them.
+ * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
+ * the Network Unstable pill, where they have one), so the corner logo, the wave sidebar and the old
+ * loss indicator are not drawn over them.
  */
 static bool screen_has_xmb_chrome(UIScreenType screen) {
   return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
          screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
-         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_REGISTER_HOST;
+         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_CONTROLLER ||
+         screen == UI_SCREEN_TYPE_REGISTER_HOST;
 }
 
 #if VITARPS5_DEBUG_TOOLS
@@ -186,6 +188,8 @@ static const char *draw_stats_screen_name(UIScreenType screen) {
       return "settings";
     case UI_SCREEN_TYPE_PROFILE:
       return "profile";
+    case UI_SCREEN_TYPE_CONTROLLER:
+      return "controller";
     case UI_SCREEN_TYPE_REGISTER_HOST:
       return "pin";
     default:
@@ -388,7 +392,6 @@ bool ui_reload_psn_account_id(void) {
 // ============================================================================
 // All screen rendering functions moved to ui_screens.c:
 // - ui_screen_draw_main()
-// - ui_screen_draw_controller()
 // - ui_screen_draw_waking()
 // - ui_screen_draw_reconnecting()
 // - ui_screen_draw_stream()
@@ -438,6 +441,7 @@ void init_ui() {
   ui_toast_init();
   ui_settings_init();
   ui_profile_init();
+  ui_controller_page_init();
   ui_pin_init();
   ui_list_popup_init();
 
@@ -769,8 +773,7 @@ void draw_ui() {
       } else if (screen == UI_SCREEN_TYPE_PROFILE) {
         next_screen = ui_profile_frame();
       } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
-        // Phase 2: Controller Configuration screen
-        next_screen = ui_screen_draw_controller();
+        next_screen = ui_controller_page_frame();
       }
 
       if (next_screen != prev_screen) {

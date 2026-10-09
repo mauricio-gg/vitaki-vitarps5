@@ -39,7 +39,7 @@
  * Detailed view modes for controller mapping UI
  */
 typedef enum controller_detail_view_t {
-  CTRL_DETAIL_SUMMARY = 0,    // Summary view with callouts (default)
+  CTRL_DETAIL_SUMMARY = 0,    // Summary view: the bare diagram (default)
   CTRL_DETAIL_FRONT_MAPPING,  // Front mapping view with interactive button selection
   CTRL_DETAIL_BACK_MAPPING,   // Back mapping view with touchpad zone selection
 } ControllerDetailView;
@@ -106,8 +106,6 @@ typedef struct diagram_state_t {
   int front_selection_count;                                 // Number of selected front cells
   bool back_selection[VITAKI_CTRL_IN_REARTOUCH_GRID_COUNT];  // Active rear-grid selection mask
   int back_selection_count;                                  // Number of selected rear cells
-  int callout_page;                                          // Current summary callout page index
-  int callout_page_count;                                    // Total summary callout pages
   float highlight_pulse;                                     // Callout highlight pulse (0.0-1.0)
   float flip_animation;         // View flip animation progress (0.0-1.0)
   float color_tween;            // Preset change color tween (0.0-1.0)
@@ -208,11 +206,6 @@ bool ui_diagram_front_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *
  */
 bool ui_diagram_back_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y,
                                int *out_w, int *out_h);
-
-/**
- * Fetch anchor point used for callout rendering for a given input.
- */
-bool ui_diagram_anchor_for_input(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y);
 
 // ============================================================================
 // State Updates

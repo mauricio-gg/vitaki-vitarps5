@@ -29,6 +29,7 @@
 #include "ui/ui_components.h"
 #include "ui/ui_component.h"
 #include "ui/ui_connect_failure.h"
+#include "ui/ui_controller_page.h"
 #include "ui/ui_console_rows.h"
 #include "ui/ui_console_status.h"
 #include "ui/ui_hint_row.h"
@@ -123,8 +124,8 @@ _Static_assert(sizeof(PROFILE_ENTRIES) / sizeof(PROFILE_ENTRIES[0]) == UI_PROFIL
 static const char *const CATEGORY_LABELS[UI_CAT_COUNT] = {"Consoles", "Settings", "Controller",
                                                           "Profile"};
 
-/** The screen that Confirm opens for each category's items (Settings and Profile open XMB pages,
- * Controller the old screen). */
+/** The screen that Confirm opens for each category's items (Settings, Controller and Profile open
+ * XMB pages). */
 static const UIScreenType CATEGORY_SCREENS[UI_CAT_COUNT] = {
     UI_SCREEN_TYPE_MAIN, UI_SCREEN_TYPE_SETTINGS, UI_SCREEN_TYPE_CONTROLLER,
     UI_SCREEN_TYPE_PROFILE};
@@ -395,6 +396,10 @@ void ui_home_select_profile_group(int group) {
   select_category_item(HOME_CAT_PROFILE, group);
 }
 
+void ui_home_select_controller_preset(int preset) {
+  select_category_item(HOME_CAT_CONTROLLER, preset);
+}
+
 void ui_home_focus_console(const VitaChiakiHost *host) {
   s_focus_host = host;
   ui_cards_mark_dirty();
@@ -493,11 +498,13 @@ static UIScreenType connect_console(VitaChiakiHost *host, bool force_psn) {
   return ui_screens_connect_host(host);
 }
 
-/** Open the screen for the focused Settings, Controller or Profile item. */
+/** Open the page for the focused Settings, Controller or Profile item. */
 static UIScreenType open_category_screen(void) {
   UIScreenType target = CATEGORY_SCREENS[s_bar.focus];
   if (s_bar.focus == HOME_CAT_SETTINGS)
     ui_settings_open(s_list.focus);
+  else if (s_bar.focus == HOME_CAT_CONTROLLER)
+    ui_controller_page_open(s_list.focus);
   else if (s_bar.focus == HOME_CAT_PROFILE)
     ui_profile_open(s_list.focus);
   ui_focus_move_to_content(target);

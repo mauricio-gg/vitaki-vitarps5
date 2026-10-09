@@ -2,8 +2,8 @@
  * @file ui_screens.h
  * @brief Screen rendering functions for VitaRPS5
  *
- * All screen implementations including main menu, settings, profile,
- * controller configuration, and overlays (waking, streaming, messages, etc.)
+ * Screen implementations for the main menu hand-off, the connect flows,
+ * and the overlays (waking, reconnecting, streaming, messages).
  *
  * This module contains ~2000 lines of screen rendering logic extracted from ui.c.
  */
@@ -45,13 +45,6 @@ UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
  */
 UIScreenType ui_screens_repair_host(VitaChiakiHost *host);
-
-/**
- * Render the controller configuration screen with mapping and settings
- * Two-tab layout: controller mappings and controller settings
- * @return next screen to display
- */
-UIScreenType ui_screen_draw_controller(void);
 
 // ============================================================================
 // Overlay Screens

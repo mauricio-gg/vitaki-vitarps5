@@ -7,7 +7,7 @@
  * coordinates from ui_constants.h for pixel-perfect scaling.
  *
  * Three view modes:
- * - Summary: Large diagram with inline callouts showing mappings (△ → □)
+ * - Summary: the bare diagram; the Controller page draws its callouts and chrome
  * - Front Mapping: Interactive front view for remapping buttons
  * - Back Mapping: Interactive rear touchpad view for zone mapping
  */
@@ -45,12 +45,6 @@
 #define COLOR_TWEEN_DURATION_MS 300
 #define PULSE_PERIOD_MS 1000
 
-// Callout rendering (for Summary view)
-#define CALLOUT_LINE_LENGTH 40
-#define CALLOUT_PILL_HEIGHT 26
-#define CALLOUT_PILL_PADDING 10
-#define CALLOUT_ARROW_LENGTH 12
-
 // Zone/mapping label baseline offsets (relative to control-dot center)
 /* Pixels above the control-dot center where the zone label baseline sits. */
 #define DIAGRAM_ZONE_LABEL_BASELINE_OFFSET 6
@@ -87,30 +81,6 @@ typedef struct touch_region_info_t {
   int center_y;
   int cell_count;
 } TouchRegionInfo;
-
-typedef struct diagram_callout_def_t {
-  VitakiCtrlIn input;
-  ControllerViewMode view;
-  float anchor_rx;
-  float anchor_ry;
-  float label_rx;
-  float label_ry;
-  const char *label;
-} DiagramCalloutDef;
-
-typedef struct diagram_callout_page_t {
-  int start;
-  int count;
-  const char *title;
-} DiagramCalloutPage;
-
-static const DiagramCalloutDef g_callouts[] = {
-    {VITAKI_CTRL_IN_L1, CTRL_VIEW_FRONT, 0.10f, 0.12f, -0.13f, 0.08f, "L1"},
-    {VITAKI_CTRL_IN_R1, CTRL_VIEW_FRONT, 0.90f, 0.12f, 1.02f, 0.08f, "R1"}};
-
-static const DiagramCalloutPage g_callout_pages[] = {{0, 2, "Buttons"}, {2, 0, "Back Touch"}};
-
-#define CTRL_CALLOUT_PAGE_COUNT CTRL_ARRAY_SIZE(g_callout_pages)
 
 static const char *g_touch_grid_labels[VITAKI_REAR_TOUCH_GRID_ROWS][VITAKI_REAR_TOUCH_GRID_COLS] = {
     {"A1", "B1", "C1", "D1", "E1", "F1"},
@@ -332,27 +302,6 @@ static void draw_back_texture(DiagramRenderCtx *ctx, vita2d_texture *texture) {
   vita2d_draw_texture_tint_scale(texture, draw_x, draw_y, scale, scale, BACK_TEXTURE_TINT);
 }
 
-/**
- * Draw callout connector line (no arrowhead, keeps "A ---- B" style)
- */
-static void draw_callout_arrow(int x1, int y1, int x2, int y2, uint32_t color) {
-  vita2d_draw_line(x1, y1, x2, y2, color);
-}
-
-/**
- * Draw callout pill with text (e.g., "△ → □")
- */
-static void draw_callout_pill(int x, int y, const char *text, uint32_t bg_color,
-                              uint32_t text_color) {
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
-  int pill_w = text_w + CALLOUT_PILL_PADDING * 2;
-
-  ui_draw_rounded_rect(x, y, pill_w, CALLOUT_PILL_HEIGHT, CALLOUT_PILL_HEIGHT / 2, bg_color);
-  // Centered vertically in the callout pill (was: y + PILL_HEIGHT - 7 empirical ascent offset).
-  ui_text_draw_centered_v(font, x + CALLOUT_PILL_PADDING, y, CALLOUT_PILL_HEIGHT, text_color,
-                          FONT_SIZE_SMALL, text);
-}
-
 bool ui_diagram_front_zone_rect(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x, int *out_y,
                                 int *out_w, int *out_h) {
   int screen_x = RATIO_X(ctx, VITA_SCREEN_X_RATIO);
@@ -560,174 +509,6 @@ static const char *get_button_name(VitakiCtrlOut button) {
     default:
       return "None";
   }
-}
-
-static bool anchor_from_button(DiagramRenderCtx *ctx, VitaDiagramButtonId btn_id, int *out_x,
-                               int *out_y) {
-  if (!ctx || btn_id < 0 || btn_id >= VITA_BTN_ID_COUNT)
-    return false;
-  const DiagramButtonPos *btn = &ctx->buttons[btn_id];
-  if (out_x)
-    *out_x = btn->cx;
-  if (out_y)
-    *out_y = btn->cy;
-  return true;
-}
-
-static bool anchor_from_front_touch(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x,
-                                    int *out_y) {
-  int screen_x = RATIO_X(ctx, VITA_SCREEN_X_RATIO);
-  int screen_y = RATIO_Y(ctx, VITA_SCREEN_Y_RATIO);
-  int screen_w = RATIO_W(ctx, VITA_SCREEN_W_RATIO);
-  int screen_h = RATIO_H(ctx, VITA_SCREEN_H_RATIO);
-
-  int zone_x = screen_x;
-  int zone_y = screen_y;
-  int zone_w = screen_w;
-  int zone_h = screen_h;
-
-  switch (input) {
-    case VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC:
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC:
-      zone_x += screen_w / 2;
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC:
-      zone_w /= 2;
-      zone_y += screen_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC:
-      zone_x += screen_w / 2;
-      zone_w /= 2;
-      zone_y += screen_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_CENTER:
-      zone_x += screen_w / 5;
-      zone_w = (screen_w * 3) / 5;
-      zone_y += screen_h / 5;
-      zone_h = (screen_h * 3) / 5;
-      break;
-    case VITAKI_CTRL_IN_FRONTTOUCH_ANY:
-      break;
-    default:
-      return false;
-  }
-
-  if (out_x)
-    *out_x = zone_x + zone_w / 2;
-  if (out_y)
-    *out_y = zone_y + zone_h / 2;
-  return true;
-}
-
-static bool anchor_from_back_touch(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x,
-                                   int *out_y) {
-  int pad_x = RATIO_X(ctx, VITA_RTOUCH_X_RATIO);
-  int pad_y = RATIO_Y(ctx, VITA_RTOUCH_Y_RATIO);
-  int pad_w = RATIO_W(ctx, VITA_RTOUCH_W_RATIO);
-  int pad_h = RATIO_H(ctx, VITA_RTOUCH_H_RATIO);
-
-  int zone_x = pad_x;
-  int zone_y = pad_y;
-  int zone_w = pad_w;
-  int zone_h = pad_h;
-
-  switch (input) {
-    case VITAKI_CTRL_IN_REARTOUCH_UL:
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_UR:
-      zone_x += pad_w / 2;
-      zone_w /= 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LL:
-      zone_w /= 2;
-      zone_y += pad_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LR:
-      zone_x += pad_w / 2;
-      zone_w /= 2;
-      zone_y += pad_h / 2;
-      zone_h /= 2;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_LEFT_L1:
-    case VITAKI_CTRL_IN_REARTOUCH_LEFT:
-      zone_x = pad_x - RATIO_W(ctx, 0.08f);
-      zone_w = RATIO_W(ctx, 0.12f);
-      zone_y = pad_y + pad_h / 6;
-      zone_h = (pad_h * 2) / 3;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1:
-    case VITAKI_CTRL_IN_REARTOUCH_RIGHT:
-      zone_x = pad_x + pad_w - RATIO_W(ctx, 0.04f);
-      zone_w = RATIO_W(ctx, 0.12f);
-      zone_y = pad_y + pad_h / 6;
-      zone_h = (pad_h * 2) / 3;
-      break;
-    case VITAKI_CTRL_IN_REARTOUCH_ANY:
-      break;
-    default:
-      return false;
-  }
-
-  if (out_x)
-    *out_x = zone_x + zone_w / 2;
-  if (out_y)
-    *out_y = zone_y + zone_h / 2;
-  return true;
-}
-
-static bool callout_anchor_for_input(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x,
-                                     int *out_y) {
-  switch (input) {
-    case VITAKI_CTRL_IN_L1:
-      return anchor_from_button(ctx, VITA_BTN_ID_L, out_x, out_y);
-    case VITAKI_CTRL_IN_R1:
-      return anchor_from_button(ctx, VITA_BTN_ID_R, out_x, out_y);
-    case VITAKI_CTRL_IN_SELECT_START:
-      return anchor_from_button(ctx, VITA_BTN_ID_PS, out_x, out_y);
-    case VITAKI_CTRL_IN_LEFT_SQUARE:
-      return anchor_from_button(ctx, VITA_BTN_ID_LSTICK, out_x, out_y);
-    case VITAKI_CTRL_IN_RIGHT_CIRCLE:
-      return anchor_from_button(ctx, VITA_BTN_ID_RSTICK, out_x, out_y);
-    default:
-      break;
-  }
-
-  if (anchor_from_front_touch(ctx, input, out_x, out_y))
-    return true;
-  if (anchor_from_back_touch(ctx, input, out_x, out_y))
-    return true;
-
-  return false;
-}
-
-bool ui_diagram_anchor_for_input(DiagramRenderCtx *ctx, VitakiCtrlIn input, int *out_x,
-                                 int *out_y) {
-  return callout_anchor_for_input(ctx, input, out_x, out_y);
-}
-
-static void draw_anchor_label(const char *text, int x, int y, uint32_t color) {
-  if (!text)
-    return;
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, text);
-  int text_x = x - text_w / 2;
-  // The `6` here is NOT the same concept as DIAGRAM_ZONE_LABEL_BASELINE_OFFSET;
-  // anchor labels and zone labels serve different layout contexts and the shared
-  // value is coincidental — do not merge them into one constant.
-  // text_y is a pre-computed true baseline (anchor y minus a fixed 6 px offset), not a
-  // box-centre — use ui_text_draw directly rather than ui_text_draw_centered_v.
-  int text_y = y - 6;
-  ui_text_draw(font, text_x, text_y, color, FONT_SIZE_SMALL, text);
 }
 
 static void draw_zone_mapping_text(int cx, int cy, const char *zone_label,
@@ -1771,61 +1552,6 @@ void ui_diagram_draw_back_slot_highlight(DiagramRenderCtx *ctx, VitakiCtrlIn inp
 }
 
 // ============================================================================
-// Summary View Callouts
-// ============================================================================
-
-/**
- * Draw mapping callouts for Summary view
- * Shows inline labels like "△ → □" with arrows pointing to controls
- */
-static void draw_summary_callouts(DiagramState *state, DiagramRenderCtx *ctx,
-                                  const VitakiCtrlMapInfo *map) {
-  if (!map || state->callout_page < 0 || state->callout_page >= CTRL_CALLOUT_PAGE_COUNT) {
-    return;
-  }
-
-  const DiagramCalloutPage *page = &g_callout_pages[state->callout_page];
-  float pulse_alpha = 0.75f + 0.25f * sinf(state->highlight_pulse * 2.0f * (float)M_PI);
-  uint32_t line_color = (UI_COLOR_PRIMARY_BLUE & 0xFFFFFF00) | (uint32_t)(pulse_alpha * 255.0f);
-  uint32_t pill_bg = RGBA8(40, 45, 52, 230);
-
-  char page_text[48];
-  snprintf(page_text, sizeof(page_text), "Page %d/%d · %s", state->callout_page + 1,
-           state->callout_page_count, page->title);
-  int label_w = ui_text_width(font, FONT_SIZE_SMALL, page_text);
-  int label_x = ctx->base_x + (ctx->width - label_w) / 2;
-  // Baseline sits 12 px above ctx->base_y — leaves a thin margin above the page indicator row.
-  ui_text_draw(font, label_x, ctx->base_y - 12, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, page_text);
-
-  for (int i = 0; i < page->count; i++) {
-    const DiagramCalloutDef *def = &g_callouts[page->start + i];
-    if (def->view != state->mode) {
-      continue;
-    }
-
-    int anchor_x, anchor_y;
-    if (!callout_anchor_for_input(ctx, def->input, &anchor_x, &anchor_y)) {
-      anchor_x = RATIO_X(ctx, def->anchor_rx);
-      anchor_y = RATIO_Y(ctx, def->anchor_ry);
-    }
-    int label_x_ratio = ctx->base_x + (int)(ctx->width * def->label_rx);
-    int label_y_ratio = ctx->base_y + (int)(ctx->height * def->label_ry);
-
-    VitakiCtrlOut mapped = controller_map_get_output_for_input(map, def->input);
-    const char *mapped_text = controller_output_symbol(mapped);
-    char pill_text[32];
-    snprintf(pill_text, sizeof(pill_text), "%s", mapped_text);
-
-    uint32_t text_color =
-        (mapped == VITAKI_CTRL_OUT_NONE) ? UI_COLOR_TEXT_TERTIARY : UI_COLOR_TEXT_PRIMARY;
-    draw_anchor_label(def->label, anchor_x, anchor_y, UI_COLOR_TEXT_SECONDARY);
-    draw_callout_arrow(anchor_x, anchor_y, label_x_ratio + (int)(CALLOUT_PILL_PADDING * 1.5f),
-                       label_y_ratio + CALLOUT_PILL_HEIGHT / 2, line_color);
-    draw_callout_pill(label_x_ratio, label_y_ratio, pill_text, pill_bg, text_color);
-  }
-}
-
-// ============================================================================
 // Context Initialization
 // ============================================================================
 
@@ -2108,11 +1834,9 @@ void ui_diagram_render(DiagramState *state, const VitakiCtrlMapInfo *map, int x,
     }
   }
 
-  if (state->mode == CTRL_VIEW_FRONT && (state->detail_view == CTRL_DETAIL_SUMMARY ||
-                                         state->detail_view == CTRL_DETAIL_FRONT_MAPPING)) {
-    const bool *selection =
-        (state->detail_view == CTRL_DETAIL_FRONT_MAPPING) ? state->front_selection : NULL;
-    draw_front_touch_overlay(&ctx, map, selection);
+  /* The front summary shows no zone labels: its callouts name the shoulders only. */
+  if (state->mode == CTRL_VIEW_FRONT && state->detail_view == CTRL_DETAIL_FRONT_MAPPING) {
+    draw_front_touch_overlay(&ctx, map, state->front_selection);
   } else if (state->mode == CTRL_VIEW_BACK && (state->detail_view == CTRL_DETAIL_SUMMARY ||
                                                state->detail_view == CTRL_DETAIL_BACK_MAPPING)) {
     const bool *selection =
@@ -2136,7 +1860,6 @@ void ui_diagram_render(DiagramState *state, const VitakiCtrlMapInfo *map, int x,
       ui_diagram_draw_back_slot_highlight(&ctx, (VitakiCtrlIn)state->selected_zone,
                                           sinf(state->highlight_pulse * 2.0f * (float)M_PI));
     }
-    draw_summary_callouts(state, &ctx, map);
   } else if (state->detail_view == CTRL_DETAIL_FRONT_MAPPING) {
     if (state->selected_button >= 0) {
       ui_diagram_draw_front_zone_highlight(&ctx, (VitakiCtrlIn)state->selected_button,
@@ -2180,8 +1903,6 @@ void ui_diagram_init(DiagramState *state) {
   state->map_id = VITAKI_CONTROLLER_MAP_0;
   state->selected_button = -1;
   state->selected_zone = -1;
-  state->callout_page = 0;
-  state->callout_page_count = CTRL_CALLOUT_PAGE_COUNT;
   state->highlight_pulse = 0.0f;
   state->flip_animation = 0.0f;
   state->color_tween = 0.0f;
