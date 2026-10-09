@@ -544,6 +544,31 @@ static UiHomeOptionsTarget options_target(void) {
 }
 
 /**
+ * Long-press on a console row focuses it and opens its Options column, the touch path for
+ * Triangle. The Filter row and anything that is not a console do nothing.
+ */
+static void update_long_press(const UiInput *in) {
+  if (!in->touch.long_press)
+    return;
+  for (int i = s_list.focus; i < s_list.count; i++) {
+    if (!ui_rect_contains(s_list.hit[i], in->touch.x, in->touch.y))
+      continue;
+    if (s_filter_row && i == 0)
+      return;
+    if (i != s_list.focus)
+      ui_xmb_list_set_focus(&s_list, i);
+    const ConsoleCardInfo *card = focused_card();
+    if (!card)
+      return;
+    ui_cards_set_selected_index(focused_console_index());
+    const UiHomeOptionsTarget target = options_target();
+    ui_home_options_open(&target);
+    LOGD("Home: long-press opened Options for console row %d", i);
+    return;
+  }
+}
+
+/**
  * Square clears an active filter on the Filter row; Start opens the keyboard or clears the
  * filter; Triangle on a console opens its Options column.
  */
@@ -652,8 +677,10 @@ static UIScreenType update_input(const UiInput *in, const VitaChiakiHost *cooldo
   }
 
   const UIScreenType next = update_list(in);
-  if (s_bar.focus == HOME_CAT_CONSOLES && next == UI_SCREEN_TYPE_MAIN)
+  if (s_bar.focus == HOME_CAT_CONSOLES && next == UI_SCREEN_TYPE_MAIN) {
     update_console_shortcuts(in);
+    update_long_press(in);
+  }
   return next;
 }
 
