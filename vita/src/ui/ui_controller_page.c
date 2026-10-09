@@ -19,6 +19,7 @@
 #include "context.h"
 #include "controller.h"
 #include "ui/ui_bake.h"
+#include "ui/ui_arrow.h"
 #include "ui/ui_chevron.h"
 #include "ui/ui_component.h"
 #include "ui/ui_constants.h"
@@ -46,7 +47,7 @@ static const char ZONES_ONE[] = "zone";
 static const char ZONES_MANY[] = "zones";
 static const char FOOT_ZONE_FORMAT[] = "Zone %s";
 static const char FOOT_SELECTED_FORMAT[] = "%d Zones Selected";
-static const char CALLOUT_FORMAT[] = "%s \xE2\x86\x92 %s";
+static const char SPACE[] = " ";
 static const char SUBTITLE_L1[] = "Left Shoulder (L1)";
 static const char SUBTITLE_R1[] = "Right Shoulder (R1)";
 static const char BUTTON_CLEAR[] = "Clear";
@@ -79,11 +80,15 @@ typedef enum page_t {
   PAGE_BACK_TOUCH,
 } Page;
 
-/** One callout: its text, rects and leader, rebuilt only when the output it names changes. */
+/** One callout: its text, rects and leader, rebuilt only when the output it names changes. The
+ * text is the shoulder name, the arrow, then @text (the output's name); @arrow_dx and @text_dx are
+ * where the arrow and @text start, from the callout's text start. */
 typedef struct callout_t {
   char text[UI_CTRL_CALLOUT_TEXT_MAX];
   int output;  ///< the output @text names; NO_OUTPUT before the first build
-  int text_w;
+  int arrow_dx;
+  int text_dx;
+  int text_w;  ///< the whole width: name, arrow and output with their gaps
   UiRect visible;
   UiRect hit;
   int leader_x1;  ///< the leader starts under the callout...
@@ -104,6 +109,7 @@ static bool s_diagram_ready = false;
 static vita2d_texture *s_chevron_left = NULL;
 static vita2d_texture *s_chevron_right = NULL;
 static vita2d_texture *s_dot = NULL;
+static vita2d_texture *s_arrow = NULL;
 
 static Callout s_callouts[SHOULDER_COUNT];
 static Shoulder s_focus = SHOULDER_L1;
@@ -214,6 +220,8 @@ void ui_controller_page_init(void) {
   s_chevron_left = ui_chevron_bake(UI_CHEVRON_LEFT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
   s_chevron_right = ui_chevron_bake(UI_CHEVRON_RIGHT, UI_CHOICE_ARROW_ART, UI_CHOICE_ARROW_STROKE);
   s_dot = ui_bake_white(UI_CTRL_DOT, UI_CTRL_DOT, dot_alpha, NULL);
+  s_arrow =
+      ui_arrow_bake(UI_CTRL_ARROW_W, UI_CTRL_ARROW_H, UI_CTRL_ARROW_HEAD, UI_CTRL_ARROW_STROKE);
 
   s_chevron_right_hit = (UiRect){UI_CONTENT_RIGHT - UI_TAP_MIN, UI_TITLE_Y, UI_TAP_MIN, UI_TAP_MIN};
   s_label_hit = (UiRect){s_chevron_right_hit.x - UI_CTRL_PRESET_GAP - UI_CTRL_PRESET_LABEL_W,
@@ -260,9 +268,11 @@ static void layout_callout(int i) {
   if (output == c->output)
     return;
   c->output = output;
-  snprintf(c->text, sizeof(c->text), CALLOUT_FORMAT, SHOULDER_NAME[i],
-           controller_output_name((VitakiCtrlOut)output));
-  c->text_w = ui_text_face_width(UI_FACE_T20, c->text);
+  snprintf(c->text, sizeof(c->text), "%s", controller_output_name((VitakiCtrlOut)output));
+  const int gap = ui_text_face_width(UI_FACE_T20, SPACE);
+  c->arrow_dx = ui_text_face_width(UI_FACE_T20, SHOULDER_NAME[i]) + gap;
+  c->text_dx = c->arrow_dx + UI_CTRL_ARROW_W + gap;
+  c->text_w = c->text_dx + ui_text_face_width(UI_FACE_T20, c->text);
 
   const int w = c->text_w > UI_CTRL_CALLOUT_W ? c->text_w : UI_CTRL_CALLOUT_W;
   const int x = i == SHOULDER_L1 ? UI_CTRL_CALLOUT_LEFT_X : UI_CTRL_CALLOUT_RIGHT_EDGE - w;
@@ -471,8 +481,8 @@ static void draw_preset_switcher(void) {
 }
 
 /**
- * Draw callout @i: its text, the underline (2 px white with a glow when focused, else 1 px) and
- * the leader ending in a dot at the shoulder. Paper cost 4 (5 focused).
+ * Draw callout @i: its name, arrow and output, the underline (2 px white with a glow when
+ * focused, else 1 px) and the leader ending in a dot at the shoulder. Paper cost 6 (7 focused).
  */
 static void draw_callout(int i) {
   const Callout *c = &s_callouts[i];
@@ -490,8 +500,17 @@ static void draw_callout(int i) {
     vita2d_draw_texture_tint(s_dot, (float)(c->leader_x2 - UI_CTRL_DOT / 2),
                              (float)(c->leader_y2 - UI_CTRL_DOT / 2), UI_TEXT);
   }
-  ui_text_draw_face_centered_v(UI_FACE_T20, text_x, c->visible.y, c->visible.h,
-                               focused ? UI_TEXT : UI_TEXT_2, c->text);
+  const unsigned int text_color = focused ? UI_TEXT : UI_TEXT_2;
+  ui_text_draw_face_centered_v(UI_FACE_T20, text_x, c->visible.y, c->visible.h, text_color,
+                               SHOULDER_NAME[i]);
+  if (s_arrow) {
+    vita2d_draw_texture_tint(
+        s_arrow, (float)(text_x + c->arrow_dx),
+        (float)(c->visible.y + (c->visible.h - UI_CTRL_ARROW_H) / 2 + UI_CTRL_ARROW_DROP),
+        text_color);
+  }
+  ui_text_draw_face_centered_v(UI_FACE_T20, text_x + c->text_dx, c->visible.y, c->visible.h,
+                               text_color, c->text);
 
   const int line = focused ? UI_LW2 : UI_LW1;
   vita2d_draw_rectangle((float)c->visible.x, (float)(c->visible.y + c->visible.h - line),

@@ -846,6 +846,15 @@ typedef enum ui_face_t {
 #define UI_CTRL_CALLOUT_LEFT_X 64
 #define UI_CTRL_CALLOUT_RIGHT_EDGE 896
 #define UI_CTRL_CALLOUT_TEXT_MAX 48
+/** The callout's arrow (Roboto has no U+2192, so it is a baked texture): UI_CTRL_ARROW_W x
+ * UI_CTRL_ARROW_H, the head's strokes reaching UI_CTRL_ARROW_HEAD back from the tip, drawn
+ * UI_CTRL_ARROW_STROKE thick. It sits one space (at T20) from the shoulder name and from the
+ * output, and UI_CTRL_ARROW_DROP px below the box's middle, where the capitals' middle is. */
+#define UI_CTRL_ARROW_W 16
+#define UI_CTRL_ARROW_H 12
+#define UI_CTRL_ARROW_HEAD 4.0f
+#define UI_CTRL_ARROW_STROKE 1.5f
+#define UI_CTRL_ARROW_DROP 2
 /** The leader ends at the shoulder: this far from the diagram's top, and from its left (L1) or
  * right (R1) side, in percent of the diagram box. It ends in a UI_CTRL_DOT px dot. */
 #define UI_CTRL_SHOULDER_X_PCT 10

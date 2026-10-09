@@ -43,20 +43,12 @@ static const FaceSpec UI_FACE_TABLE[UI_FACE_COUNT] = {
 /*
  * Character set to bake into the atlas.
  *
- * ASCII printable range 0x20–0x7E followed by the extended glyphs that the UI
- * actually renders (sourced from grepping all non-ASCII literals in
- * vita/src/ui/*.c and vita/src/video_overlay.c):
+ * ASCII printable range 0x20-0x7E followed by the non-ASCII glyphs the UI draws as text. Every one
+ * must be in Roboto-Light.ttf and Roboto-Regular.ttf (Roboto has no arrows, squares, triangles or
+ * circles: the callout arrow is a baked texture, see ui_arrow.c):
  *
- *   U+00B0  °   DEGREE SIGN          (ui_screens.c bitrate labels)
- *   U+00B7  ·   MIDDLE DOT           (ui_controller_diagram.c page text)
- *   U+00D7  ×   MULTIPLICATION SIGN  (plan: extended set)
- *   U+2026  …   HORIZONTAL ELLIPSIS  (plan: extended set)
- *   U+2192  →   RIGHTWARDS ARROW     (plan: extended set)
- *   U+2248  ≈   ALMOST EQUAL TO      (ui_screens.c bitrate labels)
- *   U+25A1  □   WHITE SQUARE         (ui_controller_diagram.c button symbols)
- *   U+25B3  △   WHITE UP-POINTING TRIANGLE (ui_controller_diagram.c)
- *   U+25CB  ○   WHITE CIRCLE         (ui_controller_diagram.c)
- *   U+2715  ✕   MULTIPLICATION X     (ui_controller_diagram.c)
+ *   U+00B7  MIDDLE DOT  (controller page and mapping labels, Home route and filter text)
+ *   U+2248  ALMOST EQUAL TO  (ui_value_labels.c bitrate labels)
  *
  * The string literal uses UTF-8 encoding directly.
  */
@@ -65,16 +57,8 @@ static const char UI_FONT_PREWARM_CHARSET[] =
     "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
     "`abcdefghijklmnopqrstuvwxyz{|}~"
     /* Extended glyphs (UTF-8): */
-    "\xC2\xB0"     /* U+00B0  ° */
     "\xC2\xB7"     /* U+00B7  · */
-    "\xC3\x97"     /* U+00D7  × */
-    "\xE2\x80\xA6" /* U+2026  … */
-    "\xE2\x86\x92" /* U+2192  → */
     "\xE2\x89\x88" /* U+2248  ≈ */
-    "\xE2\x96\xA1" /* U+25A1  □ */
-    "\xE2\x96\xB3" /* U+25B3  △ */
-    "\xE2\x97\x8B" /* U+25CB  ○ */
-    "\xE2\x9C\x95" /* U+2715  ✕ */
     ;
 
 /*

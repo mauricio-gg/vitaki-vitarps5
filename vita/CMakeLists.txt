@@ -109,6 +109,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_options_column.c
     src/ui/ui_home_options.c
     src/ui/ui_chevron.c
+    src/ui/ui_arrow.c
     src/ui/ui_controller_page.c
     src/ui/ui_controller_mapping.c
     src/ui/ui_controller_zones.c
