@@ -99,19 +99,13 @@ static uint32_t rgba_white(float alpha) {
   return RGBA8(COLOR_FULL, COLOR_FULL, COLOR_FULL, alpha_byte(alpha));
 }
 
-/** Pick the particles from the logo's pixels into a freshly allocated block. */
-static void sample_logo(vita2d_texture *logo) {
-  if (!logo) {
-    LOGE("UI/SPLASH no logo texture, splash draws black only");
-    return;
-  }
-  if (vita2d_texture_get_format(logo) != SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR) {
-    LOGE("UI/SPLASH logo texture is not RGBA8, splash draws black only");
-    return;
-  }
-  const uint8_t *pixels = vita2d_texture_get_datap(logo);
-  if (!pixels) {
-    LOGE("UI/SPLASH logo texture has no pixel data, splash draws black only");
+/** How long the last sampling took, for the PIPE/SPLASH_INIT line. */
+static uint64_t s_sample_us;
+
+/** Pick the particles from the logo's decoded pixels into a freshly allocated block. */
+static void sample_logo(const vita2d_texture *logo, const UiAssetPixels *pixels) {
+  if (!logo || !pixels || !pixels->rgba) {
+    LOGE("UI/SPLASH no logo texture or pixels, splash draws black only");
     return;
   }
   s_splash.particles = malloc(UI_SPLASH_MAX_PARTICLES * sizeof(UiSplashParticle));
@@ -121,14 +115,13 @@ static void sample_logo(vita2d_texture *logo) {
     return;
   }
   /* The stride is in bytes; the pixels are 4 bytes each. */
-  s_splash.count = ui_splash_sample(pixels, (int)vita2d_texture_get_width(logo),
-                                    (int)vita2d_texture_get_height(logo),
-                                    (int)(vita2d_texture_get_stride(logo) / sizeof(uint32_t)),
-                                    &s_params, s_splash.particles, UI_SPLASH_MAX_PARTICLES);
+  s_splash.count = ui_splash_sample(pixels->rgba, pixels->width, pixels->height,
+                                    (int)(pixels->stride_bytes / sizeof(uint32_t)), &s_params,
+                                    s_splash.particles, UI_SPLASH_MAX_PARTICLES);
   LOGD("UI/SPLASH %d particles sampled", s_splash.count);
 }
 
-void ui_splash_start(vita2d_texture *logo) {
+void ui_splash_start(vita2d_texture *logo, const UiAssetPixels *pixels) {
   const uint64_t now = sceKernelGetProcessTimeWide();
   free(s_splash.particles);
   s_splash = (Splash){0};
@@ -145,7 +138,13 @@ void ui_splash_start(vita2d_texture *logo) {
   if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) > 0)
     s_splash.prev_touching = touch.reportNum > 0;
 
-  sample_logo(logo);
+  const uint64_t sample_start_us = sceKernelGetProcessTimeWide();
+  sample_logo(logo, pixels);
+  s_sample_us = sceKernelGetProcessTimeWide() - sample_start_us;
+}
+
+uint64_t ui_splash_sample_us(void) {
+  return s_sample_us;
 }
 
 bool ui_splash_active(void) {

@@ -18,15 +18,23 @@
 
 #include <vita2d.h>
 
+#include "ui/ui_asset_preload.h"
+
 /**
  * ui_splash_start() - Begin the splash.
- * @logo: The loaded logo texture (not owned; it must outlive the splash). NULL, or a texture the
- *        sampler cannot read, gives a plain black splash that still runs its clock.
+ * @logo:   The logo texture, drawn every frame (not owned; it must outlive the splash).
+ * @pixels: The logo's decoded pixels, read once to pick the particles (not owned; the caller
+ *          frees them after this returns). Sampling from RAM matters: reading a texture's own
+ *          memory, which is uncached GPU memory, costs hundreds of milliseconds.
  *
- * Reads the logo's pixels once, picks the particles into a block allocated here and starts the
- * clock. Logs the particle count; a failure is logged as an error.
+ * If either is NULL (or @pixels is empty) the splash is plain black and still runs its clock.
+ * Picks the particles into a block allocated here and starts the clock. Logs the particle count;
+ * a failure is logged as an error.
  */
-void ui_splash_start(vita2d_texture *logo);
+void ui_splash_start(vita2d_texture *logo, const UiAssetPixels *pixels);
+
+/** ui_splash_sample_us() - How long the particle sampling in ui_splash_start() took. */
+uint64_t ui_splash_sample_us(void);
 
 /** ui_splash_active() - True from ui_splash_start() until ui_splash_draw_exit() returns true. */
 bool ui_splash_active(void);

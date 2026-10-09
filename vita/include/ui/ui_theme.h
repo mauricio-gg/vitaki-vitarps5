@@ -1021,3 +1021,21 @@ typedef enum ui_face_t {
 #define UI_SPLASH_FRAME_INTERVAL_US 16667
 #define UI_SPLASH_CLEAR_COLOR RGBA8(0x00, 0x00, 0x00, 0xFF)
 #define UI_SCENE_CLEAR_COLOR RGBA8(0x40, 0x40, 0x40, 0xFF)
+
+/* Start-up asset preload (ui_asset_preload.c): a worker thread reads and decodes the start-up PNGs
+ * while the main thread loads. Vita rule: a lower priority number runs first. The worker runs one
+ * step below the main thread (clamped to the lowest user priority) so it never delays drawing,
+ * with no core pinned so it can use a core the main thread is not on. The stack holds libpng's
+ * frames. The main thread, when it must wait for a decode, wakes at least this often to give the
+ * splash a chance to draw. Images larger than the maximum side are refused. */
+#define UI_PRELOAD_THREAD_STACK 0x20000
+#define UI_PRELOAD_THREAD_PRIO_STEP 1
+#define UI_PRELOAD_THREAD_PRIO_LOWEST 191
+#define UI_PRELOAD_WAIT_MS 8
+#define UI_PRELOAD_MAX_SIDE 4096
+
+/* Glyph baking during the splash: a frame bakes glyphs until this much time is spent (checked
+ * after each glyph, so a frame can overshoot by one glyph), then the splash frame is drawn and
+ * the next one resumes where this stopped. 8 ms is about half of a 16.7 ms display frame: it
+ * leaves room for the three splash draws and the swap, so the logo animation stays near 60 fps. */
+#define UI_PREWARM_FRAME_BUDGET_US 8000

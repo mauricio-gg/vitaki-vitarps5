@@ -12,6 +12,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/config_hosts.c
     src/room_icons.c
     src/ui/ui_room_icons.c
+    src/ui/ui_asset_preload.c
     src/context.c
     src/discovery.c
     src/discovery_host.c
@@ -37,6 +38,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/psn_auth_rules.c
     src/vita_dns.c
     src/psn_remote.c
+    src/psn_startup_refresh.c
     src/token_crypto.c
     src/controller.c
     src/controller_metadata.c
