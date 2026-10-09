@@ -44,7 +44,6 @@ const SETTINGS=[
  {id:'fill',g:0,label:'Fill Screen',type:'toggle',v:false,desc:'Stretch the video to fill the whole screen.'},
  {id:'disc',g:1,label:'Auto Discovery',type:'toggle',v:true,desc:'Find consoles on your network automatically. Takes effect the next time the app starts.'},
  {id:'psnmode',g:1,label:'Enable PSN Internet Mode',type:'toggle',v:true,desc:'Connect to your consoles over the internet with your PSN account.'},
- {id:'paired',g:1,label:'Show Only Paired',type:'toggle',v:false,desc:'Hide consoles that are not paired.'},
  {id:'lat',g:2,label:'Show Latency',type:'toggle',v:false,desc:'Show latency and frame rate in the stream overlay.'},
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},

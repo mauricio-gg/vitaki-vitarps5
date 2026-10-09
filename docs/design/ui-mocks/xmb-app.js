@@ -8,13 +8,14 @@ const S={
  pin:{d:Array(8).fill(null),cur:0,ci:4},
  conn:{ci:0,flow:[0,4,7],cur:0,play:false,all:false},
  rec:{attempt:2},
- glass:'none',pop:null,toast:null,kb:null,unst:false,
+ scan:'searching',glass:'none',pop:null,toast:null,kb:null,unst:false,
  psn:'auth',pconn:'wifi',qr:true,logout:false,exitStart:0,zoom:1
 };
 let stageTimer=null,toastTimer=null,logoutTimer=null;
 const STAGES=[['Waking console','Sending wake signal'],['Authenticating with PSN','Validating account tokens'],['Fetching internet consoles','Loading remote-play capable devices'],['Creating PSN session','Creating cloud-assisted session'],['Preparing Remote Play','Negotiating session'],['Punching control channel','Establishing control tunnel'],['Punching data channel','Finalizing media tunnel'],['Starting stream','Launching video pipeline']];
 const connTitle=(flow,st)=>flow.includes(1)?'Starting Internet Remote Play':st===0?'Waking Console':'Starting Remote Play';
-const visCons=()=>S.noConsoles?[]:CONSOLES.filter(c=>(!S.flt||c.name.toLowerCase().includes(S.flt.toLowerCase()))&&(!SET('paired').v||c.reg));
+const visCons=()=>S.noConsoles?[]:CONSOLES.filter(c=>(!S.flt||c.name.toLowerCase().includes(S.flt.toLowerCase()))&&c.reg);
+const unpairedFound=()=>CONSOLES.filter(c=>!c.reg&&c.disc);
 const hhmm=()=>{const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
 const slide=(el,x,y,extra='')=>{el.style.transform=`translate3d(${x}px,${y}px,0) ${extra}`;};
 
@@ -72,10 +73,12 @@ function popHints(p){
   const f=p.buttons[p.sel].label;
   return f===cl?[['confirm',f,{key:'ok'}]]:[['confirm',f,{key:'ok'}],['cancel',cl,{key:'back'}]];
  }
- return [['confirm',p.okLabel||'Select',{key:'ok'}],['cancel',cl,{key:'back'}]];
+ if(p.hintFn)return p.hintFn(p.rows[p.sel]);
+ return [['confirm',p.okLabelFn?p.okLabelFn(p.rows[p.sel]):(p.okLabel||'Select'),{key:'ok'}],['cancel',cl,{key:'back'}]];
 }
 function popKey(k){
  const p=S.pop,n=(p.rows||p.buttons).length;
+ if(p.onKey&&p.onKey(k))return;
  if(k==='ok')return popPress(p.sel);
  if(k==='back'){closePop();p.onCancel&&p.onCancel();return;}
  if(p.grid){if(k==='left'&&p.sel%3>0)p.sel--;else if(k==='right'&&p.sel%3<2&&p.sel<n-1)p.sel++;else if(k==='up'&&p.sel>=3)p.sel-=3;else if(k==='down'&&p.sel+3<n)p.sel+=3;}
@@ -97,13 +100,17 @@ function kbKey(k){const o=S.kb;if(k==='ok'){S.kb=null;paintKb();o.done&&o.done()
 
 /* ---------------- HOME (C01 CategoryBar, C02 XmbList, C04 DetailPanel, C05 OptionsColumn) ---------------- */
 const CATS=[['Consoles','assets/icon_play.png'],['Settings','assets/icon_settings.png'],['Controller','icons/controller.svg'],['Profile','icons/profile.svg']];
-const hasFilterRow=()=>CONSOLES.length>4||!!S.flt;
-const firstSel=()=>hasFilterRow()&&visCons().length?1:0;
+const pairedCount=()=>S.noConsoles?0:CONSOLES.filter(c=>c.reg).length;
+const hasFilterRow=()=>pairedCount()>4||!!S.flt;
+/* row 0 is always '+ Pair new device'; the Filter row (when shown) is row 1; focus starts on the first console, or on Pair new device when there is none */
+const firstSel=()=>visCons().length?1+(hasFilterRow()?1:0):0;
 const GICON=['video','network','display','controls','advanced'];
 function items(ci){
  if(ci===0){
   const L=visCons().map(c=>({k:'console',c,t:c.name}));
-  return hasFilterRow()?[{k:'filter',t:S.flt?`Filter: &ldquo;${S.flt}&rdquo;`:'Filter&hellip;',s:S.flt?`${L.length} found &middot; ${inl('sq')} to clear`:''}].concat(L):L;
+  const n=unpairedFound().length;
+  const P={k:'pair',t:'Pair new device',s:!SET('disc').v?'Link a console':n?`${n} found nearby`:S.scan==='searching'?'Searching...':'Link a console',img:'icons/plus.svg'};
+  return [P].concat(hasFilterRow()?[{k:'filter',t:S.flt?`Filter: "${S.flt}"`:'Filter...',s:S.flt?`${L.length} found &middot; ${inl('sq')} to clear`:''}]:[],L);
  }
  if(ci===1)return GROUPS.map((n,gi)=>({k:'grp',gi,t:n,s:SETTINGS.filter(s=>s.g===gi).length+(SETTINGS.filter(s=>s.g===gi).length>1?' settings':' setting'),img:`icons/${GICON[gi]}.svg`}));
  if(ci===2)return PNAME.map((p,i)=>({k:'preset',i,t:p,s:PDESC[i],img:`icons/slot${i+1}.svg`}));
@@ -117,9 +124,10 @@ function itemIcon(it){return it.k==='console'?`<img class="nav" src="icons/${it.
 function buildList(anim){
  cache=items(S.cat);
  S.sel[S.cat]=Math.max(0,Math.min(S.sel[S.cat],cache.length-1));
-  if(S.cat===0&&!cache.some(it=>it.k==='console')){
-  $('#empty').style.top=hasFilterRow()?'288px':'208px';
-  $('#empty').innerHTML=(CONSOLES.length&&!S.noConsoles)?'No consoles match filter':`<span class="sp"></span>Searching for consoles...`;
+  if(S.cat===0&&!cache.some(it=>it.k==='console')&&cache.length){
+  const L=cache.length-1,s=S.sel[0];
+  $('#empty').style.top=(192+80+64*Math.max(0,L-s)+16)+'px'; /* the slot after the last row */
+  $('#empty').innerHTML=S.flt&&pairedCount()?'No consoles match filter':'No paired consoles yet';
  } else $('#empty').innerHTML='';
  $('#list').innerHTML=cache.map((it,i)=>{
   let sub=it.s||'';
@@ -151,7 +159,8 @@ function kv(a,b,col=''){return `<div class="kv"><span>${a}</span><b ${col?`style
 function paintDetail(){
  const it=selItem(),P=$('#detail');let h='';
  if(!it){P.innerHTML='';return;}
- if(it.k==='filter'){const n=visCons().length,tot=CONSOLES.length;h=`<h4>Filter</h4><p class="st" style="height:auto;margin:0 0 16px">Find a console by name or IP address.</p><p class="st" style="height:auto">${S.flt?`&ldquo;${S.flt}&rdquo;: ${n} found of ${tot}`:`${tot} consoles`}</p>`;}
+ if(it.k==='filter'){const n=visCons().length,tot=pairedCount();h=`<h4>Filter</h4><p class="st" style="height:auto;margin:0 0 16px">Find a console by name or IP address.</p><p class="st" style="height:auto">${S.flt?`"${S.flt}": ${n} found of ${tot}`:`${tot} consoles`}</p>`;}
+ else if(it.k==='pair'){const n=unpairedFound().length;h=`<h4>Pair new device</h4><p class="st" style="height:auto;margin:0 0 16px">Link a PS5 or PS4 to this Vita. Turn the console on and join the same network.</p>${kv('Paired',pairedCount()+(pairedCount()===1?' console':' consoles'))}${kv('Found nearby',!SET('disc').v?'Discovery off':n?n+' unpaired':S.scan==='searching'?'Searching...':'None')}`;}
  else if(it.k==='console'){const c=it.c,k=kindOf(c),K=KIND[k];
   const msg=c.hint?HINT[c.hint]:null;
   h=`${typeLogo(c)}<h4>${c.name}</h4><p class="st">${sdot(k)}${K.t}</p>${msg?`<p class="msg ${msg.k}">${msg.t}</p>`:''}${kv('Address',c.ip||'Unknown')}${kv('Route',routeOf(c))}${kv('Pairing',c.reg?'Paired':'Unpaired')}`;
@@ -160,10 +169,9 @@ function paintDetail(){
  else {const rs=pageRows('profile',it.gi);h=`<h4>${it.t}</h4><p class="st" style="height:16px"></p>${rs.slice(0,4).map(r=>kv(r.label,r.plain||'')).join('')}`;}
  P.innerHTML=h;P.style.animation='none';void P.offsetWidth;P.style.animation='';
 }
-function consoleVerb(c){const k=kindOf(c);return k==='unpaired'?'Pair':k==='standby'?'Wake':k==='cool'?'Please wait':'Connect';}
+function consoleVerb(c){const k=kindOf(c);return k==='standby'?'Wake':k==='cool'?'Please wait':'Connect';}
 function optsList(){
  const it=selItem();if(!it||it.k!=='console')return [];const c=it.c,k=kindOf(c);
- if(k==='unpaired')return [{l:'Pair',f:()=>startPin(c)},{l:'Change icon',f:()=>iconPicker(c)}];
  const L=[{l:k==='standby'?'Wake and connect':'Connect',f:()=>connect(c),dis:k==='cool'}];
  if(bothRoutes(c))L.push({l:'Connect via',f:()=>viaPop(c),dis:k==='cool'});
  L.push({l:'Re-pair',f:()=>repairPop(c)},{l:'Change icon',f:()=>iconPicker(c)});
@@ -179,8 +187,11 @@ function homeHints(){
  if(S.opts)return [['confirm','Select',{key:'ok'}],['cancel','Back',{key:'back'}]];
  const it=selItem(),L=[];
  if(S.cat===0){
-  if(it&&it.k==='filter'){L.push(['confirm','Filter',{key:'ok'}]);if(S.flt)L.push(['sq','Clear',{key:'sq'}]);}
+  const above=cache[S.sel[0]-1];
+  if(it&&it.k==='pair')L.push(['confirm','Pair',{key:'ok'}]);
+  else if(it&&it.k==='filter'){L.push(['confirm','Filter',{key:'ok'}]);if(S.flt)L.push(['sq','Clear',{key:'sq'}]);}
   else if(it&&it.k==='console')L.push(['confirm',consoleVerb(it.c),{key:'ok',dim:kindOf(it.c)==='cool'}],['tri','Options',{key:'tri'}]);
+  if(it&&it.k!=='pair'&&above&&above.k==='pair')L.push(['dpadu','Pair new device',{key:'up',low:1}]);
  } else L.push(['confirm','Open',{key:'ok'}]);
  L.push(['LR','Category',{low:1}]);
  return L;
@@ -196,10 +207,63 @@ function viaPop(c){
 function repairPop(c){
  popup({size:'s',icon:'lock',title:'Re-pair '+c.name+'?',body:'You will need to enter a new 8-digit PIN from the console.',sel:0,okLabel:'Select',buttons:[{label:'Cancel'},{label:'Re-pair'}],onSel:i=>{if(i===1)startPin(c);}});
 }
+
+/* ---------------- PAIR NEW DEVICE (issue #330): guided popup, Enter IP address, probe ---------------- */
+const MANUAL={name:'PS5-204',model:'PS5',ip:'192.168.1.77',reg:false,disc:false,awake:true,net:false,room:'tv',manual:true};
+S.ipTry='ok'; /* mock only: what the probe finds for a typed address: ok | notfound | invalid */
+/* the popup list: found consoles sorted by host name (case-insensitive, IP breaks ties). Discovery carries no owner or username, so "owner first" is not possible. */
+S.pf='';
+const PAIR_FILTER_MIN=4; /* the Filter row shows when more than this many are found, or while a filter is active (same rule as Home) */
+const pairMatches=c=>{const q=S.pf.trim().toLowerCase();return !q||c.name.toLowerCase().includes(q)||(c.ip||'').includes(q);};
+const sortFound=a=>a.slice().sort((x,y)=>{const m=x.name.toLowerCase(),n=y.name.toLowerCase();return m<n?-1:m>n?1:(x.ip<y.ip?-1:x.ip>y.ip?1:0);});
+function pairFilterKb(){keyboard({title:'Filter Found Consoles',text:S.pf,done:()=>{S.pf=S.pf?'':'bed';openPair();}});} /* mock: Done with an active filter clears it, otherwise types "bed" */
+function openPair(sel,off){
+ const all=sortFound(unpairedFound()),F=all.filter(pairMatches),dOff=!SET('disc').v;
+ const showF=all.length>PAIR_FILTER_MIN||!!S.pf;
+ const rows=[];if(showF)rows.push({filter:true});
+ F.forEach(c=>rows.push({label:c.name,sub:`${c.model} &middot; ${c.ip}`,c}));
+ rows.push({ip:true});
+ const def=F.length?(showF?1:0):(showF?0:rows.length-1);
+ const note=dOff?'Auto Discovery is off. Turn it on in Settings &gt; Network, or enter the IP address.':all.length?(F.length?'':'No consoles match filter'):S.scan==='searching'?'<span class="sp"></span>Searching your network...':'No unpaired consoles found';
+ popup({size:'l',kind:'pair',title:'Pair new device',
+  body:'<div>PS5: Settings &gt; System &gt; Remote Play &gt; Link Device</div><div>PS4: Remote Play Connection Settings &gt; Add Device</div>',
+  head:'Found on your network',count:all.length?(S.pf?`${F.length} of ${all.length}`:`${all.length} found`):'',spin:!dOff&&S.scan==='searching'&&all.length>0,
+  note,rows,sel:sel==null?def:Math.min(sel,rows.length-1),off:off||0,cancelLabel:'Close',
+  hintFn:r=>{const pg=rows.length>5?[['LR','Page',{low:1}]]:[];return r.ip?[['confirm','Enter IP',{key:'ok'}]].concat(pg,[['cancel','Close',{key:'back'}]]):r.filter?[['confirm','Filter',{key:'ok'}]].concat(S.pf?[['sq','Clear',{key:'sq'}]]:[],pg,[['cancel','Close',{key:'back'}]]):[['confirm','Pair',{key:'ok'}]].concat(pg,[['cancel','Close',{key:'back'}]]);},
+  onKey:k=>{const r=rows[S.pop.sel];
+   if(k==='L'||k==='R'){const m=rows.length-1,P=S.pop,vis=4;
+    if(k==='L'){if(P.sel===m)P.sel=m-1;else{P.off=Math.max(0,P.off-vis);P.sel=Math.max(0,P.sel-vis);}}
+    else if(P.sel<m){P.off=P.off+vis;P.sel=Math.min(m-1,P.sel+vis);}
+    paintPop();return true;}
+   if(k==='sq'&&S.pf&&r.filter){S.pf='';openPair();return true;}
+   if(k==='start'&&showF){if(S.pf){S.pf='';openPair();}else pairFilterKb();return true;}
+   return false;},
+  onCancel:()=>{S.cat=0;S.sel[0]=0;buildList(false);},
+  onSel:i=>{const r=rows[i];if(r.ip)ipKeyboard('');else if(r.filter){openPair(i,S.pop&&0);pairFilterKb();}else startPin(r.c);}});
+}
+function ipKeyboard(text){keyboard({title:'Console IP address',text,done:()=>ipSubmit('192.168.1.77')});}
+/* a typed address is checked as four numbers 0-255, then probed with one discovery packet; the reply gives the console's name and model */
+function ipSubmit(ip){
+ if(S.ipTry==='invalid'){ipFail('invalid',ip);return;}
+ ipLooking(ip,true);
+}
+function ipLooking(ip,auto){
+ popup({size:'s',title:'Looking for console',sub:ip,body:'<span class="sp"></span>Contacting the console...',sel:0,cancelLabel:'Cancel',buttons:[{label:'Cancel'}],onSel:()=>{clearTimeout(S.ipT);S.cat=0;S.sel[0]=0;buildList(false);},onCancel:()=>{clearTimeout(S.ipT);S.cat=0;S.sel[0]=0;buildList(false);}});
+ clearTimeout(S.ipT);
+ if(auto)S.ipT=setTimeout(()=>{closePop();if(S.ipTry==='notfound')ipFail('notfound',ip);else{if(!CONSOLES.includes(MANUAL))CONSOLES.push(MANUAL);startPin(MANUAL);}},1400);
+}
+const IP_FAIL={
+ notfound:['Console not found',ip=>`Nothing answered at ${ip}. Check the address, and that the console is on and on the same network.`],
+ invalid:['Not an IP address',()=>'Use four numbers separated by dots, like 192.168.1.20.']
+};
+function ipFail(why,ip){
+ resultPop({tone:'err',icon:'warn',title:IP_FAIL[why][0],body:IP_FAIL[why][1](ip),sel:1,buttons:[{label:'Close'},{label:'Try again'}],
+  onSel:i=>{if(i===1)ipKeyboard(ip);else{S.cat=0;S.sel[0]=0;buildList(false);}}});
+}
 function resultPop(r){
  popup(Object.assign({size:'s',sel:0,okLabel:'OK',cancelLabel:'Close'},r));
 }
-const pairOk=c=>resultPop({tone:'ok',icon:'check',title:'Console paired',body:`${c.name} is paired. You can connect to it now.`,buttons:[{label:'OK'}],onSel:()=>{c.reg=true;CONSOLES.sort((a,b)=>b.reg-a.reg);S.sel[0]=CONSOLES.indexOf(c);openHome(false);}});
+const pairOk=c=>resultPop({tone:'ok',icon:'check',title:'Console paired',body:`${c.name} is paired. You can connect to it now.`,buttons:[{label:'OK'}],onSel:()=>{c.reg=true;if(!CONSOLES.includes(c))CONSOLES.push(c);CONSOLES.sort((a,b)=>b.reg-a.reg);S.sel[0]=1+(hasFilterRow()?1:0)+visCons().indexOf(c);openHome(false);}});
 const PAIR_FAIL={pin:'did not accept the PIN. Check the code on the console and try again.',unreachable:'could not be reached. Check that it is on and on the same network.',timeout:'did not answer in time. Open Link Device on the console again and retry.'};
 const pairFail=(c,why='pin')=>resultPop({tone:'err',icon:'warn',title:'Pairing failed',body:`${c.name} ${PAIR_FAIL[why]}`,sel:1,buttons:[{label:'Close'},{label:'Try again'}],onSel:i=>{if(i===1)startPin(c);else openHome(false);}});
 const connFail=(c,why)=>resultPop({tone:'err',icon:'warn',title:'Could not connect',body:`${c.name}: ${why}`,sel:1,buttons:[{label:'Close'},{label:'Try again'}],onSel:i=>{if(i===1)connect(c);}});
@@ -370,6 +434,8 @@ function pinHints(){
  if(P.zone==='b'){const f=['Clear digit','Cancel','Register'][P.b];return [['dpadh','Button'],['dpadv','Digits'],['confirm',f,{key:'ok',dim:P.b===2&&!full}],['cancel','Cancel',{key:'back'}]];}
  return [['dpadh','Digit'],['dpadv','Change'],['sq','Clear digit',{low:1}],['confirm','Register',{key:'ok',dim:!full}],['cancel','Cancel',{key:'back'}]];
 }
+/* leaving the PIN screen without pairing lands on Home with '+ Pair new device' focused (the flow's own entry), never on a stale console row */
+function pinLeave(){const c=CONSOLES[S.pin.ci];if(c&&c.reg){openHome(false);return;}S.cat=0;S.sel[0]=0;openHome(false);}
 function pinRegister(){
  const P=S.pin,c=CONSOLES[P.ci];
  /* mock trigger only: first digit 0 = PIN rejected, 9 = timeout, anything else = paired. The build needs real results, see SPEC 3.3 */
@@ -380,15 +446,15 @@ function pinKey(k){
  if(P.zone==='b'){
   if(k==='left'&&P.b>0)P.b--;else if(k==='right'&&P.b<2)P.b++;
   else if(k==='up'){P.zone='d';P.cur=7;}
-  else if(k==='back'){openHome(false);return;}
-  else if(k==='ok'){if(P.b===0){P.zone='d';P.d[P.cur]=null;}else if(P.b===1){openHome(false);return;}else if(full){pinRegister();return;}}
+  else if(k==='back'){pinLeave();return;}
+  else if(k==='ok'){if(P.b===0){P.zone='d';P.d[P.cur]=null;}else if(P.b===1){pinLeave();return;}else if(full){pinRegister();return;}}
   return paintPin();
  }
  if(k==='left'&&P.cur>0)P.cur--;
  else if(k==='right'){if(P.cur<7)P.cur++;else if(full){P.zone='b';P.b=2;}}
  else if(k==='up'||k==='down'){const d=P.d[P.cur];P.d[P.cur]=d===null?(k==='up'?0:9):(d+(k==='up'?1:9))%10;}
  else if(k==='sq')P.d[P.cur]=null;
- else if(k==='back'){openHome(false);return;}
+ else if(k==='back'){pinLeave();return;}
  else if(k==='ok'){if(full){pinRegister();return;}}
  else if(k==='start'){}
  paintPin();
@@ -479,7 +545,8 @@ function homeKey(k){
  else if(k==='sq'&&c===0&&S.flt&&selItem()&&selItem().k==='filter'){S.flt='';S.sel[0]=firstSel();buildList(true);}
  else if(k==='tri'&&c===0&&selItem()&&selItem().k==='console'){S.opts=true;S.os=0;paintOpts();}
  else if(k==='ok'){const it=selItem();if(!it)return;
-  if(it.k==='filter')openFilter();
+  if(it.k==='pair')openPair();
+  else if(it.k==='filter')openFilter();
   else if(it.k==='console')connect(it.c);
   else if(it.k==='grp')openPage('settings',it.gi,'r');
   else if(it.k==='pf')openPage('profile',it.gi,'r');
@@ -555,7 +622,7 @@ function act(a,arg,el){
  const i=+arg;
  if(a==='btn')return key(arg);
  if(a==='cat'){S.cat=i;if(i===0)S.sel[0]=firstSel();buildList(true);}
- else if(a==='item'){if(cache[i]&&cache[i].k==='filter'){S.sel[S.cat]=i;layout();openFilter();}else if(S.sel[S.cat]!==i){S.sel[S.cat]=i;layout();}else key('ok');}
+ else if(a==='item'){if(cache[i]&&cache[i].k==='pair'){S.sel[S.cat]=i;layout();openPair();}else if(cache[i]&&cache[i].k==='filter'){S.sel[S.cat]=i;layout();openFilter();}else if(S.sel[S.cat]!==i){S.sel[S.cat]=i;layout();}else key('ok');}
  else if(a==='oi'){S.os=i;key('ok');}
  else if(a==='pgback')returnHome();
  else if(a==='cclear')key('sq');
@@ -615,6 +682,7 @@ document.addEventListener('click',e=>{
  if(Date.now()<suppressUntil){e.stopPropagation();return;}
  if(!$('#stage').contains(e.target))return;
  if(S.opts&&!S.pop&&!e.target.closest('#opts')){S.opts=false;paintOpts();e.stopPropagation();return;}
+ if(S.pop&&S.pop.kind==='pair'&&e.target.closest('[data-pfclr]')&&!S.kb){S.pf='';openPair();return;}
  const p=e.target.closest('[data-pop]');if(p&&S.pop){S.pop.sel=+p.dataset.pop;popPress(+p.dataset.pop);return;}
  const el=e.target.closest('[data-do]');if(el){
   if(S.pop&&!['pop','scrim'].includes(el.dataset.do)&&el.dataset.do!=='btn')return;
@@ -629,37 +697,63 @@ document.addEventListener('pointerup',()=>{if(!paint)return;const pk=paint;paint
 
 /* ---------------- mock chrome: deep links, toggles, device frame ---------------- */
 const JUMPS=[
- ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-unpaired','Console unpaired'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-searching','Empty: Searching'],['Home','empty-nomatch','Empty: No match'],['Home','filter-item','Filter item focused'],['Home','filter','Filter active'],['Home','home-nohints','Button hints hidden'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','options-unpaired','Options, unpaired console'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
+ ['Home','home','Consoles: Ready'],['Home','consoles-standby','Console on standby'],['Home','consoles-psn','Internet-only console'],['Home','consoles-unavailable','Console not reachable'],['Home','consoles-cooldown','Console in cooldown + banner'],['Home','hints','Status: Error + message in info panel'],['Home','hints-retry','Status: Retrying + message in info panel'],['Home','home-unstable','Network Unstable on a menu'],['Home','empty-nomatch','Empty: No match'],['Home','filter-item','Filter item focused'],['Home','filter','Filter active'],['Home','home-nohints','Button hints hidden'],['Home','keyboard','System keyboard (filter)'],['Home','options','Options column'],['Home','icon-picker','Change icon'],['Home','connect-via','Connect via'],['Home','repair','Re-pair confirm'],
+ ['Pair new device','pair-item','Item focused (paired consoles below)'],['Pair new device','pair-item-hint','Item hidden above; Up hint on the first console'],['Pair new device','pair-item-filter','Item focused, Filter row below it (5+ consoles)'],['Pair new device','home-first-run','No paired consoles, nothing found yet'],['Pair new device','home-first-run-found','No paired consoles, 1 found nearby'],['Pair new device','pair-popup-searching','Popup: searching'],['Pair new device','pair-popup-none','Popup: nothing found'],['Pair new device','pair-popup-one','Popup: 1 found'],['Pair new device','pair-popup-many','Popup: 3 found'],['Pair new device','pair-popup-long','Popup: 12 found, Filter row available'],['Pair new device','pair-popup-scroll','Popup: 12 found, scrolled'],['Pair new device','pair-popup-filter-name','Popup: filtered by name (bed)'],['Pair new device','pair-popup-filter-ip','Popup: filtered by IP (192.168.1.4)'],['Pair new device','pair-popup-nomatch','Popup: no matches, Enter IP still offered'],['Pair new device','pair-popup-filter-kb','Popup: filter keyboard'],['Pair new device','pair-popup-discoff','Popup: Auto Discovery off'],['Pair new device','pair-popup-ip','Popup: Enter IP address focused'],['Pair new device','pair-ip-keyboard','Enter IP: system keyboard'],['Pair new device','pair-ip-looking','Enter IP: looking for console'],['Pair new device','pair-ip-notfound','Enter IP: console not found'],['Pair new device','pair-ip-invalid','Enter IP: not an IP address'],['Pair new device','pin-manual','Enter IP: on to the PIN screen'],
  ['XMB categories','xmb-settings','Settings category'],['XMB categories','xmb-controller','Controller category'],['XMB categories','xmb-profile','Profile category'],
  ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
  ['Stream','stream','Stream overlay'],['Stream','stream-stats','Stream with stats'],['Stream','unstable','Network unstable'],['Stream','stream-quiet','Overlay after hint faded'],
  ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
- ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-unpaired','Connection: unpaired console'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
+ ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
 const DL={};
-const C0=(c,i)=>{S.cat=c;S.sel[c]=(i||0)+(c===0&&hasFilterRow()?1:0);openHome(false);};
+const C0=(c,i)=>{S.cat=c;S.sel[c]=(i||0)+(c===0?1+(hasFilterRow()?1:0):0);openHome(false);};
 const ORIG=CONSOLES.map(c=>Object.assign({},c));
-const mockConsole=()=>{CONSOLES.length=0;ORIG.forEach(o=>CONSOLES.push(Object.assign({},o)));S.flt='';S.noConsoles=false;};
+const mockConsole=()=>{CONSOLES.length=0;ORIG.forEach(o=>CONSOLES.push(Object.assign({},o)));S.flt='';S.noConsoles=false;S.scan='searching';S.pf='';SET('disc').v=true;S.ipTry='ok';Object.assign(MANUAL,{reg:false});};
+const UNP=[['Guest Room','PS4','192.168.1.52','bed'],['PS5-7F3A','PS5','192.168.1.61','tv'],['Studio','PS5','192.168.1.63','desk'],['Attic','PS4','192.168.1.66','house']];
+const moreUnpaired=n=>UNP.slice(0,n).forEach(u=>CONSOLES.push({name:u[0],model:u[1],ip:u[2],reg:false,disc:true,awake:true,net:false,room:u[3]}));
+const DORM=[['Alex PS5','PS5','192.168.1.40'],['bedroom-ps5','PS5','192.168.1.41'],['Chris','PS4','192.168.1.42'],['Dana PS5','PS5','192.168.1.43'],['Emma','PS5','192.168.1.45'],['Fatima PS5','PS5','192.168.1.46'],['Gus','PS4','192.168.1.47'],['Hao PS5','PS5','192.168.1.48'],['Ivy','PS5','192.168.1.49'],['Jonas PS5','PS5','192.168.1.50'],['PS5-7F3A','PS5','192.168.1.61']];
+const dormUnpaired=()=>DORM.forEach(u=>CONSOLES.push({name:u[0],model:u[1],ip:u[2],reg:false,disc:true,awake:true,net:false,room:'tv'}));
+const dropUnpaired=()=>{for(let i=CONSOLES.length-1;i>=0;i--)if(!CONSOLES[i].reg)CONSOLES.splice(i,1);};
+const withFifthPaired=()=>CONSOLES.splice(4,0,{name:'Garage',model:'PS5',ip:'192.168.1.38',reg:true,disc:true,awake:true,net:false,room:'house'});
 Object.assign(DL,{
  home:()=>{mockConsole();C0(0,0);},
  'consoles-standby':()=>{mockConsole();C0(0,1);},
  'consoles-psn':()=>{mockConsole();C0(0,2);},
  'consoles-unavailable':()=>{mockConsole();C0(0,3);},
- 'consoles-unpaired':()=>{mockConsole();C0(0,4);},
  'consoles-cooldown':()=>{mockConsole();CONSOLES[1].cool=true;C0(0,1);},
  hints:()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,1);},
  'hints-retry':()=>{mockConsole();CONSOLES[0].hint='busy';CONSOLES[1].hint='wake';CONSOLES[2].hint='psn';C0(0,0);},
  'home-unstable':()=>{mockConsole();S.unst=true;$('#bUn').classList.add('on');$('#bUn').textContent='Network unstable: on';C0(0,0);},
- 'empty-searching':()=>{mockConsole();S.noConsoles=true;C0(0,0);},
- 'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);S.sel[0]=0;layout();},
- filter:()=>{mockConsole();S.flt='den';C0(0,0);S.sel[0]=0;layout();},
- 'filter-item':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();},
+ 'pair-item':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();},
+ 'pair-item-filter':()=>{mockConsole();withFifthPaired();C0(0,0);S.sel[0]=0;layout();},
+ 'pair-item-hint':()=>{mockConsole();C0(0,0);},
+ 'home-first-run':()=>{mockConsole();dropUnpaired();S.noConsoles=true;C0(0,0);},
+ 'home-first-run-found':()=>{mockConsole();S.noConsoles=true;C0(0,0);},
+ 'pair-popup-searching':()=>{mockConsole();dropUnpaired();C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-none':()=>{mockConsole();dropUnpaired();S.scan='done';C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-one':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-many':()=>{mockConsole();moreUnpaired(2);C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-long':()=>{mockConsole();dormUnpaired();C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-scroll':()=>{mockConsole();dormUnpaired();C0(0,0);S.sel[0]=0;layout();openPair(8);},
+ 'pair-popup-filter-name':()=>{mockConsole();dormUnpaired();S.pf='bed';C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-filter-ip':()=>{mockConsole();dormUnpaired();S.pf='192.168.1.4';C0(0,0);S.sel[0]=0;layout();openPair(1);},
+ 'pair-popup-nomatch':()=>{mockConsole();dormUnpaired();S.pf='xyz';C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-filter-kb':()=>{mockConsole();dormUnpaired();S.pf='';C0(0,0);S.sel[0]=0;layout();openPair(0);pairFilterKb();},
+ 'pair-popup-discoff':()=>{mockConsole();dropUnpaired();SET('disc').v=false;C0(0,0);S.sel[0]=0;layout();openPair();},
+ 'pair-popup-ip':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();openPair(1);},
+ 'pair-ip-keyboard':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();ipKeyboard('192.168.1.77');},
+ 'pair-ip-looking':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();ipLooking('192.168.1.77',false);},
+ 'pair-ip-notfound':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();ipFail('notfound','192.168.1.77');},
+ 'pair-ip-invalid':()=>{mockConsole();C0(0,0);S.sel[0]=0;layout();ipFail('invalid','192.168.1.7.7');},
+ 'pin-manual':()=>{mockConsole();if(!CONSOLES.includes(MANUAL))CONSOLES.push(MANUAL);startPin(MANUAL);},
+ 'empty-nomatch':()=>{mockConsole();S.flt='xyz';C0(0,0);S.sel[0]=1;layout();},
+ filter:()=>{mockConsole();S.flt='den';C0(0,0);S.sel[0]=1;layout();},
+ 'filter-item':()=>{mockConsole();withFifthPaired();C0(0,0);S.sel[0]=1;layout();},
  'home-nohints':()=>{mockConsole();SET('hints').v=false;C0(0,0);},
  keyboard:()=>{mockConsole();C0(0,0);openFilter();},
  options:()=>{mockConsole();C0(0,0);S.opts=true;S.os=0;paintOpts();},
- 'options-unpaired':()=>{mockConsole();C0(0,4);S.opts=true;S.os=0;paintOpts();},
  'icon-picker':()=>{mockConsole();C0(0,0);iconPicker(CONSOLES[0]);},
  'connect-via':()=>{mockConsole();C0(0,0);viaPop(CONSOLES[0]);},
  repair:()=>{mockConsole();C0(0,0);repairPop(CONSOLES[0]);},
@@ -688,7 +782,6 @@ Object.assign(DL,{
  'profile-connection-standby':()=>{S.pconn='standby';openPage('profile',1,'r');},
  'profile-connection-psn':()=>{S.pconn='psn';openPage('profile',1,'r');},
  'profile-connection-unavailable':()=>{S.pconn='unavail';openPage('profile',1,'r');},
- 'profile-connection-unpaired':()=>{S.pconn='unreg';openPage('profile',1,'r');},
  'profile-connection-none':()=>{S.pconn='none';openPage('profile',1,'r');},
  'profile-psn':()=>{S.psn='auth';SET('psnmode').v=true;openPage('profile',2,'r');},
  'profile-psn-disabled':()=>{SET('psnmode').v=false;openPage('profile',2,'r');},
@@ -712,7 +805,7 @@ Object.assign(DL,{
  'mapping-multi':()=>{S.ct.slot=0;openCtrl('front');S.ct.pick=[7,8,9,10];S.ct.cur=10;paintCtrl();zonePop([7,8,9,10]);},
  'mapping-shoulder':()=>{S.ct.slot=0;openCtrl();shoulderPop('L1');}
 });
-DL['consoles-unregistered']=DL['consoles-unpaired'];DL.error=DL['result-connect-failed'];DL.register=DL.pin;DL.chooser=DL['connect-via'];
+DL['consoles-unpaired']=DL['pair-popup-one'];DL['consoles-unregistered']=DL['pair-popup-one'];DL['empty-searching']=DL['home-first-run'];DL.error=DL['result-connect-failed'];DL.register=DL.pin;DL.chooser=DL['connect-via'];
 function jump(id){
  closePop();S.kb=null;paintKb();S.toast=null;paintToast();clearTimeout(stageTimer);
  SET('cc').v=id==='settings-circle';SET('hints').v=id!=='home-nohints';$('#bCc').textContent='Confirm: '+(SET('cc').v?'Circle':'Cross');
