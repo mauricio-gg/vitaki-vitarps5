@@ -131,7 +131,8 @@ static void show_looking(void) {
 static void submit_typed_text(void) {
   ui_utf16_to_utf8(s_typed, KEYBOARD_CHARS + 1, s_text, sizeof(s_text));
   uint8_t octets[IP_ADDRESS_OCTET_COUNT];
-  if (!ip_address_parse(s_text, octets) || !ip_address_format(octets, s_ip, sizeof(s_ip))) {
+  if (!ip_address_parse(s_text, octets) || !ip_address_is_console_target(octets) ||
+      !ip_address_format(octets, s_ip, sizeof(s_ip))) {
     s_ip[0] = '\0';
     show_failure(UI_PAIR_IP_NOT_AN_ADDRESS);
     return;

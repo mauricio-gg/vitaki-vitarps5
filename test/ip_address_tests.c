@@ -53,6 +53,34 @@ static void test_rejects_bad_text(void) {
   assert(!ip_address_parse(NULL, NULL));
 }
 
+static bool console_target(const char *text) {
+  uint8_t octets[IP_ADDRESS_OCTET_COUNT];
+  return ip_address_parse(text, octets) && ip_address_is_console_target(octets);
+}
+
+/** Addresses no console has (this network, loopback, multicast, reserved, broadcast) must be
+ * refused, or the probe waits 5 s for nothing or sends a broadcast; their legal neighbours must
+ * pass, or a real console on that range could not be paired. */
+static void test_console_target_range(void) {
+  const char *refused[] = {"0.0.0.0", "0.1.2.3", "127.0.0.1", "127.255.255.255", "224.0.0.1",
+                           "239.255.255.255", "240.0.0.1", "255.255.255.255"};
+  for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+    if (console_target(refused[i])) {
+      fprintf(stderr, "wrongly allowed: \"%s\"\n", refused[i]);
+      assert(0);
+    }
+  }
+  const char *allowed[] = {"1.0.0.0", "126.255.255.255", "128.0.0.1", "192.168.1.7",
+                           "223.255.255.255"};
+  for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+    if (!console_target(allowed[i])) {
+      fprintf(stderr, "wrongly refused: \"%s\"\n", allowed[i]);
+      assert(0);
+    }
+  }
+  assert(!ip_address_is_console_target(NULL));
+}
+
 /** A refused address must leave the caller's numbers alone. */
 static void test_failure_leaves_output_untouched(void) {
   uint8_t octets[IP_ADDRESS_OCTET_COUNT] = {9, 9, 9, 9};
@@ -81,6 +109,7 @@ int main(void) {
   test_accepts_valid_addresses();
   test_leading_zeros_are_decimal();
   test_rejects_bad_text();
+  test_console_target_range();
   test_failure_leaves_output_untouched();
   test_format_is_canonical();
   printf("ip_address_tests: all passed\n");

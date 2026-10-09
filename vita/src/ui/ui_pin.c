@@ -54,6 +54,8 @@ static VitaChiakiHost *s_host = NULL;
 static VitaChiakiHost *s_probed = NULL;
 /** The result the open popup shows (a paired console goes to Home, a failure offers Try again). */
 static HostRegistrationResult s_result = HOST_REGISTRATION_FAILED;
+/** The console Home focuses after a pairing; NULL focuses the Pair new device item. */
+static const VitaChiakiHost *s_focus_after_pair = NULL;
 
 /* Text built once per entry, never per frame. */
 static char s_title[UI_PIN_TEXT_MAX];
@@ -89,13 +91,14 @@ static void release_probed_host(void) {
  * finish_probed_pair() - A probed console is paired: the registered table owns it now. Save the
  * address as a manual host and give the credentials to the console's other live entries.
  *
- * @return the console to focus on Home
+ * @param complete  Receives false when the address or any credentials could not be saved
+ * @return the console to focus on Home, or NULL when Home lists none for it
  */
-static const VitaChiakiHost *finish_probed_pair(void) {
+static const VitaChiakiHost *finish_probed_pair(bool *complete) {
   VitaChiakiHost *host = s_probed;
   s_probed = NULL;
-  const VitaChiakiHost *listed = discovery_probe_save_manual_host(host);
-  return listed ? listed : host;
+  const VitaChiakiHost *listed = discovery_probe_save_manual_host(host, complete);
+  return listed ? listed : (*complete ? host : NULL);
 }
 
 /** Width function for ui_ellipsize_to_fit(): the console line's face. */
@@ -162,7 +165,13 @@ void ui_pin_on_enter(void) {
 static UIScreenType show_result(HostRegistrationResult result, const char *name) {
   char body[RESULT_BODY_MAX];
   UiResultCopy copy;
-  if (!ui_result_copy_pairing(result, name, body, sizeof(body), &copy)) {
+  bool saved_everything = true;
+  if (result == HOST_REGISTRATION_PAIRED)
+    s_focus_after_pair = s_probed ? finish_probed_pair(&saved_everything) : s_host;
+  const bool copied = saved_everything
+                          ? ui_result_copy_pairing(result, name, body, sizeof(body), &copy)
+                          : ui_result_copy_paired_partial(name, body, sizeof(body), &copy);
+  if (!copied) {
     if (result != HOST_REGISTRATION_CANCELLED)
       LOGE("PIN screen: pairing result %s has no popup", host_registration_result_name(result));
     release_probed_host();
@@ -250,7 +259,10 @@ static UIScreenType update_result_popup(const UiInput *in) {
 
   ui_popup_close(&s_popup);
   if (s_result == HOST_REGISTRATION_PAIRED) {
-    ui_home_focus_console(s_probed ? finish_probed_pair() : s_host);
+    if (s_focus_after_pair)
+      ui_home_focus_console(s_focus_after_pair);
+    else
+      ui_home_focus_pair_item();
     return UI_SCREEN_TYPE_MAIN;
   }
   if (choice == 0) {

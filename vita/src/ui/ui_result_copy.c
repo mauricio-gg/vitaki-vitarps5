@@ -9,6 +9,9 @@
 
 #define UI_RESULT_FALLBACK_NAME "The console"
 #define UI_RESULT_TITLE_PAIRED "Console paired"
+#define UI_RESULT_BODY_PAIRED_PARTIAL                                                         \
+  "%s is paired, but this Vita could not save everything. If it does not appear or connect, " \
+  "pair it again."
 #define UI_RESULT_TITLE_PAIR_FAILED "Pairing failed"
 #define UI_RESULT_FALLBACK_REASON "Connection failed"
 #define UI_RESULT_TITLE_CONNECT_FAILED "Could not connect"
@@ -66,6 +69,22 @@ bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, cha
     out->button_count = 2;
   }
   out->primary_button = out->button_count - 1;
+  return true;
+}
+
+bool ui_result_copy_paired_partial(const char *name, char *body, size_t body_size,
+                                   UiResultCopy *out) {
+  if (!body || body_size == 0 || !out)
+    return false;
+  if (!name || !name[0])
+    name = UI_RESULT_FALLBACK_NAME;
+  snprintf(body, body_size, UI_RESULT_BODY_PAIRED_PARTIAL, name);
+
+  out->title = UI_RESULT_TITLE_PAIRED;
+  out->tone = UI_RESULT_TONE_WARN;
+  out->buttons[0] = UI_RESULT_BUTTON_OK;
+  out->button_count = 1;
+  out->primary_button = 0;
   return true;
 }
 

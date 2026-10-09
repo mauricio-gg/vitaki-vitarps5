@@ -16,6 +16,7 @@
 
 typedef enum ui_result_tone_t {
   UI_RESULT_TONE_OK = 0,
+  UI_RESULT_TONE_WARN,  ///< worked, but not completely
   UI_RESULT_TONE_ERR,
 } UiResultTone;
 
@@ -41,6 +42,19 @@ typedef struct ui_result_copy_t {
  */
 bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, char *body,
                             size_t body_size, UiResultCopy *out);
+
+/**
+ * ui_result_copy_paired_partial() - Popup copy for a pairing that worked on a console reached by
+ * IP address, when this Vita could not save everything (the address or the new credentials).
+ * @name:      The console's name; NULL or empty reads as "The console".
+ * @body:      Receives the body text, always terminated, truncated to fit.
+ * @body_size: Size of @body in bytes.
+ * @out:       Receives tone (WARN), title ("Console paired") and one OK button.
+ *
+ * Returns false when the arguments are unusable; @body is then set to "" when it can be.
+ */
+bool ui_result_copy_paired_partial(const char *name, char *body, size_t body_size,
+                                   UiResultCopy *out);
 
 /**
  * ui_result_copy_connect_failed() - Popup copy for a connection that failed.

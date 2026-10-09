@@ -12,6 +12,7 @@
 
 #include <chiaki/discovery.h>
 #include <chiaki/thread.h>
+#include <ctype.h>
 #include <netinet/in.h>
 #include <psp2/kernel/processmgr.h>
 #include <stdio.h>
@@ -146,6 +147,10 @@ bool discovery_probe_start(const char *ip_text) {
     return false;
   }
   ip_address_format(octets, probe.ip, sizeof(probe.ip));
+  if (!ip_address_is_console_target(octets)) {
+    CHIAKI_LOGE(&(context.log), "Discovery probe %s: not an address a console can have", probe.ip);
+    return false;
+  }
 
   probe.target_addr.sin_family = AF_INET;
   probe.target_addr.sin_addr.s_addr =
@@ -211,6 +216,13 @@ static void adopt_registered_state(VitaChiakiHost *host) {
   }
 }
 
+static bool host_id_is_mac_hex(const char *host_id) {
+  for (int i = 0; i < HOST_ID_MAC_HEX_LEN; i++)
+    if (!isxdigit((unsigned char)host_id[i]))
+      return false;
+  return true;
+}
+
 static bool mac_is_zero(const uint8_t *mac) {
   for (int i = 0; i < 6; i++)
     if (mac[i])
@@ -223,6 +235,12 @@ static bool mac_is_zero(const uint8_t *mac) {
 static VitaChiakiHost *build_host(ChiakiDiscoveryHost *reply) {
   if (!reply->host_id || strlen(reply->host_id) < HOST_ID_MAC_HEX_LEN) {
     CHIAKI_LOGE(&(context.log), "Discovery probe %s: reply has no usable host id", probe.ip);
+    destroy_discovery_host(reply);
+    return NULL;
+  }
+  if (!host_id_is_mac_hex(reply->host_id)) {
+    CHIAKI_LOGE(&(context.log), "Discovery probe %s: reply host id \"%s\" is not hex", probe.ip,
+                reply->host_id);
     destroy_discovery_host(reply);
     return NULL;
   }
@@ -331,9 +349,19 @@ void discovery_probe_free_host(VitaChiakiHost *host) {
   free(host);
 }
 
-/* Replaces the credentials of @entry with a copy of @host's. Returns false (logged) when the copy
- * could not be made; @entry is then left as it was. */
+/* Replaces the credentials of @entry with a copy of @host's. Returns false (logged) when the entry
+ * was left as it was: the copy could not be made, or @entry is the host of a running session.
+ *
+ * The free below is safe because every record owns its own registered_state: copy_host(),
+ * discovery.c, config loading, hydration and store_registration() each allocate or deep-copy it,
+ * and none shares a pointer with another record. The one holder that may be reading the state
+ * from another thread is the active host of a session, which is skipped. */
 static bool give_credentials(VitaChiakiHost *entry, const VitaChiakiHost *host) {
+  if (host_in_active_use(entry)) {
+    CHIAKI_LOGW(&(context.log), "Discovery probe: %s is in use; its credentials were not replaced",
+                entry->hostname);
+    return false;
+  }
   ChiakiRegisteredHost *state = calloc(1, sizeof(*state));
   if (!state || !host->registered_state) {
     CHIAKI_LOGE(&(context.log), "Discovery probe: could not copy credentials to %s",
@@ -351,30 +379,45 @@ static bool give_credentials(VitaChiakiHost *entry, const VitaChiakiHost *host) 
 /* Gives the new credentials to every live entry of the same console, as discovery.c does for the
  * discovered one on its next reply: the discovered entry in context.hosts (so Home lists it as
  * paired at once) and every saved manual host (so none keeps the old credentials of a re-pair).
- * Returns the discovered entry, or NULL. The old registered-table entry, if any, is left alone. */
-static VitaChiakiHost *sync_credentials(VitaChiakiHost *host) {
+ * Returns the discovered entry, or NULL. *all_updated is false when any entry kept its old
+ * credentials. The old registered-table entry, if any, is left alone. */
+static VitaChiakiHost *sync_credentials(VitaChiakiHost *host, bool *all_updated) {
   VitaChiakiHost *discovered = NULL;
   for (int i = 0; i < MAX_CONTEXT_HOSTS && !discovered; i++) {
     VitaChiakiHost *entry = context.hosts[i];
-    if (entry && entry != host && (entry->type & DISCOVERED) &&
-        mac_addrs_match(&(entry->server_mac), &(host->server_mac)) && give_credentials(entry, host))
+    if (!entry || entry == host || !(entry->type & DISCOVERED) ||
+        !mac_addrs_match(&(entry->server_mac), &(host->server_mac)))
+      continue;
+    if (give_credentials(entry, host))
       discovered = entry;
+    else
+      *all_updated = false;
   }
   for (int i = 0; i < context.config.num_manual_hosts; i++) {
     VitaChiakiHost *manual = context.config.manual_hosts[i];
-    if (manual && manual != host && mac_addrs_match(&(manual->server_mac), &(host->server_mac)))
-      give_credentials(manual, host);
+    if (manual && manual != host && mac_addrs_match(&(manual->server_mac), &(host->server_mac)) &&
+        !give_credentials(manual, host))
+      *all_updated = false;
   }
   return discovered;
 }
 
-VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host) {
+VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host, bool *complete) {
+  *complete = false;
   if (!host || !host->hostname[0]) {
     CHIAKI_LOGE(&(context.log), "Discovery probe: no host to save as a manual host");
     return NULL;
   }
-  save_manual_host(host, host->hostname);
-  VitaChiakiHost *entry = sync_credentials(host);
+  const bool saved = save_manual_host(host, host->hostname);
+  bool all_updated = true;
+  VitaChiakiHost *entry = sync_credentials(host, &all_updated);
+  *complete = saved && all_updated;
+  if (!*complete)
+    CHIAKI_LOGW(&(context.log),
+                "Discovery probe %s (%s): pairing worked but not everything was saved "
+                "(address saved: %s, credentials updated everywhere: %s)",
+                host->hostname, host->display_name, saved ? "yes" : "no",
+                all_updated ? "yes" : "no");
   if (entry)
     return entry;
   for (int i = 0; i < MAX_CONTEXT_HOSTS; i++) {

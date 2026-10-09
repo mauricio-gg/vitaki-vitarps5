@@ -9,6 +9,11 @@
 /// Longest a single number may be written ("255"; leading zeros count toward this).
 #define IP_ADDRESS_MAX_DIGITS 3
 #define IP_ADDRESS_MAX_VALUE 255
+/// First numbers no console has: "this network" (0.x), loopback (127.x), and multicast,
+/// reserved and broadcast (224 and above).
+#define IP_ADDRESS_FIRST_THIS_NETWORK 0
+#define IP_ADDRESS_FIRST_LOOPBACK 127
+#define IP_ADDRESS_FIRST_MULTICAST 224
 
 static bool is_trim_char(char c) {
   return c == ' ' || c == '\t' || c == '\r' || c == '\n';
@@ -53,6 +58,14 @@ bool ip_address_parse(const char *text, uint8_t octets[IP_ADDRESS_OCTET_COUNT]) 
   if (octets)
     memcpy(octets, parsed, sizeof(parsed));
   return true;
+}
+
+bool ip_address_is_console_target(const uint8_t octets[IP_ADDRESS_OCTET_COUNT]) {
+  if (!octets)
+    return false;
+  const uint8_t first = octets[0];
+  return first != IP_ADDRESS_FIRST_THIS_NETWORK && first != IP_ADDRESS_FIRST_LOOPBACK &&
+         first < IP_ADDRESS_FIRST_MULTICAST;
 }
 
 bool ip_address_format(const uint8_t octets[IP_ADDRESS_OCTET_COUNT], char *out, size_t out_size) {

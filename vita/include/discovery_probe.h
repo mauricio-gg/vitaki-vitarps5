@@ -27,8 +27,9 @@ typedef enum discovery_probe_status_t {
  * the normal discovery service is running. UI thread only. Any probe already running or
  * finished is cancelled first.
  *
- * @param ip_text  Typed address; checked with ip_address_parse(), so spaces and leading zeros
- *                 are tolerated. The host built on success carries the canonical form.
+ * @param ip_text  Typed address; checked with ip_address_parse() and
+ * ip_address_is_console_target(), so spaces and leading zeros are tolerated. The host built on
+ * success carries the canonical form.
  * @return true when the probe is running. On false the status is DISCOVERY_PROBE_ERROR and the
  *         reason is logged with the address.
  */
@@ -78,8 +79,12 @@ void discovery_probe_free_host(VitaChiakiHost *host);
  * leaves none with the old credentials). The registered-table entry a re-pair replaces is left
  * alone, never freed.
  *
- * @param host  The host from discovery_probe_take_host(), now registered.
+ * @param host      The host from discovery_probe_take_host(), now registered.
+ * @param complete  Receives true only when the address is saved (or was already) and every live
+ *                  entry of the console got the new credentials; false otherwise (logged with
+ *                  the address and name). An entry in use by a running session is skipped and
+ *                  counts as not updated. Must not be NULL.
  * @return the context.hosts entry that now stands for the console, for Home to focus; NULL when
  *         there is none.
  */
-VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host);
+VitaChiakiHost *discovery_probe_save_manual_host(VitaChiakiHost *host, bool *complete);
