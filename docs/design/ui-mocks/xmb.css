@@ -272,11 +272,15 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 /* C18 QrPanel / login assist */
 .lgn{position:absolute;left:336px;top:var(--body-y);width:576px;height:288px;animation:rise var(--d2) var(--ease)}
 .lgn h3{font-size:var(--t20);font-weight:var(--w-light);line-height:32px;margin-bottom:var(--s1);color:var(--text)}
-.lgn .qr{width:176px;height:176px;background:var(--qr-plate);padding:8px;flex:none;display:flex;align-items:center;justify-content:center}
-.lgn .qr.hid{background:var(--qr-hidden);color:var(--text-3);font-size:var(--t16);font-weight:var(--w-reg)}
-.lgn .cols{display:flex;gap:var(--s3)}
+.lgn .qr{width:194px;height:194px;margin:11px;background:var(--qr-plate);flex:none;display:flex;align-items:center;justify-content:center}
+.lgn .qr svg{display:block}
+.lgn .qr.hid{width:216px;height:216px;margin:0;background:var(--qr-hidden);color:var(--text-3);font-size:var(--t16);font-weight:var(--w-reg)}
+.lgn .cols{display:flex;gap:var(--s2)}
+.lgn .txt{flex:1;min-width:0}
+.lgn .inf{margin-top:var(--s2);display:grid;grid-template-columns:auto 1fr;gap:0 var(--s2)}
+.lgn .inf b{display:block}
 .lgn .st{font-size:var(--t16);font-weight:var(--w-reg);line-height:24px;color:var(--text-2)}
-.lgn .st div{margin-bottom:var(--s1)}
+.lgn .st>div{margin-bottom:var(--s1)}
 .lgn .st b{font-weight:400;color:var(--text);display:block;word-break:break-all}
 
 /* C20/C21 controller diagram, callouts, zones */

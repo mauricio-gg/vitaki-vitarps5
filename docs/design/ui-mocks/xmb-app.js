@@ -312,7 +312,7 @@ function paintPage(full){
 }
 function pageHints(){
  const P=S.pg,{rs,i}=curRow(),r=rs[i];
- if(P.kind==='profile'&&P.g===2&&psnState()==='await')return [['confirm','Enter code',{key:'ok'}],['start','QR',{key:'start'}],['select','Browser',{key:'select'}],['sq','Cancel login',{key:'sq'}]];
+ if(P.kind==='profile'&&P.g===2&&psnState()==='await')return [['confirm','Enter code',{key:'ok'}],['start','QR',{key:'start'}],['sq','Cancel login',{key:'sq'}]];
  if(P.focus==='g')return [['confirm','Open',{key:'ok'}],['cancel','Back',{key:'back'}]];
  const L=[];
  if(r.type==='toggle')L.push(['confirm','Toggle',{key:'ok'}]);
@@ -322,12 +322,13 @@ function pageHints(){
  return L;
 }
 function loginHTML(){
- const SHORT_URL='my.account.sony.com/sso/ca/authorize'; /* display only; the full authorize URL stays in memory for the QR and the browser */
- const qr=S.qr?`<div class="qr" data-do="qrtog"><svg viewBox="0 0 25 25" width="160" height="160" shape-rendering="crispEdges">${qrSvg()}</svg></div>`:`<div class="qr hid" data-do="qrtog">QR hidden</div>`;
- return `<div class="lgn"><h3>Phone Login Assist</h3><div class="cols">${qr}<div class="st"><div>1&nbsp; Press ${inl('start')} to show or hide the QR code</div><div>2&nbsp; Scan the QR code with your phone and sign in</div><div>3&nbsp; Press ${inl('confirm')} and paste the redirect URL or code</div><div>4&nbsp; ${inl('select')} opens the Vita browser instead</div></div></div>
- <div class="st" style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:0 16px"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div><div class="lbtns">${tbtn('Enter code',{do:'btn',arg:'ok'})}${tbtn('Open browser',{do:'btn',arg:'select'})}${tbtn('Cancel login',{do:'btn',arg:'sq'})}</div>`;
+ const SHORT_URL='my.account.sony.com/sso/ca/authorize'; /* display only; the full authorize URL stays in memory for the QR only */
+ const qr=S.qr?`<div class="qr" data-do="qrtog"><svg viewBox="0 0 97 97" width="194" height="194" shape-rendering="crispEdges">${qrSvg()}</svg></div>`:`<div class="qr hid" data-do="qrtog">QR hidden</div>`;
+ return `<div class="lgn"><h3>Phone Login Assist</h3><div class="cols">${qr}<div class="txt"><div class="st"><div>1&nbsp; Press ${inl('start')} to show or hide the QR code</div><div>2&nbsp; Scan the QR code with your phone and sign in</div><div>3&nbsp; Press ${inl('confirm')} and paste the redirect URL or code</div></div>
+ <div class="st inf"><span style="color:var(--text-3)">Code</span><b>Paste redirect URL/code</b><span style="color:var(--text-3)">URL</span><b style="color:var(--text-2)">${SHORT_URL}</b></div></div></div></div><div class="lbtns">${tbtn('Enter code',{do:'btn',arg:'ok'})}${tbtn('Cancel login',{do:'btn',arg:'sq'})}</div>`;
 }
-function qrSvg(){let s='';const f=(x,y)=>`<rect x="${x}" y="${y}" width="7" height="7" fill="#0a0a0a"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#0a0a0a"/>`;s+=f(0,0)+f(18,0)+f(0,18);let r=7;for(let y=0;y<25;y++)for(let x=0;x<25;x++){if((x<8&&y<8)||(x>16&&y<8)||(x<8&&y>16))continue;r=(r*9301+49297)%233280;if(r%3===0)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#0a0a0a"/>`;}return s;}
+/* Illustrative 93-module code (QR version 18) inside a 2-module quiet zone: 97 modules at 2 px = the 194 px plate. Not a real code; finders in three corners, pseudo-random fill. */
+function qrSvg(){const N=93,Q=2,ink='#0a0a0a';let s='';const f=(x,y)=>`<rect x="${x+Q}" y="${y+Q}" width="7" height="7" fill="${ink}"/><rect x="${x+Q+1}" y="${y+Q+1}" width="5" height="5" fill="#fafafa"/><rect x="${x+Q+2}" y="${y+Q+2}" width="3" height="3" fill="${ink}"/>`;s+=f(0,0)+f(N-7,0)+f(0,N-7);let r=7;for(let y=0;y<N;y++)for(let x=0;x<N;x++){if((x<8&&y<8)||(x>N-9&&y<8)||(x<8&&y>N-9))continue;r=(r*9301+49297)%233280;if(r%2===0)s+=`<rect x="${x+Q}" y="${y+Q}" width="1" height="1" fill="${ink}"/>`;}return s;}
 function openPage(kind,g,focus='r'){
  S.pg={kind,g:g||0,focus,row:S.pg.kind===kind?S.pg.row:{}};S.screen='page';showOnly('page');paintTop();paintPage(true);
 }
@@ -558,7 +559,6 @@ function pageKey(k){
  if(login){
   if(k==='ok')return keyboard({title:'Paste full redirect URL',text:'https://remoteplay.dl.playstation.net/remoteplay/redirect?code=v3.AbC123',done:()=>{S.psn='auth';paintPage(true);toast('PSN login complete','ok','check');}});
   if(k==='start'){S.qr=!S.qr;paintPage(false);return toast(S.qr?'QR shown. Scan it with your phone.':'QR hidden. Press Start to show it again.');}
-  if(k==='select')return toast('Opened browser fallback. Phone QR is still recommended.');
   if(k==='sq'){S.psn='none';paintPage(true);return toast('PSN login canceled');}
   if(k==='back'){P.focus='g';S.psn='none';paintPage(true);}
   return;
