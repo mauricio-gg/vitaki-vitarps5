@@ -1,11 +1,16 @@
 /*
  * texture_atlas.c — vendored from xerpi/libvita2d (master branch)
  *
- * VitaRPS5 patch: atlas filters set to LINEAR/LINEAR. Combined with
- * the 2x supersampled atlas in vita2d_font.c (see
- * VITARPS5_FONT_SUPERSAMPLE), every drawn glyph performs a
- * legitimate 2:1 bilinear minification — proper antialiasing
- * without the texel-edge sampling problem that bit earlier attempts.
+ * VitaRPS5 patches:
+ *  - Atlas filters set to LINEAR/LINEAR. Combined with the 2x
+ *    supersampled atlas in vita2d_font.c (see VITARPS5_FONT_SUPERSAMPLE),
+ *    every drawn glyph performs a legitimate 2:1 bilinear minification:
+ *    proper antialiasing without the texel-edge sampling problem that
+ *    bit earlier attempts.
+ *  - Every glyph is separated from every other glyph, and from the
+ *    atlas edges, by at least ATLAS_GLYPH_GAP zeroed texels, so LINEAR
+ *    sampling at a glyph edge never reads a neighbouring glyph.
+ *  - The hash table starts at ATLAS_HTAB_INITIAL_SIZE entries.
  *
  * See third-party/libvita2d/VITARPS5_PATCHES.md for full rationale.
  */
@@ -13,6 +18,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include "texture_atlas.h"
+
+/*
+ * Zeroed texels kept between every pair of glyphs and between every glyph
+ * and the top/left/right/bottom atlas edge. The atlas texture is zeroed when
+ * it is created (vita2d_create_empty_texture_format memsets it), and only
+ * the glyph bitmap is ever written, so the gap stays zero. LINEAR sampling
+ * reads at most one texel past a glyph edge; 2 leaves margin for the
+ * half-texel offsets of the 2:1 minification.
+ */
+#define ATLAS_GLYPH_GAP 2
+
+/*
+ * Initial hash table size. Must be a power of two (int_htab masks the hash
+ * with size - 1). int_htab_insert doubles the table when it passes
+ * INT_HTAB_MAX_LOAD, so this is a starting point, not a limit.
+ */
+#define ATLAS_HTAB_INITIAL_SIZE 512
 
 /**
  * texture_atlas_create() - Allocate a glyph atlas backed by a vita2d texture.
@@ -23,12 +45,17 @@
  * Returns a newly-allocated texture_atlas on success, NULL on failure.
  *
  * VitaRPS5 patch: both filters set to LINEAR. The active patch in
- * vita2d_font.c renders every glyph at 2x its display size, so
- * draw_scale = 0.5 at draw time and the sampler is doing 2:1
- * minification. LINEAR min then averages 4 source texels per output
+ * vita2d_font.c renders every glyph at 2x its display size (the cache is
+ * keyed by size, so each size has its own bake), so draw_scale = 0.5 at
+ * draw time and the sampler is doing 2:1 minification. LINEAR min then averages 4 source texels per output
  * pixel — proper antialiasing — and the texel-edge UV problem that
  * made LINEAR fail at 1:1 mapping does not apply because the sample
  * point lands halfway between source texels by construction.
+ *
+ * VitaRPS5 patch: the packer's root rectangle starts at (ATLAS_GLYPH_GAP,
+ * ATLAS_GLYPH_GAP), so the top and left atlas edges are always zero
+ * texels. The right and bottom edges are covered by the gap that
+ * texture_atlas_insert() reserves after every glyph.
  */
 texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat format)
 {
@@ -37,10 +64,10 @@ texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat f
 		return NULL;
 
 	bp2d_rectangle rect;
-	rect.x = 0;
-	rect.y = 0;
-	rect.w = width;
-	rect.h = height;
+	rect.x = ATLAS_GLYPH_GAP;
+	rect.y = ATLAS_GLYPH_GAP;
+	rect.w = width - ATLAS_GLYPH_GAP;
+	rect.h = height - ATLAS_GLYPH_GAP;
 
 	atlas->texture = vita2d_create_empty_texture_format(width,
 							    height,
@@ -51,7 +78,7 @@ texture_atlas *texture_atlas_create(int width, int height, SceGxmTextureFormat f
 	}
 
 	atlas->bp_root = bp2d_create(&rect);
-	atlas->htab = int_htab_create(256);
+	atlas->htab = int_htab_create(ATLAS_HTAB_INITIAL_SIZE);
 
 	/* Both filters set to LINEAR.
 	 * Combined with the 2x supersampled atlas (see
@@ -75,6 +102,20 @@ void texture_atlas_free(texture_atlas *atlas)
 	free(atlas);
 }
 
+/**
+ * texture_atlas_insert() - Reserve space for a glyph and register it.
+ * @atlas:        Target atlas.
+ * @character:    Hash key for the glyph (vita2d_font.c passes size + glyph index).
+ * @size:         Glyph bitmap size in texels.
+ * @data:         Metrics stored with the glyph.
+ * @inserted_pos: Receives the top-left texel of the glyph bitmap.
+ *
+ * VitaRPS5 patch: the packer reserves ATLAS_GLYPH_GAP extra texels to the
+ * right and below the bitmap. The stored rectangle is exactly the bitmap, so
+ * draw position and size are unchanged; only the reserved space grows.
+ *
+ * Returns 1 on success, 0 if the atlas is full or an allocation failed.
+ */
 int texture_atlas_insert(texture_atlas *atlas, unsigned int character,
 			 const bp2d_size *size,
 			 const texture_atlas_entry_data *data,
@@ -82,8 +123,12 @@ int texture_atlas_insert(texture_atlas *atlas, unsigned int character,
 {
 	atlas_htab_entry *entry;
 	bp2d_node *new_node;
+	const bp2d_size reserved = {
+		size->w + ATLAS_GLYPH_GAP,
+		size->h + ATLAS_GLYPH_GAP
+	};
 
-	if (!bp2d_insert(atlas->bp_root, size, inserted_pos, &new_node))
+	if (!bp2d_insert(atlas->bp_root, &reserved, inserted_pos, &new_node))
 		return 0;
 
 	entry = malloc(sizeof(*entry));

@@ -19,19 +19,82 @@ libvita2d symbols come from the system `-lvita2d`.
 **How the pieces fit together:**
 
 The existing `draw_scale = size / (float)data.glyph_size` in
-`generic_font_draw_text()` evaluates to exactly `0.5` for every glyph
-under this patch. All position math (`pen_x + bitmap_left * draw_scale`,
-`pen_y - bitmap_top * draw_scale`, `(advance_x >> 16) * draw_scale`)
-remains correct because it scales 2× atlas-space values back to
-1× display-space integers. `vita2d_font_text_width()` likewise produces
-identical display-space widths because it multiplies the same 2×
-advances by the same 0.5 scale.
+`generic_font_draw_text()` evaluates to exactly `0.5` for every glyph,
+because the cache is keyed by size (see the size-key patch below).
+Before that patch this claim was false: the cache was keyed by glyph
+index only, so whichever size drew a glyph first set its bitmap for
+every size of that font. Light was baked at 20 (40 px bitmaps), so 28
+drew at 0.7 and 40 at 1.0; Regular was baked at 14 (28 px), so 16 and
+Regular 20 drew scaled from it. All position math
+(`pen_x + bitmap_left * draw_scale`, `pen_y - bitmap_top * draw_scale`,
+`(advance_x >> 16) * draw_scale`) scales 2x atlas-space values back to
+1x display-space integers, and `vita2d_font_text_width()` multiplies the
+same 2x advances by the same 0.5 scale.
 
 At draw time, GXM samples the atlas with `draw_scale = 0.5`, so each
 output pixel corresponds to a 2×2 source-texel region. LINEAR min
 performs a 4-tap bilinear average over that region — a proper 2:1
 minification — preserving FreeType's already-antialiased grayscale
 edges and further smoothing them.
+
+---
+
+## Active patch - size-aware cache key, zeroed gap, bigger hash table (#378, #370)
+
+**Files:** `vita2d_font.c` and `texture_atlas.c`.
+
+**1. Size-aware cache key (#378).** `generic_font_draw_text()` looks up
+and inserts glyphs under `(size << 16) | glyph_index`
+(`glyph_cache_key()`, constants `VITARPS5_GLYPH_KEY_INDEX_BITS` and
+`VITARPS5_GLYPH_KEY_FIELD_MASK`). Each size of a font now has its own 2x
+bake, so large text is no longer scaled from a smaller or larger bake.
+A size or glyph index that does not fit 16 bits is not cached under a
+wrong key: it logs `[WARN] vita2d_font: glyph <n> at <size>pt does not
+fit the 16-bit cache key, skipped` and the glyph is skipped. Roboto has
+far fewer than 65536 glyphs, so this is a guard only. A non-zero size
+keeps every key non-zero (key 0 is never used).
+
+**2. Zeroed 2 texel gap (#370).** Glyphs were packed edge to edge and
+sampled with LINEAR, so the edge texels read the neighbouring glyph and
+drew a thin vertical line beside some glyphs ("Controller" read like
+"Controllen"). `texture_atlas_insert()` now reserves
+`ATLAS_GLYPH_GAP` (2) extra texels right of and below every bitmap, and
+the packer's root rectangle starts at (2, 2), so the top and left atlas
+edges are zero too. The stored rectangle is still exactly the bitmap, so
+draw position and size do not change. The atlas texture is zeroed once
+at creation (`vita2d_create_empty_texture_format` calls `memset` on the
+GPU buffer), and only bitmap texels are ever written, so the gap stays
+zero. Nothing is cleared per frame.
+
+**3. Hash table starts at 512.** `ATLAS_HTAB_INITIAL_SIZE` (was 256).
+`int_htab` is not vendored (it comes from the system `-lvita2d`).
+Upstream `int_htab_insert` does grow the table: when
+`(used + 1) * 100 / size > INT_HTAB_MAX_LOAD` (70) it calls
+`int_htab_resize(htab, 2 * size)`. So 512 is a starting size, not a
+limit; it avoids a rehash during the splash bake (297 and 291 entries
+are 58% and 57% of 512, under the 70% threshold). The size must stay a
+power of two because upstream masks the hash with `size - 1`. Key 0 is
+legal upstream (an empty slot has key 0 and a NULL value, so a lookup of
+0 returns NULL when absent); the old code stored glyph index 0 under key
+0, and the new keys are never 0.
+
+**Measured natively (real Roboto fonts, real prewarm charset, upstream
+bin packer, 1024 x 1024 atlas).**
+
+| | Regular (14, 16, 20, 20 again) | Light (20, 28, 40) |
+|---|---|---|
+| Glyphs baked, before | 97 | 97 |
+| Glyphs baked, after | 297 | 291 |
+| Atlas filled, before | 2.1% | 4.2% |
+| Atlas filled, after (bitmap plus gap) | 12.2% | 31.6% |
+| Insert failures | 0 | 0 |
+| Key collisions | 0 | 0 |
+| Glyphs with a non-zero texel within 2 texels of the bitmap, before | 96 of 97 | 96 of 97 |
+| Same, after | 0 | 0 |
+
+The Regular count includes three probe glyphs ("Ag|") baked at 20, 28
+and 40 by `compute_metrics_for_face()`, which measures every face in the
+Regular font.
 
 ---
 
@@ -71,17 +134,16 @@ moves the sampler into a regime where LINEAR is well-defined.
 
 ## Risk if the supersample precondition breaks
 
-The active patch only behaves correctly when every drawn glyph has
-`draw_scale ≤ 1.0` — i.e. the requested point size is one of the
-prewarmed sizes in `vita/src/ui/ui_text.c`'s `UI_FONT_PREWARM_SIZES`
-table. If a future change requests a point size that has no prewarmed
-slot, `data.glyph_size` would either be missing or smaller than `size`,
-producing `draw_scale > 1.0` and re-entering the texel-edge bilinear
-**magnification** regime that produced the original blur.
-
-Any new pt size **must** be added to `UI_FONT_PREWARM_SIZES` (and the
-adjacent `_Static_assert` literal and `size_index()` switch) so the
-atlas always carries a 2× pre-rendered version of every glyph drawn.
+Every glyph is baked at `size * VITARPS5_FONT_SUPERSAMPLE` under its own
+size key, so `draw_scale` is `1 / VITARPS5_FONT_SUPERSAMPLE` (0.5) for
+any size the UI draws, prewarmed or not. A size missing from the prewarm
+no longer changes how it looks, it only bakes its glyphs on first use
+(a one-off hitch in a frame instead of on the splash). The cost of a new
+size is real, though: it adds a full charset of 2x bitmaps to that
+weight's atlas (about 100 glyphs; roughly 2% of 1024 x 1024 at size 14
+and 18% at size 40, since the area grows with the square of the size). Add new sizes to `ui_text.c`'s face table so
+they are baked during the splash, and check the atlas still fits
+(Light is at 31.6%).
 
 ---
 
@@ -89,6 +151,14 @@ atlas always carries a 2× pre-rendered version of every glyph drawn.
 
 | Resource | Before | After |
 |----------|--------|-------|
+| Atlas texture | 512x512 R8 = 256 KB | 1024x1024 R8 = 1 MB per font (Regular and Light: 2 MB), unchanged by the size key |
+| Largest glyph | 40 px tall | 80 px tall |
+| Prewarm work | baseline | 588 glyphs rasterised (Regular 297, Light 291) against 194 with the index-only key, about 3.2 times the FreeType work in a native run, spent once during the splash |
+
+2 MB on a 256 MB-of-RAM Vita is acceptable. Prewarm runs once during
+the splash phase; Home starts after it ends.
+
+----------|--------|-------|
 | Atlas texture | 512×512 R8 = 256 KB | 1024×1024 R8 = 1 MB |
 | Largest glyph | 40 px tall | 80 px tall |
 | Prewarm time | baseline | ~4× FreeType raster work, one-time at startup |
@@ -127,8 +197,8 @@ Include path `third-party/libvita2d/include` is added via
 
 | File | Source | Purpose |
 |------|--------|---------|
-| `vita2d_font.c` | xerpi/libvita2d master | FreeType font rendering; **VitaRPS5 patch:** 2× supersampled atlas (`VITARPS5_FONT_SUPERSAMPLE`), 1024×1024 atlas |
-| `texture_atlas.c` | xerpi/libvita2d master | Glyph atlas; **VitaRPS5 patch:** filters set to LINEAR/LINEAR (works because supersample guarantees draw_scale = 0.5) |
+| `vita2d_font.c` | xerpi/libvita2d master | FreeType font rendering; **VitaRPS5 patches:** 2× supersampled atlas (`VITARPS5_FONT_SUPERSAMPLE`), 1024×1024 atlas, glyph cache keyed by size and glyph index |
+| `texture_atlas.c` | xerpi/libvita2d master | Glyph atlas; **VitaRPS5 patches:** filters set to LINEAR/LINEAR (works because the size key and supersample guarantee draw_scale = 0.5), 2 texel zeroed gap around every glyph, hash table starts at 512 |
 | `include/texture_atlas.h` | xerpi/libvita2d master | Private struct/API for texture_atlas |
 | `include/bin_packing_2d.h` | xerpi/libvita2d master | 2D bin packing used by atlas |
 | `include/int_htab.h` | xerpi/libvita2d master | Hash table used by atlas |
