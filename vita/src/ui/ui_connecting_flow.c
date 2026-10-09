@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #define STAGE_CONNECTING (UI_CONNECTION_STAGE_CONNECTING - UI_CONNECTION_STAGE_WAKING)
+#define STAGE_PSN_AUTH (UI_CONNECTION_STAGE_PSN_AUTH - UI_CONNECTION_STAGE_WAKING)
 #define STAGE_COUNT (UI_CONNECTION_STAGE_STARTING_STREAM - UI_CONNECTION_STAGE_WAKING + 1)
 
 /** One row of the SPEC 3.4 stage table. */
@@ -32,9 +33,13 @@ static const int FLOW_STAGES[UI_FLOW_COUNT][UI_FLOW_MAX_STEPS] = {
     [UI_FLOW_LOCAL_READY] = {4, 7, -1, -1, -1, -1, -1},
     [UI_FLOW_LOCAL_STANDBY] = {0, 4, 7, -1, -1, -1, -1},
     [UI_FLOW_INTERNET] = {1, 2, 3, 4, 5, 6, 7},
+    /* Stage 2 is never reported, so a console that must be woken swaps it for stage 0 and the
+     * list stays seven rows, which is what the screen fits. */
+    [UI_FLOW_INTERNET_STANDBY] = {0, 1, 3, 4, 5, 6, 7},
 };
 
-static const char *const FLOW_NAMES[UI_FLOW_COUNT] = {"local-ready", "local-standby", "internet"};
+static const char *const FLOW_NAMES[UI_FLOW_COUNT] = {"local-ready", "local-standby", "internet",
+                                                      "internet-standby"};
 
 static const char TITLE_WAKING[] = "Waking Console";
 static const char TITLE_LOCAL[] = "Starting Remote Play";
@@ -47,9 +52,14 @@ static bool flow_valid(UiConnectingFlow flow) {
   return flow >= 0 && flow < UI_FLOW_COUNT;
 }
 
+/** True for the flows that go through PSN, which read the Internet title, icon and route. */
+static bool flow_is_internet(UiConnectingFlow flow) {
+  return flow == UI_FLOW_INTERNET || flow == UI_FLOW_INTERNET_STANDBY;
+}
+
 UiConnectingFlow ui_connecting_flow_decide(UIConnectionStage begin_stage, bool internet) {
   if (begin_stage == UI_CONNECTION_STAGE_WAKING)
-    return UI_FLOW_LOCAL_STANDBY;
+    return internet ? UI_FLOW_INTERNET_STANDBY : UI_FLOW_LOCAL_STANDBY;
   return internet ? UI_FLOW_INTERNET : UI_FLOW_LOCAL_READY;
 }
 
@@ -77,10 +87,10 @@ const char *ui_connecting_flow_stage_detail(int stage) {
 }
 
 int ui_connecting_flow_step(UiConnectingFlow flow, UIConnectionStage stage) {
-  const int number = (int)stage - (int)UI_CONNECTION_STAGE_WAKING;
+  int number = (int)stage - (int)UI_CONNECTION_STAGE_WAKING;
 
-  if (flow == UI_FLOW_INTERNET && number == STAGE_CONNECTING)
-    return 0;
+  if (flow_is_internet(flow) && number == STAGE_CONNECTING)
+    number = STAGE_PSN_AUTH;
   const int count = ui_connecting_flow_step_count(flow);
   for (int i = 0; i < count; i++) {
     if (FLOW_STAGES[flow][i] == number)
@@ -90,7 +100,7 @@ int ui_connecting_flow_step(UiConnectingFlow flow, UIConnectionStage stage) {
 }
 
 const char *ui_connecting_flow_title(UiConnectingFlow flow, int step) {
-  if (flow == UI_FLOW_INTERNET)
+  if (flow_is_internet(flow))
     return TITLE_INTERNET;
   if (flow == UI_FLOW_LOCAL_STANDBY && step == 0)
     return TITLE_WAKING;
@@ -98,7 +108,7 @@ const char *ui_connecting_flow_title(UiConnectingFlow flow, int step) {
 }
 
 UiConnectingIcon ui_connecting_flow_icon(UiConnectingFlow flow, int step) {
-  if (flow == UI_FLOW_INTERNET)
+  if (flow_is_internet(flow))
     return UI_FLOW_ICON_GLOBE;
   if (flow == UI_FLOW_LOCAL_STANDBY && step == 0)
     return UI_FLOW_ICON_MOON;
@@ -106,7 +116,7 @@ UiConnectingIcon ui_connecting_flow_icon(UiConnectingFlow flow, int step) {
 }
 
 const char *ui_connecting_flow_route(UiConnectingFlow flow) {
-  return flow == UI_FLOW_INTERNET ? ROUTE_INTERNET : ROUTE_LOCAL;
+  return flow_is_internet(flow) ? ROUTE_INTERNET : ROUTE_LOCAL;
 }
 
 const char *ui_connecting_flow_name(UiConnectingFlow flow) {
