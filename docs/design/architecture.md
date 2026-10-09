@@ -81,7 +81,7 @@ Testing builds log these lines (`LOGD`). Times are absolute process time in micr
 - `PIPE/SPLASH_FIRST_FRAME us=`: the first splash frame was presented.
 - `PIPE/SPLASH_STEP name= us=`: one line per step, and per baked face, with its duration.
 - `PIPE/UI_PREWARM_DONE us=`: the last glyph face is baked.
-- `PIPE/SPLASH_DONE frames= expected= elapsed_us= load_done_us= max_gap_us= max_gap_step=`: the fade has finished. `frames` is the number of splash frames drawn, `expected` is elapsed time divided by the frame interval, `load_done_us` is how long loading took, and `max_gap_us` and `max_gap_step` are the longest gap between two presented splash frames and the longest step inside it. These five are durations.
+- `PIPE/SPLASH_DONE frames= expected= elapsed_us= load_done_us= max_gap_us= max_gap_step=`: the fade has finished. `load_done_us` is the absolute process time at which loading finished. `frames` is the number of splash frames drawn and `expected` is the count a steady frame rate would give (elapsed time divided by the frame interval). `elapsed_us` is the splash's total time, and `max_gap_us` is the longest gap between two presented splash frames, both durations. `max_gap_step` is the longest step inside that gap.
 - `PIPE/UI_FIRST_HOME_FRAME us=`: the first Home frame was presented.
 
 ## Menu frame setup
