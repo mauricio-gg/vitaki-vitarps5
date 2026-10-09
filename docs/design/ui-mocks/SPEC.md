@@ -136,6 +136,8 @@ Text is drawn from the 5 pre-rendered atlas entries (Light 20, 28, 40; Regular 1
 | Used by | Home |
 | Replaces | `ui_navigation.c` wave sidebar and `NAV_*` |
 
+**As built (#307).** The strip swipe is `ui_category_bar.c`: a touch that goes down in y 64..176 (full width) belongs to the strip alone, and moving it horizontally changes the category by one per `UI_CAT_SWIPE_PX` (56) from touch-down, swipe left = next category, clamped at both ends, with the existing 300 ms slide. The step count comes from `ui_gesture_swipe_steps()` in the pure `ui_gesture.c`. A swipe is never a tap, so lifting the finger after one does not focus an icon. It does not run while the Options column or a popup is open.
+
 ### C02 XmbList + ListRow (interactive)
 | | |
 |---|---|
@@ -148,6 +150,8 @@ Text is drawn from the 5 pre-rendered atlas entries (Light 20, 28, 40; Regular 1
 | Used by | Home (consoles, setting groups, presets, profile groups) |
 | Item icons | Settings groups: Video (film frame), Network (Wi-Fi arcs), Display (sun), Controls (button cluster), Advanced (sliders). Profile groups: Account (ID card), Connection (two linked nodes), PlayStation Network (cloud). Controller presets: Custom 1, 2, 3 (a row of three slots with 1, 2 or 3 filled). Consoles: the room icon (tv, sofa, bed, bunk, desk, house). Filter: magnifier. All 38 px flat white SVGs in `icons/`, same weight as the room icons. The Settings and Profile **page** group lists (the left column of the pages) are text-only and stay so. |
 | Replaces | console card list (`ui_console_cards.c`), 4 duplicated card+focus-ring pieces |
+
+**As built (#307).** The list swipe (`ui_xmb_list.c`) moves focus one row per `UI_ROW_SWIPE_PX` (64) from touch-down, finger up = next row, clamped, with the normal slide. It starts only from a touch-down in y 176..496: a touch-down above y 176 belongs to the category strip (C01), which is how the two swipes do not fight over the overlap. The long-press (`UI_LONG_PRESS_MS` 500, finger within `UI_TOUCH_DRAG_PX` 8 of touch-down) on a console row focuses that row, opens its Options column exactly as Triangle does (same cooldown rule) and consumes the touch, so the release neither connects nor closes the column. It does nothing on the Filter row, on the empty state, or while Options or a popup is open, and it has no visible affordance (the Triangle hint stays). A swipe is never a tap or a long-press, and neither swipe runs while Options or a popup is open.
 
 ### C03 ConnectingRing (display-only)
 | | |
@@ -198,6 +202,8 @@ Text is drawn from the 5 pre-rendered atlas entries (Light 20, 28, 40; Regular 1
 | Constants | `UI_PAGE_ICON` 32 at x 48, `UI_PAGE_TITLE_X` 96, title row y 64 h 48, rule y 120, `UI_PAGE_GROUP_X` 48 w 256 row h 56, `UI_PAGE_PANE_X` 336 w 576 h 288 (6 rows), `UI_PAGE_DESC_Y` 440 h 48, `UI_PAGE_SCROLL_X` 920 |
 | Anatomy | Top bar (C23) always. **Every page title has a 32 px icon at x 48 and the title at x 96**: Settings gear, Profile person, Controller pad, PIN lock, Connecting LAN / globe / moon (by flow), Reconnecting Wi-Fi. Title T28. `LINE` rule y 120. Wave dimmed by `PAGE_WASH`. Optional right slot in the title row (Controller preset switcher). Settings/Profile body: GroupList (rows h 56, T20; focused-active group T28 + glow; current group has a 2 px white bar at its left edge), pane, description line (T16, max 2 lines), scroll indicator (C24). |
 | Input | Up/Down, Left/Right moves between group list and pane; L/R switches group; Circle returns (pane to groups, groups to Home). Touch: tap a group, tap a row, swipe the pane (one row per 48 px). |
+
+**As built (#307).** The back chevron is part of the shared page frame: `ui_page_frame_back_draw()` draws it (`UI_PAGE_BACK_ART` 24, stroke `UI_PAGE_BACK_STROKE` 2.0, TEXT_2, one draw) and `ui_page_frame_back_tapped()` is the 48 x 48 hit at x 0, y `UI_TITLE_Y`. It is drawn on Settings, Profile and Controller whether the hint row is on or off. The page decides what back means. Settings: a tap goes back to Home as Circle does from the group list, whichever column has focus. Profile: a tap goes to Home like Cancel (log-out disarmed), also while the phone-login pane shows (the login keeps running), and is ignored while the system keyboard is open. Controller: unchanged behaviour, now drawing the shared chevron instead of its own. The constants were `UI_CTRL_BACK_*` and are now `UI_PAGE_BACK_*`.
 
 ### C08 SettingRow (interactive; C09 Toggle, C10 ChoiceValue are drawn inside it)
 | | |
@@ -560,6 +566,8 @@ The hint row is tappable, but it can be hidden, so every action must be reachabl
 | Stream exit | L + R + Start only (an overlay hint with its own setting, never a hint-row action) |
 
 Items marked new exist so that nothing is reachable only through a hint tap. They are visible controls (the chevron and the small buttons stay visible even when hints are on); the long-press has no visible affordance, so Options also stays discoverable through the hint row.
+
+**As built (#307).** Every row of the table above is now reachable by touch without the hint row: the long-press, the strip swipe, the list swipe and the shared back chevron are built (the other rows were built with their screens in #303 to #306). The long-press follows a "consumed touch" rule (`ui_input_consume_touch()`): only a long-press that acted (it opened Options) marks the touch used, so its release is not a tap. A finger held for 500 ms or more that nobody acted on (the Filter row, the empty state, a page) is still a tap when it lifts. A swipe is never a tap.
 
 ## 5. Copy deck
 
