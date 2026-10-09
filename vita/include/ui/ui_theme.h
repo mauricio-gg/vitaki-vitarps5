@@ -312,7 +312,11 @@ typedef enum ui_face_t {
 #define UI_CAT_UNFOCUSED_PCT 62
 #define UI_CAT_LABEL_GAP UI_S2
 #define UI_CAT_HIT 64
-#define UI_CAT_SWIPE_PX 56 /* horizontal swipe distance per category step (SPEC C01) */
+/* Swipe step tuning (#331): 96 px is about 11 mm on the Vita screen (960 px across about 110 mm,
+ * roughly 8.7 px per mm). The old 56 and 64 were about 6.5 and 7.5 mm and felt too twitchy. 96 is
+ * 1.5 list rows and still under the 112 px category icon spacing. Retune here after hardware tries.
+ */
+#define UI_CAT_SWIPE_PX 96 /* horizontal swipe distance per category step (SPEC C01) */
 
 /* ============================================================================
  * C02 XmbList
@@ -331,6 +335,9 @@ typedef enum ui_face_t {
 #define UI_LIST_TEXT_W 288
 #define UI_LIST_FOCUS_Y 192
 #define UI_LIST_ROW_H 64
+/* A vertical swipe on Home moves the focus one row per this many px from touch-down (#331).
+ * Tuned with UI_CAT_SWIPE_PX; the rationale is above it. */
+#define UI_LIST_SWIPE_PX 96
 #define UI_LIST_FOCUS_GAP 16
 #define UI_LIST_SLIDE 64
 #define UI_LIST_GLOW 112
