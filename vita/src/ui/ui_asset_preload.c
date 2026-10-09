@@ -427,10 +427,13 @@ static void wait_ready(const bool *ready) {
   }
 }
 
-/** Logs a slot's failure once. */
+/**
+ * Logs a slot's failure once. A failure is a reason the worker recorded in `err`, not a NULL
+ * pixel pointer: the pointer is also NULL once the pixels were handed over.
+ */
 static void log_failure(size_t index) {
   Slot *slot = &s_pre.slots[index];
-  if (slot->px.rgba || slot->err_logged)
+  if (slot->err[0] == '\0' || slot->err_logged)
     return;
   slot->err_logged = true;
   LOGE("UI/PRELOAD failed to load '%s': %s", PRELOAD_LIST[index].path, slot->err);
@@ -472,10 +475,10 @@ bool ui_asset_preload_wait(const char *path, UiAssetPixels *out) {
   return true;
 }
 
-/** Logs a font slot's failure once. */
+/** Logs a font slot's failure once. Keyed off the recorded reason, as in log_failure(). */
 static void log_font_failure(size_t index) {
   FontSlot *font = &s_pre.fonts[index];
-  if (font->bytes || font->err_logged)
+  if (font->err[0] == '\0' || font->err_logged)
     return;
   font->err_logged = true;
   LOGE("UI/PRELOAD failed to read font '%s': %s", FONT_PATHS[index], font->err);
