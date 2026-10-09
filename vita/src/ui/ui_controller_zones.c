@@ -137,14 +137,11 @@ void ui_controller_zones_sync(UiCtrlZoneView view) {
   if (!v->ready)
     return;
   const UiCtrlSide side = ui_controller_zones_side(view);
-  /* The Summary front grid shows blocks only: 19 draws instead of 37 keeps page 1 under budget. */
-  const bool labelled = view != UI_CTRL_VIEW_SUMMARY_FRONT;
   for (int i = 0; i < UI_ZONE_COUNT; i++) {
     const int output = ui_controller_model_zone_output(side, i);
     if (output == v->shown[i])
       continue;
-    ui_zone_grid_set_cell(&v->grid, i, labelled ? cell_label(output) : "",
-                          output != VITAKI_CTRL_OUT_NONE);
+    ui_zone_grid_set_cell(&v->grid, i, cell_label(output), output != VITAKI_CTRL_OUT_NONE);
     v->shown[i] = output;
   }
 }
