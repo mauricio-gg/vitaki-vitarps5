@@ -131,18 +131,6 @@ char *cancel_btn_str = "Circle";
 
 // Error popup and debug menu functions moved to ui_components.c
 
-/**
- * screen_has_xmb_chrome() - True for the screens built in the XMB style (Home, Connecting,
- * Reconnecting, Settings, Profile, Controller, PIN). They draw their own top bar (and hint row with
- * the Network Unstable pill, where they have one), so the corner logo is not drawn over them.
- */
-static bool screen_has_xmb_chrome(UIScreenType screen) {
-  return screen == UI_SCREEN_TYPE_MAIN || screen == UI_SCREEN_TYPE_WAKING ||
-         screen == UI_SCREEN_TYPE_RECONNECTING || screen == UI_SCREEN_TYPE_SETTINGS ||
-         screen == UI_SCREEN_TYPE_PROFILE || screen == UI_SCREEN_TYPE_CONTROLLER ||
-         screen == UI_SCREEN_TYPE_REGISTER_HOST;
-}
-
 #if VITARPS5_DEBUG_TOOLS
 /** Name logged with the draw counts of a frame drawn over a frozen popup background. */
 #define DRAW_STATS_POPUP_NAME "popup"
@@ -644,21 +632,6 @@ void draw_ui() {
       } else {
         ui_background_draw(screen == UI_SCREEN_TYPE_WAKING ||
                            screen == UI_SCREEN_TYPE_RECONNECTING);
-      }
-
-      // Old screens only: Home and Connecting draw the logo in their own top bar (C23)
-      if (vita_rps5_logo && !screen_has_xmb_chrome(screen)) {
-        int logo_w = vita2d_texture_get_width(vita_rps5_logo);
-        int logo_h = vita2d_texture_get_height(vita_rps5_logo);
-        float logo_scale = 0.1f;  // 10% of original size
-        int scaled_w = (int)(logo_w * logo_scale);
-        int scaled_h = (int)(logo_h * logo_scale);
-        int logo_x = VITA_WIDTH - scaled_w - 20;  // 20px margin from right
-        int logo_y = 20;                          // 20px margin from top
-
-        // Draw with 50% transparency (alpha = 128)
-        vita2d_draw_texture_tint_scale(vita_rps5_logo, logo_x, logo_y, logo_scale, logo_scale,
-                                       RGBA8(255, 255, 255, 128));
       }
 
       UIScreenType prev_screen = screen;
