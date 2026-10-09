@@ -22,7 +22,7 @@ One current assessment of the locked XMB design (`SPEC.md`, `xmb.html`) for vita
 | Glow | baked soft blob textures: one white 112 x 112 (focused list icon, same for every category), one state-tinted for the Connecting ring | focus glow behind icons and text | each padded by its glow radius on all sides (art + 2 x radius, transparent border), drawn before the art, never clipped to the art or the row (SPEC 2.0 Glow rule) |
 | Wave | no texture | background | ribbons are geometry (section 3) |
 
-Removed from the app by this design: the wave sidebar (done in #305: `ui_navigation.c`, its state, pill, toast and icons are gone), particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations.
+Removed from the app by this design: the wave sidebar (done in #305: `ui_navigation.c`, its state, pill, toast and icons are gone), particles, rounded-rect and shadow helpers, the Logs screen, the Add item, the third Profile card, the `dropdown` widget, 6 modal implementations. #308 then removed the rest: Roboto Mono and its atlas, the Messages and Stream screens (`UI_SCREEN_TYPE_STREAM` is now `UI_SCREEN_TYPE_NONE`, the "nothing drawn yet" value), the corner logo and `screen_has_xmb_chrome()`, the old widgets in `ui_components.c` and `ui_graphics.c`, the point-size `ui_text_*` calls and the `font` global, the Regular 18, 20, 24 and 28 atlas sizes, the `show_nav_labels` config key, and 8 unused images (`background.png`, `ellipse_green/yellow/red.png`, `button_add_new.png`, `icon_controller.png`, `icon_profile.png`, `icon_button_triangle.png`).
 
 ## 2. Type
 
@@ -33,7 +33,7 @@ Removed from the app by this design: the wave sidebar (done in #305: `ui_navigat
 | Roboto Light | 20, 28, 40 | rows and buttons (20), titles (28), PIN digits (40) |
 | Roboto Regular | 14, 16 | hint row (14), captions, kv rows and values such as IPs and stats (16) |
 
-Today the app loads Roboto Regular and Roboto Mono with 7 pre-rendered sizes. Changes: Roboto Mono and its atlas go away; **Roboto Light is one new TTF (170 KB)** with 3 sizes; Roboto Regular 14 already exists today (`FONT_SIZE_SMALL`), so the hint row adds no new atlas size; Roboto Regular 16 already exists. Net: 5 atlas entries from 2 weights instead of today's 7 sizes plus the mono atlas, so the atlas is no larger than today: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+As built (#308): the app loads Roboto Regular and Roboto Light only. Roboto Mono, its atlas and the Regular 18, 20, 24 and 28 sizes are gone; **Roboto Light is one TTF (170 KB)** with 3 sizes; Regular is baked at 14 and 16. Net: 5 atlas entries from 2 weights, where the app before the redesign had 7 sizes plus the mono atlas: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
 
 ## 3. Background
 
@@ -88,7 +88,7 @@ Recounted bottom-up in round 7b from the real primitives (one draw per texture q
 | Change icon popup | about 36 | 45 | |
 | Stream overlay | 26 | 28 (38 in testing builds) | |
 
-Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_width` per word), never per frame.
+Status messages in the detail panel are laid out once when the selection or message changes (`ui_text_face_width` per word), never per frame.
 
 ## 5. Texture budget (paper)
 
@@ -117,7 +117,7 @@ Well under the 15 MB budget. The wave costs none.
 | Risk | Level | Mitigation |
 |---|---|---|
 | Static screens, popups, pages, overlay | low | plain rectangles and text |
-| Detail-panel status message wrapping (up to 3 lines, so the kv table below shifts 0 to 48 px) | medium-low | wrap once when the selection or message changes (`ui_text_width` per word), never per frame; all current messages fit in 2 lines at 304 px; the Home list itself now has fixed row heights |
+| Detail-panel status message wrapping (up to 3 lines, so the kv table below shifts 0 to 48 px) | medium-low | wrap once when the selection or message changes (`ui_text_face_width` per word), never per frame; all current messages fit in 2 lines at 304 px; the Home list itself now has fixed row heights |
 | Touch swipe and paint gestures (list, categories, pane, popup list, zone paint) | medium | thresholds in SPEC section 4; a touch over 8 px is never also a tap |
 | Registration and connection outcomes (finished OK, PIN not accepted, unreachable, timeout) | medium, backend | the UI needs these four results from the registration code (SPEC 3.3), not UI work |
 | Wi-Fi, battery and clock reads for the top bar | low | poll about once per second (`sceNetCtl`, `scePower`, RTC) |
