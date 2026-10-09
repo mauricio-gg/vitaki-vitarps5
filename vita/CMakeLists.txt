@@ -15,6 +15,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/context.c
     src/discovery.c
     src/discovery_host.c
+    src/discovery_probe.c
+    src/ip_address.c
     src/main.c
     src/ui.c
     src/util.c
