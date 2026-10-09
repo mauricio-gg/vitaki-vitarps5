@@ -44,10 +44,26 @@ static void test_rejected_refresh_token_not_retried(void) {
   assert(!psn_auth_rules_refresh_allowed(PSN_AUTH_STATE_ERROR, true));
 }
 
+/* A phone login that opened while the startup refresh was in flight must not be overwritten by
+ * the refresh result; neither may a result for tokens the user has since logged out of. */
+static void test_background_commit_dropped_when_stale(void) {
+  assert(psn_auth_rules_background_commit_verdict(PSN_AUTH_STATE_DEVICE_LOGIN_PENDING, 3, 3) ==
+         PSN_AUTH_COMMIT_DROP_LOGIN_STARTED);
+  assert(psn_auth_rules_background_commit_verdict(PSN_AUTH_STATE_DEVICE_LOGIN_POLLING, 3, 4) ==
+         PSN_AUTH_COMMIT_DROP_LOGIN_STARTED);
+  assert(psn_auth_rules_background_commit_verdict(PSN_AUTH_STATE_LOGGED_OUT, 3, 4) ==
+         PSN_AUTH_COMMIT_DROP_GRANT_CHANGED);
+  assert(psn_auth_rules_background_commit_verdict(PSN_AUTH_STATE_TOKEN_REFRESHING, 3, 3) ==
+         PSN_AUTH_COMMIT_APPLY);
+  assert(psn_auth_rules_background_commit_verdict(PSN_AUTH_STATE_TOKEN_VALID, 0, 0) ==
+         PSN_AUTH_COMMIT_APPLY);
+}
+
 int main(void) {
   test_refresh_refused_during_login();
   test_error_keeps_login_pending();
   test_rejected_refresh_token_not_retried();
+  test_background_commit_dropped_when_stale();
   printf("psn_auth_rules_tests: all passed\n");
   return 0;
 }

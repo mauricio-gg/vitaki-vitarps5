@@ -21,3 +21,13 @@ PsnAuthState psn_auth_rules_state_after_error(PsnAuthState state) {
 bool psn_auth_rules_status_rejects_refresh_token(long http_status) {
   return http_status == HTTP_STATUS_BAD_REQUEST;
 }
+
+PsnAuthCommitVerdict psn_auth_rules_background_commit_verdict(PsnAuthState state_now,
+                                                              uint32_t generation_at_start,
+                                                              uint32_t generation_now) {
+  if (psn_auth_rules_login_in_progress(state_now))
+    return PSN_AUTH_COMMIT_DROP_LOGIN_STARTED;
+  if (generation_at_start != generation_now)
+    return PSN_AUTH_COMMIT_DROP_GRANT_CHANGED;
+  return PSN_AUTH_COMMIT_APPLY;
+}

@@ -53,6 +53,7 @@
 #include "host_quit.h"
 #include "psn_auth.h"
 #include "psn_remote.h"
+#include "psn_startup_refresh.h"
 #include "ui/ui_graphics.h"
 #include "ui/ui_animation.h"
 #include "ui/ui_asset_preload.h"
@@ -471,27 +472,16 @@ static void step_psn_id(void) {
 }
 
 /**
- * step_psn_refresh() - The startup PSN host refresh and the config persist that follows it.
+ * step_psn_refresh() - Start the startup PSN token refresh and host-list fetch in the background.
  *
- * psn_remote_refresh_hosts() blocks, so the splash cannot draw while it runs (ticket #353 moves
- * it off the main thread). It is a no-op when PSN internet mode is disabled.
+ * Returns at once so the splash keeps drawing; draw_ui() commits the result once it is ready
+ * (ticket #366). A no-op when PSN internet mode is disabled.
  */
 static void step_psn_refresh(void) {
   time_t startup_t = time(NULL);
   if (startup_t != (time_t)-1) {
     s_startup_unix = (uint64_t)startup_t;
-    /* psn_remote_refresh_hosts() refreshes the OAuth token, fetches the PSN
-     * device list, and persists the config. It is a no-op when PSN internet
-     * mode is disabled. Doing this at startup means the user does not have to
-     * navigate to Profile -> Connection card and press X to see their PS5/PS4. */
-    psn_remote_refresh_hosts();
-    /* Drain any token refresh that happened but didn't persist (e.g. host
-     * fetch failed after a successful token refresh). */
-    if (context.config_persist_pending) {
-      if (!config_serialize(&context.config))
-        CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token at startup");
-      context.config_persist_pending = false;
-    }
+    psn_startup_refresh_begin();
   } else {
     CHIAKI_LOGW(&(context.log), "PSN auth: skipping startup host refresh — system clock not set");
   }
@@ -702,6 +692,10 @@ void draw_ui() {
         CHIAKI_LOGW(&(context.log), "PSN auth: failed to persist refreshed token");
       context.config_persist_pending = false;
     }
+
+    /* Commit the startup PSN refresh once its worker has finished (ticket #366). */
+    if (!context.stream.is_streaming)
+      psn_startup_refresh_poll();
 
     /* Proactively refresh PSN token once per minute while idle so it never
      * expires unnoticed between user actions. Skip during streaming to avoid
