@@ -54,6 +54,9 @@ static VitaChiakiHost *s_host = NULL;
 static VitaChiakiHost *s_probed = NULL;
 /** The result the open popup shows (a paired console goes to Home, a failure offers Try again). */
 static HostRegistrationResult s_result = HOST_REGISTRATION_FAILED;
+/** True when this screen re-pairs a console that is already paired (Triangle > Re-pair); decided
+ * once in ui_pin_on_enter(). Leaving without a pairing then focuses that console on Home. */
+static bool s_repair = false;
 /** The console Home focuses after a pairing; NULL focuses the Pair new device item. */
 static const VitaChiakiHost *s_focus_after_pair = NULL;
 
@@ -99,6 +102,17 @@ static const VitaChiakiHost *finish_probed_pair(bool *complete) {
   s_probed = NULL;
   const VitaChiakiHost *listed = discovery_probe_save_manual_host(host, complete);
   return listed ? listed : (*complete ? host : NULL);
+}
+
+/**
+ * focus_home_after_leaving() - Set Home's focus for leaving without a new pairing: the console
+ * itself for a re-pair (it is still paired and listed), else the Pair new device item.
+ */
+static void focus_home_after_leaving(void) {
+  if (s_repair)
+    ui_home_focus_console(s_host);
+  else
+    ui_home_focus_pair_item();
 }
 
 /** Width function for ui_ellipsize_to_fit(): the console line's face. */
@@ -147,6 +161,7 @@ void ui_pin_on_enter(void) {
     LOGE("PIN screen opened with no active console");
     return;
   }
+  s_repair = !s_probed && (s_host->type & REGISTERED);
   build_texts();
   reset_entry();
 }
@@ -159,15 +174,21 @@ void ui_pin_on_enter(void) {
  * show_result() - Handle a finished attempt: no popup for a cancel, else open the result popup.
  * @name: The console's name as the attempt saw it.
  *
- * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home with the Pair new device item focused),
+ * @return UI_SCREEN_TYPE_MAIN for a cancel (back to Home, see focus_home_after_leaving()),
  *         otherwise the PIN screen
  */
 static UIScreenType show_result(HostRegistrationResult result, const char *name) {
   char body[RESULT_BODY_MAX];
   UiResultCopy copy;
   bool saved_everything = true;
-  if (result == HOST_REGISTRATION_PAIRED)
-    s_focus_after_pair = s_probed ? finish_probed_pair(&saved_everything) : s_host;
+  if (result == HOST_REGISTRATION_PAIRED) {
+    if (s_probed) {
+      s_focus_after_pair = finish_probed_pair(&saved_everything);
+    } else {
+      discovery_probe_sync_credentials(s_host, &saved_everything);
+      s_focus_after_pair = s_host;
+    }
+  }
   const bool copied = saved_everything
                           ? ui_result_copy_pairing(result, name, body, sizeof(body), &copy)
                           : ui_result_copy_paired_partial(name, body, sizeof(body), &copy);
@@ -175,7 +196,7 @@ static UIScreenType show_result(HostRegistrationResult result, const char *name)
     if (result != HOST_REGISTRATION_CANCELLED)
       LOGE("PIN screen: pairing result %s has no popup", host_registration_result_name(result));
     release_probed_host();
-    ui_home_focus_pair_item();
+    focus_home_after_leaving();
     return UI_SCREEN_TYPE_MAIN;
   }
   s_result = result;
@@ -238,7 +259,7 @@ static UIScreenType update_field(const UiInput *in) {
         return UI_SCREEN_TYPE_REGISTER_HOST;
       }
       release_probed_host();
-      ui_home_focus_pair_item();
+      focus_home_after_leaving();
       return UI_SCREEN_TYPE_MAIN;
     default:
       return UI_SCREEN_TYPE_REGISTER_HOST;
@@ -247,7 +268,7 @@ static UIScreenType update_field(const UiInput *in) {
 
 /**
  * update_result_popup() - Drive the result popup. Paired goes back to Home with the console
- * focused; Close goes back to Home with the Pair new device item focused; Try again opens this
+ * focused; Close goes back to Home (see focus_home_after_leaving()); Try again opens this
  * screen again, empty.
  *
  * @return the screen to show next
@@ -267,7 +288,7 @@ static UIScreenType update_result_popup(const UiInput *in) {
   }
   if (choice == 0) {
     release_probed_host();
-    ui_home_focus_pair_item();
+    focus_home_after_leaving();
     return UI_SCREEN_TYPE_MAIN;
   }
   reset_entry();

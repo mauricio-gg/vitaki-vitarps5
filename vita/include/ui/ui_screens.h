@@ -45,7 +45,8 @@ UIScreenType ui_screens_pair_host(VitaChiakiHost *host);
 UIScreenType ui_screens_pair_probed_host(VitaChiakiHost *host);
 
 /**
- * Unregister a paired console and send the user to the PIN screen to pair it again.
+ * Make a paired console the active host and send the user to the PIN screen to pair it again.
+ * The old pairing stays untouched until a new pairing succeeds.
  * @param host Console to re-pair (NULL or unpaired is ignored)
  * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
  */
