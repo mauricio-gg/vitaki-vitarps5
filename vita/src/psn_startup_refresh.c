@@ -163,6 +163,8 @@ void psn_startup_refresh_begin(void) {
     case PSN_AUTH_REFRESH_PREP_VALID:
       s_job.access_token = strdup(psn_auth_access_token() ? psn_auth_access_token() : "");
       if (!s_job.access_token) {
+        /* No psn_auth_refresh_background_finished() here: the in-flight flag is set only by a
+         * prepare that returned READY. Any new early return after that point must clear it. */
         LOGE("PSN startup refresh: out of memory copying the access token");
         return;
       }

@@ -5,8 +5,11 @@
  * Hand-off: the worker owns a slot until it sets the slot's `ready` flag under the mutex and
  * broadcasts; the main thread looks at a slot's pixels only after it has seen `ready` under the
  * same mutex, so it never reads a half-written slot. Nothing else is shared: the use counters and
- * log flags belong to the main thread, and the worker only writes (and logs nothing; the message
- * log is not thread safe, so failures are logged by the main thread when it meets them).
+ * log flags belong to the main thread, and the worker only writes. Logging from a worker is safe
+ * (LOGx() goes through the mutex-guarded vita_log_submit_line(); the on-screen message ring is
+ * unlocked but bounded, so a race can at worst garble a line) and other threads do it. This worker
+ * logs nothing by design: failures are recorded in the slot and the main thread logs each one
+ * once, with its path, when it meets it.
  */
 
 #include "ui/ui_asset_preload.h"
@@ -154,7 +157,7 @@ static struct {
 } s_pre;
 
 /* ============================================================================
- * Worker: read a file, decode it (no vita2d, no logging)
+ * Worker: read a file, decode it (no vita2d; failures go in the slot, the main thread logs them)
  * ============================================================================ */
 
 /** Reads a whole file in one read. Returns the malloc'd bytes and sets @size, or NULL with @err. */
@@ -560,12 +563,15 @@ void ui_asset_preload_finish(void) {
 
 vita2d_texture *ui_load_png_linear(const char *path) {
   UiAssetPixels px;
-  if (ui_asset_preload_wait(path, &px)) {
-    vita2d_texture *tex = px.rgba ? ui_asset_preload_upload(&px, path) : NULL;
+  const bool listed = ui_asset_preload_wait(path, &px);
+  if (px.rgba) {
+    vita2d_texture *tex = ui_asset_preload_upload(&px, path);
     ui_asset_pixels_free(&px);
     return tex;
   }
-  if (s_pre.active)
+  /* A listed path whose slot failed (already logged) gets one direct try, so a transient read
+   * failure does not leave a missing texture. */
+  if (s_pre.active && !listed)
     LOGW("UI/PRELOAD '%s' not preloaded, loading it directly", path);
   vita2d_texture *tex = vita2d_load_PNG_file(path);
   if (!tex) {
