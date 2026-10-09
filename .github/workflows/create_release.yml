@@ -88,6 +88,8 @@ jobs:
             "${{ github.sha }}" "$BUILD_DATE" "${{ github.repository }}" "$RUNNER_TEMP/release_notes.md"
 
       - name: Build VPK using Docker (prod env)
+        env:
+          VITARPS5_RELEASE_VERSION: ${{ steps.new_version.outputs.NEW_VERSION }}
         run: |
           chmod +x tools/build.sh
           ./tools/build.sh --env prod

@@ -38,8 +38,39 @@ increment_version() {
     log_info "Version incremented to v${VERSION_PHASE}.${VERSION_ITERATION}"
 }
 
+# Release builds: the release workflow exports VITARPS5_RELEASE_VERSION
+# (MAJOR.MINOR.PATCH, digits only, e.g. 4.0.0). Unset = a test/local build that
+# carries the 0.1.N build counter. APP_VER is the Vita's NN.NN param.sfo
+# field, so it can only hold major and minor; the patch lives in version.h and
+# the VPK filename only. Test builds keep APP_VER 00.06.
+APP_VER_DEFAULT="00.06"
+APP_VER="$APP_VER_DEFAULT"
+
+# Validates VITARPS5_RELEASE_VERSION when set and derives APP_VER from it.
+# Exits non-zero with a clear message if the value is malformed or major/minor
+# do not fit two digits. No-op when the variable is unset.
+resolve_release_version() {
+    [ -n "${VITARPS5_RELEASE_VERSION:-}" ] || return 0
+    if ! [[ "$VITARPS5_RELEASE_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        log_error "VITARPS5_RELEASE_VERSION='${VITARPS5_RELEASE_VERSION}' is malformed; expected MAJOR.MINOR.PATCH, digits only (e.g. 4.0.0)"
+        exit 1
+    fi
+    RELEASE_MAJOR=$((10#${BASH_REMATCH[1]}))
+    RELEASE_MINOR=$((10#${BASH_REMATCH[2]}))
+    RELEASE_PATCH=$((10#${BASH_REMATCH[3]}))
+    if [ "$RELEASE_MAJOR" -gt 99 ] || [ "$RELEASE_MINOR" -gt 99 ]; then
+        log_error "VITARPS5_RELEASE_VERSION='${VITARPS5_RELEASE_VERSION}': major and minor must be 0-99 to fit the two-digit APP_VER"
+        exit 1
+    fi
+    APP_VER=$(printf '%02d.%02d' "$RELEASE_MAJOR" "$RELEASE_MINOR")
+}
+
 get_version_string() {
-    echo "VitaRPS5v${VERSION_PHASE}.${VERSION_ITERATION}"
+    if [ -n "${VITARPS5_RELEASE_VERSION:-}" ]; then
+        echo "VitaRPS5v${VITARPS5_RELEASE_VERSION}"
+    else
+        echo "VitaRPS5v${VERSION_PHASE}.${VERSION_ITERATION}"
+    fi
 }
 
 # Environment handling -------------------------------------------------------
@@ -309,29 +340,44 @@ generate_version_header() {
 
     # Create version header file in include directory
     mkdir -p vita/include
+    local v_major=0 v_minor=1 v_patch="$VERSION_ITERATION" v_string="0.1.${VERSION_ITERATION}"
+    if [ -n "${VITARPS5_RELEASE_VERSION:-}" ]; then
+        v_major="$RELEASE_MAJOR"
+        v_minor="$RELEASE_MINOR"
+        v_patch="$RELEASE_PATCH"
+        v_string="$VITARPS5_RELEASE_VERSION"
+    fi
     cat > vita/include/version.h << EOF
 #ifndef VITAKI_FORK_VERSION_H
 #define VITAKI_FORK_VERSION_H
 
 // Auto-generated version information - DO NOT EDIT MANUALLY
-#define VITAKI_FORK_VERSION_MAJOR 0
-#define VITAKI_FORK_VERSION_MINOR 1
-#define VITAKI_FORK_VERSION_PATCH ${VERSION_ITERATION}
-#define VITAKI_FORK_VERSION_STRING "0.1.${VERSION_ITERATION}"
+#define VITAKI_FORK_VERSION_MAJOR ${v_major}
+#define VITAKI_FORK_VERSION_MINOR ${v_minor}
+#define VITAKI_FORK_VERSION_PATCH ${v_patch}
+#define VITAKI_FORK_VERSION_STRING "${v_string}"
 
 #endif  // VITAKI_FORK_VERSION_H
 EOF
 
-    log_info "Version header generated: v0.1.${VERSION_ITERATION}"
+    log_info "Version header generated: v${v_string}"
 }
 
 # Build VPK using Docker
 build_vpk() {
     local build_type="${1:-release}"
     local cmake_logging_flags="${CMAKE_EXTRA_FLAGS}"
-    
-    # Increment version BEFORE build so it shows correctly in logs
-    increment_version
+
+    # Always emit an explicit VITA_VERSION (test builds get 00.06): without it
+    # a stale CMakeCache.txt from a release build would leak its APP_VER into
+    # a later test build; same reasoning as the GH #221 flag above.
+    cmake_logging_flags+=" -DVITA_VERSION=${APP_VER}"
+
+    # Release builds carry the release version as-is; only test/local builds
+    # bump the build counter (and so rewrite this script).
+    if [ -z "${VITARPS5_RELEASE_VERSION:-}" ]; then
+        increment_version
+    fi
     
     log_info "Building VitaRPS5 ($build_type mode)..."
     
@@ -614,6 +660,10 @@ show_help() {
     echo "  --env-file <path>   Load a specific env file (overrides --env)"
     echo "  --help              Show this help"
     echo ""
+    echo "Environment:"
+    echo "  VITARPS5_RELEASE_VERSION  MAJOR.MINOR.PATCH (e.g. 4.0.0): build a release version"
+    echo "                            (no build-counter bump; APP_VER = major.minor)"
+    echo ""
     echo "Examples:"
     echo "  ./build.sh                    # Build release VPK"
     echo "  ./build.sh debug              # Build with debug symbols"
@@ -663,6 +713,9 @@ main() {
         command="${positional[0]}"
         positional=("${positional[@]:1}")
     fi
+
+    # Fail on a bad release version before Docker or any build work starts.
+    resolve_release_version
 
     load_env_profile "$env_profile" "$env_file"
     configure_logging_cmake_args
