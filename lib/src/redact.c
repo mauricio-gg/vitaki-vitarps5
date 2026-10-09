@@ -12,8 +12,10 @@
 /** Longest header name looked at; anything longer is not one of ours. */
 #define REDACT_HEADER_NAME_MAX 64
 
+/** JSON keys and form or query parameter names whose value is a credential (case-insensitive). */
 static const char *const redact_keys[] = {
-	"access_token", "refresh_token", "id_token", "code", "client_secret"
+	"access_token", "refresh_token", "id_token", "code", "client_secret", "npsso",
+	"accessToken", "refreshToken", "idToken", "clientSecret", "authCode", "skey"
 };
 #define REDACT_KEY_COUNT (sizeof(redact_keys) / sizeof(redact_keys[0]))
 
@@ -49,7 +51,7 @@ static bool name_equals_ci(const char *s, size_t n, const char *lit)
 	if(n != ln)
 		return false;
 	for(size_t i = 0; i < n; i++)
-		if(tolower((unsigned char)s[i]) != lit[i])
+		if(tolower((unsigned char)s[i]) != tolower((unsigned char)lit[i]))
 			return false;
 	return true;
 }
@@ -60,11 +62,31 @@ static bool name_ends_with_ci(const char *s, size_t n, const char *lit)
 	return n >= ln && name_equals_ci(s + (n - ln), ln, lit);
 }
 
-/** Is name the name of a header whose value is a credential? */
-static bool is_secret_header(const char *name, size_t n, bool *has_scheme)
+/** How the value of a secret header is laid out. */
+typedef enum
 {
-	*has_scheme = name_equals_ci(name, n, "authorization");
-	return *has_scheme || name_equals_ci(name, n, "rp-key") || name_ends_with_ci(name, n, "registkey");
+	HEADER_VALUE_PLAIN, // the whole value is the credential
+	HEADER_VALUE_SCHEME, // "<scheme> <credential>", as in Authorization: Bearer ...
+	HEADER_VALUE_COOKIE // "<name>=<credential>..."
+} HeaderValueKind;
+
+/** Is name the name of a header whose value is a credential? */
+static bool is_secret_header(const char *name, size_t n, HeaderValueKind *kind)
+{
+	*kind = HEADER_VALUE_PLAIN;
+	if(name_equals_ci(name, n, "authorization"))
+	{
+		*kind = HEADER_VALUE_SCHEME;
+		return true;
+	}
+	if(name_equals_ci(name, n, "cookie") || name_equals_ci(name, n, "set-cookie"))
+	{
+		*kind = HEADER_VALUE_COOKIE;
+		return true;
+	}
+	return name_equals_ci(name, n, "rp-key") || name_equals_ci(name, n, "rp-auth") ||
+		name_equals_ci(name, n, "user-credential") || name_ends_with_ci(name, n, "registkey") ||
+		name_ends_with_ci(name, n, "-token");
 }
 
 /**
@@ -80,8 +102,8 @@ static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_le
 		p++;
 	if(p >= len || in[p] != ':')
 		return false;
-	bool has_scheme;
-	if(!is_secret_header(in + i, p - i, &has_scheme))
+	HeaderValueKind kind;
+	if(!is_secret_header(in + i, p - i, &kind))
 		return false;
 	p++;
 	while(p < len && (in[p] == ' ' || in[p] == '\t'))
@@ -89,7 +111,15 @@ static bool match_header(const char *in, size_t len, size_t i, size_t *prefix_le
 	size_t end = p;
 	while(end < len && in[end] != '\r' && in[end] != '\n')
 		end++;
-	if(has_scheme)
+	if(kind == HEADER_VALUE_COOKIE)
+	{
+		size_t s = p;
+		while(s < end && in[s] != '=')
+			s++;
+		if(s < end)
+			p = s + 1;
+	}
+	else if(kind == HEADER_VALUE_SCHEME)
 	{
 		size_t s = p;
 		while(s < end && in[s] != ' ' && in[s] != '\t')
@@ -119,7 +149,7 @@ static bool match_json(const char *in, size_t len, size_t i, size_t *prefix_len,
 		return false;
 	bool is_key = false;
 	for(size_t j = 0; j < REDACT_KEY_COUNT; j++)
-		if(strlen(redact_keys[j]) == k - i - 1 && !memcmp(in + i + 1, redact_keys[j], k - i - 1))
+		if(name_equals_ci(in + i + 1, k - i - 1, redact_keys[j]))
 			is_key = true;
 	if(!is_key)
 		return false;
@@ -162,7 +192,7 @@ static bool match_param(const char *in, size_t len, size_t i, size_t *prefix_len
 	for(size_t j = 0; j < REDACT_KEY_COUNT; j++)
 	{
 		size_t kl = strlen(redact_keys[j]);
-		if(i + kl >= len || memcmp(in + i, redact_keys[j], kl) || in[i + kl] != '=')
+		if(i + kl >= len || !name_equals_ci(in + i, kl, redact_keys[j]) || in[i + kl] != '=')
 			continue;
 		size_t p = i + kl + 1;
 		size_t end = p;

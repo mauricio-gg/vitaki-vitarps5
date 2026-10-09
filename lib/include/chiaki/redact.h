@@ -17,11 +17,13 @@ extern "C" {
  * A credential keeps its first 4 characters; the rest is replaced by "***". Values of 4
  * characters or fewer are left alone. Everything that is not a credential is copied byte for
  * byte. Redacted:
- *  - header lines Authorization (the scheme word stays, e.g. "Bearer abcd***"), RP-Key and any
- *    header whose name ends in RegistKey (names are case-insensitive)
- *  - JSON string values of access_token, refresh_token, id_token, code and client_secret
- *  - form or query parameters access_token=, refresh_token=, id_token=, code= and client_secret=
- *    (the name must start at a parameter boundary, so error_code= and response_type=code stay)
+ *  - header lines Authorization (the scheme word stays, e.g. "Bearer abcd***"), RP-Key, RP-Auth,
+ *    user-credential, Cookie and Set-Cookie (the cookie name stays), and any header whose name
+ *    ends in RegistKey or -Token (names are case-insensitive)
+ *  - JSON string values and form or query parameters named access_token, refresh_token, id_token,
+ *    code, client_secret, npsso, accessToken, refreshToken, idToken, clientSecret, authCode or skey
+ *    (names are case-insensitive; JSON needs a string value, and a parameter name must start at
+ *    a parameter boundary, so error_code= and response_type=code stay)
  *
  * Uses no heap, so it is safe inside curl callbacks. If the buffer is too small the output is
  * cut; a cut never shows more of a credential than the first 4 characters.

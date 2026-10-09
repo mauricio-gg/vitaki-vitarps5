@@ -1219,7 +1219,7 @@ static ChiakiErrorCode session_thread_request_session(ChiakiSession *session, Ch
 	}
 
 	CHIAKI_LOGI(session->log, "Sending session request");
-	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (uint8_t *)send_buf, request_len);
+	chiaki_log_hexdump_redacted(session->log, CHIAKI_LOG_VERBOSE, (uint8_t *)send_buf, request_len);
 	if(!session->rudp)
 	{
 		int sent = send(session_sock, send_buf, (size_t)request_len, 0);
@@ -1271,7 +1271,7 @@ static ChiakiErrorCode session_thread_request_session(ChiakiSession *session, Ch
 
 	ChiakiHttpResponse http_response;
 	CHIAKI_LOGV(session->log, "Session Response Header:");
-	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)buf, header_size);
+	chiaki_log_hexdump_redacted(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)buf, header_size);
 	err = chiaki_http_response_parse(&http_response, buf, header_size);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{

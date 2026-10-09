@@ -509,6 +509,24 @@ static ChiakiErrorCode check_candidates(
     Session *session, Candidate *local_candidates, Candidate *candidates_received, size_t num_candidates, chiaki_socket_t *out,
     Candidate *out_candidate);
 
+/** Size of the stack buffer that holds a redacted copy of a session message JSON for logging. */
+#define SESSION_MESSAGE_LOG_REDACT_BUF_SIZE 4096
+
+/**
+ * Log a session message JSON with its credentials (the stream key "skey") shortened.
+ *
+ * @param log Log to write to
+ * @param level Level of the log line
+ * @param json Message to dump
+ */
+static void log_session_message_redacted(ChiakiLog *log, ChiakiLogLevel level, json_object *json)
+{
+    const char *json_str = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
+    char redacted[SESSION_MESSAGE_LOG_REDACT_BUF_SIZE];
+    chiaki_redact_secrets(json_str, strlen(json_str), redacted, sizeof(redacted));
+    chiaki_log(log, level, "%s", redacted);
+}
+
 static json_object* session_message_get_payload(ChiakiLog *log, json_object *session_message);
 // static SessionMessageAction get_session_message_action(json_object *payload);
 static ChiakiErrorCode wait_for_notification(
@@ -5355,14 +5373,14 @@ static json_object* session_message_get_payload(ChiakiLog *log, json_object *ses
     if (json_pointer_get(session_message, "/body/data/sessionMessage/payload", &payload_json) < 0)
     {
         CHIAKI_LOGE(log, "session_message_get_payload: Failed to get payload");
-        CHIAKI_LOGV(log, json_object_to_json_string_ext(session_message, JSON_C_TO_STRING_PRETTY));
+        log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, session_message);
         return NULL;
     }
 
     if (!json_object_is_type(payload_json, json_type_string))
     {
         CHIAKI_LOGE(log, "session_message_get_payload: Payload is not a string");
-        CHIAKI_LOGV(log, json_object_to_json_string_ext(session_message, JSON_C_TO_STRING_PRETTY));
+        log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, session_message);
         return NULL;
     }
 
@@ -5786,7 +5804,7 @@ static ChiakiErrorCode session_message_parse(
         err = chiaki_base64_decode(skey_str, strlen(skey_str), msg->conn_request->skey, &skey_len);
         if (err != CHIAKI_ERR_SUCCESS)
         {
-            CHIAKI_LOGE(log, "session_message_parse: Failed to decode skey: '%s'", skey_str);
+            CHIAKI_LOGE(log, "session_message_parse: Failed to decode skey (length %zu)", strlen(skey_str));
             goto cleanup;
         }
 
@@ -5913,7 +5931,7 @@ static ChiakiErrorCode session_message_parse(
 
 invalid_schema:
     CHIAKI_LOGE(log, "session_message_parse: Unexpected JSON schema for holepunch session message.");
-    CHIAKI_LOGV(log, json_object_to_json_string_ext(message_json, JSON_C_TO_STRING_PRETTY));
+    log_session_message_redacted(log, CHIAKI_LOG_VERBOSE, message_json);
     err = CHIAKI_ERR_UNKNOWN;
 
 cleanup:
@@ -6365,11 +6383,11 @@ static void print_session_request(ChiakiLog *log, ConnectionRequest *req)
     ChiakiErrorCode err = chiaki_base64_encode(req->skey, sizeof(req->skey), skey, sizeof(skey));
     if(err != CHIAKI_ERR_SUCCESS)
     {
-        char hex[33];
-        bytes_to_hex(req->skey, sizeof(req->skey), hex, sizeof(hex));
-        CHIAKI_LOGE(log, "Error with base64 encoding of string %s", hex);
+        CHIAKI_LOGE(log, "Error with base64 encoding of skey");
+        skey[0] = '\0';
     }
-    CHIAKI_LOGV(log, "skey: %s", skey);
+    // The stream key is a credential: keep only its first 4 characters.
+    CHIAKI_LOGV(log, "skey: %.4s***", skey);
     CHIAKI_LOGV(log, "nat type %u", req->nat_type);
     uint8_t zero_bytes0[sizeof(req->default_route_mac_addr)] = {0};
     if(memcmp(zero_bytes0, req->default_route_mac_addr, sizeof(req->default_route_mac_addr)) != 0)

@@ -1267,7 +1267,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 		goto error;
 
 	CHIAKI_LOGI(session->log, "Sending ctrl request");
-	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)send_buf, (size_t)request_len);
+	chiaki_log_hexdump_redacted(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)send_buf, (size_t)request_len);
 
 	if(session->rudp)
 	{
@@ -1328,7 +1328,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	}
 
 	CHIAKI_LOGI(session->log, "Ctrl received http header as response");
-	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)buf, header_size);
+	chiaki_log_hexdump_redacted(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)buf, header_size);
 
 	ChiakiHttpResponse http_response;
 	err = chiaki_http_response_parse(&http_response, buf, header_size);

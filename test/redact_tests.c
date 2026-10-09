@@ -7,13 +7,14 @@
 // native run is the real check.
 //
 // Build & run:
-//   cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c -o /tmp/redact_tests && \
-//      /tmp/redact_tests
+//   cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c lib/src/log.c \
+//      -o /tmp/redact_tests && /tmp/redact_tests
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <chiaki/log.h>
 #include <chiaki/redact.h>
 
 #define OUT_SIZE 2048
@@ -121,6 +122,106 @@ static void test_small_buffer_never_leaks(void)
 	assert(chiaki_redact_secrets(in, strlen(in), out, 0) == 0);
 }
 
+// Session-init and ctrl requests carry these; RP-Registkey is the spelling the session uses.
+static void test_session_request_headers(void)
+{
+	const char *in = "GET /sce/rp/session HTTP/1.1\r\nHost: 192.0.2.1:9295\r\n"
+		"RP-Registkey: 0011223344556677\r\nRP-Auth: fakeauth1234567\r\nRP-Version: 10.0\r\n\r\n";
+	const char *expected = "GET /sce/rp/session HTTP/1.1\r\nHost: 192.0.2.1:9295\r\n"
+		"RP-Registkey: 0011***\r\nRP-Auth: fake***\r\nRP-Version: 10.0\r\n\r\n";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+static void test_cookie_and_token_headers(void)
+{
+	const char *in = "Cookie: sid=abcd1234fake; other=zz\r\nSet-Cookie: npsso=wxyz5678fake; Path=/\r\n"
+		"X-Foo-Token: qrst9012fake\r\nX-Foo-Tokens: visible\r\n";
+	const char *expected = "Cookie: sid=abcd***\r\nSet-Cookie: npsso=wxyz***\r\n"
+		"X-Foo-Token: qrst***\r\nX-Foo-Tokens: visible\r\n";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+// Names are case-insensitive and camelCase spellings count.
+static void test_camel_case_and_case_insensitive_keys(void)
+{
+	const char *in = "{\"accessToken\":\"abcd1234fake\",\"ClientSecret\":\"wxyz5678fake\","
+		"\"npsso\":\"qrst9012fake\",\"authCode\":\"uvwx3456fake\"} idToken=hijk7890fake&Code=lmno1234fake";
+	const char *expected = "{\"accessToken\":\"abcd***\",\"ClientSecret\":\"wxyz***\","
+		"\"npsso\":\"qrst***\",\"authCode\":\"uvwx***\"} idToken=hijk***&Code=lmno***";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+// The authorization code comes back in the redirect URL of the sign-in flow.
+static void test_query_string_in_logged_line(void)
+{
+	const char *in = "Redirected to https://example.invalid/cb?code=abcd1234XYZ&state=keepme done";
+	const char *expected = "Redirected to https://example.invalid/cb?code=abcd***&state=keepme done";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+// The stream key in a connection-request JSON and the wake credential in a discovery packet.
+static void test_stream_key_and_wake_credential(void)
+{
+	const char *in = "{\"sid\":7,\"skey\":\"QUJDREVGRw==fake\"}\nuser-credential:1234567890123\nclient-type:vr\n";
+	const char *expected = "{\"sid\":7,\"skey\":\"QUJD***\"}\nuser-credential:1234***\nclient-type:vr\n";
+	char out[OUT_SIZE];
+	redact(in, out, sizeof(out));
+	assert(!strcmp(out, expected));
+}
+
+typedef struct
+{
+	char text[16384];
+} LogCapture;
+
+static void capture_cb(ChiakiLogLevel level, const char *msg, void *user)
+{
+	(void)level;
+	LogCapture *cap = user;
+	strncat(cap->text, msg, sizeof(cap->text) - strlen(cap->text) - 2);
+	strcat(cap->text, "\n");
+}
+
+// The hexdump of an HTTP request must not hold the credential, in the hex or the ASCII column.
+static void test_hexdump_redacted_hides_secret(void)
+{
+	const char *in = "RP-Auth: fakeauth1234567\r\nHost: example.invalid\r\n";
+	static LogCapture cap;
+	ChiakiLog log;
+	cap.text[0] = '\0';
+	chiaki_log_init(&log, CHIAKI_LOG_ALL, capture_cb, &cap);
+	chiaki_log_hexdump_redacted(&log, CHIAKI_LOG_VERBOSE, (const uint8_t *)in, strlen(in));
+	assert(strstr(cap.text, "fake"));            // the 4 kept characters are visible
+	assert(!strstr(cap.text, "fakeauth"));       // ASCII column
+	assert(!strstr(cap.text, "61 75 74 68"));    // hex of "auth", the 5th to 8th secret chars
+	assert(strstr(cap.text, "example"));         // the rest of the request is still dumped
+}
+
+// A long buffer is cut, says so, and a secret straddling the cut still shows only 4 characters.
+static void test_hexdump_redacted_cut(void)
+{
+	static char in[3000];
+	static LogCapture cap;
+	ChiakiLog log;
+	memset(in, 'a', sizeof(in));
+	in[1009] = '\n';
+	memcpy(in + 1010, "RP-Key: fakekey123456789", 24);
+	cap.text[0] = '\0';
+	chiaki_log_init(&log, CHIAKI_LOG_ALL, capture_cb, &cap);
+	chiaki_log_hexdump_redacted(&log, CHIAKI_LOG_VERBOSE, (const uint8_t *)in, sizeof(in));
+	assert(strstr(cap.text, "cut at 1024 of 3000 bytes"));
+	assert(strstr(cap.text, "fake"));
+	assert(!strstr(cap.text, "fakekey"));
+}
+
 int main(void)
 {
 	test_bearer_header_block();
@@ -131,6 +232,13 @@ int main(void)
 	test_no_secrets_is_identical();
 	test_input_without_nul();
 	test_small_buffer_never_leaks();
+	test_session_request_headers();
+	test_cookie_and_token_headers();
+	test_camel_case_and_case_insensitive_keys();
+	test_query_string_in_logged_line();
+	test_stream_key_and_wake_credential();
+	test_hexdump_redacted_hides_secret();
+	test_hexdump_redacted_cut();
 	printf("redact_tests: all passed\n");
 	return 0;
 }

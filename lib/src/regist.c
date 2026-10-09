@@ -289,7 +289,7 @@ static void *regist_thread_func(void *user)
 	}
 
 	CHIAKI_LOGV(regist->log, "Regist formatted request header:");
-	chiaki_log_hexdump(regist->log, CHIAKI_LOG_VERBOSE, (uint8_t *)request_header, request_header_size);
+	chiaki_log_hexdump_redacted(regist->log, CHIAKI_LOG_VERBOSE, (uint8_t *)request_header, request_header_size);
 
 	chiaki_socket_t sock = CHIAKI_INVALID_SOCKET;
 	uint16_t remote_counter = 0;
@@ -688,7 +688,7 @@ static ChiakiErrorCode regist_recv_response(ChiakiRegist *regist, ChiakiRegister
 #endif
 
 	CHIAKI_LOGV(regist->log, "Regist response HTTP header:");
-	chiaki_log_hexdump(regist->log, CHIAKI_LOG_VERBOSE, buf, header_size);
+	chiaki_log_hexdump_redacted(regist->log, CHIAKI_LOG_VERBOSE, buf, header_size);
 
 	ChiakiHttpResponse http_response;
 	err = chiaki_http_response_parse(&http_response, (char *)buf, header_size);
