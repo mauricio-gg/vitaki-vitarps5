@@ -84,7 +84,7 @@
 #define UI_BG_HORIZON RGBA8(160, 210, 255, UI_ALPHA_PCT(28))
 
 /* ============================================================================
- * Type (SPEC 1.2). Five faces from two loaded weights; sizes are the atlas sizes.
+ * Type (SPEC 1.2). Six faces from two loaded weights; sizes are the atlas sizes.
  * ============================================================================ */
 
 #define UI_WEIGHT_LIGHT 300
@@ -105,14 +105,19 @@
 #define UI_T40_SIZE 40
 #define UI_T40_LINE 48
 #define UI_T40_WEIGHT UI_WEIGHT_LIGHT
+/* The focused list title (#329): T20 metrics in Regular weight, so the row layout does not move. */
+#define UI_T20_REGULAR_SIZE UI_T20_SIZE
+#define UI_T20_REGULAR_LINE UI_T20_LINE
+#define UI_T20_REGULAR_WEIGHT UI_WEIGHT_REGULAR
 
-/** The five type faces; the order is the index into the table in ui_text.c. */
+/** The six type faces; the order is the index into the table in ui_text.c. */
 typedef enum ui_face_t {
   UI_FACE_T14 = 0,
   UI_FACE_T16,
   UI_FACE_T20,
   UI_FACE_T28,
   UI_FACE_T40,
+  UI_FACE_T20_REGULAR,
   UI_FACE_COUNT
 } UiFace;
 
@@ -332,6 +337,8 @@ typedef enum ui_face_t {
 #define UI_LIST_SLIDE 64
 #define UI_LIST_GLOW 112
 #define UI_LIST_GLOW_PCT 50
+#define UI_LIST_TITLE_GLOW 12 /* Soft glow pad around the focused row's title (#329) */
+#define UI_LIST_TITLE_GLOW_PCT 20
 #define UI_LIST_DIM_PCT 55
 /** Status dot: diameter 12 px, then UI_S1 before the label. */
 #define UI_LIST_DOT_R 6

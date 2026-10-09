@@ -26,14 +26,16 @@ Removed from the app by this design: the wave sidebar (done in #305: `ui_navigat
 
 ## 2. Type
 
-**5 atlas entries (sizes) from 2 loaded weights, Light and Regular; no mono face.** Roboto Medium appears only inside baked glyphs. Pre-rendered into the existing FreeType atlas:
+**6 faces from 2 loaded weights, Light and Regular; no mono face.** Roboto Medium appears only inside baked glyphs. Pre-rendered into the existing FreeType atlas:
 
 | Face | Size | Use |
 |---|---|---|
 | Roboto Light | 20, 28, 40 | rows and buttons (20), titles (28), PIN digits (40) |
-| Roboto Regular | 14, 16 | hint row (14), captions, kv rows and values such as IPs and stats (16) |
+| Roboto Regular | 14, 16, 20 | hint row (14), captions, kv rows and values such as IPs and stats (16), the focused list item name (20, added in #329) |
 
-As built (#308): the app loads Roboto Regular and Roboto Light only. Roboto Mono, its atlas and the Regular 18, 20, 24 and 28 sizes are gone; **Roboto Light is one TTF (170 KB)** with 3 sizes; Regular is baked at 14 and 16. Net: 5 atlas entries from 2 weights, where the app before the redesign had 7 sizes plus the mono atlas: about 1.4 MB for the five faces (this is the figure used in section 5). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+As built (#308): the app loads Roboto Regular and Roboto Light only. Roboto Mono, its atlas and the Regular 18, 20, 24 and 28 sizes are gone; **Roboto Light is one TTF (170 KB)** with 3 sizes; Regular is baked at 14 and 16. Net: 5 faces from 2 weights at that time, where the app before the redesign had 7 sizes plus the mono atlas: an estimate of about 1.4 MB for the five faces (superseded: the atlas cost is two fixed 1 MiB textures, about 2.10 MB, see the next paragraph; section 5 uses that figure). Roboto's digits are equal width, so numbers still line up without OpenType features (FreeType does not apply them). A soft text shadow is the same text drawn once more, offset and dark: titles only if the call budget is tight.
+
+**Cost of Regular 20 (#329).** None in texture memory. The vendored `third-party/libvita2d/vita2d_font.c` gives each font object one fixed 1024 x 1024 `U8_R111` atlas texture (`ATLAS_DEFAULT_W/H`, 1 MiB) and keys glyphs by FreeType glyph index only (`texture_atlas_get(font->atlas, glyph_index, ...)`), not by size; a glyph is rasterised once, at the first size that draws it (2x supersampled), and every other size of that font draws the same bitmap scaled by `size / glyph_size`. So adding a Regular size adds no glyphs and no texture: Regular 20 reuses the glyphs baked for Regular 14 (28 px bitmaps, drawn at 20/28), and the real atlas total is fixed at two 1 MiB textures (Regular and Light), not 1.4 MB. The focused title's Regular 20 is therefore minified about 1.4:1 from the 14 pt bake, a little softer than the 2:1 of the Light faces. The only added per-frame cost is one glow draw behind the focused title.
 
 ## 3. Background
 
@@ -98,11 +100,11 @@ Status messages in the detail panel are laid out once when the selection or mess
 | Item icons (12 x 38 px), room-icon atlas, glow textures, Connecting ring | 0.27 |
 | PS5 and PS4 logos | 0.05 |
 | Controller diagrams at source size (scale down for a saving) | 2.50 |
-| Font atlases (5 entries, Light and Regular) | 1.40 |
+| Font atlases (6 faces, Light and Regular; two fixed 1 MiB atlases, see section 2) | 2.10 |
 | Top-bar logo, misc | 0.10 |
 | Rounded shape textures (3-slice, 9-slice, knob, PIN box) | 0.05 |
 | Frozen half-resolution background copy for popups (480 x 272 RGBA) | 0.52 |
-| **Total** | **5.04, about 5.0** |
+| **Total** | **5.74, about 5.7** |
 
 Well under the 15 MB budget. The wave costs none.
 

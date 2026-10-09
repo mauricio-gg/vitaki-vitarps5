@@ -67,12 +67,12 @@ int ui_text_needs_prewarm(void);
 void ui_text_prewarm(void);
 
 /* ============================================================================
- * SPEC type faces (ui_theme.h: T14, T16 Regular; T20, T28, T40 Light)
+ * SPEC type faces (ui_theme.h: T14, T16, T20_REGULAR Regular; T20, T28, T40 Light)
  * ============================================================================ */
 
 /**
- * ui_text_draw_face() - Draw a string in one of the five SPEC faces.
- * @face:       UI_FACE_T14 .. UI_FACE_T40.
+ * ui_text_draw_face() - Draw a string in one of the SPEC faces.
+ * @face:       a UiFace (UI_FACE_T14 .. UI_FACE_T20_REGULAR).
  * @x:          Left edge of the first glyph, in screen pixels.
  * @baseline_y: Baseline Y coordinate, in screen pixels.
  * @color:      ABGR colour value.
@@ -85,7 +85,7 @@ int ui_text_face_width(UiFace face, const char *s);
 
 /**
  * ui_text_draw_face_centered_v() - Draw a string in @face vertically centred in a box.
- * @face:  UI_FACE_T14 .. UI_FACE_T40.
+ * @face:  a UiFace (UI_FACE_T14 .. UI_FACE_T20_REGULAR).
  * @x:     Left edge X, in screen pixels.
  * @box_y: Top edge of the box, in screen pixels.
  * @box_h: Height of the box, in screen pixels.
