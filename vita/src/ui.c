@@ -319,7 +319,7 @@ static uint64_t s_max_gap_us = 0;
 static const char *s_max_gap_step = "none";
 static uint64_t s_interval_longest_us = 0;
 static const char *s_interval_longest_name = "none";
-/** Process time (relative to the splash start) at which the last loading step finished. */
+/** Process time at which the last loading step finished. */
 static uint64_t s_load_done_us = 0;
 /** Set when loading ends; the main loop then blocks held inputs once (see draw_ui()). */
 static bool s_splash_block_pending = false;
@@ -505,7 +505,7 @@ void init_ui() {
   for (int face = 0; more_faces; face++)
     splash_frame(&more_faces, face);
 
-  s_load_done_us = sceKernelGetProcessTimeWide() - ui_splash_start_us();
+  s_load_done_us = sceKernelGetProcessTimeWide();
   vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
   vita2d_set_vblank_wait(true);
   ui_splash_loading_done();

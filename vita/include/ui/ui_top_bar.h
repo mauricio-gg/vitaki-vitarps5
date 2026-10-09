@@ -11,7 +11,7 @@
 
 /**
  * ui_top_bar_init() - Load the Wi-Fi and battery glyphs. Call once at start-up, after
- * load_textures() (the logo texture) and ui_text_init().
+ * init_ui() has loaded the logo texture (before the splash) and ui_text_init().
  */
 void ui_top_bar_init(void);
 
