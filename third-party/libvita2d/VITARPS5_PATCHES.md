@@ -81,7 +81,7 @@ legal upstream (an empty slot has key 0 and a NULL value, so a lookup of
 **Measured natively (real Roboto fonts, real prewarm charset, upstream
 bin packer, 1024 x 1024 atlas).**
 
-| | Regular (14, 16, 20, 20 again) | Light (20, 28, 40) |
+| | Regular (14, 16, 20, plus the "Ag|" probe at 20, 28, 40) | Light (20, 28, 40) |
 |---|---|---|
 | Glyphs baked, before | 97 | 97 |
 | Glyphs baked, after | 297 | 291 |
@@ -172,8 +172,10 @@ the splash phase, well before the user sees the first frame.
 
 `vita/src/ui/ui_text.c` routes all text draws through
 `vita2d_font_draw_text` (whole-string) rather than per-glyph calls.
-This preserves vita2d's internal kerning pairs, which were lost in the
-`dee6831` per-glyph workaround. This is a VitaRPS5 policy change; it
+Kerning is not applied today: `previous` is never assigned in
+`generic_font_draw_text()` (an upstream quirk), so the kerning branch
+never runs, whole-string or not. Turning it on would change every text
+width, so it is left as it is. This is a VitaRPS5 policy change; it
 does not touch libvita2d.
 
 ---
