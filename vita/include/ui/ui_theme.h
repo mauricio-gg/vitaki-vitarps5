@@ -545,6 +545,8 @@ typedef enum ui_face_t {
 #define UI_HINT_H 48
 #define UI_HINT_GAP UI_S3
 #define UI_HINT_GLYPH_H 20
+/** Height of the Cross, Circle, Square and Triangle symbols: baked at this size, drawn 1:1. */
+#define UI_FACE_GLYPH_H 16
 #define UI_HINT_GLYPH_GAP UI_S1
 /** Gap between the two badges of the combined L R glyph. */
 #define UI_HINT_LR_GAP 4

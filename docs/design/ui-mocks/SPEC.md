@@ -74,7 +74,7 @@ Roboto only, pre-rendered. **6 faces from 2 loaded weights, Light and Regular, n
 | `T16` | 16 / 24 | Regular 400 | **unfocused list item name**, focused item status line, captions, status messages, descriptions, kv rows and values (IDs, IPs, codes), stats values, pills, toast sub | `BODY` 16, `SMALL` 14, Roboto Mono 16 |
 | `T14` | 14 / 20 | Regular 400 | hint row labels, unfocused item status line | `SMALL` 14 (already in today's atlas, no new size) |
 
-Roboto Light is loaded by the app (before the redesign only Regular and Mono were). Decision, now built: load it (one TTF, 170 KB, about 0.3 MB of atlas for 3 sizes); Roboto Mono is dropped, which removes its atlas. List item titles use only existing faces (round 8): focused name T20 (29% smaller than the old T28; Light when built in round 8, Regular 400 since #329), unfocused name T16 Regular (20% smaller than the old T20), status line T14 Regular unfocused and T16 Regular focused. No atlas growth (#329 then added a sixth face, `T20_REGULAR`, Regular 400 at 20 / 24, for the focused list item name only; it adds no atlas memory either, see FEASIBILITY.md section 2). Roboto Medium appears only inside the baked Start/Select glyphs, never as a text face.
+Roboto Light is loaded by the app (before the redesign only Regular and Mono were). Decision, now built: load it (one TTF, 170 KB, about 0.3 MB of atlas for 3 sizes); Roboto Mono is dropped, which removes its atlas. List item titles use only existing faces (round 8): focused name T20 (29% smaller than the old T28; Light when built in round 8, Regular 400 since #329), unfocused name T16 Regular (20% smaller than the old T20), status line T14 Regular unfocused and T16 Regular focused. No atlas growth (#329 then added a sixth face, `T20_REGULAR`, Regular 400 at 20 / 24, for the focused list item name only; it adds no atlas memory either, see FEASIBILITY.md section 2). Roboto Medium appears only inside the baked Start glyph, never as a text face.
 
 ### 1.3 Spacing, layout, lines, motion
 
@@ -86,7 +86,7 @@ Roboto Light is loaded by the app (before the redesign only Regular and Mono wer
 | `TITLE_Y` | 64 (page title row, height 48) |
 | `RULE_Y` | 120 (page divider) |
 | `BODY_Y` | 136 (page content top) |
-| `HINT_Y` | 496 (hint row, height 48; text T14, glyphs 20 px) |
+| `HINT_Y` | 496 (hint row, height 48; text T14, face symbols 16 px, other glyphs 20 px) |
 | `ROW_H` | 48 (setting row, popup list row); 56 for group, options and list-row base; 64 icon box |
 | `TAP_MIN` | 48 (every tap target is at least 48 x 48; chevrons are 48 x 48 boxes around 16 px art) |
 | `LW1`, `LW2` | 1 px (hairlines, borders), 2 px (ring, focus underline, toggle, spinner) |
@@ -188,15 +188,17 @@ Text is drawn from the 6 pre-rendered faces (Light 20, 28, 40; Regular 14, 16, 2
 | | |
 |---|---|
 | Purpose | Persistent bottom row. Replaces the Select toast. |
-| Constants | `UI_HINT_Y` 496, `UI_HINT_H` 48, gap 24, glyph h 20, glyph-label gap 8, `UI_HINT_ALERT_W` 200 (right slot) |
-| Anatomy | x 48..912. Hints are **centred horizontally** (on the screen when no alert pill shows; in the space left of the alert slot when it does), gap 24. Each hint: glyph (20 px high) + 8 + label T14 TEXT_2. Glyphs: the 4 PNG symbols (scaled from 28 to 20) plus baked flat glyphs for D-pad (all, left-right, up-down), L, R, L+R, Start, Select (new assets, 20 px high; L, R, Start, Select are `R_PILL` badges). The row keeps its 48 px height as the tap target; only the visible content shrank (from T16 and 24 px glyphs). |
+| Constants | `UI_HINT_Y` 496, `UI_HINT_H` 48, gap 24, glyph h 20 (L, R, Start, D-pad) and `UI_FACE_GLYPH_H` 16 (Cross, Circle, Square, Triangle), glyph-label gap 8, `UI_HINT_ALERT_W` 200 (right slot) |
+| Anatomy | x 48..912. Hints are **centred horizontally** (on the screen when no alert pill shows; in the space left of the alert slot when it does), gap 24. Each hint: glyph + 8 + label T14 TEXT_2. Glyphs: the 4 PNG symbols (baked 16 px high, drawn 1:1, never scaled) plus baked flat glyphs for D-pad (all, left-right, up-down), L, R, L+R, Start (new assets, 20 px high; L, R, Start are `R_PILL` badges). The row keeps its 48 px height as the tap target; only the visible content shrank (from T16 and 24 px glyphs). |
 | Confirm swap | Hints are declared as `CONFIRM` / `CANCEL`; the row resolves them to Cross or Circle from the setting. |
 | Alert slot and collapse rule | When Network Unstable is active on a menu, the right 200 px (x 712..912) are reserved for the alert pill and never overlap hints. Hints use x 48..696. If they do not fit, items flagged **low priority** are dropped from the right until they do (low priority: L R Category on Home, Clear and Preset on the Controller summary, Clear digit on PIN). Confirm, Cancel and the main action are never dropped. |
 | Popups | While a popup is open the row shows the popup's hints. The Confirm hint carries the label of the **focused button** (for example "Re-pair", "Try again"); Cancel shows the popup's cancel label. A one-button popup shows Confirm only. If the focused button is the cancel button, only Confirm shows. |
 | Visibility | The setting **Show Button Hints** (Settings > Display, toggle, default On) shows or hides the whole row on every menu screen and popup. When Off the row draws nothing but its alert slot (the Network Unstable pill stays); the body does not reflow, the space is left empty. The in-stream exit hint is a separate overlay with its own setting and is unaffected. Every action a hint tap could trigger has another touch path (section 4, touch parity). |
 | States | normal, dim (45%, action not available) |
-| Input | Touch: tapping a hint triggers the same logical action (hit = hint width x 48), except while the Options column is open, where any tap outside the column only closes it. A popup owns the hint row: its hints act on the popup. The Account description under a toast is hidden while a toast shows. |
+| Input | Touch: tapping a hint triggers the same logical action (hit = hint width plus half the gap on each side, so 24 more than the hint, x 48; neighbouring hits meet in the middle of the gap), except while the Options column is open, where any tap outside the column only closes it. A popup owns the hint row: its hints act on the popup. The Account description under a toast is hidden while a toast shows. |
 | Replaces | Select hints toast, per-screen hint strings, `NAV_TOAST_*` |
+
+**As built (#347).** The Cross, Circle, Square and Triangle symbols are 16 px high (were 20 px; 20% smaller), in the hint row, in inline text (Phone Login Assist steps, the armed Log out label) and in the Home Filter row's status line. L, R, Start and the D-pad glyphs stay 20 px. The four PNGs were re-baked at 16 px high (area-averaged from the old 28 to 32 px art) and are drawn 1:1, because a runtime scale of about 0.57 would skip source pixels and give uneven strokes. Glyph width follows the PNG (16, 16, 16 and 18 px). The hint row's tap rects grew by half the gap (12 px) on each side, so the narrower glyphs do not shrink the tap targets; where glyphs and labels draw is unchanged.
 
 ### C07 PageShell (frame is display-only, GroupList is interactive)
 | | |

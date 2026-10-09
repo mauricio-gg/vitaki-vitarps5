@@ -40,8 +40,9 @@ typedef struct ui_hint_layout_t {
   int count;                            ///< hints kept after the collapse rule
   UiHintItem items[UI_HINT_MAX_ITEMS];  ///< the kept hints, in draw order
   int x[UI_HINT_MAX_ITEMS];             ///< left edge of each kept hint
-  UiRect hit[UI_HINT_MAX_ITEMS];        ///< tap rect of each kept hint: its width x UI_HINT_H
-  bool alert;                           ///< the unstable pill occupies the right slot
+  UiRect hit[UI_HINT_MAX_ITEMS];  ///< tap rect of each kept hint: its width plus UI_HINT_GAP (half
+                                  ///< each side) x UI_HINT_H
+  bool alert;                     ///< the unstable pill occupies the right slot
 } UiHintLayout;
 
 /** ui_hint_row_init() - Load the L and R badges. Call once at start-up, after load_textures(). */
