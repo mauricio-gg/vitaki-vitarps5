@@ -84,6 +84,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_connecting_flow.c
     src/ui/ui_connecting.c
     src/ui/ui_group_list.c
+    src/ui/ui_zone_select.c
+    src/ui/ui_zone_grid.c
     src/ui/ui_setting_list.c
     src/ui/ui_scroll_indicator.c
     src/ui/ui_settings_actions.c
