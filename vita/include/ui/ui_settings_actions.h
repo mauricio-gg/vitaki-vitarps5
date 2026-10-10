@@ -10,7 +10,7 @@
 
 #include "config.h"
 
-/** ui_settings_persist_config() - Save the config to disk; logs an error when saving fails. */
+/** ui_settings_persist_config() - Queue a config save; the writer thread logs a failed write. */
 void ui_settings_persist_config(void);
 
 /**

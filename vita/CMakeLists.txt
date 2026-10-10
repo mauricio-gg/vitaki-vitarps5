@@ -10,6 +10,7 @@ endif()
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
+    src/config_writer.c
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c
@@ -41,7 +42,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/psn_auth_rules.c
     src/vita_dns.c
     src/psn_remote.c
-    src/psn_startup_refresh.c
+    src/psn_background_refresh.c
     src/token_crypto.c
     src/controller.c
     src/controller_metadata.c

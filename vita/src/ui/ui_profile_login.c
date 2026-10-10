@@ -14,8 +14,7 @@
 
 #include "context.h"
 #include "psn_auth.h"
-#include "psn_remote.h"
-#include "ui/ui_console_cards.h"
+#include "psn_background_refresh.h"
 #include "ui/ui_qr_panel.h"
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_text.h"
@@ -207,8 +206,7 @@ static void submit_text(const char *text) {
   if (psn_auth_submit_authorization_response(text, (uint64_t)time(NULL))) {
     ui_settings_persist_config();
     ui_toast_show(TOAST_COMPLETE, UI_TOAST_OK);
-    if (psn_remote_refresh_hosts() == 0)
-      ui_cards_update_cache(true);
+    psn_background_refresh_begin(PSN_REFRESH_LOGIN, NULL);
     return;
   }
   const char *error = psn_auth_last_error();

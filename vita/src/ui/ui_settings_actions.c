@@ -10,9 +10,7 @@
 #include "ui/ui_internal.h"
 
 void ui_settings_persist_config(void) {
-  if (!config_serialize(&context.config)) {
-    LOGE("Failed to persist config changes");
-  }
+  config_serialize_async(&context.config);
 }
 
 ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current) {

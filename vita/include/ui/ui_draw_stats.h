@@ -10,6 +10,12 @@
  * every glyph as its own quad, the paper counts one text run as one draw, so
  * logical = raw - glyph quads + text runs.
  *
+ * It also names what blocked the UI thread (ticket #353). Each frame end measures the time since
+ * the previous one (the once-a-second line reports the longest as worst_us), and the blocking
+ * calls that run on the UI thread say how long they took with UI_WORK_START / UI_WORK_NOTE. A frame
+ * longer than UI_SLOW_FRAME_US logs one UI/SLOW_FRAME line naming the longest piece of work noted
+ * during it.
+ *
  * Everything here exists only when VITARPS5_DEBUG_TOOLS is 1. In a release build the macros
  * expand to nothing and the module is not compiled or linked.
  */
@@ -38,6 +44,24 @@ void ui_draw_stats_frame_begin(void);
  */
 void ui_draw_stats_frame_end(const char *screen);
 
+/** Frames that take longer than this (microseconds between two frame ends) get a UI/SLOW_FRAME
+ * line. */
+#define UI_SLOW_FRAME_US 50000ULL
+
+/** Current time in microseconds, for timing a piece of work. */
+uint64_t ui_draw_stats_now_us(void);
+
+/**
+ * Records that the piece of work @p name took @p us microseconds. Ignored unless called on the UI
+ * thread (the thread that ends frames). Keeps the longest note since the last frame end. @p name
+ * must be a string literal.
+ */
+void ui_draw_stats_work_note(const char *name, uint64_t us);
+
+#define UI_WORK_START() ui_draw_stats_now_us()
+#define UI_WORK_NOTE(name, start_us) \
+  ui_draw_stats_work_note((name), ui_draw_stats_now_us() - (start_us))
+
 #define UI_DRAW_STATS_FRAME_BEGIN() ui_draw_stats_frame_begin()
 #define UI_DRAW_STATS_FRAME_END(screen) ui_draw_stats_frame_end(screen)
 
@@ -53,6 +77,8 @@ void ui_draw_stats_frame_end(const char *screen);
 
 #define UI_DRAW_STATS_FRAME_BEGIN() ((void)0)
 #define UI_DRAW_STATS_FRAME_END(screen) ((void)0)
+#define UI_WORK_START() 0
+#define UI_WORK_NOTE(name, start_us) ((void)(start_us))
 #define UI_DRAW_STATS_TEXT(draw_call) draw_call
 
 #endif /* VITARPS5_DEBUG_TOOLS */

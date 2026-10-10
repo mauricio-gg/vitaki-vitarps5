@@ -91,4 +91,17 @@ typedef struct vita_chiaki_config_t {
 
 void config_parse(VitaChiakiConfig *cfg);
 void config_free(VitaChiakiConfig *cfg);
+
+/**
+ * Saves the config and waits for the write: true only when the file was really written. For
+ * callers that act on the result (pairing, host edits). Waits behind any save already queued, so
+ * order with config_serialize_async() is kept. Costs ~100 ms on the caller.
+ */
 bool config_serialize(VitaChiakiConfig *cfg);
+
+/**
+ * Saves the config without waiting for the memory card: formats it now (on the caller's thread,
+ * which owns @p cfg) and queues the write. For UI-thread callers that only log a failure; the
+ * writer logs a failed write. A later save replaces one still waiting (see config_writer.h).
+ */
+void config_serialize_async(VitaChiakiConfig *cfg);
