@@ -19,7 +19,6 @@
 
 #include "ui/ui_state.h"
 #include "ui/ui_internal.h"
-#include "ui/ui_focus.h"
 #include "host.h"
 #include "logging.h"
 
@@ -42,7 +41,6 @@ static ConnectionOverlayState connection_overlay = {0};
  */
 static volatile SceUID connection_thread_id = -1;
 static VitaChiakiHost *connection_thread_host = NULL;
-static bool connection_overlay_modal_pushed = false;
 
 /**
  * Waking and reconnect timing state
@@ -64,7 +62,6 @@ void ui_state_init(void) {
   // Reset connection thread
   connection_thread_id = -1;
   connection_thread_host = NULL;
-  connection_overlay_modal_pushed = false;
 
   // Reset timing state
   waking_wait_for_stream_us = 0;
@@ -88,12 +85,6 @@ void ui_connection_begin(UIConnectionStage stage) {
   connection_overlay.serial++;
   connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
   waking_wait_for_stream_us = 0;
-
-  // Push modal focus when connection overlay activates
-  if (!connection_overlay_modal_pushed) {
-    ui_focus_push_modal();
-    connection_overlay_modal_pushed = true;
-  }
 }
 
 void ui_connection_set_stage(UIConnectionStage stage) {
@@ -106,12 +97,6 @@ void ui_connection_set_stage(UIConnectionStage stage) {
 void ui_connection_complete(void) {
   connection_overlay.active = false;
   waking_wait_for_stream_us = 0;
-
-  // Pop modal focus only if this overlay owns a modal push.
-  if (connection_overlay_modal_pushed) {
-    ui_focus_pop_modal();
-  }
-  connection_overlay_modal_pushed = false;
 }
 
 void ui_connection_cancel(void) {
@@ -125,12 +110,6 @@ void ui_connection_cancel(void) {
     sceKernelDeleteThread(connection_thread_id);
     connection_thread_id = -1;
   }
-
-  // Pop modal focus only if this overlay owns a modal push.
-  if (connection_overlay_modal_pushed) {
-    ui_focus_pop_modal();
-  }
-  connection_overlay_modal_pushed = false;
 }
 
 bool ui_connection_is_active(void) {

@@ -9,7 +9,6 @@
 #include "ui/ui_components.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_graphics.h"
-#include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
 #include "ui/ui_component.h"
@@ -236,12 +235,6 @@ void ui_debug_open(void) {
   bool *touch_block_active = ui_input_get_touch_block_active_ptr();
   *button_block_mask |= context.ui_state.button_state;
   *touch_block_active = true;
-
-  // Push modal focus once per debug menu activation.
-  if (!context.ui_state.debug_menu_modal_pushed) {
-    ui_focus_push_modal();
-    context.ui_state.debug_menu_modal_pushed = true;
-  }
 }
 
 /**
@@ -259,12 +252,6 @@ void ui_debug_close(void) {
   bool *touch_block_active = ui_input_get_touch_block_active_ptr();
   *button_block_mask |= context.ui_state.button_state;
   *touch_block_active = true;
-
-  // Pop only if this menu owns a modal push.
-  if (context.ui_state.debug_menu_modal_pushed) {
-    ui_focus_pop_modal();
-    context.ui_state.debug_menu_modal_pushed = false;
-  }
 }
 
 /** Debug menu panel size, in pixels. */
