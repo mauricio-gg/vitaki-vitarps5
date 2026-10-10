@@ -325,7 +325,6 @@ typedef enum ui_face_t {
  * follows the theme. UI_GLYPH_COUNT is the first thing to cut if the Vita is not smooth: never the
  * size or the speed. */
 #define UI_GLYPH_COUNT 8
-#define UI_GLYPH_SHAPES 4
 #define UI_GLYPH_ALPHA_PCT 45
 #define UI_GLYPH_TRIANGLE RGBA8(0xC3, 0xF2, 0xD0, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
 #define UI_GLYPH_CIRCLE RGBA8(0xF6, 0xC5, 0xD0, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))

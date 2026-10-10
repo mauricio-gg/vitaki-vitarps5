@@ -45,9 +45,12 @@ enum {
   SEED_SWAY
 };
 
+/* The four symbols, in the mock's order; a faller's shape is its index modulo SHAPE_COUNT. */
+typedef enum { SHAPE_TRIANGLE = 0, SHAPE_CIRCLE, SHAPE_X, SHAPE_SQUARE, SHAPE_COUNT } GlyphShape;
+
 typedef struct {
   double x, y0, vx, vy, scale, rot, rot_speed, phase, sway, layer;
-  int shape;
+  GlyphShape shape;
 } Faller;
 
 typedef struct {
@@ -92,7 +95,7 @@ void ui_glyphs_init(void) {
     f->layer = seed_rand(i, SEED_LAYER) < UI_GLYPH_LAYER_SPLIT ? UI_GLYPH_SLOW_LAYER : 1.0;
     f->phase = seed_rand(i, SEED_PHASE) * UI_GLYPH_PHASE_RANGE;
     f->sway = UI_GLYPH_SWAY_BASE + seed_rand(i, SEED_SWAY);
-    f->shape = i % UI_GLYPH_SHAPES;
+    f->shape = (GlyphShape)(i % SHAPE_COUNT);
   }
   LOGD("UI/BACKGROUND Glyphs draws %d symbols", UI_GLYPH_COUNT);
 }
@@ -232,23 +235,24 @@ static Point place(float x, float y, float c, float s, float cx, float cy) {
  * Appends one symbol of radius @p r, rotated by angle (c = cos, s = sin) around (cx, cy), to
  * @p out starting at vertex @p n. Returns the new vertex count.
  */
-static unsigned int stroke_symbol(vita2d_color_vertex *out, unsigned int n, int shape, float r,
-                                  float c, float s, float cx, float cy) {
+static unsigned int stroke_symbol(vita2d_color_vertex *out, unsigned int n, GlyphShape shape,
+                                  float r, float c, float s, float cx, float cy) {
   Point pts[GLYPH_MAX_POINTS];
   switch (shape) {
-    case 0: /* triangle, apex up */
+    case SHAPE_TRIANGLE: /* apex up */
       pts[0] = place(0.0f, -r, c, s, cx, cy);
       pts[1] = place(r * UI_GLYPH_TRI_HALF_W, r * UI_GLYPH_TRI_BASE_Y, c, s, cx, cy);
       pts[2] = place(-r * UI_GLYPH_TRI_HALF_W, r * UI_GLYPH_TRI_BASE_Y, c, s, cx, cy);
       return stroke_closed(out, n, pts, 3, UI_GLYPH_TRIANGLE);
-    case 1: /* circle: rotation changes nothing */
+    case SHAPE_CIRCLE: /* rotation changes nothing */
       return stroke_circle(out, n, cx, cy, r, UI_GLYPH_CIRCLE);
-    case 2: /* X: two diagonals */
+    case SHAPE_X: /* two diagonals */
       n = stroke_segment(out, n, place(-r, -r, c, s, cx, cy), place(r, r, c, s, cx, cy),
                          UI_GLYPH_X);
       return stroke_segment(out, n, place(r, -r, c, s, cx, cy), place(-r, r, c, s, cx, cy),
                             UI_GLYPH_X);
-    default: { /* square */
+    case SHAPE_SQUARE:
+    default: {
       float h = r * UI_GLYPH_SQUARE_HALF;
       pts[0] = place(-h, -h, c, s, cx, cy);
       pts[1] = place(h, -h, c, s, cx, cy);
