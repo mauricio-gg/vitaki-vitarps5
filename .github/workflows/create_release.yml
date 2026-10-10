@@ -110,6 +110,10 @@ jobs:
           RELEASE_NAME="VitaRPS5-${NEW_TAG}.vpk"
           cp "$VPK_FILE" "$RELEASE_NAME"
 
+          # Stable-named copy, attached to every release so
+          # /releases/latest/download/VitaRPS5-latest.vpk is a permanent link
+          cp "$VPK_FILE" VitaRPS5-latest.vpk
+
           echo "VPK_PATH=$RELEASE_NAME" >> $GITHUB_OUTPUT
           echo "VPK_NAME=$RELEASE_NAME" >> $GITHUB_OUTPUT
 
@@ -137,47 +141,11 @@ jobs:
         with:
           tag_name: ${{ steps.new_version.outputs.NEW_TAG }}
           name: VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
-          files: ${{ steps.find_vpk.outputs.VPK_PATH }}
+          files: |
+            ${{ steps.find_vpk.outputs.VPK_PATH }}
+            VitaRPS5-latest.vpk
           body_path: ${{ runner.temp }}/release_notes.md
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create stable-named VPK for latest release
-        run: |
-          cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitaRPS5-latest.vpk
-          # Compatibility alias so download links to the old file name keep working
-          cp "${{ steps.find_vpk.outputs.VPK_PATH }}" VitakiFork-latest.vpk
-
-      - name: Update 'latest' release tag
-        run: |
-          git tag -f latest
-          git push origin latest --force
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update 'latest' GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: VitaRPS5 Latest (${{ steps.new_version.outputs.NEW_TAG }})
-          files: |
-            VitaRPS5-latest.vpk
-            VitakiFork-latest.vpk
-          body: |
-            # VitaRPS5 Latest (currently ${{ steps.new_version.outputs.NEW_TAG }})
-
-            **This release always points to the most recent stable build.**
-
-            Stable download URL (never changes):
-            `https://github.com/${{ github.repository }}/releases/download/latest/VitaRPS5-latest.vpk`
-
-            (The old file name VitakiFork-latest.vpk is kept so existing links still work.)
-
-            For version-specific release notes, see [${{ steps.new_version.outputs.NEW_TAG }}](https://github.com/${{ github.repository }}/releases/tag/${{ steps.new_version.outputs.NEW_TAG }}).
-          draft: false
-          prerelease: false
-          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

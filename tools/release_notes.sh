@@ -91,6 +91,7 @@ Built with modern UI, optimized performance, and quality-of-life improvements.
 ## 📦 Installation
 
 1. Download \`${VPK_NAME}\` below
+   (Permanent link to the newest version: https://github.com/${REPO}/releases/latest/download/VitaRPS5-latest.vpk)
 2. Transfer to your PS Vita (via USB or FTP)
 3. Install using VitaShell (press X on the VPK file)
 4. Launch from LiveArea
