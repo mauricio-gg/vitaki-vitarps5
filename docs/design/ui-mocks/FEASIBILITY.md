@@ -118,7 +118,7 @@ Well under the 15 MB budget. The wave costs none.
 ## 6. Reuse
 
 - `ui_controller_diagram.c` and the controller screen logic: unchanged behaviour (summary pages, zone views, mapping popup, preset slots). Only chrome, colours and the new Triangle entry to the zone view change.
-- `ui_focus.c` zones: the focus zone and the modal stack. Nothing in the focus manager assumes the wave sidebar any more (its nav-bar zone and zone crossing were removed in #305).
+- The focus manager (`ui_focus.c`, its zones and modal stack) was removed in #382 because nothing read its state.
 - `ui_input.c`, the IME dialog, `ui_text.c` atlas, `ui_qr.c`: reused as they are.
 
 ## 7. Risks

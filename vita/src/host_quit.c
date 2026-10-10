@@ -422,15 +422,3 @@ void host_recovery_abort(const char *why) {
   if (context.active_host)
     host_set_hint(context.active_host, RECOVERY_FAILED_MESSAGE, true, HINT_DURATION_ERROR_US);
 }
-
-void host_recovery_cancel_by_user(void) {
-  LOGD("Reconnecting cancelled by user (recovery_active=%d)",
-       context.stream.recovery_active ? 1 : 0);
-  recovery_clear_state();
-  // Pairs with the barrier + recovery_active check in host_stream() before session start: a
-  // connect that has not reached session_init yet is cancelled there, not by the stop below.
-  __sync_synchronize();
-  // No-op when no session exists (the wait phase); during a fallback connect this stops it and
-  // the resulting user-stop quit never schedules another attempt.
-  host_cancel_stream_request();
-}
