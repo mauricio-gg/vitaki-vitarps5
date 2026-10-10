@@ -58,7 +58,9 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->submit_on_missing_ref = false;
+  cfg->background = VITA_BACKGROUND_WAVES;
   cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+  cfg->background_blur_glyphs = VITA_BACKGROUND_BLUR_NONE;
   cfg->theme = VITA_THEME_OCEAN;
   cfg->show_button_hints = true;
   cfg->room_icons.count = 0;
@@ -400,22 +402,64 @@ static void parse_theme(VitaChiakiConfig *cfg, toml_table_t *settings) {
 }
 
 /*
- * parse_background_blur — Reads settings.background_blur. A missing key keeps the default;
- * a value outside the VitaChiakiBackgroundBlur range is not trusted and resets to the default.
+ * parse_background — Reads settings.background. A missing key keeps the default; a value outside
+ * the VitaChiakiBackground range is not trusted and resets to Waves.
  */
-static void parse_background_blur(VitaChiakiConfig *cfg, toml_table_t *settings) {
+static void parse_background(VitaChiakiConfig *cfg, toml_table_t *settings) {
   if (!settings)
     return;
-  toml_datum_t datum = toml_int_in(settings, "background_blur");
+  toml_datum_t datum = toml_int_in(settings, "background");
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_BACKGROUND_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range background %lld; using %d",
+                (long long)datum.u.i, VITA_BACKGROUND_WAVES);
+    cfg->background = VITA_BACKGROUND_WAVES;
+    return;
+  }
+  cfg->background = (VitaChiakiBackground)datum.u.i;
+}
+
+/*
+ * parse_blur_key — Reads one blur level stored under @p key into @p out. A missing key keeps the
+ * default already in @p out; a value outside the VitaChiakiBackgroundBlur range is not trusted and
+ * resets to None.
+ */
+static void parse_blur_key(VitaChiakiBackgroundBlur *out, toml_table_t *settings, const char *key) {
+  toml_datum_t datum = toml_int_in(settings, key);
   if (!datum.ok)
     return;
   if (datum.u.i < 0 || datum.u.i >= VITA_BACKGROUND_BLUR_COUNT) {
-    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range background_blur %lld; using %d",
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range %s %lld; using %d", key,
                 (long long)datum.u.i, VITA_BACKGROUND_BLUR_NONE);
-    cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+    *out = VITA_BACKGROUND_BLUR_NONE;
     return;
   }
-  cfg->background_blur = (VitaChiakiBackgroundBlur)datum.u.i;
+  *out = (VitaChiakiBackgroundBlur)datum.u.i;
+}
+
+/* parse_background_blur — Reads the blur of each background (settings.background_blur is Waves). */
+static void parse_background_blur(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  parse_blur_key(&cfg->background_blur, settings, "background_blur");
+  parse_blur_key(&cfg->background_blur_glyphs, settings, "background_blur_glyphs");
+}
+
+VitaChiakiBackgroundBlur config_background_blur(const VitaChiakiConfig *cfg) {
+  if (!cfg)
+    return VITA_BACKGROUND_BLUR_NONE;
+  return cfg->background == VITA_BACKGROUND_GLYPHS ? cfg->background_blur_glyphs
+                                                   : cfg->background_blur;
+}
+
+void config_set_background_blur(VitaChiakiConfig *cfg, VitaChiakiBackgroundBlur blur) {
+  if (!cfg || (int)blur < 0 || blur >= VITA_BACKGROUND_BLUR_COUNT)
+    return;
+  if (cfg->background == VITA_BACKGROUND_GLYPHS)
+    cfg->background_blur_glyphs = blur;
+  else
+    cfg->background_blur = blur;
 }
 
 static void normalize_controller_map_id(VitaChiakiConfig *cfg) {
@@ -578,6 +622,7 @@ void config_parse(VitaChiakiConfig *cfg) {
                                      &migrated_legacy_settings, &migrated_root_settings);
   parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
+  parse_background(cfg, settings);
   parse_background_blur(cfg, settings);
   parse_theme(cfg, settings);
 
@@ -771,7 +816,9 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "background = %d\n", (int)cfg->background);
   fprintf(fp, "background_blur = %d\n", (int)cfg->background_blur);
+  fprintf(fp, "background_blur_glyphs = %d\n", (int)cfg->background_blur_glyphs);
   fprintf(fp, "theme = %d\n", (int)cfg->theme);
 
   // Save 3 custom map slots

@@ -51,6 +51,15 @@ typedef enum vita_chiaki_theme_t {
   VITA_THEME_COUNT
 } VitaChiakiTheme;
 
+/// Which picture is drawn behind menus (issue #375). The integer is what is saved under
+/// settings.background, so backgrounds may only be appended before BACKGROUND_COUNT; reordering or
+/// inserting would switch every existing user's saved choice.
+typedef enum vita_chiaki_background_t {
+  VITA_BACKGROUND_WAVES = 0,
+  VITA_BACKGROUND_GLYPHS,
+  VITA_BACKGROUND_COUNT
+} VitaChiakiBackground;
+
 /// Settings for the app
 typedef struct vita_chiaki_config_t {
   int cfg_version;
@@ -96,13 +105,30 @@ typedef struct vita_chiaki_config_t {
                                     // instead of freezing for the IDR
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
-  VitaChiakiBackgroundBlur background_blur;  // Menu background treatment, default None
-  VitaChiakiTheme theme;                     // XMB colour theme, default Ocean
+  VitaChiakiBackground background;                  // Picture behind menus, default Waves
+  VitaChiakiBackgroundBlur background_blur;         // Blur of the Waves background, default None
+  VitaChiakiBackgroundBlur background_blur_glyphs;  // Blur of the Glyphs background, default None
+  VitaChiakiTheme theme;                            // XMB colour theme, default Ocean
   bool show_button_hints;    // Draw the button hint row on menus (not the in-stream exit hint)
   RoomIconTable room_icons;  // Per-console room icon choices, keyed by console MAC
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig *cfg);
+
+/**
+ * config_background_blur() - The blur of the background currently selected (Waves or Glyphs).
+ * @param cfg  Config to read; NULL gives None.
+ * @return     The blur level to draw and to show in Settings.
+ */
+VitaChiakiBackgroundBlur config_background_blur(const VitaChiakiConfig *cfg);
+
+/**
+ * config_set_background_blur() - Stores the blur of the background currently selected, leaving the
+ * other background's remembered blur untouched.
+ * @param cfg   Config to change; NULL is ignored.
+ * @param blur  New blur level; a value outside the enum is ignored.
+ */
+void config_set_background_blur(VitaChiakiConfig *cfg, VitaChiakiBackgroundBlur blur);
 void config_free(VitaChiakiConfig *cfg);
 
 /**

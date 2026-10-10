@@ -7,7 +7,7 @@
  * copied into vita2d's per-frame pool memory to draw. About 12 draw calls for the wave at blur
  * level None; the Home vignette adds 3.
  *
- * Blur levels Soft, Strong and Dark (config.background_blur, read every frame) render the same
+ * Blur levels Soft, Strong and Dark (config_background_blur(), read every frame) render the same
  * wave into a 480x272 target, average it 2:1 down to 240x136 (Soft) or on to 60x34 (Strong and
  * Dark), and draw that upscaled with bilinear filtering plus a veil: 2, 3 and 2 draw calls on
  * the screen. The target passes (1 for the wave, 1 to 3 for the averaging) run in

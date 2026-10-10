@@ -210,14 +210,27 @@ static void theme_change(int step) {
   ui_settings_persist_config();
 }
 
-static const char *background_blur_text(void) {
-  return ui_label_background_blur(context.config.background_blur);
+static const char *background_text(void) {
+  return ui_label_background(context.config.background);
 }
 
-/* The background draws from this field every frame, so storing it is all it takes to apply. */
+/* The renderer reads the choice every frame, so storing it applies it. */
+static void background_change(int step) {
+  context.config.background =
+      (VitaChiakiBackground)wrap_index((int)context.config.background, step, VITA_BACKGROUND_COUNT);
+  ui_settings_persist_config();
+}
+
+static const char *background_blur_text(void) {
+  return ui_label_background_blur(config_background_blur(&context.config));
+}
+
+/* The background draws the blur of the selected background every frame, so storing it applies it.
+ */
 static void background_blur_change(int step) {
-  context.config.background_blur = (VitaChiakiBackgroundBlur)wrap_index(
-      (int)context.config.background_blur, step, VITA_BACKGROUND_BLUR_COUNT);
+  config_set_background_blur(&context.config, (VitaChiakiBackgroundBlur)wrap_index(
+                                                  (int)config_background_blur(&context.config),
+                                                  step, VITA_BACKGROUND_BLUR_COUNT));
   ui_settings_persist_config();
 }
 
@@ -235,11 +248,16 @@ static const SettingDef DISPLAY_ROWS[] = {
 /* Appearance */
 
 static const SettingDef APPEARANCE_ROWS[] = {
+    {"Background", UI_SETTING_CHOICE,
+     "The picture behind every menu. Waves is the XMB look. Glyphs is the older look with drifting "
+     "symbols.",
+     NULL, background_text, background_change},
     {"Theme", UI_SETTING_CHOICE, "Colour of the background and highlights. Text stays the same.",
      NULL, theme_text, theme_change},
     {"Background Blur", UI_SETTING_CHOICE,
-     "Blur the background waves behind menus. Strong and Dark are softer and calmer.", NULL,
-     background_blur_text, background_blur_change},
+     "Blur the picture behind menus. Strong and Dark are softer and calmer. Remembered for each "
+     "background.",
+     NULL, background_blur_text, background_blur_change},
 };
 
 /* Controls */

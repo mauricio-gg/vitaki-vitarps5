@@ -530,7 +530,7 @@ static bool blur_targets_ready(void) {
 
 /** The blur level to draw this frame: the setting, or None when it is out of range or unusable. */
 static VitaChiakiBackgroundBlur active_blur(void) {
-  VitaChiakiBackgroundBlur blur = context.config.background_blur;
+  VitaChiakiBackgroundBlur blur = config_background_blur(&context.config);
   if (blur <= VITA_BACKGROUND_BLUR_NONE || blur >= VITA_BACKGROUND_BLUR_COUNT)
     return VITA_BACKGROUND_BLUR_NONE;
   return blur_targets_ready() ? blur : VITA_BACKGROUND_BLUR_NONE;
