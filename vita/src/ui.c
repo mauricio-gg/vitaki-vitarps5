@@ -712,10 +712,19 @@ void draw_ui() {
     }
 
     // Always read controller input - input thread uses Ext2 variant to access controller
-    // independently
-    if (!sceCtrlReadBufferPositive(0, &ctrl, 1)) {
+    // independently. GH #409: the blocking read waits for the next vblank, which is right for
+    // menus (it paces them) but would lock the streaming loop to 16.7 ms and hold a decoded frame
+    // for ~8 ms on average. While streaming, peek instead (returns the buffer count, negative on
+    // error) so a frame is presented as soon as it is ready; the 1 ms sleep below paces the loop.
+    const bool streaming = context.stream.is_streaming;
+    const bool ctrl_read_failed = streaming ? (sceCtrlPeekBufferPositive(0, &ctrl, 1) <= 0)
+                                            : !sceCtrlReadBufferPositive(0, &ctrl, 1);
+    if (ctrl_read_failed) {
       // Try again...
       LOGE("Failed to get controller state");
+      // A streaming retry must not skip the pacing sleep, or a persistent failure would busy-spin.
+      if (streaming)
+        sceKernelDelayThread(1000);
       continue;
     }
     context.ui_state.old_button_state = context.ui_state.button_state;
