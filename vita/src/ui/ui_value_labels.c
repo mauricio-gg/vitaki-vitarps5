@@ -69,6 +69,22 @@ const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur) {
   }
 }
 
+const char *ui_label_theme(VitaChiakiTheme theme) {
+  switch (theme) {
+    case VITA_THEME_EMBER:
+      return "Ember";
+    case VITA_THEME_ORCHID:
+      return "Orchid";
+    case VITA_THEME_MOSS:
+      return "Moss";
+    case VITA_THEME_GRAPHITE:
+      return "Graphite";
+    case VITA_THEME_OCEAN:
+    default:
+      return "Ocean";
+  }
+}
+
 VitaChiakiHost *ui_profile_reference_host(void) {
   if (context.active_host) {
     return context.active_host;

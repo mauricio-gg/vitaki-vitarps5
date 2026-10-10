@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <stdint.h>
 #include <vita2d.h>
 
 #include "ui/ui_gesture.h"
@@ -19,6 +20,39 @@
 /* ============================================================================
  * Colour (SPEC 1.1). Every colour is a vita2d ABGR value with alpha baked in.
  * ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+ * Colour themes (issue #348). Five presets; the user's choice is context.config.theme.
+ * A themed token below reads its RGB from the current theme and keeps its own alpha, so it is a
+ * runtime expression: it cannot sit in a static or file-scope const initialiser.
+ * ---------------------------------------------------------------------------- */
+
+/** One colour of a theme: 8-bit channels, no alpha (each token adds its own). */
+typedef struct {
+  uint8_t r, g, b;
+} UiRgb;
+
+/** The colours one preset sets (tokens-themes.css). Text, status and white fills never change. */
+typedef struct UiTheme {
+  UiRgb wave_top, wave_mid, wave_bottom;
+  UiRgb ribbon_1, ribbon_2, ribbon_3;
+  UiRgb horizon;
+  UiRgb glyph_bg_a, glyph_bg_b; /* the Glyphs background (#375) reads these */
+  UiRgb ink, wash, deep, deep_edge;
+  UiRgb accent, accent_hi, halo;
+} UiTheme;
+
+/**
+ * ui_theme_current() - The theme chosen in the settings (Ocean when the value is out of range).
+ * An index into a const table: no allocation, no copy. The returned pointer is stable, so two
+ * calls return the same pointer exactly when the theme did not change.
+ */
+const UiTheme *ui_theme_current(void);
+
+/** ui_rgb_alpha() - @p c with the 8-bit alpha @p a, as a vita2d ABGR colour. */
+static inline uint32_t ui_rgb_alpha(UiRgb c, uint8_t a) {
+  return RGBA8(c.r, c.g, c.b, a);
+}
 
 /** Converts a percentage (0..100) to an 8-bit alpha, rounded. */
 #define UI_ALPHA_PCT(pct) (((pct) * 255 + 50) / 100)
@@ -33,14 +67,14 @@
 #define UI_ERR RGBA8(0xFF, 0x80, 0x80, 0xFF)
 #define UI_INTERNET RGBA8(0xA9, 0xB2, 0xFF, 0xFF)
 #define UI_IDLE RGBA8(0xC9, 0xD0, 0xDF, 0xFF)
-#define UI_ACCENT RGBA8(0x6D, 0xB4, 0xFF, 0xFF)
-#define UI_ACCENT_ZONE RGBA8(0x6D, 0xB4, 0xFF, UI_ALPHA_PCT(28))
+#define UI_ACCENT ui_rgb_alpha(ui_theme_current()->accent, 0xFF)
+#define UI_ACCENT_ZONE ui_rgb_alpha(ui_theme_current()->accent, UI_ALPHA_PCT(28))
 
-#define UI_PANEL RGBA8(6, 12, 28, UI_ALPHA_PCT(92))
-#define UI_SCRIM RGBA8(2, 5, 14, UI_ALPHA_PCT(55))
-#define UI_SCRIM_STRONG RGBA8(2, 5, 14, UI_ALPHA_PCT(82))
-#define UI_HUD RGBA8(6, 10, 22, UI_ALPHA_PCT(60))
-#define UI_PAGE_WASH RGBA8(3, 6, 16, UI_ALPHA_PCT(60))
+#define UI_PANEL ui_rgb_alpha(ui_theme_current()->deep, UI_ALPHA_PCT(92))
+#define UI_SCRIM ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(55))
+#define UI_SCRIM_STRONG ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(82))
+#define UI_HUD ui_rgb_alpha(ui_theme_current()->deep, UI_ALPHA_PCT(60))
+#define UI_PAGE_WASH ui_rgb_alpha(ui_theme_current()->wash, UI_ALPHA_PCT(60))
 #define UI_FILL_FOCUS UI_WHITE_PCT(12)
 #define UI_FILL_ON UI_WHITE_PCT(26)
 #define UI_LINE UI_WHITE_PCT(26)
@@ -53,35 +87,35 @@
 #define UI_SHADOW RGBA8(0, 0, 0, UI_ALPHA_PCT(55))
 #define UI_LEADER UI_WHITE_PCT(55)
 #define UI_ZONE_LINE UI_WHITE_PCT(22)
-#define UI_ZONE_MAPPED_LINE RGBA8(160, 205, 255, UI_ALPHA_PCT(60))
+#define UI_ZONE_MAPPED_LINE ui_rgb_alpha(ui_theme_current()->accent_hi, UI_ALPHA_PCT(60))
 #define UI_RING_FILL UI_WHITE_PCT(10)
-#define UI_HALO RGBA8(130, 170, 255, UI_ALPHA_PCT(28))
+#define UI_HALO ui_rgb_alpha(ui_theme_current()->halo, UI_ALPHA_PCT(28))
 #define UI_QR_PLATE RGBA8(0xFA, 0xFA, 0xFA, 0xFF)
 #define UI_QR_INK RGBA8(0x0A, 0x0A, 0x0A, 0xFF)
 #define UI_QR_HIDDEN RGBA8(26, 26, 26, UI_ALPHA_PCT(55))
-#define UI_PANEL_EDGE RGBA8(4, 8, 20, UI_ALPHA_PCT(92))
-#define UI_EDGE_0 RGBA8(4, 8, 20, 0)
-#define UI_GLASS_VEIL RGBA8(2, 5, 14, UI_ALPHA_PCT(14))
+#define UI_PANEL_EDGE ui_rgb_alpha(ui_theme_current()->deep_edge, UI_ALPHA_PCT(92))
+#define UI_EDGE_0 ui_rgb_alpha(ui_theme_current()->deep_edge, 0)
+#define UI_GLASS_VEIL ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(14))
 #define UI_GLASS_FROST UI_WHITE_PCT(5)
-#define UI_GLASS_VEIL_DARK RGBA8(2, 5, 14, UI_ALPHA_PCT(20))
+#define UI_GLASS_VEIL_DARK ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(20))
 
 /* Home vignette gradients */
-#define UI_VIG_1 RGBA8(2, 5, 14, UI_ALPHA_PCT(50))
-#define UI_VIG_2 RGBA8(2, 5, 14, UI_ALPHA_PCT(34))
-#define UI_VIG_3 RGBA8(2, 5, 14, UI_ALPHA_PCT(38))
-#define UI_VIG_STRONG RGBA8(2, 5, 14, UI_ALPHA_PCT(55))
+#define UI_VIG_1 ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(50))
+#define UI_VIG_2 ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(34))
+#define UI_VIG_3 ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(38))
+#define UI_VIG_STRONG ui_rgb_alpha(ui_theme_current()->ink, UI_ALPHA_PCT(55))
 #define UI_VIG_TOP RGBA8(0, 0, 0, UI_ALPHA_PCT(32))
 #define UI_VIG_BOTTOM RGBA8(0, 0, 0, UI_ALPHA_PCT(40))
 
-/* Wave palette (one fixed set, no time of day) */
+/* Wave palette (RGB from the theme; no time of day) */
 #define UI_BG_STAGE RGBA8(0x06, 0x0B, 0x1C, 0xFF)
-#define UI_BG_TOP RGBA8(0x06, 0x20, 0x4A, 0xFF)
-#define UI_BG_MID RGBA8(0x0F, 0x45, 0x85, 0xFF)
-#define UI_BG_BOTTOM RGBA8(0x24, 0x5F, 0x9C, 0xFF)
-#define UI_BG_RIBBON_1 RGBA8(0x96, 0xCD, 0xFF, 0xFF)
-#define UI_BG_RIBBON_2 RGBA8(0x64, 0xB4, 0xF0, 0xFF)
-#define UI_BG_RIBBON_3 RGBA8(0xBE, 0xDC, 0xFF, 0xFF)
-#define UI_BG_HORIZON RGBA8(160, 210, 255, UI_ALPHA_PCT(28))
+#define UI_BG_TOP ui_rgb_alpha(ui_theme_current()->wave_top, 0xFF)
+#define UI_BG_MID ui_rgb_alpha(ui_theme_current()->wave_mid, 0xFF)
+#define UI_BG_BOTTOM ui_rgb_alpha(ui_theme_current()->wave_bottom, 0xFF)
+#define UI_BG_RIBBON_1 ui_rgb_alpha(ui_theme_current()->ribbon_1, 0xFF)
+#define UI_BG_RIBBON_2 ui_rgb_alpha(ui_theme_current()->ribbon_2, 0xFF)
+#define UI_BG_RIBBON_3 ui_rgb_alpha(ui_theme_current()->ribbon_3, 0xFF)
+#define UI_BG_HORIZON ui_rgb_alpha(ui_theme_current()->horizon, UI_ALPHA_PCT(28))
 
 /* ============================================================================
  * Type (SPEC 1.2). Six faces from two loaded weights; sizes are the atlas sizes.

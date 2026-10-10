@@ -76,6 +76,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_text_wrap.c
     src/ui/ui_value_labels.c
     src/ui/ui_background.c
+    src/ui/ui_theme.c
     src/ui/ui_shapes.c
     src/ui/ui_pill.c
     src/ui/ui_stream_stats.c
@@ -328,6 +329,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/video.png assets/icons/video.png
         FILE assets/icons/network.png assets/icons/network.png
         FILE assets/icons/display.png assets/icons/display.png
+        FILE assets/icons/appearance.png assets/icons/appearance.png
         FILE assets/icons/controls.png assets/icons/controls.png
         FILE assets/icons/advanced.png assets/icons/advanced.png
         FILE assets/icons/account.png assets/icons/account.png

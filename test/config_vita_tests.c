@@ -451,6 +451,7 @@ static void test_old_config_gets_new_field_defaults(void) {
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
   assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  assert(cfg.theme == VITA_THEME_OCEAN);
   assert(cfg.show_button_hints == true);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
   assert(cfg.show_latency == true);
@@ -481,19 +482,21 @@ static void test_removed_show_only_paired_key_is_dropped(void) {
   free(rewritten);
 }
 
-/* catches: a non-default blur level or hints-off choice being lost on save or load, so the
+/* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the
  * setting reverts after a restart. */
 static void test_new_fields_survive_save_and_load(void) {
   reset_config_file();
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
   cfg.background_blur = VITA_BACKGROUND_BLUR_STRONG;
+  cfg.theme = VITA_THEME_GRAPHITE;
   cfg.show_button_hints = false;
   assert(config_serialize(&cfg));
 
   VitaChiakiConfig loaded;
   init_cfg(&loaded);
   assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+  assert(loaded.theme == VITA_THEME_GRAPHITE);
   assert(loaded.show_button_hints == false);
 }
 
@@ -512,6 +515,24 @@ static void test_out_of_range_blur_is_rejected(void) {
     VitaChiakiConfig cfg;
     init_cfg(&cfg);
     assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  }
+}
+
+/* catches: a hand-edited or corrupt theme value outside 0..4 being trusted, which would index
+ * past the theme table. */
+static void test_out_of_range_theme_is_rejected(void) {
+  const int bad_values[] = {-1, 5, 99};
+  for (size_t i = 0; i < sizeof(bad_values) / sizeof(bad_values[0]); i++) {
+    char text[160];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\ntheme = %d\n",
+             bad_values[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.theme == VITA_THEME_OCEAN);
   }
 }
 
@@ -607,6 +628,7 @@ int main(void) {
   test_removed_show_only_paired_key_is_dropped();
   test_new_fields_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
+  test_out_of_range_theme_is_rejected();
   test_room_icons_survive_save_and_load();
   test_bad_room_icon_entries_are_ignored();
   test_room_icon_set_rules();
