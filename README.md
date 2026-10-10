@@ -8,6 +8,7 @@
   [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSES/AGPL-3.0-only-OpenSSL.txt)
   [![Build Status](https://img.shields.io/github/actions/workflow/status/mauricio-gg/vitaki-vitarps5/create_release.yml?branch=main)](https://github.com/mauricio-gg/vitaki-vitarps5/actions)
   [![Latest Release](https://img.shields.io/github/v/release/mauricio-gg/vitaki-vitarps5)](https://github.com/mauricio-gg/vitaki-vitarps5/releases/latest)
+  [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/solidem)
 </div>
 
 ---
@@ -15,12 +16,6 @@
 VitaRPS5 is a Remote Play client for the PS Vita and PS TV. It streams games from your PS5 or PS4 to the Vita, on your home network or, for a PS5, over the internet.
 
 > Disclosure: VitaRPS5 was built largely with the help of AI. It was built on top of already established work, which was improved upon. It would not have been possible for me to build this without it. The design of the app was largely done by myself though, and was implemented by AI agents that could carry out the vision I had. I believe that AI can be used responsibly if proper workflows and software engineering principles are followed, and encourage people to use it as well, responsibly.
-
-## Support
-
-If you enjoy VitaRPS5, you can support its development.
-
-<div align="center"><a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a></div>
 
 ## Screenshots
 
@@ -110,6 +105,12 @@ Questions and ideas go to [Discussions](https://github.com/mauricio-gg/vitaki-vi
 ## Building
 
 Builds run in Docker through `./tools/build.sh`. See [Build and deploy](https://github.com/mauricio-gg/vitaki-vitarps5/wiki/Build-and-deploy).
+
+## Support
+
+If you enjoy VitaRPS5, you can support its development.
+
+<div align="center"><a href="https://www.buymeacoffee.com/solidem"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a></div>
 
 ## Credits
 
