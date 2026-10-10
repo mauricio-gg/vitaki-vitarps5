@@ -7,7 +7,7 @@ These are the living design docs. Each one describes what the code on `main` doe
 | [architecture.md](architecture.md) | Repo layout, the modules of the Vita client and what each owns, every thread that exists during a stream (with priorities), and the session flow from launch to teardown. |
 | [streaming.md](streaming.md) | The streaming pipeline in detail: video and audio delivery, decode, loss handling, and the recovery and reconnect paths. |
 | [psn.md](psn.md) | PSN internet play: sign-in and tokens, session setup and hole punching, and how it differs from a LAN connect. |
-| `ui-mocks/` | HTML mocks for the XMB redesign (issue #271). Added by PR #273. |
+| `ui-mocks/` | HTML mocks for the XMB redesign (issue #271), including the Appearance settings group with Background, Theme (Ocean default, Ember, Orchid, Moss, Graphite) and Background Blur (#375, #348). Added by PR #273. |
 
 Where other things live:
 
