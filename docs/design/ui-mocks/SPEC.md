@@ -28,7 +28,7 @@ One header (`ui_theme.h`). **Rule:** tokens cover colours (alpha included), type
 | `PANEL` | rgba(6,12,28,.92) | popups, toast, options column ramp, stats panel | `UI_COLOR_CARD_BG` |
 | `SCRIM` | rgba(2,5,14,.55) | behind popups | popup dim literals |
 | `SCRIM_STRONG` | rgba(2,5,14,.82) | system keyboard stand-in only (not drawn by the app) | n/a |
-| `HUD` | rgba(6,10,22,.60) | overlay pill and badges | `RGBA8(0,0,0,180/200)` |
+| `HUD` | rgba(6,12,28,.60) (the theme's deep colour; Ocean shown) | overlay pill and badges | `RGBA8(0,0,0,180/200)` |
 | `PAGE_WASH` | rgba(3,6,16,.60) | dims the wave behind pages, Controller, PIN, Connecting | new |
 | `FILL_FOCUS` | white @ 12% | focused row, focused button | blue focus rings |
 | `FILL_ON` | white @ 26% | toggle on, selected zone, cursor zone | blue fills |
@@ -504,7 +504,7 @@ Page shell, title "Settings". Left: groups. Pane: C08 rows; description line for
 | Display | Show Button Hints | toggle | on (new) |
 | Appearance | Background | choice | Waves, Glyphs (Waves; new, #375) |
 | Appearance | Theme | choice | Ocean, Ember, Orchid, Moss, Graphite (Ocean; new, #348). One setting for both backgrounds. No colour dot or swatch beside the name. |
-| Appearance | Background Blur | choice | None, Soft, Strong, Dark (None; new). One row, remembered per background (Glyphs offers None and Soft only). Moved here from Display. |
+| Appearance | Background Blur | choice | None, Soft, Strong, Dark (None; new). One row, remembered per background. Both backgrounds offer all four levels (CEO ruling 2026-10-10: Glyphs is not limited to None and Soft). Moved here from Display. |
 | Controls | Circle Button Confirm | toggle | system default (Cross on a Western unit) |
 | Advanced | Clamp Soft Restart Bitrate | toggle | on |
 | Advanced | Motion during loss (artifacts) (Experimental) | toggle | off |
