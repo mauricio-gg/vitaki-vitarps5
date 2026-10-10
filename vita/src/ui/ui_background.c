@@ -104,8 +104,15 @@ static vita2d_color_vertex s_vig_right[VIG_RIGHT_STOPS * VERTS_PER_STRIP_STOP];
 static vita2d_color_vertex s_vig_left[VIG_LEFT_STOPS * VERTS_PER_STRIP_STOP];
 static vita2d_color_vertex s_vig_vertical[VIG_VERTICAL_STOPS * VERTS_PER_STRIP_STOP];
 
-static const uint32_t RIBBON_COLOUR[UI_BG_RIBBON_COLOURS] = {UI_BG_RIBBON_1, UI_BG_RIBBON_2,
-                                                             UI_BG_RIBBON_3};
+/* The theme the backdrop, glow and vignette vertices were built with (NULL before the first build).
+ * Compared by pointer: ui_theme_current() returns the same pointer until the theme changes. */
+static const UiTheme *s_built_theme = NULL;
+
+/** The fill colour of ribbon @p i in the current theme; colours cycle through the three tokens. */
+static uint32_t ribbon_colour(int i) {
+  const uint32_t colours[UI_BG_RIBBON_COLOURS] = {UI_BG_RIBBON_1, UI_BG_RIBBON_2, UI_BG_RIBBON_3};
+  return colours[i % UI_BG_RIBBON_COLOURS];
+}
 
 /* The blur chain, each level half the size of the one before: the wave is rendered into BASE, and
  * every later level is a 2:1 average of the previous one. Soft shows SOFT, Strong and Dark SMALL.
@@ -311,7 +318,7 @@ static void update_ribbon(int i, float t) {
   const float line_w = UI_BG_LINE_W_BASE + k * UI_BG_LINE_W_PER_K;
   const uint32_t line_colour =
       with_alpha(UI_TEXT, UI_BG_LINE_ALPHA_BASE + k * UI_BG_LINE_ALPHA_PER_K);
-  const uint32_t colour = RIBBON_COLOUR[i % UI_BG_RIBBON_COLOURS];
+  const uint32_t colour = ribbon_colour(i);
   const float fi = (float)i;
 
   for (int c = 0; c < UI_BG_COLS; c++) {
@@ -603,12 +610,29 @@ static void draw_veil(uint32_t colour) {
  * Public API
  * ============================================================================ */
 
+/**
+ * Rebuilds the vertices that carry theme colours when the theme changed since they were built:
+ * the backdrop gradient, the horizon glow and the vignette (same build functions, same arrays).
+ * The ribbons take their colour at every geometry update, so the next frame refreshes them, and
+ * every blur target is stale because it holds the old colours. A compare when nothing changed.
+ */
+static void sync_theme(void) {
+  const UiTheme *theme = ui_theme_current();
+  if (theme == s_built_theme)
+    return;
+  build_backdrop();
+  build_vignette();
+  s_built_theme = theme;
+  s_geometry_valid = false;
+  for (int i = 0; i < TARGET_COUNT; i++)
+    s_targets[i].valid = false;
+}
+
 void ui_background_init(void) {
   if (s_ready)
     return;
-  build_backdrop();
   build_dust();
-  build_vignette();
+  sync_theme();
   s_ready = true;
 }
 
@@ -616,6 +640,7 @@ void ui_background_prepare(bool slow) {
   vita2d_pool_reset();
   if (!s_ready)
     return;
+  sync_theme();
 
   VitaChiakiBackgroundBlur blur = active_blur();
   if (blur == VITA_BACKGROUND_BLUR_NONE)
@@ -628,6 +653,7 @@ void ui_background_prepare(bool slow) {
 void ui_background_draw(bool slow) {
   if (!s_ready)
     return;
+  sync_theme();
 
   VitaChiakiBackgroundBlur blur = active_blur();
   BlurTarget *target = blur == VITA_BACKGROUND_BLUR_NONE ? NULL : target_for(blur);
@@ -651,6 +677,7 @@ void ui_background_draw(bool slow) {
 void ui_background_draw_home_vignette(void) {
   if (!s_ready)
     return;
+  sync_theme();
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_vertical,
               VIG_VERTICAL_STOPS * VERTS_PER_STRIP_STOP);
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_left, VIG_LEFT_STOPS * VERTS_PER_STRIP_STOP);
