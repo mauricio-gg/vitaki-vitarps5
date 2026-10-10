@@ -121,7 +121,7 @@ libcurl's `getaddrinfo` path is broken on Vita, so Sony hosts and STUN hosts are
 - **No message when a console has no seed host**; it just does not appear (issue #85).
 - **PS5 only** in the device list; the PS4 list has a parity bug (issue #93).
 - **Account id mismatch.** Registration can fail with PS5 error CE-110032-7 when the Vita's stored PSN id is stale or signed out (issue #270). Manual account id entry is requested in #201.
-- **UI thread blocking.** Apart from the app-start refresh, token refresh and the device-list fetch run synchronously on the UI thread (issue #163); the host list is not refreshed while idle (issue #162).
+- **Refresh runs in the background.** Since PRs #377 and #392 (issue #163), token refresh and the device-list fetch run on a background worker (`vita/src/psn_background_refresh.c`) instead of the UI thread. The one exception is the Log in button's own token refresh, which is still synchronous. The host list is still not refreshed periodically while idle: the idle timer only renews the token, so the list refreshes only as a side effect of that renewal (issue #162, open).
 - **Dead-link detection** on the push WebSocket can take up to about 10 s (issue #164).
 - **Display:** the Connection card shows the console name, not the IP, for PSN hosts (issue #94).
 - **TLS fragility** until all intermediates are pre-bundled (issue #269).
