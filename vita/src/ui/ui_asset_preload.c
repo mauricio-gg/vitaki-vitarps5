@@ -89,6 +89,7 @@ static const PreloadEntry PRELOAD_LIST[] = {
     {ICONS "video.png", 1},
     {ICONS "network.png", 1},
     {ICONS "display.png", 1},
+    {ICONS "appearance.png", 1},
     {ICONS "controls.png", 1},
     {ICONS "advanced.png", 1},
     {ICONS "account.png", 1},

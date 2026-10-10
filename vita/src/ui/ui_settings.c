@@ -199,6 +199,17 @@ static void button_hints_change(int step) {
   ui_settings_persist_config();
 }
 
+static const char *theme_text(void) {
+  return ui_label_theme(context.config.theme);
+}
+
+/* The background and the zone grid read the theme every frame, so storing it applies it. */
+static void theme_change(int step) {
+  context.config.theme =
+      (VitaChiakiTheme)wrap_index((int)context.config.theme, step, VITA_THEME_COUNT);
+  ui_settings_persist_config();
+}
+
 static const char *background_blur_text(void) {
   return ui_label_background_blur(context.config.background_blur);
 }
@@ -219,6 +230,13 @@ static const SettingDef DISPLAY_ROWS[] = {
      exit_hint_is_on, NULL, exit_hint_change},
     {"Show Button Hints", UI_SETTING_TOGGLE, "Show the button hints along the bottom of menus.",
      button_hints_is_on, NULL, button_hints_change},
+};
+
+/* Appearance */
+
+static const SettingDef APPEARANCE_ROWS[] = {
+    {"Theme", UI_SETTING_CHOICE, "Colour of the background and highlights. Text stays the same.",
+     NULL, theme_text, theme_change},
     {"Background Blur", UI_SETTING_CHOICE,
      "Blur the background waves behind menus. Strong and Dark are softer and calmer.", NULL,
      background_blur_text, background_blur_change},
@@ -296,14 +314,16 @@ static const SettingGroup GROUPS[UI_SETTINGS_GROUP_COUNT] = {
                                    (int)(sizeof(NETWORK_ROWS) / sizeof(NETWORK_ROWS[0]))},
     [UI_SETTINGS_GROUP_DISPLAY] = {DISPLAY_ROWS,
                                    (int)(sizeof(DISPLAY_ROWS) / sizeof(DISPLAY_ROWS[0]))},
+    [UI_SETTINGS_GROUP_APPEARANCE] = {APPEARANCE_ROWS,
+                                      (int)(sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]))},
     [UI_SETTINGS_GROUP_CONTROLS] = {CONTROLS_ROWS,
                                     (int)(sizeof(CONTROLS_ROWS) / sizeof(CONTROLS_ROWS[0]))},
     [UI_SETTINGS_GROUP_ADVANCED] = {ADVANCED_ROWS,
                                     (int)(sizeof(ADVANCED_ROWS) / sizeof(ADVANCED_ROWS[0]))},
 };
 
-static const char *const GROUP_NAMES[UI_SETTINGS_GROUP_COUNT] = {"Video", "Network", "Display",
-                                                                 "Controls", "Advanced"};
+static const char *const GROUP_NAMES[UI_SETTINGS_GROUP_COUNT] = {
+    "Video", "Network", "Display", "Appearance", "Controls", "Advanced"};
 
 _Static_assert(UI_SETTINGS_GROUP_COUNT <= UI_GROUP_MAX, "Settings groups must fit the group list");
 

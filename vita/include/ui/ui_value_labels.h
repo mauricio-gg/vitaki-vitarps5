@@ -27,6 +27,10 @@ const char *ui_label_on_off(bool on);
 /** ui_label_background_blur() - "None", "Soft", "Strong" or "Dark". */
 const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur);
 
+/** ui_label_theme() - "Ocean", "Ember", "Orchid", "Moss" or "Graphite" (Ocean when out of range).
+ */
+const char *ui_label_theme(VitaChiakiTheme theme);
+
 /**
  * ui_profile_reference_host() - The console the Profile connection facts describe.
  * @return the active host while streaming, else the console selected on Home, else the first

@@ -329,6 +329,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/video.png assets/icons/video.png
         FILE assets/icons/network.png assets/icons/network.png
         FILE assets/icons/display.png assets/icons/display.png
+        FILE assets/icons/appearance.png assets/icons/appearance.png
         FILE assets/icons/controls.png assets/icons/controls.png
         FILE assets/icons/advanced.png assets/icons/advanced.png
         FILE assets/icons/account.png assets/icons/account.png

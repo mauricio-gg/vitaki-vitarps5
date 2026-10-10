@@ -66,6 +66,7 @@ typedef enum home_icon_t {
   HOME_ICON_VIDEO = 0,
   HOME_ICON_NETWORK,
   HOME_ICON_DISPLAY,
+  HOME_ICON_APPEARANCE,
   HOME_ICON_CONTROLS,
   HOME_ICON_ADVANCED,
   HOME_ICON_ACCOUNT,
@@ -82,8 +83,8 @@ typedef enum home_icon_t {
 #define HOME_ICON_DIR "app0:/assets/icons/"
 
 static const char *const HOME_ICON_FILES[HOME_ICON_COUNT] = {
-    "video", "network", "display", "controls", "advanced", "account", "connection",
-    "psn",   "slot1",   "slot2",   "slot3",    "search",   "plus",
+    "video",      "network", "display", "appearance", "controls", "advanced", "account",
+    "connection", "psn",     "slot1",   "slot2",      "slot3",    "search",   "plus",
 };
 
 /** A non-console row: name, optional second line, icon. */
@@ -95,8 +96,8 @@ typedef struct home_entry_t {
 
 static const HomeEntry SETTINGS_ENTRIES[] = {
     {"Video", NULL, HOME_ICON_VIDEO},       {"Network", NULL, HOME_ICON_NETWORK},
-    {"Display", NULL, HOME_ICON_DISPLAY},   {"Controls", NULL, HOME_ICON_CONTROLS},
-    {"Advanced", NULL, HOME_ICON_ADVANCED},
+    {"Display", NULL, HOME_ICON_DISPLAY},   {"Appearance", NULL, HOME_ICON_APPEARANCE},
+    {"Controls", NULL, HOME_ICON_CONTROLS}, {"Advanced", NULL, HOME_ICON_ADVANCED},
 };
 
 static const HomeEntry CONTROLLER_ENTRIES[] = {

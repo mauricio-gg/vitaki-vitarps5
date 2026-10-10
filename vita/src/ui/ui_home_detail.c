@@ -209,6 +209,9 @@ static void build_settings_rows(int group) {
       add_toggle_row("Show Network Alerts", cfg->show_network_indicator);
       add_toggle_row("Show Exit Shortcut Hint", cfg->show_stream_exit_hint);
       add_toggle_row("Show Button Hints", cfg->show_button_hints);
+      break;
+    case UI_SETTINGS_GROUP_APPEARANCE:
+      add_row("Theme", ui_label_theme(cfg->theme), 0);
       add_row("Background Blur", ui_label_background_blur(cfg->background_blur), 0);
       break;
     case UI_SETTINGS_GROUP_CONTROLS:
