@@ -211,8 +211,9 @@ static void build_settings_rows(int group) {
       add_toggle_row("Show Button Hints", cfg->show_button_hints);
       break;
     case UI_SETTINGS_GROUP_APPEARANCE:
+      add_row("Background", ui_label_background(cfg->background), 0);
       add_row("Theme", ui_label_theme(cfg->theme), 0);
-      add_row("Background Blur", ui_label_background_blur(cfg->background_blur), 0);
+      add_row("Background Blur", ui_label_background_blur(config_background_blur(cfg)), 0);
       break;
     case UI_SETTINGS_GROUP_CONTROLS:
       add_toggle_row("Circle Button Confirm", cfg->circle_btn_confirm);

@@ -135,7 +135,7 @@ Well under the 15 MB budget. The wave costs none.
 
 ## 8. Background Blur (user setting: None / Soft / Strong / Dark)
 
-Settings > Display > Background Blur, default **None** (CEO decision, round 7). It applies live and is stored as one integer in the config (SPEC flag 13).
+Settings > Appearance > Background Blur, default **None** (CEO decision, round 7). It applies live and is stored as one integer per background in the config (SPEC flag 13; `background_blur` for Waves, `background_blur_glyphs` for Glyphs, #375). The tables below describe the Waves scene. The Glyphs scene (#375) goes through the same chain: at None it is 2 draw calls (gradient and one triangle list of 396 vertices) instead of about 12. No Vita measurement exists yet.
 
 | Mode | Method | Veil | Look |
 |---|---|---|---|

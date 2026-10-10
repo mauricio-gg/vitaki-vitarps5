@@ -320,6 +320,51 @@ typedef enum ui_face_t {
 /** Depth of every background vertex (vita2d draws 2D shapes at z = 0.5). */
 #define UI_BG_Z 0.5f
 
+/* Glyphs background (#375, paintGlyphs in xmb-wave.js): a corner-to-corner gradient and falling
+ * outlined symbols. The symbol colours are fixed (the mock does not theme them); only the gradient
+ * follows the theme. UI_GLYPH_COUNT is the first thing to cut if the Vita is not smooth: never the
+ * size or the speed. */
+#define UI_GLYPH_COUNT 8
+#define UI_GLYPH_ALPHA_PCT 45
+#define UI_GLYPH_TRIANGLE RGBA8(0xC3, 0xF2, 0xD0, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
+#define UI_GLYPH_CIRCLE RGBA8(0xF6, 0xC5, 0xD0, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
+#define UI_GLYPH_X RGBA8(0xB2, 0xDE, 0xFA, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
+#define UI_GLYPH_SQUARE RGBA8(0xFF, 0xDC, 0x7B, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
+#define UI_GLYPH_STROKE_W 2.5f
+#define UI_GLYPH_SIZE_MUL 3.5f
+#define UI_GLYPH_RADIUS_BASE 8.0f
+#define UI_GLYPH_CIRCLE_SEGMENTS 24
+/* Shape outlines in units of the radius: triangle apex up, X and square as in symPath. */
+#define UI_GLYPH_TRI_HALF_W 1.05f
+#define UI_GLYPH_TRI_BASE_Y 0.8f
+#define UI_GLYPH_SQUARE_HALF 0.9f
+/* Motion: one tick is 1/30 s, positions are a pure function of the tick count. */
+#define UI_GLYPH_TICK_MS 33.3
+#define UI_GLYPH_MOTION_MUL 2.0
+#define UI_GLYPH_SLOW_LAYER 0.7
+#define UI_GLYPH_LAYER_SPLIT 0.5
+#define UI_GLYPH_FALL_WRAP 694.0
+#define UI_GLYPH_FALL_TOP (-100.0)
+#define UI_GLYPH_X_WRAP 1010.0
+#define UI_GLYPH_X_OFFSET (-25.0)
+#define UI_GLYPH_SWAY_AMP 2.0
+#define UI_GLYPH_SWAY_TICKS 30.0
+/* Per-faller seed ranges (FALLERS in the mock) and its integer hash. */
+#define UI_GLYPH_Y0_RANGE 700.0
+#define UI_GLYPH_VX_SPAN 0.5
+#define UI_GLYPH_VY_SPAN 1.2
+#define UI_GLYPH_VY_BIAS 0.3
+#define UI_GLYPH_SCALE_BASE 0.3
+#define UI_GLYPH_SCALE_SPAN 0.5
+#define UI_GLYPH_ROT_RANGE_DEG 360.0
+#define UI_GLYPH_PHASE_RANGE 6.28
+#define UI_GLYPH_SWAY_BASE 0.5
+#define UI_GLYPH_HASH_A 374761393.0
+#define UI_GLYPH_HASH_B 668265263.0
+#define UI_GLYPH_HASH_C 1274126177.0
+#define UI_GLYPH_HASH_SHIFT_1 13
+#define UI_GLYPH_HASH_SHIFT_2 16
+
 /* Home vignette: three gradient layers (xmb.css .vig), stops as a percentage along each axis.
  * Right edge: VIG_1 to VIG_2 at 38% to clear at 62%. Left edge: VIG_STRONG to VIG_3 at 50% to
  * clear at 70%. Vertical: VIG_TOP to clear at 20%, clear until 82%, then VIG_BOTTOM. */

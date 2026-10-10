@@ -434,8 +434,9 @@ static void test_registered_hosts_require_required_fields(void) {
   assert(cfg.registered_hosts[0]->registered_state->rp_regist_key[0] != '\0');
 }
 
-/* catches: a config saved before these keys existed loading with blur or hints wrong, or the
- * new keys disturbing values that were already there. */
+/* catches: a config saved before these keys existed loading with blur or hints wrong, the new
+ * background keys disturbing values that were already there, or an existing user's saved Waves blur
+ * being lost when the Glyphs keys are absent. */
 static void test_old_config_gets_new_field_defaults(void) {
   reset_config_file();
   write_config_text(
@@ -450,7 +451,9 @@ static void test_old_config_gets_new_field_defaults(void) {
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
+  assert(cfg.background == VITA_BACKGROUND_WAVES);
   assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  assert(cfg.background_blur_glyphs == VITA_BACKGROUND_BLUR_NONE);
   assert(cfg.theme == VITA_THEME_OCEAN);
   assert(cfg.show_button_hints == true);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
@@ -500,6 +503,32 @@ static void test_new_fields_survive_save_and_load(void) {
   assert(loaded.show_button_hints == false);
 }
 
+/* catches: the Glyphs choice or its blur being lost on save or load, or the two backgrounds
+ * sharing one blur so changing Glyphs overwrites what Waves remembered. */
+static void test_background_and_per_background_blur_survive_save_and_load(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.background = VITA_BACKGROUND_GLYPHS;
+  cfg.background_blur = VITA_BACKGROUND_BLUR_STRONG;
+  cfg.background_blur_glyphs = VITA_BACKGROUND_BLUR_SOFT;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.background == VITA_BACKGROUND_GLYPHS);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+  assert(loaded.background_blur_glyphs == VITA_BACKGROUND_BLUR_SOFT);
+  assert(config_background_blur(&loaded) == VITA_BACKGROUND_BLUR_SOFT);
+
+  config_set_background_blur(&loaded, VITA_BACKGROUND_BLUR_DARK);
+  assert(loaded.background_blur_glyphs == VITA_BACKGROUND_BLUR_DARK);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+
+  loaded.background = VITA_BACKGROUND_WAVES;
+  assert(config_background_blur(&loaded) == VITA_BACKGROUND_BLUR_STRONG);
+}
+
 /* catches: a hand-edited or corrupt blur value outside 0..3 being trusted, which would index
  * past the background levels. */
 static void test_out_of_range_blur_is_rejected(void) {
@@ -515,6 +544,27 @@ static void test_out_of_range_blur_is_rejected(void) {
     VitaChiakiConfig cfg;
     init_cfg(&cfg);
     assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  }
+}
+
+/* catches: a hand-edited or corrupt background or Glyphs blur value being trusted, which would
+ * select a background that does not exist or index past the blur levels. */
+static void test_out_of_range_background_keys_are_rejected(void) {
+  const int bad_backgrounds[] = {-1, 2, 99};
+  const int bad_blurs[] = {-1, 4, 99};
+  for (size_t i = 0; i < sizeof(bad_backgrounds) / sizeof(bad_backgrounds[0]); i++) {
+    char text[200];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\n"
+             "background = %d\nbackground_blur_glyphs = %d\n",
+             bad_backgrounds[i], bad_blurs[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.background == VITA_BACKGROUND_WAVES);
+    assert(cfg.background_blur_glyphs == VITA_BACKGROUND_BLUR_NONE);
   }
 }
 
@@ -629,6 +679,8 @@ int main(void) {
   test_new_fields_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
   test_out_of_range_theme_is_rejected();
+  test_out_of_range_background_keys_are_rejected();
+  test_background_and_per_background_blur_survive_save_and_load();
   test_room_icons_survive_save_and_load();
   test_bad_room_icon_entries_are_ignored();
   test_room_icon_set_rules();

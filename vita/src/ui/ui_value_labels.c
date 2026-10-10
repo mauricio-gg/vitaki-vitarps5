@@ -69,6 +69,10 @@ const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur) {
   }
 }
 
+const char *ui_label_background(VitaChiakiBackground background) {
+  return background == VITA_BACKGROUND_GLYPHS ? "Glyphs" : "Waves";
+}
+
 const char *ui_label_theme(VitaChiakiTheme theme) {
   switch (theme) {
     case VITA_THEME_EMBER:

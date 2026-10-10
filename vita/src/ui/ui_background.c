@@ -1,23 +1,31 @@
 /**
  * @file ui_background.c
- * @brief C27 Background: the wave behind every screen (SPEC.md C27, FEASIBILITY.md section 3)
+ * @brief C27 Background: the picture behind every screen (SPEC.md C27, FEASIBILITY.md section 3)
  *
- * A port of paintRibbons (docs/design/ui-mocks/xmb-wave.js) at blur level None. The mock draws
- * the ribbons with additive blending; vita2d blends with normal alpha, so the band alpha is
+ * Two scenes, chosen by context.config.background (ticket #375). "The scene" below is whichever
+ * one is active; the blur chain, the geometry cadence and the Home vignette treat both alike.
+ *
+ * Waves: a port of paintRibbons (docs/design/ui-mocks/xmb-wave.js) at blur level None. The mock
+ * draws the ribbons with additive blending; vita2d blends with normal alpha, so the band alpha is
  * multiplied by UI_BG_BLEND_GAIN to land near the same brightness. No GXM state is touched.
- *
  * Draw calls: gradient + glow (1, one triangle list), 5 ribbon fills, 5 highlight lines,
- * dust (1) = 12. The Home vignette is 3 more.
+ * dust (1) = 12.
+ *
+ * Glyphs: a port of paintGlyphs, built in ui_background_glyphs.c. Draw calls: the corner-to-corner
+ * gradient (1, 6 vertices) and the 8 falling outlined symbols (1, one triangle list, 396
+ * vertices) = 2. Only the active scene's moving vertices are computed.
+ *
+ * The Home vignette is 3 more draw calls over either scene.
  *
  * vita2d_draw_array hands the vertex pointer straight to the GPU, so it needs GPU-visible
  * memory that outlives the call. Every draw copies its vertices into vita2d's per-frame pool.
  * The pool is reset by vita2d each frame; nothing here allocates on the heap.
  *
- * Blur levels Soft, Strong and Dark (tickets #302, #326): the wave is drawn into a 480x272 target
+ * Blur levels Soft, Strong and Dark (tickets #302, #326): the scene is drawn into a 480x272 target
  * (half the screen) and averaged down by exact 2:1 halvings, 480x272 -> 240x136 (Soft) -> 120x68
  * -> 60x34 (Strong and Dark). The main scene then draws the Soft or Strong/Dark result upscaled
  * with bilinear filtering, under a veil. The halvings matter: a target pass without MSAA takes
- * ONE sample per texel, so drawing the wave straight into 240x136 or 60x34 point-samples it
+ * ONE sample per texel, so drawing the scene straight into 240x136 or 60x34 point-samples it
  * (dotted highlight lines, stair-stepped edges) and the upscale turns that into blocks. Drawing
  * big and averaging is what the mock's canvas does. Five vita2d/GXM facts shape the code:
  *  - A render target needs a scene of its own, so ui_background_prepare() renders them before the
@@ -49,6 +57,7 @@
 
 #include "context.h"
 #include "ui/ui_background.h"
+#include "ui/ui_background_glyphs.h"
 #include "ui/ui_constants.h"
 #include "ui/ui_theme.h"
 
@@ -114,7 +123,7 @@ static uint32_t ribbon_colour(int i) {
   return colours[i % UI_BG_RIBBON_COLOURS];
 }
 
-/* The blur chain, each level half the size of the one before: the wave is rendered into BASE, and
+/* The blur chain, each level half the size of the one before: the scene is rendered into BASE, and
  * every later level is a 2:1 average of the previous one. Soft shows SOFT, Strong and Dark SMALL.
  */
 typedef enum { TARGET_BASE = 0, TARGET_SOFT, TARGET_MID, TARGET_SMALL, TARGET_COUNT } BlurTargetId;
@@ -123,7 +132,7 @@ typedef struct {
   vita2d_texture *tex;
   unsigned int width;
   unsigned int height;
-  bool valid; /* tex holds the wave for the current vertices */
+  bool valid; /* tex holds the scene for the current vertices */
 } BlurTarget;
 
 static BlurTarget s_targets[TARGET_COUNT] = {
@@ -144,6 +153,10 @@ extern const SceGxmProgram color_v_gxp_start;
 extern const SceGxmProgram color_f_gxp_start;
 extern const SceGxmProgram texture_v_gxp_start;
 extern const SceGxmProgram texture_f_gxp_start;
+
+/* The background the geometry and targets were built for (the sentinel before the first sync). */
+#define BACKGROUND_UNSET (-1)
+static int s_built_background = BACKGROUND_UNSET;
 
 static bool s_ready = false;
 static bool s_geometry_valid = false;
@@ -361,11 +374,22 @@ static void update_dust(float t) {
   }
 }
 
-/** Recomputes every moving vertex for time @p t (ms). */
-static void update_geometry(float t) {
-  for (int i = 0; i < UI_BG_RIBBON_COUNT; i++)
-    update_ribbon(i, t);
-  update_dust(t);
+/** True when the Glyphs scene is the selected background. */
+static bool glyphs_selected(void) {
+  return context.config.background == VITA_BACKGROUND_GLYPHS;
+}
+
+/** Recomputes every moving vertex of the selected scene for the process time @p now_us. */
+static void update_geometry(uint64_t now_us) {
+  const double now_ms = (double)now_us * UI_BG_MS_PER_US;
+  if (glyphs_selected()) {
+    ui_glyphs_update(now_ms);
+  } else {
+    const float t = (float)now_ms;
+    for (int i = 0; i < UI_BG_RIBBON_COUNT; i++)
+      update_ribbon(i, t);
+    update_dust(t);
+  }
   s_geometry_valid = true;
 }
 
@@ -379,15 +403,14 @@ static bool refresh_geometry(bool slow) {
   if (s_geometry_valid && now_us - s_last_update_us < interval_us)
     return false;
 
-  update_geometry((float)now_us * UI_BG_MS_PER_US);
+  update_geometry(now_us);
   s_last_update_us = now_us;
   for (int i = 0; i < TARGET_COUNT; i++)
     s_targets[i].valid = false;
   return true;
 }
 
-/** Issues the wave's draws: backdrop, ribbons, dust. Used for the screen and for the base target.
- */
+/** Issues the Waves draws: backdrop, ribbons, dust. */
 static void draw_wave(void) {
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, s_backdrop, BACKDROP_VERTS);
   for (int i = 0; i < UI_BG_RIBBON_COUNT; i++) {
@@ -395,6 +418,23 @@ static void draw_wave(void) {
     draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_line[i], RIBBON_STRIP_VERTS);
   }
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, s_dust_verts, DUST_VERTS);
+}
+
+/** Issues the Glyphs draws: the gradient, then all symbols in one triangle list. */
+static void draw_glyphs(void) {
+  unsigned int count;
+  const vita2d_color_vertex *verts = ui_glyphs_gradient(&count);
+  draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, verts, count);
+  verts = ui_glyphs_symbols(&count);
+  draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, verts, count);
+}
+
+/** Issues the selected scene's draws. Used for the screen and for the base target. */
+static void draw_scene(void) {
+  if (glyphs_selected())
+    draw_glyphs();
+  else
+    draw_wave();
 }
 
 /* ============================================================================
@@ -530,7 +570,7 @@ static bool blur_targets_ready(void) {
 
 /** The blur level to draw this frame: the setting, or None when it is out of range or unusable. */
 static VitaChiakiBackgroundBlur active_blur(void) {
-  VitaChiakiBackgroundBlur blur = context.config.background_blur;
+  VitaChiakiBackgroundBlur blur = config_background_blur(&context.config);
   if (blur <= VITA_BACKGROUND_BLUR_NONE || blur >= VITA_BACKGROUND_BLUR_COUNT)
     return VITA_BACKGROUND_BLUR_NONE;
   return blur_targets_ready() ? blur : VITA_BACKGROUND_BLUR_NONE;
@@ -548,7 +588,7 @@ static void invalidate_after(int id) {
 }
 
 /**
- * Renders the wave into the base target in a scene of its own. The scene scales the 960x544
+ * Renders the scene into the base target in a scene of its own. The scene scales the 960x544
  * geometry to the target size (the default viewport is the whole target), and the swapped-in
  * MSAA-none colour program makes the draws valid for it. Needs no clear: the opaque gradient
  * covers every pixel.
@@ -558,7 +598,7 @@ static void render_base(void) {
   SceGxmFragmentProgram *saved_program = _vita2d_colorFragmentProgram;
   vita2d_start_drawing_advanced(base->tex, 0);
   _vita2d_colorFragmentProgram = s_target_colour_program;
-  draw_wave();
+  draw_scene();
   _vita2d_colorFragmentProgram = saved_program;
   vita2d_end_drawing();
   base->valid = true;
@@ -611,18 +651,25 @@ static void draw_veil(uint32_t colour) {
  * ============================================================================ */
 
 /**
- * Rebuilds the vertices that carry theme colours when the theme changed since they were built:
- * the backdrop gradient, the horizon glow and the vignette (same build functions, same arrays).
- * The ribbons take their colour at every geometry update, so the next frame refreshes them, and
- * every blur target is stale because it holds the old colours. A compare when nothing changed.
+ * Brings the built vertices in line with the theme and the selected background. When the theme
+ * changed it rebuilds the vertices that carry theme colours: the Waves backdrop gradient and
+ * horizon glow, the Glyphs gradient and the vignette (same build functions, same arrays). The
+ * moving vertices take their colour at every geometry update. When either changed, the geometry
+ * and every blur target are stale (they hold the old colours or the other scene), so the next
+ * frame recomputes them. Two compares when nothing changed.
  */
 static void sync_theme(void) {
   const UiTheme *theme = ui_theme_current();
-  if (theme == s_built_theme)
+  const int background = (int)context.config.background;
+  if (theme == s_built_theme && background == s_built_background)
     return;
-  build_backdrop();
-  build_vignette();
-  s_built_theme = theme;
+  if (theme != s_built_theme) {
+    build_backdrop();
+    build_vignette();
+    ui_glyphs_build_gradient();
+    s_built_theme = theme;
+  }
+  s_built_background = background;
   s_geometry_valid = false;
   for (int i = 0; i < TARGET_COUNT; i++)
     s_targets[i].valid = false;
@@ -632,6 +679,7 @@ void ui_background_init(void) {
   if (s_ready)
     return;
   build_dust();
+  ui_glyphs_init();
   sync_theme();
   s_ready = true;
 }
@@ -659,7 +707,7 @@ void ui_background_draw(bool slow) {
   BlurTarget *target = blur == VITA_BACKGROUND_BLUR_NONE ? NULL : target_for(blur);
   if (!target || !target->tex) {
     refresh_geometry(slow);
-    draw_wave();
+    draw_scene();
     return;
   }
 

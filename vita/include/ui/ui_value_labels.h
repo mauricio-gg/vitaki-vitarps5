@@ -27,6 +27,9 @@ const char *ui_label_on_off(bool on);
 /** ui_label_background_blur() - "None", "Soft", "Strong" or "Dark". */
 const char *ui_label_background_blur(VitaChiakiBackgroundBlur blur);
 
+/** ui_label_background() - "Waves" or "Glyphs" (Waves when out of range). */
+const char *ui_label_background(VitaChiakiBackground background);
+
 /** ui_label_theme() - "Ocean", "Ember", "Orchid", "Moss" or "Graphite" (Ocean when out of range).
  */
 const char *ui_label_theme(VitaChiakiTheme theme);
