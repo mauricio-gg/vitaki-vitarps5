@@ -116,6 +116,30 @@ static vita2d_texture *bake_lines(const UiZoneGrid *g) {
   return tex;
 }
 
+/** mapped_look() - The mapped-cell look in the current theme (the only themed cell look). */
+static CellLook mapped_look(void) {
+  return (CellLook){UI_ZONE_MAPPED_LINE, UI_ZONE_BORDER_LINE, UI_ACCENT_ZONE, 0};
+}
+
+/**
+ * rebake_mapped() - Re-bake the mapped-cell texture when the theme changed since it was baked.
+ * The new texture is baked before the old one is freed, so a failed bake keeps the old colours
+ * (logged by new_texture); the theme is recorded either way so a failure is not retried per frame.
+ */
+static void rebake_mapped(UiZoneGrid *grid) {
+  const UiTheme *theme = ui_theme_current();
+  if (theme == grid->mapped_theme)
+    return;
+  grid->mapped_theme = theme;
+  const CellLook mapped = mapped_look();
+  vita2d_texture *fresh = bake_cell(grid->cell_w, grid->cell_h, &mapped);
+  if (!fresh)
+    return;
+  vita2d_wait_rendering_done();
+  vita2d_free_texture(grid->tex_mapped);
+  grid->tex_mapped = fresh;
+}
+
 bool ui_zone_grid_init(UiZoneGrid *grid, UiRect area, bool read_only) {
   memset(grid, 0, sizeof(*grid));
   grid->cell_w = area.w / UI_ZONE_COLS;
@@ -130,11 +154,12 @@ bool ui_zone_grid_init(UiZoneGrid *grid, UiRect area, bool read_only) {
   grid->hit = grid->visible;
   grid->read_only = read_only;
 
-  const CellLook mapped = {UI_ZONE_MAPPED_LINE, UI_ZONE_BORDER_LINE, UI_ACCENT_ZONE, 0};
+  const CellLook mapped = mapped_look();
   const CellLook cursor = {UI_TEXT, UI_ZONE_BORDER_PICK, UI_FILL_FOCUS, 0};
   const CellLook picked = {UI_TEXT, UI_ZONE_BORDER_PICK, UI_FILL_ON, UI_GLOW_INNER};
   grid->tex_lines = bake_lines(grid);
   grid->tex_mapped = bake_cell(grid->cell_w, grid->cell_h, &mapped);
+  grid->mapped_theme = ui_theme_current();
   grid->tex_cursor = bake_cell(grid->cell_w, grid->cell_h, &cursor);
   grid->tex_picked = bake_cell(grid->cell_w, grid->cell_h, &picked);
   if (!grid->tex_lines || !grid->tex_mapped || !grid->tex_cursor || !grid->tex_picked) {
@@ -182,9 +207,10 @@ static int cell_y(const UiZoneGrid *g, int cell) {
   return g->visible.y + (cell / UI_ZONE_COLS) * g->cell_h;
 }
 
-void ui_zone_grid_draw(const UiZoneGrid *grid) {
+void ui_zone_grid_draw(UiZoneGrid *grid) {
   if (!grid->tex_lines)
     return;
+  rebake_mapped(grid);
   const uint32_t tint = ui_layer_color(TEX_TINT);
   vita2d_draw_texture_tint(grid->tex_lines, (float)grid->visible.x, (float)grid->visible.y, tint);
 

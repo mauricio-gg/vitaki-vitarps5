@@ -57,6 +57,8 @@ typedef struct ui_zone_grid_t {
   struct vita2d_texture *tex_mapped;
   struct vita2d_texture *tex_cursor;
   struct vita2d_texture *tex_picked;
+  const struct UiTheme
+      *mapped_theme;  ///< the theme tex_mapped was baked with; draw re-bakes on change
 } UiZoneGrid;
 
 /**
@@ -86,8 +88,11 @@ void ui_zone_grid_set_cell(UiZoneGrid *grid, int cell, const char *label, bool m
 /** ui_zone_grid_clear_selection() - Drop the picked cells (after the assign popup closes). */
 void ui_zone_grid_clear_selection(UiZoneGrid *grid);
 
-/** ui_zone_grid_draw() - Draw the grid, cell states and labels. No state change. */
-void ui_zone_grid_draw(const UiZoneGrid *grid);
+/**
+ * ui_zone_grid_draw() - Draw the grid, cell states and labels. Re-bakes the mapped-cell texture
+ * first when the colour theme changed since it was baked (once per change, not per frame).
+ */
+void ui_zone_grid_draw(UiZoneGrid *grid);
 
 /** ui_zone_grid_input() - Move the cursor, hold-select, finger-paint. See the file comment. */
 UiEvent ui_zone_grid_input(UiZoneGrid *grid, const UiInput *in);
