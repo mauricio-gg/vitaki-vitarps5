@@ -63,7 +63,7 @@ const sdot=(k)=>`<span class="sdot" style="--dc:${{ready:'var(--ok)',standby:'va
 
 /* C09 Toggle, C10 ChoiceValue, C08 SettingRow */
 const toggle=v=>`<span class="tgl"><span class="sw ${v?'on':''}"></span><span style="width:24px">${v?'On':'Off'}</span></span>`;
-const choice=(txt,i)=>`<span class="chc"><span class="ar" data-do="dec" data-arg="${i}">${ico('back',16)}</span><span class="v">${txt}</span><span class="ar" data-do="inc" data-arg="${i}">${ico('next',16)}</span></span>`;
+const choice=(txt,i,pre='')=>`<span class="chc"><span class="ar" data-do="dec" data-arg="${i}">${ico('back',16)}</span><span class="v">${pre}${txt}</span><span class="ar" data-do="inc" data-arg="${i}">${ico('next',16)}</span></span>`;
 const srow=(o)=>`<div class="srow ${o.sel?'sel':''} ${o.act?'act':''} ${o.dis?'dis':''} ${o.tone||''}" data-do="row" data-arg="${o.i}"><span>${o.label}</span><span class="val">${o.val||''}</span></div>`;
 
 /* C22 TextButton */

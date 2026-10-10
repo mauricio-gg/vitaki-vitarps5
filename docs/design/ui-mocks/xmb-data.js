@@ -34,7 +34,7 @@ const HINT={
 const bannerPill=r=>`<span class="pill warn ban"><span>Streaming stopped:</span><span class="rsn">${r}</span><span>- Please wait a few moments</span></span>`;
 
 /* ---------- settings (inventory: all 16 minus Show Navigation Labels) ---------- */
-const GROUPS=['Video','Network','Display','Controls','Advanced'];
+const GROUPS=['Video','Network','Display','Appearance','Controls','Advanced'];
 const LAT=['Ultra Low (~1.2 Mbps)','Low (~1.8 Mbps)','Balanced (~2.6 Mbps)','High (~3.2 Mbps)','Max (~3.8 Mbps)'];
 const SETTINGS=[
  {id:'quality',g:0,label:'Quality Preset',type:'choice',opts:['360p','540p'],v:1,desc:'Video resolution requested from the console.'},
@@ -48,11 +48,13 @@ const SETTINGS=[
  {id:'net',g:2,label:'Show Network Alerts',type:'toggle',v:true,desc:'Show a badge when the connection becomes unstable.'},
  {id:'exit',g:2,label:'Show Exit Shortcut Hint',type:'toggle',v:true,desc:'Show how to leave the stream when it starts.'},
  {id:'hints',g:2,label:'Show Button Hints',type:'toggle',v:true,desc:'Show the button hints along the bottom of menus.'},
- {id:'blur',g:2,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:0,desc:'Blur the background waves behind menus. Strong and Dark are softer and calmer.'},
- {id:'cc',g:3,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},
- {id:'clamp',g:4,label:'Clamp Soft Restart Bitrate',type:'toggle',v:true,desc:'Limit the bitrate when the stream restarts after packet loss.'},
- {id:'motion',g:4,label:'Motion during loss (artifacts) (Experimental)',type:'toggle',v:false,desc:'Keep motion going while packets are lost. May show visual artifacts.'},
- {id:'log',g:4,label:'Enable Logging',type:'toggle',v:false,desc:'Write diagnostic logs on the Vita for troubleshooting.'}
+ {id:'bg',g:3,label:'Background',type:'choice',opts:['Waves','Glyphs'],v:0,desc:'The picture behind every menu. Waves is the XMB look. Glyphs is the older look with drifting symbols.'},
+ {id:'theme',g:3,label:'Theme',type:'choice',opts:['Ocean','Ember','Orchid','Moss','Graphite'],v:0,desc:'The colour of the waves or symbols, the blur tint and the highlights. Used by both backgrounds. Text and status colours do not change.'},
+ {id:'blur',g:3,label:'Background Blur',type:'choice',opts:['None','Soft','Strong','Dark'],v:0,desc:'Blur the picture behind menus. Strong and Dark are softer and calmer. Remembered for each background.'},
+ {id:'cc',g:4,label:'Circle Button Confirm',type:'toggle',v:false,desc:'Use Circle to confirm and Cross to go back, on every screen.'},
+ {id:'clamp',g:5,label:'Clamp Soft Restart Bitrate',type:'toggle',v:true,desc:'Limit the bitrate when the stream restarts after packet loss.'},
+ {id:'motion',g:5,label:'Motion during loss (artifacts) (Experimental)',type:'toggle',v:false,desc:'Keep motion going while packets are lost. May show visual artifacts.'},
+ {id:'log',g:5,label:'Enable Logging',type:'toggle',v:false,desc:'Write diagnostic logs on the Vita for troubleshooting.'}
 ];
 SETTINGS.forEach(s=>s.d=s.v);
 const SET=id=>SETTINGS.find(s=>s.id===id);

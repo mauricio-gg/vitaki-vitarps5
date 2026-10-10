@@ -167,6 +167,7 @@ img.g{height:24px}
 .sw.on{border-color:var(--text);background:var(--fill-on)}.sw.on::after{transform:translateX(24px);background:var(--text)}
 /* C10 ChoiceValue: chevron tap boxes 48x48 */
 .chc{display:flex;align-items:center}
+.chc .v{display:inline-flex;align-items:center;gap:var(--s1)}
 .chc .ar{width:48px;height:48px;display:flex;align-items:center;justify-content:center;opacity:.5}
 .srow.sel .chc .ar{opacity:1}
 .chc .v{width:224px;text-align:center}

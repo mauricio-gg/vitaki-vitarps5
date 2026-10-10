@@ -32,13 +32,19 @@ function showOnly(id){
 }
 /* Background Blur setting (Settings > Display). The four values map to the wave method (xmb-wave.js) and the veil class. */
 const GLASS=['none','soft','strong','dark'];
-function applyGlass(){
+/* Background (Waves | Glyphs) and Theme (#375, #348). Blur is stored once per background: the Blur row shows the value of the active background. */
+const BLUR=[0,0];
+function themeKey(){const t=SET('theme').v;return ['','ember','orchid','moss','graphite'][t]||'';}
+function applyTheme(){const k=themeKey();if(k)document.documentElement.dataset.theme=k;else delete document.documentElement.dataset.theme;resetPalette();if(reduce)paintWave(0);}
+const BLUR_OPTS=[['None','Soft','Strong','Dark'],['None','Soft']];/* Glyphs: Strong and Dark would erase the 20 to 45 px symbols (1/16 target), so they are not offered */
+function applyBg(){const b=SET('bg').v;S.bg=b?'glyphs':'waves';const bl=SET('blur');bl.opts=BLUR_OPTS[b];if(bl.v>=bl.opts.length)bl.v=0;BLUR[b]=bl.v;}
+function applyGlass(){applyBg();
  const m=GLASS[SET('blur').v];S.glass=m;
  GLASS.forEach(k=>$('#screen').classList.toggle('glass-'+k,m===k));
  if(reduce)paintWave(0);
 }
-/* deep-link param ?glass=none|soft|strong|dark (old names off and strongdark still work) */
-function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexOf(m);if(i<0)return;SET('blur').v=i;applyGlass();}function paintTop(){
+/* deep-link params ?glass=none|soft|strong|dark &bg=waves|glyphs &theme=ocean|ember|orchid|moss|graphite (old names off and strongdark still work) */
+function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexOf(m);if(i<0)return;SET('blur').v=i;BLUR[SET('bg').v]=i;applyGlass();}function paintTop(){
  const ban=S.screen==='home'&&S.cat===0&&CONSOLES.some(c=>c.cool);
  $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
 }
@@ -104,7 +110,7 @@ const pairedCount=()=>S.noConsoles?0:CONSOLES.filter(c=>c.reg).length;
 const hasFilterRow=()=>pairedCount()>4||!!S.flt;
 /* row 0 is always '+ Pair new device'; the Filter row (when shown) is row 1; focus starts on the first console, or on Pair new device when there is none */
 const firstSel=()=>visCons().length?1+(hasFilterRow()?1:0):0;
-const GICON=['video','network','display','controls','advanced'];
+const GICON=['video','network','display','appearance','controls','advanced'];
 function items(ci){
  if(ci===0){
   const L=visCons().map(c=>({k:'console',c,t:c.name}));
@@ -344,7 +350,7 @@ function pageAct(r){
  }
 }
 function pageChange(d){
- const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur')applyGlass();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
+ const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur'){BLUR[SET('bg').v]=s.v;applyGlass();}else if(s.id==='bg'){SET('blur').v=BLUR[s.v];applyGlass();}else if(s.id==='theme')applyTheme();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
  paintPage(false);
 }
 
@@ -703,7 +709,7 @@ const JUMPS=[
  ['Pairing','pin','PIN entry (empty)'],['Pairing','pin-partial','PIN entry (partly filled)'],['Pairing','pin-full','PIN entry (ready to register)'],['Pairing','result-paired','Result: paired'],['Pairing','result-pair-failed','Result: PIN not accepted'],['Pairing','result-pair-timeout','Result: pairing timed out'],['Pairing','result-pair-unreachable','Result: console unreachable'],['Pairing','result-connect-failed','Result: could not connect'],
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
  ['Stream','stream','Stream overlay'],['Stream','stream-stats','Stream with stats'],['Stream','unstable','Network unstable'],['Stream','stream-quiet','Overlay after hint faded'],
- ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
+ ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-appearance','Appearance (Background, Theme, Blur)'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
  ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
@@ -775,8 +781,8 @@ Object.assign(DL,{
  'stream-stats':()=>{S.unst=false;SET('lat').v=true;openStream();},
  unstable:()=>{S.unst=true;SET('lat').v=true;openStream();$('#bUn').classList.add('on');$('#bUn').textContent='Network unstable: on';},
  'stream-quiet':()=>{S.unst=false;SET('lat').v=false;openStream();S.exitStart=Date.now()-6000;paintHud();},
- settings:()=>openPage('settings',0,'r'),'settings-network':()=>openPage('settings',1,'r'),'settings-display':()=>openPage('settings',2,'r'),'settings-controls':()=>openPage('settings',3,'r'),'settings-advanced':()=>openPage('settings',4,'r'),
- 'settings-circle':()=>{SET('cc').v=true;openPage('settings',3,'r');},
+ settings:()=>openPage('settings',0,'r'),'settings-network':()=>openPage('settings',1,'r'),'settings-display':()=>openPage('settings',2,'r'),'settings-appearance':()=>openPage('settings',3,'r'),'settings-controls':()=>openPage('settings',4,'r'),'settings-advanced':()=>openPage('settings',5,'r'),
+ 'settings-circle':()=>{SET('cc').v=true;openPage('settings',4,'r');},
  profile:()=>{S.psn='auth';openPage('profile',0,'r');},
  'profile-connection':()=>{S.pconn='wifi';openPage('profile',1,'r');},
  'profile-connection-standby':()=>{S.pconn='standby';openPage('profile',1,'r');},
@@ -835,7 +841,7 @@ function init(){
 }
 function fit(){const dev=$('#wrap').classList.contains('dev'),w=dev?1260:960,f=Math.min(1,(innerWidth-32)/w);$('#wrap').style.setProperty('--z',+(S.zoom*f).toFixed(3));}
 init();applyGlass();
-function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),gm=q&&(new URLSearchParams(q).get('glass'));if(gm)setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
+function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),qs=q&&new URLSearchParams(q),gm=qs&&qs.get('glass');if(qs&&qs.get('bg')){SET('bg').v=qs.get('bg')==='glyphs'?1:0;SET('blur').v=BLUR[SET('bg').v];applyGlass();}if(qs&&qs.get('theme')){const ti=SET('theme').opts.map(x=>x.toLowerCase()).indexOf(qs.get('theme'));if(ti>=0){SET('theme').v=ti;applyTheme();}}if(gm)setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
 addEventListener('hashchange',route);
 if(location.hash)setTimeout(route,60);else jump('home');
 document.addEventListener('dragstart',e=>e.preventDefault());
