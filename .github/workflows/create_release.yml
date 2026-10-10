@@ -35,8 +35,8 @@ jobs:
       - name: Get latest tag
         id: get_latest_tag
         run: |
-          # Get the latest tag, or default to v0.0.0 if no tags exist
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Get the latest version tag (v + digit only), or default to v0.0.0 if none exist
+          LATEST_TAG=$(git describe --tags --abbrev=0 --match "v[0-9]*" 2>/dev/null || echo "v0.0.0")
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
           echo "Latest tag: $LATEST_TAG"
 
