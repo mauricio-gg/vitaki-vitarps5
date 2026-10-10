@@ -39,6 +39,18 @@ typedef enum vita_chiaki_background_blur_t {
   VITA_BACKGROUND_BLUR_COUNT
 } VitaChiakiBackgroundBlur;
 
+/// Colour theme of the XMB UI (issue #348). The integer is what is saved under settings.theme, so
+/// presets may only be appended before THEME_COUNT; reordering or inserting would recolour every
+/// existing user's saved choice.
+typedef enum vita_chiaki_theme_t {
+  VITA_THEME_OCEAN = 0,
+  VITA_THEME_EMBER,
+  VITA_THEME_ORCHID,
+  VITA_THEME_MOSS,
+  VITA_THEME_GRAPHITE,
+  VITA_THEME_COUNT
+} VitaChiakiTheme;
+
 /// Settings for the app
 typedef struct vita_chiaki_config_t {
   int cfg_version;
@@ -85,6 +97,7 @@ typedef struct vita_chiaki_config_t {
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
   VitaChiakiBackgroundBlur background_blur;  // Menu background treatment, default None
+  VitaChiakiTheme theme;                     // XMB colour theme, default Ocean
   bool show_button_hints;    // Draw the button hint row on menus (not the in-stream exit hint)
   RoomIconTable room_icons;  // Per-console room icon choices, keyed by console MAC
 } VitaChiakiConfig;

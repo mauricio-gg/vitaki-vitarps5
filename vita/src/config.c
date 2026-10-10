@@ -59,6 +59,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->clamp_soft_restart_bitrate = true;
   cfg->submit_on_missing_ref = false;
   cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+  cfg->theme = VITA_THEME_OCEAN;
   cfg->show_button_hints = true;
   cfg->room_icons.count = 0;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
@@ -380,6 +381,25 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
 }
 
 /*
+ * parse_theme — Reads settings.theme. A missing key keeps the default; a value outside the
+ * VitaChiakiTheme range is not trusted (it indexes the theme table) and resets to Ocean.
+ */
+static void parse_theme(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  toml_datum_t datum = toml_int_in(settings, "theme");
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_THEME_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range theme %lld; using %d", (long long)datum.u.i,
+                VITA_THEME_OCEAN);
+    cfg->theme = VITA_THEME_OCEAN;
+    return;
+  }
+  cfg->theme = (VitaChiakiTheme)datum.u.i;
+}
+
+/*
  * parse_background_blur — Reads settings.background_blur. A missing key keeps the default;
  * a value outside the VitaChiakiBackgroundBlur range is not trusted and resets to the default.
  */
@@ -559,6 +579,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
   parse_background_blur(cfg, settings);
+  parse_theme(cfg, settings);
 
   // Security: runtime logging overrides are compile-time gated.
   parse_logging_settings(cfg, parsed);
@@ -751,6 +772,7 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
   fprintf(fp, "background_blur = %d\n", (int)cfg->background_blur);
+  fprintf(fp, "theme = %d\n", (int)cfg->theme);
 
   // Save 3 custom map slots
   for (int slot = 0; slot < 3; slot++) {
