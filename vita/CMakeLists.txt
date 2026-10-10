@@ -2,17 +2,26 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "VitaRPS5")
 set(VITA_TITLEID  "VRPS50001")  # VitaRPS5 unique ID (changed from CHIAKI001 to force LiveArea refresh)
-# TODO: Make it dynamic
-set(VITA_VERSION "00.06")
+# NN.NN app version for param.sfo. tools/build.sh always passes -DVITA_VERSION;
+# the default only applies to a bare cmake run.
+if(NOT VITA_VERSION)
+    set(VITA_VERSION "00.06")
+endif()
 
 add_executable(${VITA_APP_NAME}.elf
     src/config.c
+    src/config_writer.c
     src/config_migration.c
     src/config_values.c
     src/config_hosts.c
+    src/room_icons.c
+    src/ui/ui_room_icons.c
+    src/ui/ui_asset_preload.c
     src/context.c
     src/discovery.c
     src/discovery_host.c
+    src/discovery_probe.c
+    src/ip_address.c
     src/main.c
     src/ui.c
     src/util.c
@@ -26,11 +35,14 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_metrics.c
     src/host_quit.c
     src/host_registration.c
+    src/host_registration_result.c
     src/host_recovery.c
     src/host_storage.c
     src/psn_auth.c
+    src/psn_auth_rules.c
     src/vita_dns.c
     src/psn_remote.c
+    src/psn_background_refresh.c
     src/token_crypto.c
     src/controller.c
     src/controller_metadata.c
@@ -46,13 +58,79 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_input.c
     src/ui/ui_state.c
     src/ui/ui_components.c
-    src/ui/ui_navigation.c
     src/ui/ui_console_cards.c
     src/ui/ui_screens.c
-    src/ui/ui_focus.c
     src/ui/ui_qr.c
     src/ui/ui_controller_diagram.c
     src/ui/ui_text.c
+    src/ui/ui_component.c
+    src/ui/ui_console_status.c
+    src/ui/ui_result_copy.c
+    src/ui/ui_connect_failure.c
+    src/ui/ui_console_rows.c
+    src/ui/ui_category_bar.c
+    src/ui/ui_xmb_list.c
+    src/ui/ui_home.c
+    src/ui/ui_home_detail.c
+    src/ui/ui_detail_panel.c
+    src/ui/ui_text_wrap.c
+    src/ui/ui_value_labels.c
+    src/ui/ui_background.c
+    src/ui/ui_background_glyphs.c
+    src/ui/ui_theme.c
+    src/ui/ui_shapes.c
+    src/ui/ui_pill.c
+    src/ui/ui_stream_stats.c
+    src/ui/ui_top_bar.c
+    src/ui/ui_hint_row.c
+    src/ui/ui_chrome_layout.c
+    src/ui/ui_bake.c
+    src/ui/ui_type_logo.c
+    src/ui/ui_page_frame.c
+    src/ui/ui_spinner.c
+    src/ui/ui_splash.c
+    src/ui/ui_splash_particles.c
+    src/ui/ui_connecting_ring.c
+    src/ui/ui_steps.c
+    src/ui/ui_text_button.c
+    src/ui/ui_connecting_flow.c
+    src/ui/ui_connecting.c
+    src/ui/ui_group_list.c
+    src/ui/ui_gesture.c
+    src/ui/ui_zone_select.c
+    src/ui/ui_zone_grid.c
+    src/ui/ui_setting_list.c
+    src/ui/ui_scroll_indicator.c
+    src/ui/ui_settings_actions.c
+    src/ui/ui_settings.c
+    src/ui/ui_profile.c
+    src/ui/ui_profile_login.c
+    src/ui/ui_qr_panel.c
+    src/ui/ui_utf16.c
+    src/ui/ui_filter_keyboard.c
+    src/ui/ui_toast.c
+    src/ui/ui_reconnecting.c
+    src/ui/ui_gradient.c
+    src/ui/ui_downsample.c
+    src/ui/ui_freeze.c
+    src/ui/ui_popup.c
+    src/ui/ui_list_popup.c
+    src/ui/ui_result_popup.c
+    src/ui/ui_pair_hosts.c
+    src/ui/ui_pair_ip.c
+    src/ui/ui_pair_popup.c
+    src/ui/ui_pin.c
+    src/ui/ui_pin_field.c
+    src/ui/ui_pin_digits.c
+    src/ui/ui_options_column.c
+    src/ui/ui_home_options.c
+    src/ui/ui_chevron.c
+    src/ui/ui_arrow.c
+    src/ui/ui_controller_page.c
+    src/ui/ui_controller_mapping.c
+    src/ui/ui_controller_zones.c
+    src/ui/ui_controller_rules.c
+    src/ui/ui_controller_model.c
 
     third_party/tomlc99/toml.c
     third_party/h264-bitstream/h264_nal.c
@@ -140,7 +218,9 @@ endif()
 if(DEFINED VITARPS5_DEBUG_TOOLS)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_TOOLS=${VITARPS5_DEBUG_TOOLS})
     if(VITARPS5_DEBUG_TOOLS)
-        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c)
+        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c src/ui/ui_draw_stats.c)
+        # Ticket #300: count every sceGxmDraw (ui_draw_stats.c). Testing builds only.
+        target_link_options(${VITA_APP_NAME}.elf PRIVATE -Wl,--wrap=sceGxmDraw)
     endif()
 endif()
 
@@ -233,29 +313,71 @@ if(CHIAKI_IS_VITA)
         # Textures, other assets
         FILE res/assets/ps4.png assets/ps4.png
         FILE res/assets/controller_front.png assets/controller_front.png
-        FILE res/assets/controller_back.png assets/controller_back.png
+        FILE res/assets/controller_back_clean.png assets/controller_back_clean.png
         FILE res/assets/fonts/Roboto-Regular.ttf assets/fonts/Roboto-Regular.ttf
-        FILE res/assets/fonts/RobotoMono-Regular.ttf assets/fonts/RobotoMono-Regular.ttf
+        FILE res/assets/fonts/Roboto-Light.ttf assets/fonts/Roboto-Light.ttf
         # VitaRPS5 UI Assets - all consolidated in assets/ directory
         FILE assets/symbol_triangle.png assets/symbol_triangle.png
         FILE assets/symbol_circle.png assets/symbol_circle.png
         FILE assets/symbol_ex.png assets/symbol_ex.png
         FILE assets/symbol_square.png assets/symbol_square.png
-        FILE assets/ellipse_green.png assets/ellipse_green.png
-        FILE assets/ellipse_yellow.png assets/ellipse_yellow.png
-        FILE assets/ellipse_red.png assets/ellipse_red.png
-        FILE assets/button_add_new.png assets/button_add_new.png
         # Navigation Icons
         FILE assets/icon_settings.png assets/icon_settings.png
-        FILE assets/icon_controller.png assets/icon_controller.png
-        FILE assets/icon_profile.png assets/icon_profile.png
         FILE assets/icon_play.png assets/icon_play.png
-        FILE assets/icon_button_triangle.png assets/icon_button_triangle.png
-        # Professional UI assets (gradient background, logo, controller diagrams)
-        FILE assets/background.png assets/background.png
+        # XMB UI icons: category icons 48 px, item icons 38 px (flat white)
+        FILE assets/icons/controller.png assets/icons/controller.png
+        FILE assets/icons/profile.png assets/icons/profile.png
+        FILE assets/icons/video.png assets/icons/video.png
+        FILE assets/icons/network.png assets/icons/network.png
+        FILE assets/icons/display.png assets/icons/display.png
+        FILE assets/icons/appearance.png assets/icons/appearance.png
+        FILE assets/icons/controls.png assets/icons/controls.png
+        FILE assets/icons/advanced.png assets/icons/advanced.png
+        FILE assets/icons/account.png assets/icons/account.png
+        FILE assets/icons/connection.png assets/icons/connection.png
+        FILE assets/icons/psn.png assets/icons/psn.png
+        FILE assets/icons/slot1.png assets/icons/slot1.png
+        FILE assets/icons/slot2.png assets/icons/slot2.png
+        FILE assets/icons/slot3.png assets/icons/slot3.png
+        FILE assets/icons/search.png assets/icons/search.png
+        FILE assets/icons/plus.png assets/icons/plus.png
+        FILE assets/icons/wifi.png assets/icons/wifi.png
+        FILE assets/icons/battery.png assets/icons/battery.png
+        # Connecting screen: 32 px page-title icons. Room icons (list rows 38, picker 48, ring 64)
+        FILE assets/icons/page_lan.png assets/icons/page_lan.png
+        FILE assets/icons/page_globe.png assets/icons/page_globe.png
+        FILE assets/icons/page_moon.png assets/icons/page_moon.png
+        FILE assets/icons/page_wifi.png assets/icons/page_wifi.png
+        FILE assets/icons/page_gear.png assets/icons/page_gear.png
+        FILE assets/icons/page_lock.png assets/icons/page_lock.png
+        FILE assets/icons/page_profile.png assets/icons/page_profile.png
+        FILE assets/icons/page_controller.png assets/icons/page_controller.png
+        FILE assets/icons/popup_check.png assets/icons/popup_check.png
+        FILE assets/icons/popup_warn.png assets/icons/popup_warn.png
+        FILE assets/icons/room_tv_38.png assets/icons/room_tv_38.png
+        FILE assets/icons/room_tv_48.png assets/icons/room_tv_48.png
+        FILE assets/icons/room_tv_64.png assets/icons/room_tv_64.png
+        FILE assets/icons/room_sofa_38.png assets/icons/room_sofa_38.png
+        FILE assets/icons/room_sofa_48.png assets/icons/room_sofa_48.png
+        FILE assets/icons/room_sofa_64.png assets/icons/room_sofa_64.png
+        FILE assets/icons/room_bed_38.png assets/icons/room_bed_38.png
+        FILE assets/icons/room_bed_48.png assets/icons/room_bed_48.png
+        FILE assets/icons/room_bed_64.png assets/icons/room_bed_64.png
+        FILE assets/icons/room_bunk_38.png assets/icons/room_bunk_38.png
+        FILE assets/icons/room_bunk_48.png assets/icons/room_bunk_48.png
+        FILE assets/icons/room_bunk_64.png assets/icons/room_bunk_64.png
+        FILE assets/icons/room_desk_38.png assets/icons/room_desk_38.png
+        FILE assets/icons/room_desk_48.png assets/icons/room_desk_48.png
+        FILE assets/icons/room_desk_64.png assets/icons/room_desk_64.png
+        FILE assets/icons/room_house_38.png assets/icons/room_house_38.png
+        FILE assets/icons/room_house_48.png assets/icons/room_house_48.png
+        FILE assets/icons/room_house_64.png assets/icons/room_house_64.png
+        FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
+        FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
+        FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
+        # Logos
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/PS5_logo.png assets/PS5_logo.png
         FILE ../assets/psn-ca-bundle.pem assets/psn-ca-bundle.pem
-        # Controller layout screen now uses procedural rendering - PNG outlines removed
     )
 endif()

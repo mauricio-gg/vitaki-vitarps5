@@ -231,4 +231,3 @@ void controller_map_storage_set_defaults(ControllerMapStorage *storage);
 VitakiCtrlOut controller_map_get_output_for_input(const VitakiCtrlMapInfo *vcmi,
                                                   VitakiCtrlIn input);
 const char *controller_output_name(VitakiCtrlOut button);
-const char *controller_output_symbol(VitakiCtrlOut button);

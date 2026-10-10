@@ -9,7 +9,6 @@
 #include "chiaki/base64.h"
 #include "config.h"
 #include "context.h"
-#include "ui/ui_screens.h"
 
 VitaChiakiContext context = {0};
 
@@ -49,9 +48,10 @@ bool mac_addrs_match(MacAddr *a, MacAddr *b) {
   return memcmp(a, b, sizeof(MacAddr)) == 0;
 }
 
-void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
+bool save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
   (void)rhost;
   (void)new_hostname;
+  return true;
 }
 
 void delete_manual_host(VitaChiakiHost *mhost) {
@@ -336,20 +336,17 @@ static void test_root_level_bool_migration(void) {
       "[general]\n"
       "version = 1\n"
       "\n"
-      "show_nav_labels = true\n"
-      "show_only_paired = true\n"
+      "stretch_video = true\n"
       "clamp_soft_restart_bitrate = false\n");
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.show_nav_labels == true);
-  assert(cfg.show_only_paired == true);
+  assert(cfg.stretch_video == true);
   assert(cfg.clamp_soft_restart_bitrate == false);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "show_nav_labels = true") != NULL);
-  assert(strstr(rewritten, "show_only_paired = true") != NULL);
+  assert(strstr(rewritten, "stretch_video = true") != NULL);
   assert(strstr(rewritten, "clamp_soft_restart_bitrate = false") != NULL);
   free(rewritten);
 }
@@ -409,21 +406,6 @@ static void test_resolution_roundtrip(void) {
   }
 }
 
-static void test_settings_streaming_item_invariants(void) {
-  assert(UI_SETTINGS_ITEM_QUALITY_PRESET == 0);
-  assert(UI_SETTINGS_ITEM_LATENCY_MODE == 1);
-  assert(UI_SETTINGS_ITEM_FPS_TARGET == 2);
-  assert(UI_SETTINGS_ITEM_FORCE_30_FPS == 3);
-  assert(UI_SETTINGS_ITEM_AUTO_DISCOVERY == 4);
-  assert(UI_SETTINGS_ITEM_SHOW_LATENCY == 5);
-  assert(UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS == 6);
-  assert(UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE == 7);
-  assert(UI_SETTINGS_ITEM_FILL_SCREEN == 8);
-  assert(UI_SETTINGS_ITEM_SHOW_NAV_LABELS == 9);
-  assert(UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM == 10);
-  assert(UI_SETTINGS_STREAMING_ITEM_COUNT == 11);
-}
-
 static void test_registered_hosts_require_required_fields(void) {
   reset_config_file();
   write_config_text(
@@ -452,6 +434,234 @@ static void test_registered_hosts_require_required_fields(void) {
   assert(cfg.registered_hosts[0]->registered_state->rp_regist_key[0] != '\0');
 }
 
+/* catches: a config saved before these keys existed loading with blur or hints wrong, the new
+ * background keys disturbing values that were already there, or an existing user's saved Waves blur
+ * being lost when the Glyphs keys are absent. */
+static void test_old_config_gets_new_field_defaults(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "fps = 60\n"
+      "show_latency = true\n"
+      "stretch_video = true\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.background == VITA_BACKGROUND_WAVES);
+  assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  assert(cfg.background_blur_glyphs == VITA_BACKGROUND_BLUR_NONE);
+  assert(cfg.theme == VITA_THEME_OCEAN);
+  assert(cfg.show_button_hints == true);
+  assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
+  assert(cfg.show_latency == true);
+  assert(cfg.stretch_video == true);
+}
+
+/* catches: the removed Show Only Paired key lingering in the config file forever (written back
+ * on every save), or an old file that still carries it failing to load its other settings. */
+static void test_removed_show_only_paired_key_is_dropped(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "show_only_paired = true\n"
+      "show_latency = true\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_latency == true);
+  assert(config_serialize(&cfg));
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "show_only_paired") == NULL);
+  assert(strstr(rewritten, "show_latency = true") != NULL);
+  free(rewritten);
+}
+
+/* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the
+ * setting reverts after a restart. */
+static void test_new_fields_survive_save_and_load(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.background_blur = VITA_BACKGROUND_BLUR_STRONG;
+  cfg.theme = VITA_THEME_GRAPHITE;
+  cfg.show_button_hints = false;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+  assert(loaded.theme == VITA_THEME_GRAPHITE);
+  assert(loaded.show_button_hints == false);
+}
+
+/* catches: the Glyphs choice or its blur being lost on save or load, or the two backgrounds
+ * sharing one blur so changing Glyphs overwrites what Waves remembered. */
+static void test_background_and_per_background_blur_survive_save_and_load(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.background = VITA_BACKGROUND_GLYPHS;
+  cfg.background_blur = VITA_BACKGROUND_BLUR_STRONG;
+  cfg.background_blur_glyphs = VITA_BACKGROUND_BLUR_SOFT;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.background == VITA_BACKGROUND_GLYPHS);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+  assert(loaded.background_blur_glyphs == VITA_BACKGROUND_BLUR_SOFT);
+  assert(config_background_blur(&loaded) == VITA_BACKGROUND_BLUR_SOFT);
+
+  config_set_background_blur(&loaded, VITA_BACKGROUND_BLUR_DARK);
+  assert(loaded.background_blur_glyphs == VITA_BACKGROUND_BLUR_DARK);
+  assert(loaded.background_blur == VITA_BACKGROUND_BLUR_STRONG);
+
+  loaded.background = VITA_BACKGROUND_WAVES;
+  assert(config_background_blur(&loaded) == VITA_BACKGROUND_BLUR_STRONG);
+}
+
+/* catches: a hand-edited or corrupt blur value outside 0..3 being trusted, which would index
+ * past the background levels. */
+static void test_out_of_range_blur_is_rejected(void) {
+  const int bad_values[] = {-1, 4, 99};
+  for (size_t i = 0; i < sizeof(bad_values) / sizeof(bad_values[0]); i++) {
+    char text[160];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\nbackground_blur = %d\n",
+             bad_values[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.background_blur == VITA_BACKGROUND_BLUR_NONE);
+  }
+}
+
+/* catches: a hand-edited or corrupt background or Glyphs blur value being trusted, which would
+ * select a background that does not exist or index past the blur levels. */
+static void test_out_of_range_background_keys_are_rejected(void) {
+  const int bad_backgrounds[] = {-1, 2, 99};
+  const int bad_blurs[] = {-1, 4, 99};
+  for (size_t i = 0; i < sizeof(bad_backgrounds) / sizeof(bad_backgrounds[0]); i++) {
+    char text[200];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\n"
+             "background = %d\nbackground_blur_glyphs = %d\n",
+             bad_backgrounds[i], bad_blurs[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.background == VITA_BACKGROUND_WAVES);
+    assert(cfg.background_blur_glyphs == VITA_BACKGROUND_BLUR_NONE);
+  }
+}
+
+/* catches: a hand-edited or corrupt theme value outside 0..4 being trusted, which would index
+ * past the theme table. */
+static void test_out_of_range_theme_is_rejected(void) {
+  const int bad_values[] = {-1, 5, 99};
+  for (size_t i = 0; i < sizeof(bad_values) / sizeof(bad_values[0]); i++) {
+    char text[160];
+    snprintf(text, sizeof(text),
+             "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\ntheme = %d\n",
+             bad_values[i]);
+    reset_config_file();
+    write_config_text(text);
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    assert(cfg.theme == VITA_THEME_OCEAN);
+  }
+}
+
+/* catches: a console's chosen room icon being lost on save or load (so every console reverts to
+ * the TV after a restart), or one console's choice landing on another console. */
+static void test_room_icons_survive_save_and_load(void) {
+  const uint8_t mac_a[6] = {0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e};
+  const uint8_t mac_b[6] = {0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa};
+  const uint8_t mac_other[6] = {0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5f};
+
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(room_icons_set(&cfg.room_icons, mac_a, ROOM_ICON_BEDROOM));
+  assert(room_icons_set(&cfg.room_icons, mac_b, ROOM_ICON_ANOTHER_PLACE));
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(room_icons_get(&loaded.room_icons, mac_a) == ROOM_ICON_BEDROOM);
+  assert(room_icons_get(&loaded.room_icons, mac_b) == ROOM_ICON_ANOTHER_PLACE);
+  assert(room_icons_get(&loaded.room_icons, mac_other) == ROOM_ICON_TV);
+}
+
+/* catches: a hand-edited or corrupt room_icons entry being trusted: an icon outside the art
+ * (which would index past the textures), a malformed or all-zero MAC, or a repeated MAC
+ * overriding the first. The one good entry must still load. */
+static void test_bad_room_icon_entries_are_ignored(void) {
+  const uint8_t good_mac[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+  reset_config_file();
+  write_config_text(
+      "[general]\nversion = 1\n\n[settings]\ncontroller_map_id = 201\n"
+      "\n[[room_icons]]\nmac = \"010203040506\"\nicon = 4\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = 99\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = -1\n"
+      "\n[[room_icons]]\nmac = \"0a0b0c0d0e0f\"\nicon = 0\n"
+      "\n[[room_icons]]\nmac = \"0102\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"zz0203040506\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"000000000000\"\nicon = 2\n"
+      "\n[[room_icons]]\nmac = \"010203040506\"\nicon = 3\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.room_icons.count == 1);
+  assert(room_icons_get(&cfg.room_icons, good_mac) == ROOM_ICON_OFFICE);
+}
+
+/* catches: a console with no MAC being given a stored icon (it has no identity, so the choice
+ * would leak onto every other MAC-less console); an out-of-range choice being stored; choosing
+ * the TV leaving a stale entry that comes back after a restart; and a full table overwriting or
+ * corrupting existing choices. */
+static void test_room_icon_set_rules(void) {
+  const uint8_t no_mac[6] = {0};
+  const uint8_t mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+  RoomIconTable table = {0};
+
+  assert(!room_icons_set(&table, no_mac, ROOM_ICON_DORM));
+  assert(room_icons_get(&table, no_mac) == ROOM_ICON_TV);
+  assert(!room_icons_set(&table, mac, ROOM_ICON_COUNT));
+  assert(!room_icons_set(&table, mac, -1));
+  assert(table.count == 0);
+
+  assert(room_icons_set(&table, mac, ROOM_ICON_DORM));
+  assert(room_icons_set(&table, mac, ROOM_ICON_TV));
+  assert(table.count == 0);
+  assert(room_icons_get(&table, mac) == ROOM_ICON_TV);
+
+  for (int i = 0; i < MAX_ROOM_ICON_ENTRIES; i++) {
+    const uint8_t fill[6] = {0xaa, 0, 0, 0, 0, (uint8_t)(i + 1)};
+    assert(room_icons_set(&table, fill, ROOM_ICON_OFFICE));
+  }
+  assert(!room_icons_set(&table, mac, ROOM_ICON_DORM));
+  assert(room_icons_get(&table, mac) == ROOM_ICON_TV);
+  const uint8_t first[6] = {0xaa, 0, 0, 0, 0, 1};
+  assert(room_icons_set(&table, first, ROOM_ICON_BEDROOM));
+  assert(room_icons_get(&table, first) == ROOM_ICON_BEDROOM);
+  assert(table.count == MAX_ROOM_ICON_ENTRIES);
+}
+
 void run_packet_path_tests(void);
 void run_json_escape_tests(void);
 void run_token_crypto_tests(void);
@@ -463,8 +673,17 @@ int main(void) {
   test_root_level_bool_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
-  test_settings_streaming_item_invariants();
   test_registered_hosts_require_required_fields();
+  test_old_config_gets_new_field_defaults();
+  test_removed_show_only_paired_key_is_dropped();
+  test_new_fields_survive_save_and_load();
+  test_out_of_range_blur_is_rejected();
+  test_out_of_range_theme_is_rejected();
+  test_out_of_range_background_keys_are_rejected();
+  test_background_and_per_background_blur_survive_save_and_load();
+  test_room_icons_survive_save_and_load();
+  test_bad_room_icon_entries_are_ignored();
+  test_room_icon_set_rules();
   run_packet_path_tests();
   run_json_escape_tests();
   run_token_crypto_tests();

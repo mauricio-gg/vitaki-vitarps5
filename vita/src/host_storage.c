@@ -57,20 +57,20 @@ bool mac_addrs_match(MacAddr *a, MacAddr *b) {
   return true;
 }
 
-void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
+bool save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
   if (!rhost || !new_hostname || !new_hostname[0]) {
     CHIAKI_LOGE(&(context.log), "Missing host or hostname; could not save manual host.");
-    return;
+    return false;
   }
 
   if (mac_addr_is_zero(&(rhost->server_mac))) {
-    CHIAKI_LOGE(&(context.log), "Missing host MAC; could not save manual host.");
-    return;
+    CHIAKI_LOGE(&(context.log), "Missing host MAC; could not save manual host %s.", new_hostname);
+    return false;
   }
 
   if (context.config.num_manual_hosts >= MAX_MANUAL_HOSTS) {
-    CHIAKI_LOGE(&(context.log), "Max manual hosts reached; could not save.");
-    return;
+    CHIAKI_LOGE(&(context.log), "Max manual hosts reached; could not save %s.", new_hostname);
+    return false;
   }
 
   for (int i = 0; i < context.config.num_manual_hosts; i++) {
@@ -80,15 +80,15 @@ void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
     if (mac_addrs_match(&(h->server_mac), &(rhost->server_mac))) {
       if (strcmp(h->hostname, new_hostname) == 0) {
         CHIAKI_LOGW(&(context.log), "Duplicate manual host. Not saving.");
-        return;
+        return true;
       }
     }
   }
 
   VitaChiakiHost *newhost = (VitaChiakiHost *)calloc(1, sizeof(VitaChiakiHost));
   if (!newhost) {
-    CHIAKI_LOGE(&(context.log), "Out of memory while saving manual host.");
-    return;
+    CHIAKI_LOGE(&(context.log), "Out of memory while saving manual host %s.", new_hostname);
+    return false;
   }
   copy_host(newhost, rhost, false);
   snprintf(newhost->hostname, sizeof(newhost->hostname), "%s", new_hostname);
@@ -116,6 +116,7 @@ void save_manual_host(VitaChiakiHost *rhost, char *new_hostname) {
   LOGD("> UPDATE CONTEXT...");
   update_context_hosts();
   LOGD("> UPDATE CONTEXT DONE");
+  return true;
 }
 
 void delete_manual_host(VitaChiakiHost *mhost) {

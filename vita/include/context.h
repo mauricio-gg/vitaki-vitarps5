@@ -41,6 +41,19 @@
     }                                                                                     \
   } while (0)
 // debugNetPrintf(ERROR, "%ju "fmt"\n", timestamp __VA_OPT__(,) __VA_ARGS__);
+#define LOGW(fmt, ...)                                                                   \
+  do {                                                                                   \
+    uint64_t timestamp = sceKernelGetProcessTimeWide();                                  \
+    char msg[800];                                                                       \
+    sceClibSnprintf(msg, sizeof(msg), "[WARN] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
+    sceClibPrintf("%s", msg);                                                            \
+    vita_log_submit_line(CHIAKI_LOG_WARNING, msg);                                       \
+    if (!context.stream.is_streaming) {                                                  \
+      if (context.mlog) {                                                                \
+        write_message_log(context.mlog, msg);                                            \
+      }                                                                                  \
+    }                                                                                    \
+  } while (0)
 
 typedef struct vita_chiaki_context_t {
   ChiakiLog log;

@@ -2,6 +2,8 @@
 #include "host_constants.h"
 #include "host_feedback.h"
 #include "host_loss_profile.h"
+#include "ui/ui_connect_failure.h"
+#include "ui/ui_console_status.h"
 #include "video.h"
 
 #include <psp2/kernel/processmgr.h>
@@ -37,19 +39,16 @@ void host_set_hint(VitaChiakiHost *host, const char *msg, bool is_error, uint64_
     host->status_hint_is_error = is_error;
     uint64_t now_us = sceKernelGetProcessTimeWide();
     host->status_hint_expire_us = duration_us ? (now_us + duration_us) : 0;
-    if (is_error) {
-      context.ui_state.error_popup_active = true;
-      sceClibSnprintf(context.ui_state.error_popup_text, sizeof(context.ui_state.error_popup_text),
-                      "%s", msg);
-    }
+    /* A failure the user must act on opens the "Could not connect" popup; a message the app is
+     * retrying through (some are flagged as errors) stays status text only. */
+    if (ui_console_hint_is_failure(msg, is_error))
+      ui_connect_failure_post(host, msg);
   } else {
     host->status_hint[0] = '\0';
     host->status_hint_is_error = false;
     host->status_hint_expire_us = 0;
-    if (is_error) {
-      context.ui_state.error_popup_active = false;
-      context.ui_state.error_popup_text[0] = '\0';
-    }
+    if (is_error)
+      ui_connect_failure_clear(host);
   }
 }
 

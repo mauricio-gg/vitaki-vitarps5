@@ -14,14 +14,18 @@
 
 VitaRPS5 is a Remote Play client for the PS Vita and PS TV. It streams games from your PS5 or PS4 to the Vita, on your home network or, for a PS5, over the internet.
 
+> Disclosure: VitaRPS5 was built largely with the help of AI. It was built on top of already established work, which was improved upon. It would not have been possible for me to build this without it. The design of the app was largely done by myself though, and was implemented by AI agents that could carry out the vision I had. I believe that AI can be used responsibly if proper workflows and software engineering principles are followed, and encourage people to use it as well, responsibly.
+
 ## Screenshots
 
 <div align="center">
-  <img src="docs/screenshots/main_screen.png" alt="Main Screen" width="45%"/>
-  <img src="docs/screenshots/main_sidebar.png" alt="Main Screen with Sidebar" width="45%"/>
-  <img src="docs/screenshots/profile_screen.png" alt="Profile & Connection" width="45%"/>
-  <img src="docs/screenshots/connect_via.png" alt="Connect via Popup" width="45%"/>
-  <img src="docs/screenshots/controller_screen.png" alt="Controller Mapping" width="45%"/>
+  <img src="docs/screenshots/home_consoles.png" alt="Home menu with the Consoles category" width="100%"/>
+  <br/>
+  <img src="docs/screenshots/home_controller.png" alt="Home menu with the Controller category" width="45%"/>
+  <img src="docs/screenshots/controller_front.png" alt="Controller mapping: front touch zones" width="45%"/>
+  <img src="docs/screenshots/controller_rear.png" alt="Controller mapping: rear touch zones" width="45%"/>
+  <img src="docs/screenshots/profile_psn.png" alt="Profile: PlayStation Network sign-in" width="45%"/>
+  <img src="docs/screenshots/settings_video.png" alt="Settings: video" width="45%"/>
 </div>
 
 ## Features

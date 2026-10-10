@@ -25,6 +25,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ui_component.h"
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -65,14 +67,6 @@ bool ui_input_btn_pressed(SceCtrlButtons btn);
 void ui_input_block_for_transition(void);
 
 /**
- * Clear all button blocks
- *
- * Resets the button block mask to allow all inputs again.
- * Typically called after a transition animation completes.
- */
-void ui_input_clear_button_blocks(void);
-
-/**
  * Block a specific button for the rest of this frame
  *
  * Prevents the specified button from being detected as pressed by subsequent
@@ -85,67 +79,33 @@ void ui_input_clear_button_blocks(void);
 void ui_input_block_button(SceCtrlButtons btn);
 
 // ============================================================================
-// Cross Button Hold Tracking
+// Per-Frame Snapshot
 // ============================================================================
 
 /**
- * Update Cross button hold timing — call once per frame after button state
- * has been refreshed (old_button_state / button_state are current).
+ * Rebuild the per-frame input snapshot used by XMB components.
  *
- * Records the start time on the leading edge of a Cross press and clears it
- * on release.  Must be called before any code queries ui_input_cross_held_ms().
+ * Call once per UI frame, after the controller and front touch have been read and
+ * before any screen runs. Buttons are resolved to logical actions (Circle Button
+ * Confirm swap applied), D-pad hold-repeat is computed, and touch is mapped to
+ * screen pixels. Respects the button block mask and the touch block set by
+ * ui_input_block_for_transition(), and reports nothing while an error popup or the
+ * debug menu owns input, so a press that opened a screen never acts on the next.
  */
-void ui_input_update_hold_tracking(void);
+void ui_input_update_snapshot(void);
 
 /**
- * Query whether the Cross button has been held for at least @p ms milliseconds.
- *
- * @param ms  Minimum continuous hold duration in milliseconds.
- * @return    true if the Cross button has been held for >= ms, false otherwise.
+ * Mark the touch that is down right now as used by the screen (a long-press that opened
+ * Options). The release of that touch is then not a tap anywhere (ui_touch_tap() is false), so
+ * lifting the finger neither closes what the long-press opened nor activates the row under it.
+ * Takes effect from the next frame's snapshot and resets on the next touch-down.
  */
-bool ui_input_cross_held_ms(uint32_t ms);
+void ui_input_consume_touch(void);
 
 /**
- * Reset the Cross button hold tracker after consuming a long-press event.
- *
- * Prevents the same hold from firing additional actions in subsequent frames.
+ * The snapshot built by the last ui_input_update_snapshot() call (never NULL).
  */
-void ui_input_cross_hold_reset(void);
-
-// ============================================================================
-// Touch Input
-// ============================================================================
-
-/**
- * Check if screen is currently being touched
- *
- * @return true if at least one touch point is active
- */
-bool ui_input_is_touching(void);
-
-/**
- * Get current touch X coordinate
- *
- * @return X coordinate of first touch point (0-1920), or 0 if not touching
- */
-float ui_input_get_touch_x(void);
-
-/**
- * Get current touch Y coordinate
- *
- * @return Y coordinate of first touch point (0-1088), or 0 if not touching
- */
-float ui_input_get_touch_y(void);
-
-/**
- * Check if touch blocking is currently active
- *
- * Touch blocking prevents touch input processing after screen transitions
- * until the user lifts their finger.
- *
- * @return true if touch events should be ignored
- */
-bool ui_input_is_touch_blocked(void);
+const UiInput *ui_input_snapshot(void);
 
 // ============================================================================
 // Hit Testing Utilities

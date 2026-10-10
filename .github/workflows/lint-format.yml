@@ -1,7 +1,8 @@
-# Lint & Format workflow
+# Lint, Format & Native Tests workflow
 #
 # Runs on every PR (any branch) and every push to main.
-# Scope: vita/src/ and vita/include/ only.  lib/ and third-party/ are upstream Chiaki — excluded.
+# Lint/format scope: vita/src/ and vita/include/ only.  lib/ and third-party/ are upstream Chiaki — excluded.
+# The redaction job compiles and runs test/redact_tests.c natively (build.sh test never runs tests, #222).
 #
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
@@ -11,7 +12,7 @@
 #                 Pin: 19.1.5  — update in BOTH places together when upgrading.
 #   cppcheck:     installed via apt in the lint job below.
 #
-# Both jobs run in parallel so each posts its own status check to the PR.
+# All jobs run in parallel so each posts its own status check to the PR.
 
 name: Lint & Format
 
@@ -106,3 +107,24 @@ jobs:
             -I lib/include \
             vita/src/ \
             vita/include/
+
+  # ---------------------------------------------------------------------------
+  # Job 3: redaction tests
+  # `./tools/build.sh test` only cross-compiles for the Vita and never runs the
+  # result (#222), so this job builds test/redact_tests.c with the runner's cc
+  # and runs it.  A failed assert aborts the binary and fails the job.
+  # Flags and sources match the build comment at the top of the test file.
+  # ---------------------------------------------------------------------------
+  redact-tests:
+    name: redaction tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and run redaction tests
+        run: |
+          cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c lib/src/log.c \
+            -o "$RUNNER_TEMP/redact_tests"
+          "$RUNNER_TEMP/redact_tests"

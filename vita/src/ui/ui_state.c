@@ -19,14 +19,11 @@
 
 #include "ui/ui_state.h"
 #include "ui/ui_internal.h"
-#include "ui/ui_focus.h"
 #include "host.h"
 #include "logging.h"
 
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/processmgr.h>
-#include <vita2d.h>
-#include <string.h>
 
 // ============================================================================
 // Module State
@@ -44,25 +41,13 @@ static ConnectionOverlayState connection_overlay = {0};
  */
 static volatile SceUID connection_thread_id = -1;
 static VitaChiakiHost *connection_thread_host = NULL;
-static bool connection_overlay_modal_pushed = false;
 
 /**
  * Waking and reconnect timing state
  * Used for timeout tracking and animation
  * Note: Use uint64_t for microsecond timestamps to avoid overflow after ~71 minutes
  */
-static uint64_t waking_start_time = 0;
 static uint64_t waking_wait_for_stream_us = 0;
-static uint64_t reconnect_start_time = 0;
-static int reconnect_animation_frame = 0;
-
-/**
- * Text width cache
- * Simple optimization for static strings to avoid repeated font measurements
- */
-#define TEXT_WIDTH_CACHE_SIZE 16
-static TextWidthCacheEntry text_width_cache[TEXT_WIDTH_CACHE_SIZE] = {0};
-static int next_cache_slot = 0;
 
 // ============================================================================
 // Initialization
@@ -77,16 +62,9 @@ void ui_state_init(void) {
   // Reset connection thread
   connection_thread_id = -1;
   connection_thread_host = NULL;
-  connection_overlay_modal_pushed = false;
 
   // Reset timing state
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
-  reconnect_start_time = 0;
-  reconnect_animation_frame = 0;
-
-  // Clear text cache
-  ui_text_cache_clear();
 }
 
 // ============================================================================
@@ -94,17 +72,19 @@ void ui_state_init(void) {
 // ============================================================================
 
 void ui_connection_begin(UIConnectionStage stage) {
+  /* The same route rule host_stream() applies: the host is a PSN remote one, or the user chose
+   * Internet (both callers that begin a connect restore that one-shot flag first). */
+  const bool internet =
+      (context.active_host && context.active_host->source == VITA_HOST_SOURCE_PSN_REMOTE) ||
+      context.stream.force_psn_holepunch;
   connection_overlay.active = true;
   connection_overlay.stage = stage;
+  connection_overlay.flow = ui_connecting_flow_decide(stage, internet);
+  LOGD("Connection begin: flow=%s internet=%d", ui_connecting_flow_name(connection_overlay.flow),
+       internet ? 1 : 0);
+  connection_overlay.serial++;
   connection_overlay.stage_updated_us = sceKernelGetProcessTimeWide();
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
-
-  // Push modal focus when connection overlay activates
-  if (!connection_overlay_modal_pushed) {
-    ui_focus_push_modal();
-    connection_overlay_modal_pushed = true;
-  }
 }
 
 void ui_connection_set_stage(UIConnectionStage stage) {
@@ -116,19 +96,11 @@ void ui_connection_set_stage(UIConnectionStage stage) {
 
 void ui_connection_complete(void) {
   connection_overlay.active = false;
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
-
-  // Pop modal focus only if this overlay owns a modal push.
-  if (connection_overlay_modal_pushed) {
-    ui_focus_pop_modal();
-  }
-  connection_overlay_modal_pushed = false;
 }
 
 void ui_connection_cancel(void) {
   connection_overlay.active = false;
-  waking_start_time = 0;
   waking_wait_for_stream_us = 0;
   connection_thread_host = NULL;
 
@@ -138,12 +110,6 @@ void ui_connection_cancel(void) {
     sceKernelDeleteThread(connection_thread_id);
     connection_thread_id = -1;
   }
-
-  // Pop modal focus only if this overlay owns a modal push.
-  if (connection_overlay_modal_pushed) {
-    ui_focus_pop_modal();
-  }
-  connection_overlay_modal_pushed = false;
 }
 
 bool ui_connection_is_active(void) {
@@ -152,6 +118,14 @@ bool ui_connection_is_active(void) {
 
 UIConnectionStage ui_connection_get_stage(void) {
   return connection_overlay.stage;
+}
+
+UiConnectingFlow ui_connection_get_flow(void) {
+  return connection_overlay.flow;
+}
+
+uint32_t ui_connection_get_serial(void) {
+  return connection_overlay.serial;
 }
 
 void ui_connection_clear_waking_wait(void) {
@@ -234,47 +208,8 @@ bool ui_cooldown_takion_gate_active(void) {
 }
 
 // ============================================================================
-// Text Width Caching Implementation
-// ============================================================================
-
-int ui_text_width_cached(const char *text, int font_size) {
-  // Try to find in cache (pointer comparison for static strings)
-  for (int i = 0; i < TEXT_WIDTH_CACHE_SIZE; i++) {
-    if (text_width_cache[i].valid && text_width_cache[i].text == text &&  // Pointer comparison
-        text_width_cache[i].font_size == font_size) {
-      return text_width_cache[i].width;
-    }
-  }
-
-  // Not in cache - calculate and store
-  int width = vita2d_font_text_width(font, font_size, text);
-
-  // Store in cache using simple FIFO replacement
-  text_width_cache[next_cache_slot].text = text;
-  text_width_cache[next_cache_slot].font_size = font_size;
-  text_width_cache[next_cache_slot].width = width;
-  text_width_cache[next_cache_slot].valid = true;
-  next_cache_slot = (next_cache_slot + 1) % TEXT_WIDTH_CACHE_SIZE;
-
-  return width;
-}
-
-void ui_text_cache_clear(void) {
-  memset(text_width_cache, 0, sizeof(text_width_cache));
-  next_cache_slot = 0;
-}
-
-// ============================================================================
 // Waking & Reconnect State Accessors
 // ============================================================================
-
-uint64_t ui_state_get_waking_start_time_us(void) {
-  return waking_start_time;
-}
-
-void ui_state_set_waking_start_time_us(uint64_t time_us) {
-  waking_start_time = time_us;
-}
 
 uint64_t ui_state_get_waking_wait_for_stream_us(void) {
   return waking_wait_for_stream_us;
@@ -284,36 +219,12 @@ void ui_state_set_waking_wait_for_stream_us(uint64_t time_us) {
   waking_wait_for_stream_us = time_us;
 }
 
-uint64_t ui_state_get_reconnect_start_time(void) {
-  return reconnect_start_time;
-}
-
-void ui_state_set_reconnect_start_time(uint64_t time) {
-  reconnect_start_time = time;
-}
-
-int ui_state_get_reconnect_animation_frame(void) {
-  return reconnect_animation_frame;
-}
-
-void ui_state_set_reconnect_animation_frame(int frame) {
-  reconnect_animation_frame = frame;
-}
-
 // ============================================================================
 // Internal Functions (for ui.c compatibility, exposed via ui_internal.h)
 // ============================================================================
 
 bool ui_state_connection_thread_active(void) {
   return connection_thread_id >= 0;
-}
-
-/**
- * Check if stream cooldown is active (internal alias)
- * Original function name used in ui.c
- */
-bool stream_cooldown_active(void) {
-  return ui_cooldown_active();
 }
 
 /**
@@ -338,14 +249,6 @@ bool takion_cooldown_gate_active(void) {
  */
 bool start_connection_thread(VitaChiakiHost *host) {
   return ui_connection_start_thread(host);
-}
-
-/**
- * Get cached text width (internal alias)
- * Original function name used in ui.c
- */
-int get_text_width_cached(const char *text, int font_size) {
-  return ui_text_width_cached(text, font_size);
 }
 
 /**

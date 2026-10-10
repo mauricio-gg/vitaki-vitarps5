@@ -33,27 +33,11 @@ void write_message_log(VitaChiakiMessageLog *ml, const char *text) {
     }
 
     memcpy(ml->log[line_offset], text + offset, n);
-    ml->log[line_offset][n + 1] = 0;  // add null char
+    ml->log[line_offset][n] = 0;  // add null char
     ml->lines++;
     if (ml->lines > MLOG_LINES)
       ml->lines = MLOG_LINES;
     offset += MLOG_LINE_LEN;
   }
   ml->last_update = sceKernelGetProcessTimeWide();
-}
-
-char *get_message_log_line(VitaChiakiMessageLog *ml, size_t line) {
-  if (ml->lines == 0)
-    return ml->log[MLOG_LINES];
-
-  int line_offset = (ml->start_offset + line) % MLOG_LINES;
-
-  if (line_offset < 0)
-    line_offset = MLOG_LINES;
-  if (line_offset >= ml->lines)
-    line_offset = MLOG_LINES;
-  if (line_offset >= MLOG_LINES)
-    line_offset = MLOG_LINES;
-
-  return ml->log[line_offset];
 }

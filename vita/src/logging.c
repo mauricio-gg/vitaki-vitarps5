@@ -1,4 +1,5 @@
 #include "logging.h"
+#include "version.h"
 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
@@ -462,11 +463,11 @@ void vita_log_module_init(const VitaLoggingConfig *cfg) {
   sceClibSnprintf(init_msg, sizeof(init_msg),
                   "[LOGGING] Initialized from %s:\n"
                   "  enabled=%d, force_errors=%d, profile=%s, queue=%zu, path=%s\n"
-                  "[PIPE/BUILD] commit=%s branch=%s dirty=%d built=%s\n",
+                  "[PIPE/BUILD] version=%s commit=%s branch=%s dirty=%d built=%s\n",
                   config_source, active_cfg.enabled, active_cfg.force_error_logging,
                   vita_logging_profile_to_string(active_cfg.profile), active_cfg.queue_depth,
-                  active_cfg.path, VITARPS5_BUILD_GIT_COMMIT, VITARPS5_BUILD_GIT_BRANCH,
-                  VITARPS5_BUILD_GIT_DIRTY, VITARPS5_BUILD_TIMESTAMP);
+                  active_cfg.path, VITAKI_FORK_VERSION_STRING, VITARPS5_BUILD_GIT_COMMIT,
+                  VITARPS5_BUILD_GIT_BRANCH, VITARPS5_BUILD_GIT_DIRTY, VITARPS5_BUILD_TIMESTAMP);
 
   // Log initialization details in testing/debug builds where logging is enabled.
   // Production builds (enabled=false) will skip this entirely.

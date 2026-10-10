@@ -7,8 +7,11 @@
 #include "config.h"
 #include "config_internal.h"
 #include "config_hosts.h"
+#include "config_writer.h"
 #include "context.h"
 #include "host.h"
+#include "room_icons.h"
+#include "ui/ui_draw_stats.h"
 #include "token_crypto.h"
 #include "util.h"
 
@@ -55,8 +58,12 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->submit_on_missing_ref = false;
-  cfg->show_nav_labels = false;
-  cfg->show_only_paired = false;
+  cfg->background = VITA_BACKGROUND_WAVES;
+  cfg->background_blur = VITA_BACKGROUND_BLUR_NONE;
+  cfg->background_blur_glyphs = VITA_BACKGROUND_BLUR_NONE;
+  cfg->theme = VITA_THEME_OCEAN;
+  cfg->show_button_hints = true;
+  cfg->room_icons.count = 0;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
   vita_logging_config_set_defaults(&cfg->logging);
 }
@@ -375,6 +382,86 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     cfg->controller_map_id = datum.u.i;
 }
 
+/*
+ * parse_theme — Reads settings.theme. A missing key keeps the default; a value outside the
+ * VitaChiakiTheme range is not trusted (it indexes the theme table) and resets to Ocean.
+ */
+static void parse_theme(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  toml_datum_t datum = toml_int_in(settings, "theme");
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_THEME_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range theme %lld; using %d", (long long)datum.u.i,
+                VITA_THEME_OCEAN);
+    cfg->theme = VITA_THEME_OCEAN;
+    return;
+  }
+  cfg->theme = (VitaChiakiTheme)datum.u.i;
+}
+
+/*
+ * parse_background — Reads settings.background. A missing key keeps the default; a value outside
+ * the VitaChiakiBackground range is not trusted and resets to Waves.
+ */
+static void parse_background(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  toml_datum_t datum = toml_int_in(settings, "background");
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_BACKGROUND_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range background %lld; using %d",
+                (long long)datum.u.i, VITA_BACKGROUND_WAVES);
+    cfg->background = VITA_BACKGROUND_WAVES;
+    return;
+  }
+  cfg->background = (VitaChiakiBackground)datum.u.i;
+}
+
+/*
+ * parse_blur_key — Reads one blur level stored under @p key into @p out. A missing key keeps the
+ * default already in @p out; a value outside the VitaChiakiBackgroundBlur range is not trusted and
+ * resets to None.
+ */
+static void parse_blur_key(VitaChiakiBackgroundBlur *out, toml_table_t *settings, const char *key) {
+  toml_datum_t datum = toml_int_in(settings, key);
+  if (!datum.ok)
+    return;
+  if (datum.u.i < 0 || datum.u.i >= VITA_BACKGROUND_BLUR_COUNT) {
+    CHIAKI_LOGW(&(context.log), "Ignoring out-of-range %s %lld; using %d", key,
+                (long long)datum.u.i, VITA_BACKGROUND_BLUR_NONE);
+    *out = VITA_BACKGROUND_BLUR_NONE;
+    return;
+  }
+  *out = (VitaChiakiBackgroundBlur)datum.u.i;
+}
+
+/* parse_background_blur — Reads the blur of each background (settings.background_blur is Waves). */
+static void parse_background_blur(VitaChiakiConfig *cfg, toml_table_t *settings) {
+  if (!settings)
+    return;
+  parse_blur_key(&cfg->background_blur, settings, "background_blur");
+  parse_blur_key(&cfg->background_blur_glyphs, settings, "background_blur_glyphs");
+}
+
+VitaChiakiBackgroundBlur config_background_blur(const VitaChiakiConfig *cfg) {
+  if (!cfg)
+    return VITA_BACKGROUND_BLUR_NONE;
+  return cfg->background == VITA_BACKGROUND_GLYPHS ? cfg->background_blur_glyphs
+                                                   : cfg->background_blur;
+}
+
+void config_set_background_blur(VitaChiakiConfig *cfg, VitaChiakiBackgroundBlur blur) {
+  if (!cfg || (int)blur < 0 || blur >= VITA_BACKGROUND_BLUR_COUNT)
+    return;
+  if (cfg->background == VITA_BACKGROUND_GLYPHS)
+    cfg->background_blur_glyphs = blur;
+  else
+    cfg->background_blur = blur;
+}
+
 static void normalize_controller_map_id(VitaChiakiConfig *cfg) {
   if (cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_1 ||
       cfg->controller_map_id == VITAKI_CONTROLLER_MAP_CUSTOM_2 ||
@@ -399,8 +486,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
       {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", false, &cfg->submit_on_missing_ref},
-      {"show_nav_labels", false, &cfg->show_nav_labels},
-      {"show_only_paired", false, &cfg->show_only_paired},
+      {"show_button_hints", true, &cfg->show_button_hints},
       {"psn_remoteplay_enabled", false, &cfg->psn_remoteplay_enabled},
       {"enable_logging", false, &cfg->logging.enabled},
   };
@@ -482,6 +568,7 @@ static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrat
 }
 
 void config_parse(VitaChiakiConfig *cfg) {
+  config_writer_init(CFG_FILENAME);
   bool circle_btn_confirm_default = get_circle_btn_confirm_default();
   config_set_defaults(cfg, circle_btn_confirm_default);
 
@@ -535,12 +622,16 @@ void config_parse(VitaChiakiConfig *cfg) {
                                      &migrated_legacy_settings, &migrated_root_settings);
   parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
+  parse_background(cfg, settings);
+  parse_background_blur(cfg, settings);
+  parse_theme(cfg, settings);
 
   // Security: runtime logging overrides are compile-time gated.
   parse_logging_settings(cfg, parsed);
 
   config_parse_registered_hosts(cfg, parsed);
   config_parse_manual_hosts(cfg, parsed);
+  room_icons_parse(&cfg->room_icons, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
                                     migrated_resolution_policy, migrated_plaintext_tokens,
@@ -584,16 +675,23 @@ void config_free(VitaChiakiConfig *cfg) {
   free(cfg);
 }
 
-bool config_serialize(VitaChiakiConfig *cfg) {
+/**
+ * Formats the whole config file into a malloc'ed buffer; the caller hands it to the config writer.
+ * Reads @p cfg, so it runs on the thread that owns the config. On success @p out_data / @p out_len
+ * hold the file contents (not NUL-terminated by contract) and the caller owns the buffer.
+ */
+static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *out_len) {
   bool downgraded_resolution = false;
   cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
   if (downgraded_resolution) {
     LOGD("Refusing to persist unsupported resolution on Vita; saving 540p instead");
   }
 
-  FILE *fp = fopen(CFG_FILENAME, "w");
+  char *data = NULL;
+  size_t len = 0;
+  FILE *fp = open_memstream(&data, &len);
   if (!fp) {
-    LOGE("Failed to open %s for writing", CFG_FILENAME);
+    LOGE("Failed to format %s in memory", CFG_FILENAME);
     return false;
   }
   fprintf(fp, "[general]\nversion = 1\n");
@@ -712,13 +810,16 @@ bool config_serialize(VitaChiakiConfig *cfg) {
       {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", cfg->submit_on_missing_ref},
-      {"show_nav_labels", cfg->show_nav_labels},
-      {"show_only_paired", cfg->show_only_paired},
+      {"show_button_hints", cfg->show_button_hints},
       {"psn_remoteplay_enabled", cfg->psn_remoteplay_enabled},
       {"enable_logging", cfg->logging.enabled},
   };
   serialize_bool_settings(fp, bool_settings, sizeof(bool_settings) / sizeof(bool_settings[0]));
   fprintf(fp, "latency_mode = \"%s\"\n", serialize_latency_mode(cfg->latency_mode));
+  fprintf(fp, "background = %d\n", (int)cfg->background);
+  fprintf(fp, "background_blur = %d\n", (int)cfg->background_blur);
+  fprintf(fp, "background_blur_glyphs = %d\n", (int)cfg->background_blur_glyphs);
+  fprintf(fp, "theme = %d\n", (int)cfg->theme);
 
   // Save 3 custom map slots
   for (int slot = 0; slot < 3; slot++) {
@@ -743,10 +844,41 @@ bool config_serialize(VitaChiakiConfig *cfg) {
 
   config_serialize_manual_hosts(fp, cfg);
   config_serialize_registered_hosts(fp, cfg);
-  bool write_ok = (ferror(fp) == 0) && (fclose(fp) == 0);
-  if (!write_ok) {
-    LOGE("Failed to flush %s", CFG_FILENAME);
+  room_icons_serialize(fp, &cfg->room_icons);
+  const bool format_ok = (ferror(fp) == 0);
+  /* fclose() finalizes data/len for a memory stream, so it is needed even after an error. */
+  if (fclose(fp) != 0 || !format_ok) {
+    LOGE("Failed to format %s in memory", CFG_FILENAME);
+    free(data);
     return false;
   }
+  *out_data = data;
+  *out_len = len;
   return true;
+}
+
+/** Formats and hands the file to the config writer; @p wait is documented in config_writer.h. */
+static bool config_save(VitaChiakiConfig *cfg, bool wait) {
+  const uint64_t start_us = UI_WORK_START();
+  char *data = NULL;
+  size_t len = 0;
+  bool ok = config_format_file(cfg, &data, &len);
+  if (ok) {
+#if VITARPS5_DEBUG_TOOLS
+    const uint64_t format_us = ui_draw_stats_now_us() - start_us;
+#else
+    const uint64_t format_us = 0;
+#endif
+    ok = config_writer_submit(data, len, format_us, wait);
+  }
+  UI_WORK_NOTE("config_save", start_us);
+  return ok;
+}
+
+bool config_serialize(VitaChiakiConfig *cfg) {
+  return config_save(cfg, true);
+}
+
+void config_serialize_async(VitaChiakiConfig *cfg) {
+  (void)config_save(cfg, false);
 }

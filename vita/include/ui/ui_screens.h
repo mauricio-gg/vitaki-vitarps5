@@ -2,10 +2,8 @@
  * @file ui_screens.h
  * @brief Screen rendering functions for VitaRPS5
  *
- * All screen implementations including main menu, settings, profile,
- * controller configuration, and overlays (waking, streaming, messages, etc.)
- *
- * This module contains ~2000 lines of screen rendering logic extracted from ui.c.
+ * Screen implementations for the main menu hand-off, the connect flows,
+ * and the overlays (waking, reconnecting, streaming, messages).
  */
 
 #pragma once
@@ -13,70 +11,46 @@
 #include "ui_types.h"
 
 // ============================================================================
-// Settings Screen Item Indexes
-// ============================================================================
-
-typedef enum ui_settings_streaming_item_t {
-  UI_SETTINGS_ITEM_QUALITY_PRESET = 0,
-  UI_SETTINGS_ITEM_LATENCY_MODE = 1,
-  UI_SETTINGS_ITEM_FPS_TARGET = 2,
-  UI_SETTINGS_ITEM_FORCE_30_FPS = 3,
-  UI_SETTINGS_ITEM_AUTO_DISCOVERY = 4,
-  UI_SETTINGS_ITEM_SHOW_LATENCY = 5,
-  UI_SETTINGS_ITEM_SHOW_NETWORK_ALERTS = 6,
-  UI_SETTINGS_ITEM_SHOW_STREAM_EXIT_HINT = 7,
-  UI_SETTINGS_ITEM_CLAMP_SOFT_RESTART_BITRATE = 8,
-  UI_SETTINGS_ITEM_FILL_SCREEN = 9,
-  UI_SETTINGS_ITEM_SHOW_NAV_LABELS = 10,
-  UI_SETTINGS_ITEM_CIRCLE_BUTTON_CONFIRM = 11,
-  UI_SETTINGS_ITEM_SHOW_ONLY_PAIRED = 12,
-  UI_SETTINGS_ITEM_PSN_REMOTEPLAY = 13,
-  UI_SETTINGS_ITEM_ENABLE_LOGGING = 14,
-  UI_SETTINGS_ITEM_SUBMIT_ON_MISSING_REF = 15,
-} UISettingsStreamingItem;
-
-#define UI_SETTINGS_STREAMING_ITEM_COUNT 16
-
-// ============================================================================
-// Screen Initialization
-// ============================================================================
-
-/**
- * Initialize screen-specific state (settings tabs, selections, etc.)
- */
-void ui_screens_init(void);
-
-// ============================================================================
 // Main Screens
 // ============================================================================
 
 /**
- * Render the main menu screen with console cards and wave navigation
- * Handles D-pad navigation, touch input, and console connection logic
+ * Render the main menu (Home) screen: the XMB Home (ui_home.c)
  * @return next screen to display
  */
 UIScreenType ui_screen_draw_main(void);
 
 /**
- * Render the settings screen with streaming/quality controls
- * Displays toggles and dropdowns for resolution, FPS, latency mode, etc.
- * @return next screen to display
+ * Run the Confirm flow for a console: PIN screen, wake or connect
+ * (cooldown gate, RP_IN_USE retry reset and force_psn_holepunch handling included).
+ * @param host Console to act on (NULL is ignored)
+ * @return screen to show next (UI_SCREEN_TYPE_MAIN when nothing started)
  */
-UIScreenType ui_screen_draw_settings(void);
+UIScreenType ui_screens_connect_host(VitaChiakiHost *host);
 
 /**
- * Render the profile screen with PSN account info and registration controls
- * Shows three-column layout: profile card, connection info, registration
- * @return next screen to display
+ * Send the user to the PIN screen to pair a discovered, unpaired console.
+ * @param host Console to pair (NULL or already paired is ignored)
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
  */
-UIScreenType ui_screen_draw_profile(void);
+UIScreenType ui_screens_pair_host(VitaChiakiHost *host);
 
 /**
- * Render the controller configuration screen with mapping and settings
- * Two-tab layout: controller mappings and controller settings
- * @return next screen to display
+ * Send the user to the PIN screen for a console found by the IP probe (a new pair, or a re-pair
+ * when the host is already paired, with no confirm popup). The PIN screen takes ownership of the
+ * host: see ui_pin_adopt_probed_host().
+ * @param host Host from discovery_probe_take_host() (NULL is ignored)
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
  */
-UIScreenType ui_screen_draw_controller(void);
+UIScreenType ui_screens_pair_probed_host(VitaChiakiHost *host);
+
+/**
+ * Make a paired console the active host and send the user to the PIN screen to pair it again.
+ * The old pairing stays untouched until a new pairing succeeds.
+ * @param host Console to re-pair (NULL or unpaired is ignored)
+ * @return UI_SCREEN_TYPE_REGISTER_HOST, or UI_SCREEN_TYPE_MAIN when nothing was done
+ */
+UIScreenType ui_screens_repair_host(VitaChiakiHost *host);
 
 // ============================================================================
 // Overlay Screens
@@ -95,24 +69,3 @@ UIScreenType ui_screen_draw_waking(void);
  * @return next screen to display
  */
 UIScreenType ui_screen_draw_reconnecting(void);
-
-/**
- * Render the registration dialog (PIN entry)
- * 8-digit PIN entry with visual feedback
- * @return true if registration should continue, false if canceled
- */
-bool ui_screen_draw_registration(void);
-
-/**
- * Render the stream overlay (during active streaming)
- * Shows latency stats, network indicators, and stream info
- * @return true to continue streaming, false to exit
- */
-bool ui_screen_draw_stream(void);
-
-/**
- * Render the messages screen (log viewer)
- * Scrollable message log with timestamps
- * @return true to stay on messages screen, false to exit
- */
-bool ui_screen_draw_messages(void);

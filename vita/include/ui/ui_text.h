@@ -1,33 +1,32 @@
 /**
  * @file ui_text.h
- * @brief Centralized text rendering helpers for VitaRPS5 UI
+ * @brief Text rendering for the VitaRPS5 UI: the five SPEC type faces
  *
  * Provides:
- *  - Atlas pre-warming at init time so every (codepoint, pt_size) pair is
+ *  - Atlas pre-warming at init time so every glyph of every face is
  *    rasterized before the first real frame, eliminating cold-atlas hitches.
- *  - Per-size metric cache (ascent, line-height) populated once from a probe
+ *  - Per-face metric cache (ascent, line-height) populated once from a probe
  *    string via vita2d_font_text_height, so all call sites share identical
  *    baselines instead of ad-hoc +5/+6 magic offsets.
- *  - Thin wrappers around vita2d_font_draw_text / vita2d_font_text_width that
- *    guarantee integer coordinates.
- *  - Vertical-center helper that derives the baseline from cached ascent rather
- *    than a literal offset.
- *
- * Phase 1 of issue #127.  Call sites are migrated in phase 2.
+ *  - Draw, measure and vertical-centre helpers per face.
  *
  * Thread-safety: all functions must be called from the render thread. The
  * module is not thread-safe and shares state with vita2d_font, which itself
  * is render-thread-only.
  *
  * Lifecycle: there is no explicit deinit. Reloading fonts at runtime requires
- * calling ui_text_init() again followed by ui_text_prewarm() on the next
- * render pass.
+ * calling ui_text_init() again followed by ui_text_prewarm_step() until it
+ * returns 0, on a render pass.
  */
 
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <vita2d.h>
 #include "ui/ui_constants.h"
+#include "ui/ui_theme.h"
 
 /* ============================================================================
  * Initialization & Warm-up
@@ -36,121 +35,83 @@
 /**
  * ui_text_init() - Store font pointers and arm the deferred prewarm pass.
  * @regular: Proportional font loaded by init_ui() (Roboto-Regular.ttf).
- * @mono:    Monospace font loaded by init_ui() (RobotoMono-Regular.ttf).
+ * @light:   Light font loaded by init_ui() (Roboto-Light.ttf), used by the SPEC
+ *           faces T20/T28/T40.  May be NULL: those faces then draw in Regular.
  *
- * Must be called after fonts are loaded and before ui_text_prewarm().
+ * Must be called after fonts are loaded and before ui_text_prewarm_step().
  * Both pointers are borrowed — ownership remains with the caller.
  *
  * This function does NOT compute metrics or pre-warm the atlas — that is
- * intentionally deferred to ui_text_prewarm() because some FreeType/GXM
+ * intentionally deferred to ui_text_prewarm_step() because some FreeType/GXM
  * paths require an active render pass.  If either font pointer is NULL,
  * both metric computation and atlas prewarm are skipped.
  */
-void ui_text_init(vita2d_font *regular, vita2d_font *mono);
+void ui_text_init(vita2d_font *regular, vita2d_font *light);
 
 /**
- * ui_text_needs_prewarm() - True until ui_text_prewarm() has been called.
+ * ui_text_needs_prewarm() - True while at least one face is still to be baked.
  *
- * Use this flag in the first iteration of draw_ui() to schedule the warm-up
- * pass inside an active vita2d_start_drawing / vita2d_end_drawing pair.
+ * The start-up sequence (ui.c) bakes one face per splash frame while this is true.
  */
 int ui_text_needs_prewarm(void);
 
+/** What ui_text_prewarm_step() reports when it finishes a face. */
+typedef struct {
+  bool face_done;          /**< A face was completed by this call; the fields below are set. */
+  int face;                /**< Its UiFace index. */
+  uint64_t bake_us;        /**< Time spent on it over all its calls (metrics included). */
+  int frames;              /**< Calls (splash frames) it spanned. */
+  uint64_t metrics_us;     /**< Measuring its metrics, before the first glyph. */
+  uint64_t first_glyph_us; /**< Its first glyph alone: a large value means a one-off cost. */
+} UiPrewarmReport;
+
 /**
- * ui_text_prewarm() - Force-rasterize all (codepoint, pt_size) pairs.
+ * ui_text_prewarm_step() - Force-rasterize glyphs of the current face until the budget is spent.
+ * @budget_us: Time this call may spend. The face is resumed at the same glyph on the next call.
+ * @report:    Filled in; face_done is set when this call finished a face.
  *
  * MUST be called from within a vita2d_start_drawing() / vita2d_end_drawing()
  * pair on the render thread so that texture uploads are committed.
  *
- * Iterates UI_FONT_PREWARM_SIZES x UI_FONT_PREWARM_CHARSET for the regular
- * font (6 sizes) and UI_FONT_PREWARM_MONO_SIZES x UI_FONT_PREWARM_CHARSET for
- * the mono font (2 sizes).  Draws each character at alpha=0 at off-screen
- * coordinates so glyphs are baked into the atlas without appearing on screen.
- * Also measures per-size metrics (ascent, line-height) while inside the active
- * render pass.
+ * Bakes the charset of each face in the font that draws it, at alpha=0 and
+ * off-screen coordinates so glyphs reach the atlas without appearing on screen.
+ * Also measures a face's metrics (ascent, line-height) before its first glyph, while inside the
+ * active render pass. Every call bakes at least one glyph (or measures the metrics), so repeated
+ * calls always finish.
+ *
+ * Returns 1 if more work remains, 0 when the last face has been finished (or when
+ * ui_text_init() armed nothing).
  */
-void ui_text_prewarm(void);
+int ui_text_prewarm_step(uint64_t budget_us, UiPrewarmReport *report);
 
 /* ============================================================================
- * Drawing & Measurement
+ * SPEC type faces (ui_theme.h: T14, T16, T20_REGULAR Regular; T20, T28, T40 Light)
  * ============================================================================ */
 
 /**
- * ui_text_draw() - Draw a UTF-8 string using the atlas LINEAR filter for clean rendering.
- * @f:          Font pointer (regular or mono).
+ * ui_text_draw_face() - Draw a string in one of the SPEC faces.
+ * @face:       a UiFace (UI_FACE_T14 .. UI_FACE_T20_REGULAR).
  * @x:          Left edge of the first glyph, in screen pixels.
  * @baseline_y: Baseline Y coordinate, in screen pixels.
- * @color:      ABGR colour value (e.g. RGBA8(r,g,b,a)).
- * @pt_size:    One of the FONT_SIZE_* constants.
- * @s:          NUL-terminated UTF-8 string to render.
- *
- * Sub-pixel aliasing is handled by the atlas LINEAR (bilinear) texture filter
- * applied at init time in texture_atlas.c; glyph-by-glyph integer snapping is
- * not used.
- *
- * If pt_size is not a known size, emits a sceClibPrintf warning and returns
- * without drawing.
+ * @color:      ABGR colour value.
+ * @s:          NUL-terminated UTF-8 string.
  */
-void ui_text_draw(vita2d_font *f, int x, int baseline_y, unsigned int color, int pt_size,
-                  const char *s);
+void ui_text_draw_face(UiFace face, int x, int baseline_y, unsigned int color, const char *s);
+
+/** ui_text_face_width() - Pixel width of @s in @face; 0 for an unknown face. */
+int ui_text_face_width(UiFace face, const char *s);
 
 /**
- * ui_text_width() - Return the pixel width of a UTF-8 string.
- * @f:       Font pointer.
- * @pt_size: One of the FONT_SIZE_* constants.
- * @s:       NUL-terminated UTF-8 string.
- *
- * Returns 0 and logs a warning if pt_size is unknown.
+ * ui_text_draw_face_centered_v() - Draw a string in @face vertically centred in a box.
+ * @face:  a UiFace (UI_FACE_T14 .. UI_FACE_T20_REGULAR).
+ * @x:     Left edge X, in screen pixels.
+ * @box_y: Top edge of the box, in screen pixels.
+ * @box_h: Height of the box, in screen pixels.
+ * @color: ABGR colour value.
+ * @s:     NUL-terminated UTF-8 string.
  */
-int ui_text_width(vita2d_font *f, int pt_size, const char *s);
+void ui_text_draw_face_centered_v(UiFace face, int x, int box_y, int box_h, unsigned int color,
+                                  const char *s);
 
-/* ============================================================================
- * Metric Queries (populated from cached probe measurement at init)
- * ============================================================================ */
-
-/**
- * ui_text_ascent() - Return the ascent (pixels above baseline) for pt_size.
- * @pt_size: One of the FONT_SIZE_* constants.
- *
- * Returns an approximation (~80% of the vita2d text-height bounding box,
- * chosen empirically for Roboto). Revisit if the font face changes.
- *
- * Metrics are derived from the regular font; valid for any face sharing the
- * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
- * to a different family requires re-measuring.
- *
- * Returns 0 and logs a warning for unknown sizes.
- */
-int ui_text_ascent(int pt_size);
-
-/**
- * ui_text_line_height() - Return the full line height in pixels for pt_size.
- * @pt_size: One of the FONT_SIZE_* constants.
- *
- * Metrics are derived from the regular font; valid for any face sharing the
- * same UPM/ascender (Roboto Regular and RobotoMono in this build). Swapping
- * to a different family requires re-measuring.
- *
- * Returns 0 and logs a warning for unknown sizes.
- */
-int ui_text_line_height(int pt_size);
-
-/* ============================================================================
- * Layout Helpers
- * ============================================================================ */
-
-/**
- * ui_text_draw_centered_v() - Draw a string vertically centred in a box.
- * @f:       Font pointer.
- * @x:       Left edge X, in screen pixels.
- * @box_y:   Top edge of the bounding box, in screen pixels.
- * @box_h:   Height of the bounding box, in screen pixels.
- * @color:   ABGR colour value.
- * @pt_size: One of the FONT_SIZE_* constants.
- * @s:       NUL-terminated UTF-8 string to render.
- *
- * Baseline is computed as: box_y + (box_h + ascent) / 2
- * using integer arithmetic and the cached ascent for pt_size.
- */
-void ui_text_draw_centered_v(vita2d_font *f, int x, int box_y, int box_h, unsigned int color,
-                             int pt_size, const char *s);
+/** ui_text_face_line_height() - SPEC line height of @face in pixels; 0 for an unknown face. */
+int ui_text_face_line_height(UiFace face);

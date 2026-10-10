@@ -6,6 +6,7 @@
 #include "host.h"
 #include "logging.h"
 #include "controller.h"
+#include "room_icons.h"
 
 #ifndef CFG_VERSION
 #define CFG_VERSION 1
@@ -28,6 +29,36 @@ typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_MAX,            // Near-max Vita Wi-Fi (≈3.8 Mbps)
   VITA_LATENCY_MODE_COUNT
 } VitaChiakiLatencyMode;
+
+/// Strength of the blur / darkening drawn behind menus (SPEC C27). Stored as an int in the config.
+typedef enum vita_chiaki_background_blur_t {
+  VITA_BACKGROUND_BLUR_NONE = 0,
+  VITA_BACKGROUND_BLUR_SOFT,
+  VITA_BACKGROUND_BLUR_STRONG,
+  VITA_BACKGROUND_BLUR_DARK,
+  VITA_BACKGROUND_BLUR_COUNT
+} VitaChiakiBackgroundBlur;
+
+/// Colour theme of the XMB UI (issue #348). The integer is what is saved under settings.theme, so
+/// presets may only be appended before THEME_COUNT; reordering or inserting would recolour every
+/// existing user's saved choice.
+typedef enum vita_chiaki_theme_t {
+  VITA_THEME_OCEAN = 0,
+  VITA_THEME_EMBER,
+  VITA_THEME_ORCHID,
+  VITA_THEME_MOSS,
+  VITA_THEME_GRAPHITE,
+  VITA_THEME_COUNT
+} VitaChiakiTheme;
+
+/// Which picture is drawn behind menus (issue #375). The integer is what is saved under
+/// settings.background, so backgrounds may only be appended before BACKGROUND_COUNT; reordering or
+/// inserting would switch every existing user's saved choice.
+typedef enum vita_chiaki_background_t {
+  VITA_BACKGROUND_WAVES = 0,
+  VITA_BACKGROUND_GLYPHS,
+  VITA_BACKGROUND_COUNT
+} VitaChiakiBackground;
 
 /// Settings for the app
 typedef struct vita_chiaki_config_t {
@@ -74,10 +105,42 @@ typedef struct vita_chiaki_config_t {
                                     // instead of freezing for the IDR
   VitaChiakiLatencyMode latency_mode;
   VitaLoggingConfig logging;
-  bool show_nav_labels;   // Show text labels below navigation icons when selected
-  bool show_only_paired;  // Only show registered/paired consoles on main screen
+  VitaChiakiBackground background;                  // Picture behind menus, default Waves
+  VitaChiakiBackgroundBlur background_blur;         // Blur of the Waves background, default None
+  VitaChiakiBackgroundBlur background_blur_glyphs;  // Blur of the Glyphs background, default None
+  VitaChiakiTheme theme;                            // XMB colour theme, default Ocean
+  bool show_button_hints;    // Draw the button hint row on menus (not the in-stream exit hint)
+  RoomIconTable room_icons;  // Per-console room icon choices, keyed by console MAC
 } VitaChiakiConfig;
 
 void config_parse(VitaChiakiConfig *cfg);
+
+/**
+ * config_background_blur() - The blur of the background currently selected (Waves or Glyphs).
+ * @param cfg  Config to read; NULL gives None.
+ * @return     The blur level to draw and to show in Settings.
+ */
+VitaChiakiBackgroundBlur config_background_blur(const VitaChiakiConfig *cfg);
+
+/**
+ * config_set_background_blur() - Stores the blur of the background currently selected, leaving the
+ * other background's remembered blur untouched.
+ * @param cfg   Config to change; NULL is ignored.
+ * @param blur  New blur level; a value outside the enum is ignored.
+ */
+void config_set_background_blur(VitaChiakiConfig *cfg, VitaChiakiBackgroundBlur blur);
 void config_free(VitaChiakiConfig *cfg);
+
+/**
+ * Saves the config and waits for the write: true only when the file was really written. For
+ * callers that act on the result (pairing, host edits). Waits behind any save already queued, so
+ * order with config_serialize_async() is kept. Costs ~100 ms on the caller.
+ */
 bool config_serialize(VitaChiakiConfig *cfg);
+
+/**
+ * Saves the config without waiting for the memory card: formats it now (on the caller's thread,
+ * which owns @p cfg) and queues the write. For UI-thread callers that only log a failure; the
+ * writer logs a failed write. A later save replaces one still waiting (see config_writer.h).
+ */
+void config_serialize_async(VitaChiakiConfig *cfg);

@@ -43,6 +43,7 @@
 #include <unistd.h>
 // #include <debugnet.h>
 
+#include "config_writer.h"
 #include "context.h"
 #include "discovery.h"
 #include "ui.h"
@@ -162,6 +163,8 @@ int main(int argc, char *argv[]) {
   draw_ui();
 
   // Cleanup
+  // A queued settings save must reach the memory card before the process ends.
+  config_writer_flush();
   // Controller diagram now uses procedural rendering - no textures to free
   if (context.mlog) {
     free(context.mlog);

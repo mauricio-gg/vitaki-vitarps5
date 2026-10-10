@@ -1,12 +1,6 @@
 /**
  * @file ui_components.c
- * @brief Reusable UI widgets and dialogs implementation for VitaRPS5
- *
- * This module implements high-level UI components used throughout the
- * VitaRPS5 interface. All components follow the PlayStation design language
- * with smooth animations and consistent styling.
- *
- * Extracted from ui.c during Phase 4 of UI refactoring.
+ * @brief Debug menu implementation for VitaRPS5 (VITARPS5_DEBUG_MENU builds)
  */
 
 #include <stdio.h>
@@ -15,9 +9,12 @@
 #include "ui/ui_components.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_graphics.h"
-#include "ui/ui_focus.h"
 #include "ui/ui_console_cards.h"
 #include "ui/ui_text.h"
+#include "ui/ui_component.h"
+#include "ui/ui_shapes.h"
+#include "ui/ui_theme.h"
+#include "host_feedback.h"
 #include "video.h"
 
 #include <math.h>
@@ -29,12 +26,6 @@
 // Internal State
 // ============================================================================
 
-// Toggle animation state
-static ToggleAnimationState toggle_anim = {-1, false, 0};
-
-// Hints popup state
-static HintsPopupState hints_popup = {0};
-
 // Debug menu configuration
 const bool debug_menu_enabled = VITARPS5_DEBUG_MENU != 0;
 const uint32_t DEBUG_MENU_COMBO_MASK = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_START;
@@ -45,473 +36,15 @@ const char *debug_menu_options[] = {
     "Spawn fake consoles (x12)",
 };
 
-// PIN digit constants
-#define PIN_DIGIT_WIDTH 60
-#define PIN_DIGIT_HEIGHT 70
-
-// Cursor blink state (for PIN entry) - defined in ui.c, declared in ui_internal.h
-
-// ============================================================================
-// Internal Helper Functions
-// ============================================================================
-
-/**
- * Linear interpolation
- */
-static inline float lerp(float a, float b, float t) {
-  return a + (b - a) * t;
-}
-
-/**
- * Ease-in-out cubic interpolation for smooth animation
- */
-static inline float ease_in_out_cubic(float t) {
-  return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-}
-
-// ============================================================================
-// Widget Drawing Functions
-// ============================================================================
-
-/**
- * Draw an animated toggle switch control
- */
-void ui_draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
-  // Interpolate track color based on animation value
-  uint32_t color_off = RGBA8(0x60, 0x60, 0x68, 200);
-  uint32_t color_on = UI_COLOR_PRIMARY_BLUE;
-
-  // Blend between OFF and ON colors
-  uint8_t r = (uint8_t)lerp(0x60, 0x34, anim_value);
-  uint8_t g = (uint8_t)lerp(0x60, 0x90, anim_value);
-  uint8_t b = (uint8_t)lerp(0x68, 0xFF, anim_value);
-  uint8_t a = (uint8_t)lerp(200, 255, anim_value);
-  uint32_t track_color = RGBA8(r, g, b, a);
-
-  uint32_t knob_color = UI_COLOR_TEXT_PRIMARY;
-
-  // Enhanced selection highlight with glow
-  if (selected) {
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, height / 2 + 2,
-                         RGBA8(0x34, 0x90, 0xFF, 60));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, height / 2 + 1,
-                         UI_COLOR_PRIMARY_BLUE);
-  }
-
-  // Track shadow for depth
-  ui_draw_rounded_rect(x + 1, y + 1, width, height, height / 2, RGBA8(0x00, 0x00, 0x00, 40));
-
-  // Track (background)
-  ui_draw_rounded_rect(x, y, width, height, height / 2, track_color);
-
-  // Knob (circular button) - smoothly animated position
-  int knob_radius = (height - 4) / 2;
-  int knob_x_off = x + knob_radius + 2;
-  int knob_x_on = x + width - knob_radius - 2;
-  int knob_x = (int)lerp((float)knob_x_off, (float)knob_x_on, anim_value);
-  int knob_y = y + height / 2;
-
-  // Knob shadow
-  ui_draw_circle(knob_x + 1, knob_y + 1, knob_radius, RGBA8(0x00, 0x00, 0x00, 80));
-  // Knob
-  ui_draw_circle(knob_x, knob_y, knob_radius, knob_color);
-}
-
-/**
- * Draw a dropdown control with label and current value
- */
-void ui_draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                      bool expanded, bool selected) {
-  // Modern card colors with subtle variation for selection
-  uint32_t bg_color = selected ? RGBA8(0x40, 0x42, 0x50, 255) : UI_COLOR_CARD_BG;
-
-  // Enhanced selection with shadow and glow
-  if (selected && !expanded) {
-    // Shadow
-    ui_draw_rounded_rect(x + 2, y + 2, width, height, 8, RGBA8(0x00, 0x00, 0x00, 60));
-    // Outer glow
-    ui_draw_rounded_rect(x - 3, y - 3, width + 6, height + 6, 10, RGBA8(0x34, 0x90, 0xFF, 50));
-    // Border
-    ui_draw_rounded_rect(x - 2, y - 2, width + 4, height + 4, 10, UI_COLOR_PRIMARY_BLUE);
-  } else {
-    // Subtle shadow for depth
-    ui_draw_rounded_rect(x + 1, y + 1, width, height, 8, RGBA8(0x00, 0x00, 0x00, 30));
-  }
-
-  // Background
-  ui_draw_rounded_rect(x, y, width, height, 8, bg_color);
-
-  // Label text (left) — centered vertically in the row box.
-  ui_text_draw_centered_v(font, x + 15, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, label);
-
-  // Value text (right) — same row box, right-aligned by pre-computing x from width.
-  int value_width = ui_text_width(font, FONT_SIZE_BODY, value);
-  ui_text_draw_centered_v(font, x + width - value_width - 30, y, height, UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_BODY, value);
-
-  // Down arrow indicator - enhanced with PlayStation Blue when selected
-  int arrow_x = x + width - 18;
-  int arrow_y = y + height / 2;
-  int arrow_size = 6;
-  uint32_t arrow_color = selected ? UI_COLOR_PRIMARY_BLUE : UI_COLOR_TEXT_SECONDARY;
-
-  // Draw downward pointing triangle
-  for (int i = 0; i < arrow_size; i++) {
-    vita2d_draw_rectangle(arrow_x - i, arrow_y + i, 1 + i * 2, 1, arrow_color);
-  }
-}
-
-/**
- * Draw a tabbed navigation bar with color-coded sections
- */
-void ui_draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                     int num_tabs, int selected) {
-  int tab_width = width / num_tabs;
-
-  for (int i = 0; i < num_tabs; i++) {
-    int tab_x = x + (i * tab_width);
-
-    // Tab background - flat color, no dimming
-    ui_draw_rounded_rect(tab_x, y, tab_width - 4, height, 8, colors[i]);
-
-    // Tab text (centered horizontally and vertically in the tab box).
-    int text_width = ui_text_width(font, FONT_SIZE_SUBHEADER, tabs[i]);
-    int text_x = tab_x + (tab_width - text_width) / 2;
-
-    // Vertically centered in the tab height box; _centered_v eliminates the +6 magic offset.
-    ui_text_draw_centered_v(font, text_x, y, height, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_SUBHEADER,
-                            tabs[i]);
-
-    // Selection indicator (bottom bar) - only visual difference
-    if (i == selected) {
-      vita2d_draw_rectangle(tab_x + 2, y + height - 3, tab_width - 8, 3, UI_COLOR_PRIMARY_BLUE);
-    }
-  }
-}
-
-/**
- * Draw a colored status indicator dot
- */
-void ui_draw_status_dot(int x, int y, int radius, UIStatusType status) {
-  uint32_t color;
-  switch (status) {
-    case UI_STATUS_ACTIVE:
-      color = RGBA8(0x2D, 0x8A, 0x3E, 255);  // Green
-      break;
-    case UI_STATUS_STANDBY:
-      color = RGBA8(0xD9, 0x77, 0x06, 255);  // Orange/Yellow
-      break;
-    case UI_STATUS_ERROR:
-      color = RGBA8(0xDC, 0x26, 0x26, 255);  // Red
-      break;
-    default:
-      color = RGBA8(0x80, 0x80, 0x80, 255);  // Gray
-  }
-
-  ui_draw_circle(x, y, radius, color);
-}
-
-/**
- * Draw a styled section header with title and accent line
- */
-void ui_draw_section_header(int x, int y, int width, const char *title) {
-  // Subtle gradient background bar
-  int header_h = 40;
-  ui_draw_rounded_rect(x, y, width, header_h, 8, RGBA8(0x30, 0x35, 0x40, 200));
-
-  // Bottom accent line (PlayStation Blue)
-  vita2d_draw_rectangle(x, y + header_h - 2, width, 2, UI_COLOR_PRIMARY_BLUE);
-
-  // Title text (centered vertically in header).
-  ui_text_draw_centered_v(font, x + 15, y, header_h, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_HEADER,
-                          title);
-}
-
-/**
- * Draw a single PIN entry digit box
- */
-void ui_draw_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  // Enhanced visual feedback for current digit
-  if (is_current) {
-    // Outer glow effect for better visibility
-    ui_draw_rounded_rect(x - 2, y - 2, PIN_DIGIT_WIDTH + 4, PIN_DIGIT_HEIGHT + 4, 6,
-                         RGBA8(0x34, 0x90, 0xFF, 60));
-  }
-
-  // Digit box background with shadow
-  int shadow_offset = is_current ? 3 : 2;
-  ui_draw_rounded_rect(x + shadow_offset, y + shadow_offset, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4,
-                       RGBA8(0x00, 0x00, 0x00, 60));
-
-  uint32_t box_color = is_current ? UI_COLOR_PRIMARY_BLUE : RGBA8(0x2C, 0x2C, 0x2E, 255);
-  ui_draw_rounded_rect(x, y, PIN_DIGIT_WIDTH, PIN_DIGIT_HEIGHT, 4, box_color);
-
-  // Digit text or cursor
-  if (has_value && digit <= 9) {
-    char digit_text[2] = {'0' + digit, '\0'};
-    int text_w = ui_text_width(font, FONT_SIZE_PIN_DIGIT, digit_text);
-    int text_x = x + (PIN_DIGIT_WIDTH / 2) - (text_w / 2);
-    int text_y = y + (PIN_DIGIT_HEIGHT / 2) + 15;
-    ui_text_draw(font, text_x, text_y, UI_COLOR_TEXT_PRIMARY, FONT_SIZE_PIN_DIGIT, digit_text);
-  } else if (is_current && show_cursor) {
-    // Enhanced blinking cursor (wider and more visible)
-    int cursor_w = 3;
-    int cursor_x = x + (PIN_DIGIT_WIDTH / 2) - (cursor_w / 2);
-    int cursor_y1 = y + 15;
-    int cursor_h = PIN_DIGIT_HEIGHT - 30;
-    vita2d_draw_rectangle(cursor_x, cursor_y1, cursor_w, cursor_h, UI_COLOR_TEXT_PRIMARY);
-  }
-}
-
-/**
- * Draw a rounded rectangular text button with selected/disabled states.
- *
- * Background colors mirror the ad-hoc "Add New" button in ui_screens.c:
- *   enabled+selected  → UI_COLOR_PRIMARY_BLUE
- *   enabled+unselected → RGBA8(0x50,0x70,0xA0,255)
- *   disabled          → RGBA8(0x40,0x44,0x4A,255)
- */
-void ui_draw_text_button(int x, int y, int w, int h, const char *label, bool selected,
-                         bool enabled) {
-  uint32_t bg_color;
-  uint32_t text_color;
-
-  if (!enabled) {
-    bg_color = RGBA8(0x40, 0x44, 0x4A, 255);
-    text_color = UI_COLOR_TEXT_TERTIARY;
-  } else if (selected) {
-    bg_color = UI_COLOR_PRIMARY_BLUE;
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  } else {
-    bg_color = RGBA8(0x50, 0x70, 0xA0, 255);
-    text_color = UI_COLOR_TEXT_PRIMARY;
-  }
-
-  ui_draw_rounded_rect(x, y, w, h, 6, bg_color);
-
-  // Label centered horizontally and vertically in the button box.
-  int text_w = ui_text_width(font, FONT_SIZE_SMALL, label);
-  int text_x = x + (w - text_w) / 2;
-  ui_text_draw_centered_v(font, text_x, y, h, text_color, FONT_SIZE_SMALL, label);
-}
-
-// ============================================================================
-// Toggle Switch Animation
-// ============================================================================
-
-/**
- * Start toggle switch animation
- */
-void ui_toggle_start_animation(int toggle_index, bool target_state) {
-  toggle_anim.animating_index = toggle_index;
-  toggle_anim.target_state = target_state;
-  toggle_anim.start_time_us = sceKernelGetProcessTimeWide();
-}
-
-/**
- * Get current animation value for a toggle switch
- */
-float ui_toggle_get_animation_value(int toggle_index, bool current_state) {
-  // If not animating this toggle, return static value
-  if (toggle_anim.animating_index != toggle_index) {
-    return current_state ? 1.0f : 0.0f;
-  }
-
-  // Calculate animation progress
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - toggle_anim.start_time_us;
-  float progress = (float)elapsed_us / (TOGGLE_ANIMATION_DURATION_MS * 1000.0f);
-
-  // Clamp to 0.0-1.0
-  if (progress >= 1.0f) {
-    toggle_anim.animating_index = -1;  // Animation complete
-    return toggle_anim.target_state ? 1.0f : 0.0f;
-  }
-
-  // Apply easing for smooth motion
-  float eased = ease_in_out_cubic(progress);
-
-  // Interpolate from start to end
-  float start_val = toggle_anim.target_state ? 0.0f : 1.0f;
-  float end_val = toggle_anim.target_state ? 1.0f : 0.0f;
-
-  return lerp(start_val, end_val, eased);
-}
-
-// ============================================================================
-// Error Popup Dialog
-// ============================================================================
-
-/**
- * Show error popup with specified message
- */
-void ui_error_show(const char *message) {
-  context.ui_state.error_popup_active = true;
-  if (message) {
-    sceClibSnprintf(context.ui_state.error_popup_text, sizeof(context.ui_state.error_popup_text),
-                    "%s", message);
-  } else {
-    context.ui_state.error_popup_text[0] = '\0';
-  }
-
-  // Push modal focus once per popup activation.
-  if (!context.ui_state.error_popup_modal_pushed) {
-    ui_focus_push_modal();
-    context.ui_state.error_popup_modal_pushed = true;
-  }
-}
-
-/**
- * Hide the error popup
- */
-void ui_error_hide(void) {
-  context.ui_state.error_popup_active = false;
-  context.ui_state.error_popup_text[0] = '\0';
-
-  // Pop only if this popup owns a modal push.
-  if (context.ui_state.error_popup_modal_pushed) {
-    ui_focus_pop_modal();
-    context.ui_state.error_popup_modal_pushed = false;
-  }
-}
-
-/**
- * Render the error popup
- */
-void ui_error_render(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
-
-  // Popup card
-  const int popup_w = 520;
-  const int popup_h = 280;
-  int popup_x = (VITA_WIDTH - popup_w) / 2;
-  int popup_y = (VITA_HEIGHT - popup_h) / 2;
-  ui_draw_rounded_rect(popup_x, popup_y, popup_w, popup_h, 16, RGBA8(0x14, 0x16, 0x1C, 240));
-
-  // Error message text — centered horizontally and vertically in the popup box.
-  const char *message =
-      context.ui_state.error_popup_text[0] ? context.ui_state.error_popup_text : "Connection error";
-  int message_w = ui_text_width(font, FONT_SIZE_HEADER, message);
-  int message_x = popup_x + (popup_w - message_w) / 2;
-  ui_text_draw_centered_v(font, message_x, popup_y, popup_h, UI_COLOR_TEXT_PRIMARY,
-                          FONT_SIZE_HEADER, message);
-
-  // Hint text — baseline sits 40 px above popup bottom (below the message, near the edge).
-  const char *hint = "Tap anywhere to dismiss";
-  int hint_w = ui_text_width(font, FONT_SIZE_BODY, hint);
-  int hint_x = popup_x + (popup_w - hint_w) / 2;
-  ui_text_draw(font, hint_x, popup_y + popup_h - 40, UI_COLOR_TEXT_SECONDARY, FONT_SIZE_BODY, hint);
-}
-
-/**
- * Handle input for error popup
- */
-void ui_error_handle_input(void) {
-  if (!context.ui_state.error_popup_active)
-    return;
-
-  // Get button block mask and touch block pointers
-  uint32_t *button_block_mask = ui_input_get_button_block_mask_ptr();
-  bool *touch_block_active = ui_input_get_touch_block_active_ptr();
-
-  uint32_t dismiss_mask = SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT;
-  bool button_dismiss = (context.ui_state.button_state & dismiss_mask) &&
-                        !(context.ui_state.old_button_state & dismiss_mask);
-  bool touch_dismiss = context.ui_state.touch_state_front.reportNum > 0;
-
-  if (button_dismiss || touch_dismiss) {
-    ui_error_hide();
-    *button_block_mask |= context.ui_state.button_state;
-    *touch_block_active = true;
-  }
-}
-
-/**
- * Check if error popup is currently active
- */
-bool ui_error_is_active(void) {
-  return context.ui_state.error_popup_active;
-}
-
-// ============================================================================
-// Hints Popup System
-// ============================================================================
-
-/**
- * Trigger hints popup with specified hint text
- */
-void ui_hints_trigger(const char *hint_text) {
-  hints_popup.active = true;
-  hints_popup.start_time_us = sceKernelGetProcessTimeWide();
-  hints_popup.current_hint = hint_text;
-}
-
-/**
- * Render the hints popup
- */
-void ui_hints_render(void) {
-  if (!hints_popup.active || !hints_popup.current_hint)
-    return;
-
-  uint64_t now = sceKernelGetProcessTimeWide();
-  uint64_t elapsed_us = now - hints_popup.start_time_us;
-  float elapsed_ms = elapsed_us / 1000.0f;
-
-  // Calculate opacity with fade out
-  float opacity = 1.0f;
-  if (elapsed_ms > HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS) {
-    float fade_progress =
-        (elapsed_ms - (HINTS_POPUP_DURATION_MS - HINTS_FADE_DURATION_MS)) / HINTS_FADE_DURATION_MS;
-    opacity = 1.0f - fade_progress;
-    if (opacity < 0.0f)
-      opacity = 0.0f;
-  }
-
-  // Deactivate when duration complete
-  if (elapsed_ms >= HINTS_POPUP_DURATION_MS) {
-    hints_popup.active = false;
-    return;
-  }
-
-  // Render hint pill at bottom of screen
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, hints_popup.current_hint);
-  int pill_w = text_width + 40;
-  int pill_h = 36;
-  int pill_x = (VITA_WIDTH - pill_w) / 2;
-  int pill_y = VITA_HEIGHT - pill_h - 20;
-
-  uint8_t alpha = (uint8_t)(opacity * 200);
-  ui_draw_rounded_rect(pill_x, pill_y, pill_w, pill_h, 18, RGBA8(0, 0, 0, alpha));
-
-  // Text centered vertically in the pill box; +20 inset from left edge.
-  int text_x = pill_x + 20;
-  ui_text_draw_centered_v(font, text_x, pill_y, pill_h, RGBA8(255, 255, 255, alpha),
-                          FONT_SIZE_SMALL, hints_popup.current_hint);
-}
-
-/**
- * Render hints indicator in top-right corner
- */
-void ui_hints_render_indicator(void) {
-  const char *indicator = "(Select) Hints";
-  int text_width = ui_text_width(font, FONT_SIZE_SMALL, indicator);
-  int text_x = VITA_WIDTH - text_width - 100;  // Left of logo
-  // Baseline at y=35 is a fixed screen-top anchor, not a box center.
-  ui_text_draw(font, text_x, 35, UI_COLOR_TEXT_TERTIARY, FONT_SIZE_SMALL, indicator);
-}
-
 // ============================================================================
 // Debug Menu (VITARPS5_DEBUG_MENU must be enabled)
 // ============================================================================
 
 // Forward declare helper function
 static void ensure_active_host_for_debug(void);
+
+/** How long the debug menu's forced failure stays as the console's status message. */
+#define DEBUG_FAILURE_HINT_DURATION_US (7 * 1000 * 1000ULL)
 
 /**
  * Ensure there's an active host for debug actions
@@ -538,9 +71,16 @@ static void debug_menu_apply_action(int action_index) {
 
   switch (action_index) {
     case 0: {
-      // Show Remote Play error popup
-      ui_error_show("Remote Play already active on console");
-      LOGD("Debug menu: forced Remote Play error popup");
+      // Post a Remote Play failure through the real path: the hint opens the Could not connect
+      // popup on Home.
+      ensure_active_host_for_debug();
+      if (context.active_host) {
+        host_set_hint(context.active_host, "Remote Play already active on console", true,
+                      DEBUG_FAILURE_HINT_DURATION_US);
+        LOGD("Debug menu: forced Remote Play connection failure");
+      } else {
+        LOGE("Debug menu: no console to post a connection failure for");
+      }
       break;
     }
     case 1: {
@@ -695,12 +235,6 @@ void ui_debug_open(void) {
   bool *touch_block_active = ui_input_get_touch_block_active_ptr();
   *button_block_mask |= context.ui_state.button_state;
   *touch_block_active = true;
-
-  // Push modal focus once per debug menu activation.
-  if (!context.ui_state.debug_menu_modal_pushed) {
-    ui_focus_push_modal();
-    context.ui_state.debug_menu_modal_pushed = true;
-  }
 }
 
 /**
@@ -718,58 +252,69 @@ void ui_debug_close(void) {
   bool *touch_block_active = ui_input_get_touch_block_active_ptr();
   *button_block_mask |= context.ui_state.button_state;
   *touch_block_active = true;
-
-  // Pop only if this menu owns a modal push.
-  if (context.ui_state.debug_menu_modal_pushed) {
-    ui_focus_pop_modal();
-    context.ui_state.debug_menu_modal_pushed = false;
-  }
 }
 
+/** Debug menu panel size, in pixels. */
+#define DEBUG_MENU_PANEL_W 560
+#define DEBUG_MENU_PANEL_H 304
+/** Top of the title text box, below the panel's top edge. */
+#define DEBUG_MENU_TITLE_TOP UI_S3
+/** Top of the first option row, below the panel's top edge. */
+#define DEBUG_MENU_LIST_TOP 72
+/** Gap between option rows. */
+#define DEBUG_MENU_ROW_GAP 2
+/** Space between the option rows and the panel's left and right edges. */
+#define DEBUG_MENU_ROW_INSET UI_S4
+/** Space between the row label and the row's left edge. */
+#define DEBUG_MENU_ROW_PAD UI_S2
+/** Top of the hint text box, above the panel's bottom edge. */
+#define DEBUG_MENU_HINT_BOTTOM_GAP 28
+
 /**
- * Render the debug menu
+ * Render the debug menu in the popup style: scrim, panel with border, T28 title, focus-bar rows
+ * in T20, T14 hint.
  */
 void ui_debug_render(void) {
   if (!context.ui_state.debug_menu_active)
     return;
 
-  // Semi-transparent overlay
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 120));
+  vita2d_draw_rectangle(0.0f, 0.0f, (float)VITA_WIDTH, (float)VITA_HEIGHT, UI_SCRIM);
 
-  // Panel dimensions
-  const int panel_w = 560;
-  const int panel_h = 290;
-  int panel_x = (VITA_WIDTH - panel_w) / 2;
-  int panel_y = (VITA_HEIGHT - panel_h) / 2;
-  ui_draw_rounded_rect(panel_x, panel_y, panel_w, panel_h, 18, RGBA8(0x14, 0x16, 0x1C, 240));
+  const UiRect panel = {(VITA_WIDTH - DEBUG_MENU_PANEL_W) / 2,
+                        (VITA_HEIGHT - DEBUG_MENU_PANEL_H) / 2, DEBUG_MENU_PANEL_W,
+                        DEBUG_MENU_PANEL_H};
+  ui_shape9_draw(UI_SHAPE9_MD, panel, UI_PANEL);
+  ui_shape9_draw(UI_SHAPE9_MD_BORDER, panel, UI_LINE);
 
-  // Title — baseline sits 40 px below panel top, leaving room for the panel's title-bar area.
   const char *title = "Debug Actions";
-  int title_w = ui_text_width(font, FONT_SIZE_HEADER, title);
-  ui_text_draw(font, panel_x + (panel_w - title_w) / 2, panel_y + 40, UI_COLOR_TEXT_PRIMARY,
-               FONT_SIZE_HEADER, title);
+  ui_text_draw_face_centered_v(UI_FACE_T28,
+                               panel.x + (panel.w - ui_text_face_width(UI_FACE_T28, title)) / 2,
+                               panel.y + DEBUG_MENU_TITLE_TOP, UI_T28_LINE, UI_TEXT, title);
 
-  // Option list
-  int list_y = panel_y + 70;
+  const int row_x = panel.x + DEBUG_MENU_ROW_INSET;
+  const int row_w = panel.w - 2 * DEBUG_MENU_ROW_INSET;
   for (int i = 0; i < DEBUG_MENU_OPTION_COUNT; i++) {
-    uint32_t row_color = RGBA8(0x30, 0x35, 0x40, 255);
-    if (i == context.ui_state.debug_menu_selection) {
-      row_color = RGBA8(0x34, 0x90, 0xFF, 160);
+    const bool focused = i == context.ui_state.debug_menu_selection;
+    const int row_y = panel.y + DEBUG_MENU_LIST_TOP + i * (UI_ROW_H + DEBUG_MENU_ROW_GAP);
+    const int text_x = row_x + DEBUG_MENU_ROW_PAD;
+    if (focused) {
+      const UiRect label = {text_x, row_y + (UI_ROW_H - UI_T20_LINE) / 2,
+                            ui_text_face_width(UI_FACE_T20, debug_menu_options[i]), UI_T20_LINE};
+      ui_glow_draw_rect(label, UI_ROW_GLOW,
+                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
+      ui_shape3_draw(UI_SHAPE3_BAR_48, row_x, row_y, row_w, UI_FILL_FOCUS);
+    } else {
+      vita2d_draw_rectangle((float)row_x, (float)(row_y + UI_ROW_H - UI_LW1), (float)row_w,
+                            (float)UI_LW1, UI_LINE_FAINT);
     }
-    int row_h = 44;
-    int row_margin = 6;
-    ui_draw_rounded_rect(panel_x + 30, list_y + i * (row_h + row_margin), panel_w - 60, row_h, 10,
-                         row_color);
-    // Row label centered vertically in the row box; box top is list_y + i*(row_h+row_margin).
-    ui_text_draw_centered_v(font, panel_x + 50, list_y + i * (row_h + row_margin), row_h,
-                            UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, debug_menu_options[i]);
+    ui_text_draw_face_centered_v(UI_FACE_T20, text_x, row_y, UI_ROW_H,
+                                 focused ? UI_TEXT : UI_TEXT_2, debug_menu_options[i]);
   }
 
-  // Hint text — baseline sits 20 px above panel bottom.
   const char *hint = "D-Pad: Select  |  X: Trigger  |  Circle: Close";
-  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  ui_text_draw(font, panel_x + (panel_w - hint_w) / 2, panel_y + panel_h - 20,
-               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
+  ui_text_draw_face_centered_v(
+      UI_FACE_T14, panel.x + (panel.w - ui_text_face_width(UI_FACE_T14, hint)) / 2,
+      panel.y + panel.h - DEBUG_MENU_HINT_BOTTOM_GAP, UI_T14_LINE, UI_TEXT_3, hint);
 }
 
 /**
@@ -804,229 +349,12 @@ void ui_debug_handle_input(void) {
   }
 }
 
-/**
- * Check if debug menu is currently active
- */
-bool ui_debug_is_active(void) {
-  return context.ui_state.debug_menu_active;
-}
-
-// ============================================================================
-// Connection Method Popup
-// ============================================================================
-
-/* Module-level popup state — all fields are owned by this module. */
-static bool connect_popup_active = false;
-static int connect_popup_selection = 0; /* 0 = Local Network, 1 = Internet */
-static int connect_popup_result = -1;   /* -1 = pending, 0 = LAN, 1 = Internet, 2 = cancelled */
-
-#define CONNECT_POPUP_W 400
-#define CONNECT_POPUP_H 160
-#define CONNECT_POPUP_RADIUS 10
-#define CONNECT_POPUP_ITEM_COUNT 2
-
-/**
- * Show the connection method popup.
- *
- * Resets selection to the first option (Local Network) and pushes a modal
- * focus layer so that background input is suppressed while the popup is open.
- * Call this when a long Cross-press is detected on a dual-source card.
- */
-void ui_connect_popup_show(void) {
-  connect_popup_active = true;
-  connect_popup_selection = 0;
-  connect_popup_result = -1;
-  ui_focus_push_modal();
-  bool *touch_block = ui_input_get_touch_block_active_ptr();
-  *touch_block = true;
-}
-
-/**
- * Update the connection method popup for the current frame.
- *
- * Must be called every frame while the popup is active.  Returns the user's
- * decision as soon as it is made, then marks the popup inactive:
- *   -1 — still open (no action yet)
- *    0 — Local Network selected
- *    1 — Internet selected
- *    2 — cancelled (Circle pressed)
- *
- * @return  Decision code as described above.
- */
-int ui_connect_popup_update(void) {
-  if (!connect_popup_active)
-    return -1;
-
-  /* D-pad navigation: DOWN advances the selection, UP retreats it.
-   * The separate branches give each direction its own wraparound expression so
-   * the two options cycle in the expected visual direction rather than both
-   * toggling with the same modulo — pressing Up on "Internet" correctly returns
-   * to "Local Network" rather than advancing past it.
-   * btn_pressed() applies button_block_mask, preventing double-fires after
-   * block_inputs_for_transition(), and honours the error_popup_active guard
-   * (safe here: connect_popup_active is always cleared before ui_error_show). */
-  if (btn_pressed(SCE_CTRL_DOWN))
-    connect_popup_selection = (connect_popup_selection + 1) % CONNECT_POPUP_ITEM_COUNT;
-  if (btn_pressed(SCE_CTRL_UP))
-    connect_popup_selection =
-        (connect_popup_selection + CONNECT_POPUP_ITEM_COUNT - 1) % CONNECT_POPUP_ITEM_COUNT;
-
-  /* Cross confirms the highlighted option. */
-  if (btn_pressed(SCE_CTRL_CROSS)) {
-    connect_popup_result = connect_popup_selection;
-    connect_popup_active = false;
-    ui_focus_pop_modal();
-    block_inputs_for_transition();
-    return connect_popup_result;
-  }
-
-  /* Circle cancels. */
-  if (btn_pressed(SCE_CTRL_CIRCLE)) {
-    connect_popup_result = 2;
-    connect_popup_active = false;
-    ui_focus_pop_modal();
-    block_inputs_for_transition();
-    return 2;
-  }
-
-  return -1;
-}
-
-/**
- * Draw the connection method popup overlay.
- *
- * Renders a darkened full-screen overlay and a centered card with two
- * selectable options.  Must be called inside a vita2d_start_drawing /
- * vita2d_end_drawing pair, after all other screen content so the popup
- * appears on top.
- */
-void ui_connect_popup_draw(void) {
-  if (!connect_popup_active)
-    return;
-
-  /* Dark overlay to focus attention on the popup. */
-  vita2d_draw_rectangle(0, 0, VITA_WIDTH, VITA_HEIGHT, RGBA8(0, 0, 0, 160));
-
-  /* Centered card. */
-  const int card_x = (VITA_WIDTH - CONNECT_POPUP_W) / 2;
-  const int card_y = (VITA_HEIGHT - CONNECT_POPUP_H) / 2;
-  ui_draw_rounded_rect(card_x, card_y, CONNECT_POPUP_W, CONNECT_POPUP_H, CONNECT_POPUP_RADIUS,
-                       RGBA8(0x20, 0x20, 0x20, 245));
-
-  /* Title — centered horizontally, 30px below card top. */
-  const char *title = "Connect via";
-  int title_w = ui_text_width(font, FONT_SIZE_BODY, title);
-  ui_text_draw(font, card_x + (CONNECT_POPUP_W - title_w) / 2, card_y + 30, UI_COLOR_TEXT_PRIMARY,
-               FONT_SIZE_BODY, title);
-
-  /* Option geometry. */
-  const char *options[CONNECT_POPUP_ITEM_COUNT] = {"Local Network", "Internet"};
-  const int opt_x = card_x + 40;
-  const int opt_y[CONNECT_POPUP_ITEM_COUNT] = {card_y + 60, card_y + 100};
-  const int highlight_w = CONNECT_POPUP_W - 60;
-  const int highlight_h = 32;
-
-  /* Selection highlight behind the active row.
-   * opt_y[] stores the FreeType baseline position, so the visible glyph body
-   * sits mostly ABOVE that coordinate.  Shift the rect up so the baseline
-   * lands near the bottom third of the highlight, visually centering the text. */
-  int sel_y = opt_y[connect_popup_selection] - highlight_h + 10;
-  /* Subtle grey highlight — 20% opacity, no border. */
-  ui_draw_rounded_rect(opt_x - 10, sel_y, highlight_w, highlight_h, 6, RGBA8(255, 255, 255, 50));
-
-  /* Option labels — all rows use primary text color; the grey highlight bar
-   * behind the selected row is sufficient to indicate selection. */
-  for (int i = 0; i < CONNECT_POPUP_ITEM_COUNT; i++) {
-    ui_text_draw(font, opt_x, opt_y[i], UI_COLOR_TEXT_PRIMARY, FONT_SIZE_BODY, options[i]);
-  }
-
-  /* Button hints — matches the style used by the debug menu. */
-  const char *hint = "D-Pad: Select  |  X: Confirm  |  O: Cancel";
-  int hint_w = ui_text_width(font, FONT_SIZE_SMALL, hint);
-  ui_text_draw(font, card_x + (CONNECT_POPUP_W - hint_w) / 2, card_y + CONNECT_POPUP_H - 20,
-               UI_COLOR_TEXT_SECONDARY, FONT_SIZE_SMALL, hint);
-}
-
-/**
- * Check whether the connection method popup is currently open.
- *
- * @return  true if the popup is active and waiting for user input.
- */
-bool ui_connect_popup_is_active(void) {
-  return connect_popup_active;
-}
-
 // ============================================================================
 // Legacy Compatibility Wrappers (for ui.c internal use)
 // ============================================================================
 
-// These static wrappers maintain backwards compatibility with existing ui.c code
-// Once ui.c is fully refactored, these can be removed
-
-void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected) {
-  ui_draw_toggle_switch(x, y, width, height, anim_value, selected);
-}
-
-void draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                   bool expanded, bool selected) {
-  ui_draw_dropdown(x, y, width, height, label, value, expanded, selected);
-}
-
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected) {
-  ui_draw_tab_bar(x, y, width, height, tabs, colors, num_tabs, selected);
-}
-
-void draw_status_dot(int x, int y, int radius, int status) {
-  ui_draw_status_dot(x, y, radius, (UIStatusType)status);
-}
-
-void draw_section_header(int x, int y, int width, const char *title) {
-  ui_draw_section_header(x, y, width, title);
-}
-
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value) {
-  ui_draw_pin_digit(x, y, digit, is_current, has_value);
-}
-
-void start_toggle_animation(int toggle_index, bool target_state) {
-  ui_toggle_start_animation(toggle_index, target_state);
-}
-
-float get_toggle_animation_value(int toggle_index, bool current_state) {
-  return ui_toggle_get_animation_value(toggle_index, current_state);
-}
-
-void render_error_popup(void) {
-  ui_error_render();
-}
-
-void handle_error_popup_input(void) {
-  ui_error_handle_input();
-}
-
-void render_connect_popup(void) {
-  ui_connect_popup_draw();
-}
-
-void trigger_hints_popup(const char *hint_text) {
-  ui_hints_trigger(hint_text);
-}
-
-void render_hints_popup(void) {
-  ui_hints_render();
-}
-
-void render_hints_indicator(void) {
-  ui_hints_render_indicator();
-}
-
 void open_debug_menu(void) {
   ui_debug_open();
-}
-
-void close_debug_menu(void) {
-  ui_debug_close();
 }
 
 void render_debug_menu(void) {

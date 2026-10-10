@@ -109,59 +109,6 @@ void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
  * @note No fill - outline only
  */
 void ui_draw_rectangle_outline(int x, int y, int width, int height, uint32_t color);
-void ui_draw_vertical_gradient_rect(int x, int y, int width, int height, uint32_t top_color,
-                                    uint32_t bottom_color, int radius);
-
-/**
- * Draw a rotating spinner arc
- *
- * Renders a 3/4 circle arc (270 degrees) used for loading indicators.
- * Arc rotates continuously based on rotation_deg parameter.
- *
- * @param cx Center X coordinate
- * @param cy Center Y coordinate
- * @param radius Outer radius of the arc
- * @param thickness Arc thickness in pixels
- * @param rotation_deg Current rotation angle in degrees
- * @param color ABGR color value
- *
- * @note Uses 32 segments for smooth arc rendering
- * @note Draws both inner and outer arcs with connecting lines for fill
- * @note Update rotation_deg each frame for animation effect
- */
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color);
-
-// ============================================================================
-// Overlay & Effect Drawing
-// ============================================================================
-
-/**
- * Render semi-transparent focus overlay
- *
- * Draws a full-screen semi-transparent black overlay (80 alpha) used when
- * the navigation sidebar is expanded to dim the content area.
- *
- * @note Only renders when navigation is in NAV_STATE_EXPANDED
- * @note Uses 960x544 full screen dimensions
- * @note Alpha value: RGBA8(0, 0, 0, 80)
- */
-void ui_draw_content_focus_overlay(void);
-
-/**
- * Render network loss indicator badge
- *
- * Displays a small badge in the bottom-right corner showing "Network Unstable"
- * with a red dot. Badge fades out based on alert duration.
- *
- * @note Only renders when:
- *   - Not currently streaming (context.stream.is_streaming == false)
- *   - Network indicator enabled (context.config.show_network_indicator == true)
- *   - Alert timer active (context.stream.loss_alert_until_us set)
- * @note Fades out proportionally to remaining alert time
- * @note Badge includes: red dot (6px radius) + "Network Unstable" text (FONT_SIZE_SMALL)
- * @note Positioned 18px from bottom-right corner
- */
-void ui_draw_loss_indicator(void);
 
 #ifdef __cplusplus
 }

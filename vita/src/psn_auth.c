@@ -11,10 +11,14 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <chiaki/remote/holepunch.h>
+#include <chiaki/redact.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 
 #include "config.h"
 #include "context.h"
 #include "psn_auth.h"
+#include "psn_auth_rules.h"
 #include "psn_remote.h"
 #include "vita_dns.h"
 
@@ -48,6 +52,11 @@
 #define RESPONSE_CAP_BYTES (16 * 1024)
 #define AUTH_VERIFICATION_URL_MAX 1536
 #define PSN_CA_BUNDLE_PATH "app0:/assets/psn-ca-bundle.pem"
+/* How long a non-UI thread (the connect worker) waits for a background refresh to be committed.
+ * The worker runs the OAuth POST (15 s curl timeout) and then the device-list fetch (10 s), so
+ * 30 s covers both plus the wait for the next main-loop frame. */
+#define BACKGROUND_REFRESH_WAIT_MAX_US (30ULL * 1000000ULL)
+#define BACKGROUND_REFRESH_WAIT_POLL_US (50ULL * 1000ULL)
 
 typedef struct {
   PsnAuthState state;
@@ -58,6 +67,16 @@ typedef struct {
   uint64_t device_code_expires_at_unix;
   uint64_t next_poll_unix;
   uint32_t poll_interval_sec;
+  /* Sony answered the stored refresh token with HTTP 400. In memory only: cleared by the next
+   * successful code exchange, so a rejected token is retried once per app launch (GH #360). */
+  bool refresh_token_rejected;
+  /* The startup worker has a refresh in flight (GH #366); main thread only. */
+  volatile bool background_refresh_in_flight;
+  /* The thread that started the background refresh, i.e. the UI thread that commits it. */
+  SceUID ui_thread_id;
+  /* Bumped when the stored grant is replaced or cleared, so a worker's late result for the old
+   * grant is recognised and dropped. */
+  uint32_t grant_generation;
 } PsnAuthRuntime;
 
 typedef struct {
@@ -149,7 +168,7 @@ static void psn_auth_clear_error(void) {
 }
 
 static void psn_auth_set_error(const char *msg) {
-  g_psn_auth.state = PSN_AUTH_STATE_ERROR;
+  g_psn_auth.state = psn_auth_rules_state_after_error(g_psn_auth.state);
   if (!msg)
     msg = "Unknown PSN authentication error";
   snprintf(g_psn_auth.last_error, sizeof(g_psn_auth.last_error), "%s", msg);
@@ -219,6 +238,7 @@ void psn_auth_clear_tokens(void) {
   set_config_string(&context.config.psn_oauth_access_token, NULL);
   set_config_string(&context.config.psn_oauth_refresh_token, NULL);
   context.config.psn_oauth_expires_at_unix = 0;
+  g_psn_auth.grant_generation++;
   psn_auth_cancel_device_login();
 }
 
@@ -372,6 +392,9 @@ static void log_oauth_transport_probe(const char *url) {
  * generate a support bundle — credentials and tokens will leak.
  */
 #ifdef VITARPS5_DEBUG_OAUTH
+/* Size of the stack buffer that holds a redacted copy of one curl debug chunk. */
+#define OAUTH_CURL_DEBUG_REDACT_BUF_SIZE 2048
+
 static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data, size_t size,
                                void *userp) {
   (void)handle;
@@ -380,15 +403,20 @@ static int oauth_curl_debug_cb(CURL *handle, curl_infotype type, char *data, siz
   if (!data || size == 0)
     return 0;
 
+  char redacted[OAUTH_CURL_DEBUG_REDACT_BUF_SIZE];
+  size_t redacted_len = 0;
+  if (type == CURLINFO_TEXT || type == CURLINFO_HEADER_OUT || type == CURLINFO_HEADER_IN)
+    redacted_len = chiaki_redact_secrets(data, size, redacted, sizeof(redacted));
+
   switch (type) {
     case CURLINFO_TEXT:
-      LOGD("PSN auth curl info url=%s text=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl info url=%s text=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_HEADER_OUT:
-      LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl header_out url=%s data=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_HEADER_IN:
-      LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)size, data);
+      LOGD("PSN auth curl header_in url=%s data=%.*s", url, (int)redacted_len, redacted);
       break;
     case CURLINFO_SSL_DATA_OUT:
       LOGD("PSN auth curl ssl_data_out url=%s size=%u", url, (unsigned)size);
@@ -834,7 +862,21 @@ static void clear_device_flow_fields(void) {
   g_psn_auth.poll_interval_sec = 5;
 }
 
-static bool apply_token_response(const char *response, uint64_t now_unix) {
+/**
+ * parse_token_grant() - Read the tokens out of Sony's token response.
+ *
+ * Touches no shared state, so it is safe on the refresh worker.
+ *
+ * @param response       JSON body
+ * @param access_out     malloc'd access token (required in the response)
+ * @param refresh_out    malloc'd refresh token, or NULL when the response has none
+ * @param expires_in_out lifetime in seconds (3600 when the response omits it)
+ * @return true when a usable access token was found; the caller frees both strings
+ */
+static bool parse_token_grant(const char *response, char **access_out, char **refresh_out,
+                              uint64_t *expires_in_out) {
+  *access_out = NULL;
+  *refresh_out = NULL;
   size_t access_len = 0;
   size_t refresh_len = 0;
   if (!json_get_string_len(response, "access_token", &access_len) || access_len == 0) {
@@ -861,25 +903,10 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
       return false;
     }
     refresh_token = malloc(refresh_len + 1);
-    if (!refresh_token) {
-      free(access_token);
-      return false;
-    }
-    if (!json_get_string(response, "refresh_token", refresh_token, refresh_len + 1)) {
+    if (!refresh_token ||
+        !json_get_string(response, "refresh_token", refresh_token, refresh_len + 1)) {
       free(access_token);
       free(refresh_token);
-      return false;
-    }
-  } else if (has_text(context.config.psn_oauth_refresh_token)) {
-    refresh_token = strdup(context.config.psn_oauth_refresh_token);
-    if (!refresh_token) {
-      free(access_token);
-      return false;
-    }
-  } else {
-    refresh_token = strdup("");
-    if (!refresh_token) {
-      free(access_token);
       return false;
     }
   }
@@ -888,17 +915,44 @@ static bool apply_token_response(const char *response, uint64_t now_unix) {
   if (!json_get_uint64(response, "expires_in", &expires_in) || expires_in == 0) {
     expires_in = 3600;
   }
+  *access_out = access_token;
+  *refresh_out = refresh_token;
+  *expires_in_out = expires_in;
+  return true;
+}
 
-  /* set_config_string calls strdup internally — safe to free our copies after. */
+/**
+ * store_token_grant() - Put a parsed grant into the config and mark the auth valid.
+ *
+ * @param refresh_token the new refresh token, or NULL to keep the stored one
+ */
+static void store_token_grant(const char *access_token, const char *refresh_token,
+                              uint64_t expires_in, uint64_t now_unix) {
+  /* set_config_string strdups; with no new refresh token the stored one is kept (or emptied if
+   * there is none). Copy it first: set_config_string frees the old pointer before it copies. */
+  char *kept = NULL;
+  if (!has_text(refresh_token) && has_text(context.config.psn_oauth_refresh_token))
+    kept = strdup(context.config.psn_oauth_refresh_token);
   set_config_string(&context.config.psn_oauth_access_token, access_token);
-  set_config_string(&context.config.psn_oauth_refresh_token, refresh_token);
-  free(access_token);
-  free(refresh_token);
+  set_config_string(&context.config.psn_oauth_refresh_token,
+                    has_text(refresh_token) ? refresh_token : kept);
+  free(kept);
   context.config.psn_oauth_expires_at_unix = now_unix + expires_in;
   clear_device_flow_fields();
   g_psn_auth.state = PSN_AUTH_STATE_TOKEN_VALID;
   psn_auth_clear_error();
   context.config_persist_pending = true;
+}
+
+static bool apply_token_response(const char *response, uint64_t now_unix) {
+  char *access_token = NULL;
+  char *refresh_token = NULL;
+  uint64_t expires_in = 0;
+  if (!parse_token_grant(response, &access_token, &refresh_token, &expires_in))
+    return false;
+  store_token_grant(access_token, refresh_token, expires_in, now_unix);
+  free(access_token);
+  free(refresh_token);
   return true;
 }
 
@@ -960,8 +1014,7 @@ const char *psn_auth_state_label(void) {
 }
 
 bool psn_auth_device_login_active(void) {
-  return g_psn_auth.state == PSN_AUTH_STATE_DEVICE_LOGIN_PENDING ||
-         g_psn_auth.state == PSN_AUTH_STATE_DEVICE_LOGIN_POLLING;
+  return psn_auth_rules_login_in_progress(g_psn_auth.state);
 }
 
 const char *psn_auth_device_user_code(void) {
@@ -1226,7 +1279,6 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
        oauth_redirect_uri(), oauth_client_id(), (unsigned)strlen(form));
   if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(), oauth_client_secret(),
                        &http_code, &response)) {
-    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
     psn_auth_set_error("Authorization code exchange failed");
     return false;
   }
@@ -1245,6 +1297,8 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
      * background refresh would silently clear the cooldown regardless of
      * whether the underlying grant actually changed (GH #204). */
     psn_remote_reset_retry_gate();
+    g_psn_auth.refresh_token_rejected = false;
+    g_psn_auth.grant_generation++;
     ok = true;
   } else {
     LOGE("PSN auth token exchange rejected status=%ld response_len=%u", http_code,
@@ -1256,72 +1310,185 @@ bool psn_auth_submit_authorization_response(const char *input, uint64_t now_unix
     } else {
       psn_auth_set_error("Authorization code was rejected");
     }
-    g_psn_auth.state = PSN_AUTH_STATE_DEVICE_LOGIN_PENDING;
   }
 
   free(response);
   return ok;
 }
 
-bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
+/** copy_checked() - snprintf-copy src into dst; false when it does not fit. */
+static bool copy_checked(char *dst, size_t dst_size, const char *src) {
+  int n = snprintf(dst, dst_size, "%s", src ? src : "");
+  return n >= 0 && (size_t)n < dst_size;
+}
+
+PsnAuthRefreshPrep psn_auth_refresh_prepare(uint64_t now_unix, bool force, bool background,
+                                            PsnAuthRefreshRequest *req) {
+  /* A refresh during a phone login would replace the pending state and kill the login; a
+   * rejected refresh token would only be rejected again, once a minute, on the UI thread. */
+  if (!psn_auth_rules_refresh_allowed(g_psn_auth.state, g_psn_auth.refresh_token_rejected)) {
+    LOGD("PSN auth refresh skipped: %s", g_psn_auth.refresh_token_rejected
+                                             ? "stored refresh token was rejected"
+                                             : "phone login in progress");
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
+  }
   if (!psn_auth_enabled())
-    return false;
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
   if (!force && psn_auth_token_is_valid(now_unix))
-    return true;
+    return PSN_AUTH_REFRESH_PREP_VALID;
   if (!has_text(context.config.psn_oauth_refresh_token))
-    return false;
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
+  /* Sony may rotate the refresh token on use; a second request with the same one could be
+   * answered 400 and lock the user out. */
+  if (!background && g_psn_auth.background_refresh_in_flight) {
+    LOGD("PSN auth refresh skipped: background refresh in flight");
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
+  }
   if (!oauth_configured_for_refresh()) {
     psn_auth_set_error("OAuth refresh endpoint not configured in this build");
-    return false;
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
   }
 
   CURL *curl = curl_easy_init();
   if (!curl) {
     psn_auth_set_error("Failed to initialize token refresh client");
-    return false;
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
   }
 
   g_psn_auth.state = PSN_AUTH_STATE_TOKEN_REFRESHING;
-  char form[1400];
   size_t off = 0;
   bool form_ok =
-      append_form_kv(curl, form, sizeof(form), &off, "grant_type", "refresh_token") &&
-      append_form_kv(curl, form, sizeof(form), &off, "refresh_token",
+      append_form_kv(curl, req->form, sizeof(req->form), &off, "grant_type", "refresh_token") &&
+      append_form_kv(curl, req->form, sizeof(req->form), &off, "refresh_token",
                      context.config.psn_oauth_refresh_token) &&
-      append_form_kv(curl, form, sizeof(form), &off, "scope", oauth_scope()) &&
-      append_form_kv(curl, form, sizeof(form), &off, "redirect_uri", oauth_redirect_uri());
+      append_form_kv(curl, req->form, sizeof(req->form), &off, "scope", oauth_scope()) &&
+      append_form_kv(curl, req->form, sizeof(req->form), &off, "redirect_uri",
+                     oauth_redirect_uri());
   curl_easy_cleanup(curl);
-  if (!form_ok) {
+  if (!form_ok || !copy_checked(req->url, sizeof(req->url), oauth_token_url()) ||
+      !copy_checked(req->client_id, sizeof(req->client_id), oauth_client_id()) ||
+      !copy_checked(req->client_secret, sizeof(req->client_secret), oauth_client_secret())) {
     psn_auth_set_error("Failed to build refresh request");
-    return false;
+    return PSN_AUTH_REFRESH_PREP_SKIPPED;
   }
 
-  long http_code = 0;
-  char *response = NULL;
-  LOGD("PSN auth refresh exchange url=%s redirect_uri=%s client_id=%s form_len=%u",
-       oauth_token_url(), oauth_redirect_uri(), oauth_client_id(), (unsigned)strlen(form));
-  if (!oauth_post_form(oauth_token_url(), form, oauth_client_id(), oauth_client_secret(),
-                       &http_code, &response)) {
+  LOGD("PSN auth refresh exchange url=%s redirect_uri=%s client_id=%s form_len=%u", req->url,
+       oauth_redirect_uri(), req->client_id, (unsigned)strlen(req->form));
+  if (background) {
+    g_psn_auth.ui_thread_id = sceKernelGetThreadId();
+    g_psn_auth.background_refresh_in_flight = true;
+  }
+  return PSN_AUTH_REFRESH_PREP_READY;
+}
+
+void psn_auth_refresh_fetch(const PsnAuthRefreshRequest *req, PsnAuthRefreshResult *res) {
+  memset(res, 0, sizeof(*res));
+  res->transport_ok = oauth_post_form(req->url, req->form, req->client_id, req->client_secret,
+                                      &res->http_code, &res->response);
+  if (res->transport_ok && res->http_code == 200) {
+    res->grant_ok =
+        parse_token_grant(res->response, &res->access_token, &res->refresh_token, &res->expires_in);
+  }
+}
+
+const char *psn_auth_refresh_result_access_token(const PsnAuthRefreshResult *res) {
+  return res->grant_ok ? res->access_token : NULL;
+}
+
+PsnAuthRefreshOutcome psn_auth_refresh_apply(const PsnAuthRefreshResult *res, uint64_t now_unix) {
+  if (!res->transport_ok) {
     psn_auth_set_error("Token refresh request failed");
-    return false;
+    return PSN_AUTH_REFRESH_FAILED;
+  }
+  if (res->grant_ok) {
+    store_token_grant(res->access_token, res->refresh_token, res->expires_in, now_unix);
+    LOGD("PSN auth refresh succeeded response_len=%u",
+         (unsigned)(res->response ? strlen(res->response) : 0));
+    return PSN_AUTH_REFRESH_REFRESHED;
   }
 
-  bool refreshed = false;
-  if (http_code == 200 && apply_token_response(response, now_unix)) {
-    LOGD("PSN auth refresh succeeded response_len=%u", (unsigned)(response ? strlen(response) : 0));
-    refreshed = true;
+  LOGE("PSN auth refresh rejected status=%ld response_len=%u", res->http_code,
+       (unsigned)(res->response ? strlen(res->response) : 0));
+  bool rejected = psn_auth_rules_status_rejects_refresh_token(res->http_code);
+  if (rejected) {
+    char error_code[64] = "";
+    if (res->response)
+      json_get_string(res->response, "error", error_code, sizeof(error_code));
+    g_psn_auth.refresh_token_rejected = true;
+    LOGE(
+        "PSN auth: Sony rejected the stored refresh token (status=%ld error=%s); not retrying "
+        "until the next login",
+        res->http_code, error_code[0] ? error_code : "none");
+  }
+  char error_desc[160];
+  if (res->response &&
+      json_get_string(res->response, "error_description", error_desc, sizeof(error_desc))) {
+    psn_auth_set_error(error_desc);
   } else {
-    LOGE("PSN auth refresh rejected status=%ld response_len=%u", http_code,
-         (unsigned)(response ? strlen(response) : 0));
-    char error_desc[160];
-    if (response &&
-        json_get_string(response, "error_description", error_desc, sizeof(error_desc))) {
-      psn_auth_set_error(error_desc);
-    } else {
-      psn_auth_set_error("Token refresh failed");
-    }
+    psn_auth_set_error("Token refresh failed");
   }
+  return rejected ? PSN_AUTH_REFRESH_REJECTED : PSN_AUTH_REFRESH_FAILED;
+}
 
-  free(response);
+void psn_auth_refresh_result_free(PsnAuthRefreshResult *res) {
+  free(res->response);
+  free(res->access_token);
+  free(res->refresh_token);
+  memset(res, 0, sizeof(*res));
+}
+
+void psn_auth_refresh_background_finished(void) {
+  g_psn_auth.background_refresh_in_flight = false;
+}
+
+uint32_t psn_auth_grant_generation(void) {
+  return g_psn_auth.grant_generation;
+}
+
+/**
+ * wait_for_background_refresh() - Let a background refresh finish before a refresh from a worker.
+ *
+ * The connect worker must not fail with "session expired" just because a background refresh is
+ * still in flight; the UI thread commits it, then this caller re-runs the normal logic. The UI
+ * thread itself never waits (it is the one that commits).
+ *
+ * @return now_unix advanced by the time spent waiting
+ */
+static uint64_t wait_for_background_refresh(uint64_t now_unix) {
+  if (!g_psn_auth.background_refresh_in_flight ||
+      sceKernelGetThreadId() == g_psn_auth.ui_thread_id) {
+    return now_unix;
+  }
+  const uint64_t start_us = sceKernelGetProcessTimeWide();
+  uint64_t waited_us = 0;
+  while (g_psn_auth.background_refresh_in_flight && waited_us < BACKGROUND_REFRESH_WAIT_MAX_US) {
+    sceKernelDelayThread((SceUInt)BACKGROUND_REFRESH_WAIT_POLL_US);
+    waited_us = sceKernelGetProcessTimeWide() - start_us;
+  }
+  if (g_psn_auth.background_refresh_in_flight) {
+    LOGE("PSN auth: background refresh still in flight after %llu ms; continuing without it",
+         (unsigned long long)(waited_us / 1000ULL));
+    return now_unix;
+  }
+  LOGD("PSN auth: waited %llu ms for the background refresh to commit",
+       (unsigned long long)(waited_us / 1000ULL));
+  return now_unix + waited_us / 1000000ULL;
+}
+
+bool psn_auth_refresh_token_if_needed(uint64_t now_unix, bool force) {
+  now_unix = wait_for_background_refresh(now_unix);
+  PsnAuthRefreshRequest req;
+  switch (psn_auth_refresh_prepare(now_unix, force, false, &req)) {
+    case PSN_AUTH_REFRESH_PREP_VALID:
+      return true;
+    case PSN_AUTH_REFRESH_PREP_SKIPPED:
+      return false;
+    case PSN_AUTH_REFRESH_PREP_READY:
+      break;
+  }
+  PsnAuthRefreshResult res;
+  psn_auth_refresh_fetch(&req, &res);
+  bool refreshed = psn_auth_refresh_apply(&res, now_unix) == PSN_AUTH_REFRESH_REFRESHED;
+  psn_auth_refresh_result_free(&res);
   return refreshed;
 }

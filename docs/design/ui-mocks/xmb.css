@@ -57,7 +57,7 @@ button{font-family:inherit}
 .g{height:24px;width:auto;display:block;flex:none}
 img.g{height:24px}
 .gs{display:inline-block;height:24px;vertical-align:middle}
-.inl{height:20px;vertical-align:-5px;margin:0 2px}
+.inl{height:16px;vertical-align:-3px;margin:0 2px}
 
 /* C19 Pill: overlay pill, badge, banner. h32, pad 16, square */
 .pill{display:inline-flex;align-items:center;gap:var(--s1);height:32px;padding:0 var(--s2);background:var(--hud);font-size:var(--t16);font-weight:var(--w-reg);color:var(--text);white-space:nowrap}
@@ -95,7 +95,7 @@ img.g{height:24px}
 .xi .gl{position:absolute;left:-24px;top:-24px;width:112px;height:112px;border-radius:50%;pointer-events:none;--rc:var(--idle);background:radial-gradient(closest-side,color-mix(in srgb,var(--rc) 55%,transparent),transparent);opacity:.45;transition:opacity var(--d2) var(--ease)}
 .xi.sel .gl{opacity:1}
 .xi .gl.ready,.xi .gl.psn{--rc:var(--ok)}.xi .gl.standby{--rc:var(--warn)}.xi .gl.unavail,.xi .gl.cool{--rc:var(--err)}.xi .gl.unpaired{opacity:0}
-.xi.sel .n{font-size:var(--t28);line-height:32px;color:var(--text)}
+.xi.sel .n{font-size:var(--t28);line-height:32px;font-weight:var(--w-reg);color:var(--text);text-shadow:0 0 12px var(--glow),0 1px 4px var(--shadow)}
 .xi.sel .s{color:var(--text)}
 .xi.dimmed{opacity:.55}
 .sdot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--dc);vertical-align:-1px;margin-right:var(--s1)}
@@ -167,6 +167,7 @@ img.g{height:24px}
 .sw.on{border-color:var(--text);background:var(--fill-on)}.sw.on::after{transform:translateX(24px);background:var(--text)}
 /* C10 ChoiceValue: chevron tap boxes 48x48 */
 .chc{display:flex;align-items:center}
+.chc .v{display:inline-flex;align-items:center;gap:var(--s1)}
 .chc .ar{width:48px;height:48px;display:flex;align-items:center;justify-content:center;opacity:.5}
 .srow.sel .chc .ar{opacity:1}
 .chc .v{width:224px;text-align:center}
@@ -272,11 +273,15 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 /* C18 QrPanel / login assist */
 .lgn{position:absolute;left:336px;top:var(--body-y);width:576px;height:288px;animation:rise var(--d2) var(--ease)}
 .lgn h3{font-size:var(--t20);font-weight:var(--w-light);line-height:32px;margin-bottom:var(--s1);color:var(--text)}
-.lgn .qr{width:176px;height:176px;background:var(--qr-plate);padding:8px;flex:none;display:flex;align-items:center;justify-content:center}
-.lgn .qr.hid{background:var(--qr-hidden);color:var(--text-3);font-size:var(--t16);font-weight:var(--w-reg)}
-.lgn .cols{display:flex;gap:var(--s3)}
+.lgn .qr{width:194px;height:194px;margin:11px;background:var(--qr-plate);flex:none;display:flex;align-items:center;justify-content:center}
+.lgn .qr svg{display:block}
+.lgn .qr.hid{width:216px;height:216px;margin:0;background:var(--qr-hidden);color:var(--text-3);font-size:var(--t16);font-weight:var(--w-reg)}
+.lgn .cols{display:flex;gap:var(--s2)}
+.lgn .txt{flex:1;min-width:0}
+.lgn .inf{margin-top:var(--s2);display:grid;grid-template-columns:auto 1fr;gap:0 var(--s2)}
+.lgn .inf b{display:block}
 .lgn .st{font-size:var(--t16);font-weight:var(--w-reg);line-height:24px;color:var(--text-2)}
-.lgn .st div{margin-bottom:var(--s1)}
+.lgn .st>div{margin-bottom:var(--s1)}
 .lgn .st b{font-weight:400;color:var(--text);display:block;word-break:break-all}
 
 /* C20/C21 controller diagram, callouts, zones */
@@ -318,7 +323,8 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 /* ---- round 7: radius tokens (R_SM 8, R_MD 16, R_PILL), hint row T14 centred, error and retry statuses ---- */
 .hintrow{font-size:var(--t14)}
 .hintrow .hl{justify-content:center;gap:var(--s3)}
-.hintrow .g,.hintrow img.g{height:20px;width:auto}
+.hintrow .g{height:20px;width:auto}
+.hintrow img.g{height:16px;width:auto}
 .pill{border-radius:var(--r-pill)}
 .pill.warn{border-left:0;box-shadow:inset 0 0 0 var(--lw1) var(--warn)}
 .oi{border-bottom:0;border-radius:var(--r-sm);padding:0 var(--s2);margin-bottom:4px}
@@ -366,3 +372,25 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 .lbtns{position:absolute;left:336px;top:432px;width:576px;display:flex;gap:var(--s2)}
 .cfoot[data-do]{cursor:pointer}
 .cfoot[data-do]::after{content:"";position:absolute;left:-8px;right:-8px;top:-12px;bottom:-12px}
+
+/* Pair new device popup (issue #330) */
+.popup .pbody{flex:none;height:72px;margin-top:var(--s1)}
+.phead{display:flex;align-items:center;gap:var(--s1);height:24px;margin-top:var(--s2);font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-3)}
+.phead .sp,.lr.note .sp,.popup .body .sp{width:16px;height:16px;border-radius:50%;border:var(--lw2) solid var(--text);border-top-color:transparent;animation:spin 800ms linear infinite;flex:none;display:inline-block;vertical-align:middle;margin-right:var(--s1)}
+.phead .sp{margin-right:0}
+.lp.l4{height:192px;margin-top:var(--s1)}
+.lr.note{height:auto;min-height:48px;padding:12px var(--s1);font-size:var(--t16);font-weight:var(--w-reg);line-height:24px;color:var(--text-3);cursor:default;pointer-events:none}
+.lr.note .sp{margin-right:var(--s1)}
+.lr .ck{color:inherit}
+
+/* revision: filter + pinned Enter IP row */
+.popup .pbody{height:72px}.popup .pbody div{white-space:normal}
+.phead .cnt{margin-left:auto}
+.lp.l3{height:144px;margin-top:var(--s1)}
+.lr.fl img{opacity:.8}.lr.fl .fr{margin-left:auto;display:flex;align-items:center;gap:var(--s2)}
+.lr.fl .fr small{margin-left:0}
+.lr.pinrow{margin-top:0;border-top:var(--lw1) solid var(--line-faint);flex:none}
+
+/* revision 3: 2-line instructions, 4-row viewport (Filter row + 3 consoles) */
+.popup .pbody{height:48px}
+.phead{margin-top:var(--s1)}

@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VitaRPS5 XMB Mock</title>
 <link rel="stylesheet" href="tokens-xmb.css">
+<link rel="stylesheet" href="tokens-themes.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:radial-gradient(90% 50% at 50% 0,#14203c,#060a16);color:var(--text);font-family:var(--font);font-weight:var(--w-light);line-height:1.5;-webkit-font-smoothing:antialiased}
@@ -32,7 +33,7 @@ code{font-family:ui-monospace,Menlo,monospace;color:var(--text-3);margin-left:8p
 </style></head><body><main>
 <header><img src="assets/Vita_RPS5_Logo.png" alt="Vita RPS5"><h1>XMB mock</h1></header>
 <p class="lede">Issue #271, round 6b: the locked XMB direction, now the exact baseline engineers build from. Every screen, state and message of today's app is covered. Native 960&times;544, driven like the Vita: <kbd>arrows</kbd> D-pad, <kbd>Enter</kbd> Cross, <kbd>Esc</kbd> Circle, <kbd>T</kbd> Triangle, <kbd>S</kbd> Square, <kbd>Q</kbd>/<kbd>E</kbd> L/R, <kbd>Space</kbd> Start, <kbd>Z</kbd> Select; clicks act as touch. Every card below is a deep link.</p>
-<a class="open" href="SPEC.md">Build spec (SPEC.md)</a><a class="open" href="xmb.html">Open the mock</a><a class="open" href="xmb.html#settings-circle">Circle Button Confirm on</a><a class="open" href="FEASIBILITY.md">Feasibility</a>
+<a class="open" href="SPEC.md">Build spec (SPEC.md)</a><a class="open" href="xmb.html">Open the mock</a><a class="open" href="xmb.html#settings-circle">Circle Button Confirm on</a><a class="open" href="FEASIBILITY.md">Feasibility</a><a class="open" href="splash.html">Splash (mock, #366)</a>
 <div class="hero"><img src="screens/device.jpg" alt="XMB Home inside a generic handheld frame" width="1100" height="621"></div>
 <h2>Home</h2>
 <div class="grid">
@@ -40,22 +41,44 @@ code{font-family:ui-monospace,Menlo,monospace;color:var(--text-3);margin-left:8p
 <a href="xmb.html#consoles-standby"><img src="screens/consoles-standby.png" alt="Console on standby" width="960" height="544" loading="lazy"><span>Console on standby<code>#consoles-standby</code></span></a>
 <a href="xmb.html#consoles-psn"><img src="screens/consoles-psn.png" alt="Internet-only console" width="960" height="544" loading="lazy"><span>Internet-only console<code>#consoles-psn</code></span></a>
 <a href="xmb.html#consoles-unavailable"><img src="screens/consoles-unavailable.png" alt="Console not reachable" width="960" height="544" loading="lazy"><span>Console not reachable<code>#consoles-unavailable</code></span></a>
-<a href="xmb.html#consoles-unpaired"><img src="screens/consoles-unpaired.png" alt="Console unpaired" width="960" height="544" loading="lazy"><span>Console unpaired<code>#consoles-unpaired</code></span></a>
 <a href="xmb.html#consoles-cooldown"><img src="screens/consoles-cooldown.png" alt="Console in cooldown + banner" width="960" height="544" loading="lazy"><span>Console in cooldown + banner<code>#consoles-cooldown</code></span></a>
 <a href="xmb.html#hints"><img src="screens/hints.png" alt="Status: Error + message in info panel" width="960" height="544" loading="lazy"><span>Status: Error + message in info panel<code>#hints</code></span></a>
 <a href="xmb.html#hints-retry"><img src="screens/hints-retry.png" alt="Status: Retrying + message in info panel" width="960" height="544" loading="lazy"><span>Status: Retrying + message in info panel<code>#hints-retry</code></span></a>
 <a href="xmb.html#home-unstable"><img src="screens/home-unstable.png" alt="Network Unstable on a menu" width="960" height="544" loading="lazy"><span>Network Unstable on a menu<code>#home-unstable</code></span></a>
-<a href="xmb.html#empty-searching"><img src="screens/empty-searching.png" alt="Empty: Searching" width="960" height="544" loading="lazy"><span>Empty: Searching<code>#empty-searching</code></span></a>
 <a href="xmb.html#empty-nomatch"><img src="screens/empty-nomatch.png" alt="Empty: No match" width="960" height="544" loading="lazy"><span>Empty: No match<code>#empty-nomatch</code></span></a>
 <a href="xmb.html#filter-item"><img src="screens/filter-item.png" alt="Filter item focused" width="960" height="544" loading="lazy"><span>Filter item focused<code>#filter-item</code></span></a>
 <a href="xmb.html#filter"><img src="screens/filter.png" alt="Filter active" width="960" height="544" loading="lazy"><span>Filter active<code>#filter</code></span></a>
 <a href="xmb.html#home-nohints"><img src="screens/home-nohints.png" alt="Button hints hidden" width="960" height="544" loading="lazy"><span>Button hints hidden<code>#home-nohints</code></span></a>
 <a href="xmb.html#keyboard"><img src="screens/keyboard.png" alt="System keyboard (filter)" width="960" height="544" loading="lazy"><span>System keyboard (filter)<code>#keyboard</code></span></a>
 <a href="xmb.html#options"><img src="screens/options.png" alt="Options column" width="960" height="544" loading="lazy"><span>Options column<code>#options</code></span></a>
-<a href="xmb.html#options-unpaired"><img src="screens/options-unpaired.png" alt="Options, unpaired console" width="960" height="544" loading="lazy"><span>Options, unpaired console<code>#options-unpaired</code></span></a>
 <a href="xmb.html#icon-picker"><img src="screens/icon-picker.png" alt="Change icon" width="960" height="544" loading="lazy"><span>Change icon<code>#icon-picker</code></span></a>
 <a href="xmb.html#connect-via"><img src="screens/connect-via.png" alt="Connect via" width="960" height="544" loading="lazy"><span>Connect via<code>#connect-via</code></span></a>
 <a href="xmb.html#repair"><img src="screens/repair.png" alt="Re-pair confirm" width="960" height="544" loading="lazy"><span>Re-pair confirm<code>#repair</code></span></a>
+</div>
+<h2>Pair new device (issue #330, for approval)</h2>
+<div class="grid">
+<a href="xmb.html#pair-item"><img src="screens/pair-item.png" alt="Item focused" width="960" height="544" loading="lazy"><span>Item focused<code>#pair-item</code></span></a>
+<a href="xmb.html#pair-item-hint"><img src="screens/pair-item-hint.png" alt="Item hidden above; Up hint on the first console" width="960" height="544" loading="lazy"><span>Item hidden above; Up hint on the first console<code>#pair-item-hint</code></span></a>
+<a href="xmb.html#pair-item-filter"><img src="screens/pair-item-filter.png" alt="Item focused, Filter row below" width="960" height="544" loading="lazy"><span>Item focused, Filter row below<code>#pair-item-filter</code></span></a>
+<a href="xmb.html#home-first-run"><img src="screens/home-first-run.png" alt="No paired consoles, nothing found" width="960" height="544" loading="lazy"><span>No paired consoles, nothing found<code>#home-first-run</code></span></a>
+<a href="xmb.html#home-first-run-found"><img src="screens/home-first-run-found.png" alt="No paired consoles, 1 found nearby" width="960" height="544" loading="lazy"><span>No paired consoles, 1 found nearby<code>#home-first-run-found</code></span></a>
+<a href="xmb.html#pair-popup-searching"><img src="screens/pair-popup-searching.png" alt="Popup: searching" width="960" height="544" loading="lazy"><span>Popup: searching<code>#pair-popup-searching</code></span></a>
+<a href="xmb.html#pair-popup-none"><img src="screens/pair-popup-none.png" alt="Popup: nothing found" width="960" height="544" loading="lazy"><span>Popup: nothing found<code>#pair-popup-none</code></span></a>
+<a href="xmb.html#pair-popup-one"><img src="screens/pair-popup-one.png" alt="Popup: 1 found" width="960" height="544" loading="lazy"><span>Popup: 1 found<code>#pair-popup-one</code></span></a>
+<a href="xmb.html#pair-popup-many"><img src="screens/pair-popup-many.png" alt="Popup: 3 found" width="960" height="544" loading="lazy"><span>Popup: 3 found<code>#pair-popup-many</code></span></a>
+<a href="xmb.html#pair-popup-long"><img src="screens/pair-popup-long.png" alt="Popup: 12 found, Filter row available" width="960" height="544" loading="lazy"><span>Popup: 12 found, Filter row available<code>#pair-popup-long</code></span></a>
+<a href="xmb.html#pair-popup-scroll"><img src="screens/pair-popup-scroll.png" alt="Popup: 12 found, scrolled" width="960" height="544" loading="lazy"><span>Popup: 12 found, scrolled<code>#pair-popup-scroll</code></span></a>
+<a href="xmb.html#pair-popup-filter-name"><img src="screens/pair-popup-filter-name.png" alt="Popup: filtered by name (bed)" width="960" height="544" loading="lazy"><span>Popup: filtered by name (bed)<code>#pair-popup-filter-name</code></span></a>
+<a href="xmb.html#pair-popup-filter-ip"><img src="screens/pair-popup-filter-ip.png" alt="Popup: filtered by IP (192.168.1.4)" width="960" height="544" loading="lazy"><span>Popup: filtered by IP (192.168.1.4)<code>#pair-popup-filter-ip</code></span></a>
+<a href="xmb.html#pair-popup-nomatch"><img src="screens/pair-popup-nomatch.png" alt="Popup: no matches, Enter IP still offered" width="960" height="544" loading="lazy"><span>Popup: no matches, Enter IP still offered<code>#pair-popup-nomatch</code></span></a>
+<a href="xmb.html#pair-popup-filter-kb"><img src="screens/pair-popup-filter-kb.png" alt="Popup: filter keyboard" width="960" height="544" loading="lazy"><span>Popup: filter keyboard<code>#pair-popup-filter-kb</code></span></a>
+<a href="xmb.html#pair-popup-discoff"><img src="screens/pair-popup-discoff.png" alt="Popup: Auto Discovery off" width="960" height="544" loading="lazy"><span>Popup: Auto Discovery off<code>#pair-popup-discoff</code></span></a>
+<a href="xmb.html#pair-popup-ip"><img src="screens/pair-popup-ip.png" alt="Popup: Enter IP address focused" width="960" height="544" loading="lazy"><span>Popup: Enter IP address focused<code>#pair-popup-ip</code></span></a>
+<a href="xmb.html#pair-ip-keyboard"><img src="screens/pair-ip-keyboard.png" alt="Enter IP: system keyboard" width="960" height="544" loading="lazy"><span>Enter IP: system keyboard<code>#pair-ip-keyboard</code></span></a>
+<a href="xmb.html#pair-ip-looking"><img src="screens/pair-ip-looking.png" alt="Enter IP: looking for console" width="960" height="544" loading="lazy"><span>Enter IP: looking for console<code>#pair-ip-looking</code></span></a>
+<a href="xmb.html#pair-ip-notfound"><img src="screens/pair-ip-notfound.png" alt="Enter IP: console not found" width="960" height="544" loading="lazy"><span>Enter IP: console not found<code>#pair-ip-notfound</code></span></a>
+<a href="xmb.html#pair-ip-invalid"><img src="screens/pair-ip-invalid.png" alt="Enter IP: not an IP address" width="960" height="544" loading="lazy"><span>Enter IP: not an IP address<code>#pair-ip-invalid</code></span></a>
+<a href="xmb.html#pin-manual"><img src="screens/pin-manual.png" alt="Enter IP: on to the PIN screen" width="960" height="544" loading="lazy"><span>Enter IP: on to the PIN screen<code>#pin-manual</code></span></a>
 </div>
 <h2>XMB categories</h2>
 <div class="grid">
@@ -105,7 +128,6 @@ code{font-family:ui-monospace,Menlo,monospace;color:var(--text-3);margin-left:8p
 <a href="xmb.html#profile-connection-standby"><img src="screens/profile-connection-standby.png" alt="Connection: console on standby" width="960" height="544" loading="lazy"><span>Connection: console on standby<code>#profile-connection-standby</code></span></a>
 <a href="xmb.html#profile-connection-psn"><img src="screens/profile-connection-psn.png" alt="Connection: PSN Internet" width="960" height="544" loading="lazy"><span>Connection: PSN Internet<code>#profile-connection-psn</code></span></a>
 <a href="xmb.html#profile-connection-unavailable"><img src="screens/profile-connection-unavailable.png" alt="Connection: Unavailable" width="960" height="544" loading="lazy"><span>Connection: Unavailable<code>#profile-connection-unavailable</code></span></a>
-<a href="xmb.html#profile-connection-unpaired"><img src="screens/profile-connection-unpaired.png" alt="Connection: unpaired console" width="960" height="544" loading="lazy"><span>Connection: unpaired console<code>#profile-connection-unpaired</code></span></a>
 <a href="xmb.html#profile-connection-none"><img src="screens/profile-connection-none.png" alt="Connection: no console" width="960" height="544" loading="lazy"><span>Connection: no console<code>#profile-connection-none</code></span></a>
 <a href="xmb.html#profile-psn"><img src="screens/profile-psn.png" alt="PlayStation Network (signed in)" width="960" height="544" loading="lazy"><span>PlayStation Network (signed in)<code>#profile-psn</code></span></a>
 <a href="xmb.html#profile-psn-disabled"><img src="screens/profile-psn-disabled.png" alt="PSN: Disabled" width="960" height="544" loading="lazy"><span>PSN: Disabled<code>#profile-psn-disabled</code></span></a>
@@ -132,8 +154,22 @@ code{font-family:ui-monospace,Menlo,monospace;color:var(--text-3);margin-left:8p
 <a href="xmb.html#mapping-multi"><img src="screens/mapping-multi.png" alt="Mapping popup, several zones" width="960" height="544" loading="lazy"><span>Mapping popup, several zones<code>#mapping-multi</code></span></a>
 <a href="xmb.html#mapping-shoulder"><img src="screens/mapping-shoulder.png" alt="Mapping popup, L1" width="960" height="544" loading="lazy"><span>Mapping popup, L1<code>#mapping-shoulder</code></span></a>
 </div>
+<h2>Background, Theme and Blur (#375 and #348, CEO-approved 2026-10-10)</h2>
+<p class="lede" style="margin-bottom:var(--s2)">New Settings group <b>Appearance</b>: <b>Background</b> (Waves or Glyphs), <b>Theme</b> (Ocean is the default, then Ember, Orchid, Moss, Graphite; one Theme for both backgrounds) and <b>Background Blur</b> (one row, remembered per background). Display is unchanged and stays for streaming settings. A theme changes the waves or symbols, the blur tint and the accent only; text, status colours and the white focus stay fixed. Deep-link params: <code>?bg=waves|glyphs</code>, <code>?theme=ocean|ember|orchid|moss|graphite</code>, <code>?glass=none|soft|strong|dark</code>. Theme tokens: <code>tokens-themes.css</code>.</p>
+<div class="grid g4">
+<a href="xmb.html#settings-appearance"><img src="screens/background-theme/settings-appearance-waves-ocean.png" alt="Settings > Appearance (new group): Waves, Ocean, blur None" width="960" height="544" loading="lazy"><span>Settings > Appearance (new group): Waves, Ocean, blur None<code>#settings-appearance</code></span></a>
+<a href="xmb.html#settings-appearance?bg=glyphs&theme=moss&glass=soft"><img src="screens/background-theme/settings-appearance-glyphs-moss-soft.png" alt="Appearance: Glyphs, Moss, blur Soft" width="960" height="544" loading="lazy"><span>Appearance: Glyphs, Moss, blur Soft<code>#settings-appearance?bg=glyphs&theme=moss&glass=soft</code></span></a>
+<a href="xmb.html#settings-appearance?theme=orchid&glass=dark"><img src="screens/background-theme/settings-appearance-waves-orchid-dark.png" alt="Appearance: Waves, Orchid, blur Dark" width="960" height="544" loading="lazy"><span>Appearance: Waves, Orchid, blur Dark<code>#settings-appearance?theme=orchid&glass=dark</code></span></a>
+<a href="xmb.html#home"><img src="screens/background-theme/home-waves-ocean-none.png" alt="Home: Waves, Ocean, None (today)" width="960" height="544" loading="lazy"><span>Home: Waves, Ocean, None (today)<code>#home</code></span></a>
+<a href="xmb.html#home?theme=ember&glass=soft"><img src="screens/background-theme/home-waves-ember-soft.png" alt="Home: Waves, Ember, Soft" width="960" height="544" loading="lazy"><span>Home: Waves, Ember, Soft<code>#home?theme=ember&glass=soft</code></span></a>
+<a href="xmb.html#home?bg=glyphs&theme=graphite"><img src="screens/background-theme/home-glyphs-graphite-none.png" alt="Home: Glyphs, Graphite, None (the old look)" width="960" height="544" loading="lazy"><span>Home: Glyphs, Graphite, None (the old look)<code>#home?bg=glyphs&theme=graphite</code></span></a>
+<a href="xmb.html#home?bg=glyphs&glass=soft"><img src="screens/background-theme/home-glyphs-ocean-soft.png" alt="Home: Glyphs, Ocean, Soft" width="960" height="544" loading="lazy"><span>Home: Glyphs, Ocean, Soft<code>#home?bg=glyphs&glass=soft</code></span></a>
+<a href="xmb.html#settings-appearance?bg=glyphs&theme=ember"><img src="screens/background-theme/settings-glyphs-ember-none.png" alt="Appearance: Glyphs, Ember, None" width="960" height="544" loading="lazy"><span>Appearance: Glyphs, Ember, None<code>#settings-appearance?bg=glyphs&theme=ember</code></span></a>
+<a href="xmb.html#options?theme=orchid"><img src="screens/background-theme/options-orchid.png" alt="Options popup on Orchid (panel and scrim follow the theme)" width="960" height="544" loading="lazy"><span>Options popup on Orchid (panel and scrim follow the theme)<code>#options?theme=orchid</code></span></a>
+<a href="xmb.html#settings-display"><img src="screens/background-theme/settings-display-unchanged.png" alt="Display group after the move (Background Blur now lives in Appearance)" width="960" height="544" loading="lazy"><span>Display group after the move (Background Blur now lives in Appearance)<code>#settings-display</code></span></a>
+</div>
 <h2>Background Blur (a Settings option, default None)</h2>
-<p class="lede" style="margin-bottom:var(--s2)">Settings &gt; Display &gt; Background Blur: <b>None</b> (today&rsquo;s full-resolution wave), <b>Soft</b> (wave at 1/4 size upscaled, 14% dark veil), <b>Strong</b> (1/16 size, 5% white + 14% dark veil), <b>Dark</b> (1/16 size, 20% dark veil). It applies live behind the menus. In the mock add <code>?glass=none|soft|strong|dark</code> to any deep link. Numbers, cost and decision: <a href="FEASIBILITY.md" style="color:#9cc7ff">FEASIBILITY.md, section 8</a>. The wave is frozen at the same instant in every image; the setting itself is at <a href="xmb.html#settings-display" style="color:#9cc7ff">#settings-display</a>.</p>
+<p class="lede" style="margin-bottom:var(--s2)">Settings &gt; Appearance &gt; Background Blur: <b>None</b> (today&rsquo;s full-resolution wave), <b>Soft</b> (wave at 1/4 size upscaled, 14% dark veil), <b>Strong</b> (1/16 size, 5% white + 14% dark veil), <b>Dark</b> (1/16 size, 20% dark veil). It applies live behind the menus. In the mock add <code>?glass=none|soft|strong|dark</code> to any deep link. Numbers, cost and decision: <a href="FEASIBILITY.md" style="color:#9cc7ff">FEASIBILITY.md, section 8</a>. The wave is frozen at the same instant in every image; the setting itself is at <a href="xmb.html#settings-appearance" style="color:#9cc7ff">#settings-appearance</a>.</p>
 <h3 style="font-size:var(--t20);font-weight:var(--w-light);margin:var(--s3) 0 var(--s1)">Home</h3>
 <div class="grid g4">
 <a href="xmb.html#home?glass=none"><img src="screens/glass/home-none.png" alt="Home, blur None" width="960" height="544" loading="lazy"><span>None<code>#home?glass=none</code></span></a>

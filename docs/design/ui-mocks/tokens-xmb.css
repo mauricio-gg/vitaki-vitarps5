@@ -7,8 +7,8 @@
 :root {
   --font: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* TYPE: 5 atlas entries (sizes) from 2 loaded weights, Light and Regular, all Roboto; Medium only inside baked glyphs. Digits are Roboto's own (equal width), no mono face.
-     T14 Regular (hint row), T16 Regular, T20 Light, T28 Light, T40 Light (PIN digits). */
+  /* TYPE: 6 faces from 2 loaded weights, Light and Regular, all Roboto; Medium only inside baked glyphs. Digits are Roboto's own (equal width), no mono face.
+     T14 Regular (hint row), T16 Regular, T20 Light, T28 Light, T40 Light (PIN digits), T20_REGULAR (Regular 400, focused list name, #329). */
   --t14: 14px; --t16: 16px; --t20: 20px; --t28: 28px; --t40: 40px;
   --w-light: 300; --w-reg: 400;
 
@@ -17,23 +17,23 @@
   --text-2: #dde3f0;     /* TEXT_SECONDARY: labels, unfocused rows, hints */
   --text-3: #b3bdd2;     /* TEXT_TERTIARY: captions, disabled labels, empty states */
   --ok: #4ee09a;         /* STATUS_OK: ready, success, good loss */
-  --warn: #ffbe4d;       /* STATUS_WARN: standby, unstable, cooldown banner, amber loss */
+  --warn: #ffbe4d;       /* STATUS_WARN: standby, retrying, please wait, cooldown banner, armed log out, amber loss */
   --err: #ff8080;        /* STATUS_ERROR: Error status, error text */
   --psn: #a9b2ff;        /* STATUS_INTERNET: internet route label */
   --idle: #c9d0df;       /* STATUS_IDLE: Unpaired dot */
-  --accent: #6db4ff;     /* ACCENT: mapped touch zones only */
+  --accent: #6db4ff;     /* ACCENT: mapped touch zones only; changes with the theme */
 
   /* SURFACES (alpha) */
-  --panel: rgba(6, 12, 28, 0.92);     /* popup / toast / options / stats panel */
-  --scrim: rgba(2, 5, 14, 0.55);      /* behind popups */
-  --scrim-strong: rgba(2, 5, 14, 0.82); /* system keyboard stand-in */
-  --hud: rgba(6, 10, 22, 0.60);       /* overlay pill / badge */
-  --page-wash: rgba(3, 6, 16, 0.60);  /* pages dim the wave */
+  --panel: rgba(var(--deep-rgb), 0.92);     /* popup / toast / options / stats panel */
+  --scrim: rgba(var(--ink-rgb), 0.55);      /* behind popups */
+  --scrim-strong: rgba(var(--ink-rgb), 0.82); /* system keyboard stand-in */
+  --hud: rgba(var(--deep-rgb), 0.60);       /* overlay pill / badge */
+  --page-wash: rgba(var(--wash-rgb), 0.60);  /* pages dim the wave */
   --fill-focus: rgba(255, 255, 255, 0.12);  /* focused row, focused button */
   --fill-on: rgba(255, 255, 255, 0.26);     /* toggle on, selected zone */
   --line: rgba(255, 255, 255, 0.26);        /* dividers, popup border, strong */
   --line-faint: rgba(255, 255, 255, 0.14);  /* row dividers */
-  --zone-mapped: rgba(109, 180, 255, 0.28); /* ACCENT at 28% */
+  --zone-mapped: rgba(var(--accent-rgb), 0.28); /* ACCENT at 28% */
 
   /* EFFECT COLOURS (all alpha-bearing colours the components use) */
   --glow: rgba(255,255,255,0.70);        /* focus glow, radius 12 */
@@ -42,23 +42,35 @@
   --shadow: rgba(0,0,0,0.55);            /* text and icon drop shadow */
   --leader: rgba(255,255,255,0.55);      /* callout leader lines and underlines */
   --zone-line: rgba(255,255,255,0.22);   /* idle zone border */
-  --zone-mapped-line: rgba(160,205,255,0.60); /* mapped zone border (ACCENT family) */
+  --zone-mapped-line: rgba(var(--accent-hi-rgb),0.60); /* mapped zone border (ACCENT family) */
   --ring-fill: rgba(255,255,255,0.10);   /* status ring inner wash */
-  --halo: rgba(130,170,255,0.28);        /* Connecting halo */
+  --halo: rgba(var(--halo-rgb),0.28);        /* Connecting halo */
   --qr-plate: #FAFAFA; --qr-ink: #0A0A0A; --qr-hidden: rgba(26,26,26,0.55);
-  --edge-0: rgba(4,8,20,0); --panel-edge: rgba(4,8,20,0.92); /* options column ramp */
-  --vig-1: rgba(2,5,14,0.50); --vig-2: rgba(2,5,14,0.34); --vig-3: rgba(2,5,14,0.38);
-  --vig-strong: rgba(2,5,14,0.55); --vig-top: rgba(0,0,0,0.32); --vig-bottom: rgba(0,0,0,0.40); /* Home vignette */
+  --edge-0: rgba(var(--deep-edge-rgb),0); --panel-edge: rgba(var(--deep-edge-rgb),0.92); /* options column ramp */
+  --vig-1: rgba(var(--ink-rgb),0.50); --vig-2: rgba(var(--ink-rgb),0.34); --vig-3: rgba(var(--ink-rgb),0.38);
+  --vig-strong: rgba(var(--ink-rgb),0.55); --vig-top: rgba(0,0,0,0.32); --vig-bottom: rgba(0,0,0,0.40); /* Home vignette */
   --stage-bg: #060B1C;
 
   /* BACKGROUND BLUR setting: veils over the blurred wave */
-  --glass-veil: rgba(2,5,14,0.14);        /* Soft: 14% dark; also the dark part of Strong */
+  --glass-veil: rgba(var(--ink-rgb),0.14);        /* Soft: 14% dark; also the dark part of Strong */
   --glass-frost: rgba(255,255,255,0.05);  /* Strong: white 5% on top of the 14% dark veil */
-  --glass-veil-dark: rgba(2,5,14,0.20);   /* Dark: 20% dark, no white */
+  --glass-veil-dark: rgba(var(--ink-rgb),0.20);   /* Dark: 20% dark, no white */
 
   /* WAVE (fixed palette, no time-of-day) */
   --wave-top: #06204A; --wave-mid: #0F4585; --wave-bot: #245F9C;
-  --wave-r1: #96CDFF; --wave-r2: #64B4F0; --wave-r3: #BEDCFF; --wave-horizon: rgba(160,210,255,0.28);
+  --wave-r1: #96CDFF; --wave-r2: #64B4F0; --wave-r3: #BEDCFF; --wave-horizon-rgb: 160, 210, 255; /* horizon glow = this at 28% */
+
+  /* THEME TOKENS (#348). The values here are the default theme, Ocean. tokens-themes.css overrides exactly these 20 per theme.
+     Nothing else in the UI changes colour with a theme: text, status colours, white focus fill and glow stay fixed. */
+  --ink-rgb: 2, 5, 14;          /* scrim, vignette, blur veil */
+  --wash-rgb: 3, 6, 16;         /* page wash */
+  --deep-rgb: 6, 12, 28;        /* popup, options, toast, stats panel, HUD pill */
+  --deep-edge-rgb: 4, 8, 20;    /* options column edge ramp */
+  --accent-rgb: 109, 180, 255;  --accent-hi-rgb: 160, 205, 255;  --halo-rgb: 130, 170, 255;
+  /* GLYPHS BACKGROUND (#375): corner-to-corner gradient. Ocean value is a blue-tinted version of the old background.png (#0F101B to #3C404A). */
+  --glyph-bg-a: #0A1428; --glyph-bg-b: #2B4666;
+  /* the four symbols keep the old art's colours on every theme; drawn at 3.5x the old size, so rebaked as 56 px PNGs on the Vita (the old 16 px PNGs would blur) */
+  --glyph-triangle: #C3F2D0; --glyph-circle: #F6C5D0; --glyph-x: #B2DEFA; --glyph-square: #FFDC7B; --glyph-alpha: 0.45; --glyph-size-mul: 3.5;
 
   /* SPACING: one 8 px grid */
   --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px;
@@ -71,7 +83,7 @@
 
   /* LINES */
   --lw1: 1px; --lw2: 2px;   /* hairline / ring, focus underline, toggle */
-  /* RADII: three tokens. R_SM selection bars and small chips, R_MD popups, toast and panels, R_PILL (half the height) buttons, toggles, badges, pills */
+  /* RADII: three tokens. R_SM selection bars and small chips, R_MD popups, stats panel and keyboard stand-in, R_PILL (half the height) buttons, toggles, toast, badges, pills */
   --r-sm: 8px; --r-md: 16px; --r-pill: 999px;
 
   /* MOTION */

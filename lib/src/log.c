@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/log.h>
+#include <chiaki/redact.h>
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -158,6 +159,24 @@ CHIAKI_EXPORT void chiaki_log_hexdump(ChiakiLog *log, ChiakiLogLevel level, cons
 		else
 			break;
 	}
+}
+
+/** Most input bytes chiaki_log_hexdump_redacted() dumps; the rest is cut. */
+#define HEXDUMP_REDACTED_MAX_INPUT 1024
+/** Redaction can lengthen a short secret by 2 bytes, so twice the input limit always fits. */
+#define HEXDUMP_REDACTED_BUF_SIZE (HEXDUMP_REDACTED_MAX_INPUT * 2)
+
+CHIAKI_EXPORT void chiaki_log_hexdump_redacted(ChiakiLog *log, ChiakiLogLevel level, const uint8_t *buf, size_t buf_size)
+{
+	if(log && !(log->level_mask & level))
+		return;
+
+	size_t dump_size = buf_size < HEXDUMP_REDACTED_MAX_INPUT ? buf_size : HEXDUMP_REDACTED_MAX_INPUT;
+	char redacted[HEXDUMP_REDACTED_BUF_SIZE];
+	size_t redacted_size = chiaki_redact_secrets((const char *)buf, dump_size, redacted, sizeof(redacted));
+	if(dump_size < buf_size)
+		chiaki_log(log, level, "hexdump cut at %zu of %zu bytes (redacted)", dump_size, buf_size);
+	chiaki_log_hexdump(log, level, (const uint8_t *)redacted, redacted_size);
 }
 
 CHIAKI_EXPORT void chiaki_log_hexdump_raw(ChiakiLog *log, ChiakiLogLevel level, const uint8_t *buf, size_t buf_size)

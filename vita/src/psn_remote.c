@@ -439,43 +439,29 @@ int psn_remote_prepare_connect_host(VitaChiakiHost *host
 #endif
 }
 
-int psn_remote_refresh_hosts(void) {
 #if CHIAKI_CAN_USE_HOLEPUNCH
-  uint64_t now_unix = (uint64_t)time(NULL);
+void psn_remote_log_refresh_begin(uint64_t now_unix) {
   LOGD(
       "PSN host refresh begin: enabled=%d has_tokens=%d token_valid=%d now=%llu expires_at=%llu "
       "current_psn_hosts=%u",
       psn_auth_enabled(), psn_auth_has_tokens(), psn_auth_token_is_valid(now_unix),
       (unsigned long long)now_unix, (unsigned long long)context.config.psn_oauth_expires_at_unix,
       (unsigned int)count_psn_context_hosts());
-  if (!psn_auth_enabled()) {
-    LOGD("PSN host refresh skipped: PSN internet mode disabled");
-    return 1;
-  }
-  if (!psn_auth_token_is_valid(now_unix) && !psn_auth_refresh_token_if_needed(now_unix, false)) {
-    LOGD("PSN host refresh skipped: OAuth token invalid and refresh failed");
-    return 1;
-  }
-  const char *token = psn_auth_access_token();
-  if (!token || !token[0]) {
-    LOGD("PSN host refresh skipped: missing OAuth access token");
-    return 1;
-  }
-  if (ui_state_connection_thread_active()) {
-    LOGD("PSN host refresh deferred: connection thread active");
-    return 1;
-  }
+}
 
-  ChiakiHolepunchDeviceInfo *devices = NULL;
-  size_t device_count = 0;
+int psn_remote_fetch_devices(const char *token, ChiakiHolepunchDeviceInfo **devices,
+                             size_t *device_count) {
   ChiakiErrorCode err = chiaki_holepunch_list_devices(token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5,
-                                                      &devices, &device_count, &context.log);
+                                                      devices, device_count, &context.log);
   if (err != CHIAKI_ERR_SUCCESS) {
     LOGE("Failed to fetch PSN remote hosts: %s", chiaki_error_string(err));
     return 1;
   }
+  LOGD("PSN host refresh fetched %u PSN devices", (unsigned int)*device_count);
+  return 0;
+}
 
-  LOGD("PSN host refresh fetched %u PSN devices", (unsigned int)device_count);
+int psn_remote_apply_devices(const ChiakiHolepunchDeviceInfo *devices, size_t device_count) {
   remove_existing_psn_hosts();
   int added = 0;
   int skipped_remoteplay_disabled = 0;
@@ -502,7 +488,6 @@ int psn_remote_refresh_hosts(void) {
         break;
     }
   }
-  chiaki_holepunch_free_device_list(&devices);
   update_context_hosts();
   LOGD(
       "PSN host refresh completed: added=%d skipped_remoteplay_disabled=%d "
@@ -510,6 +495,39 @@ int psn_remote_refresh_hosts(void) {
       "total_hosts=%u",
       added, skipped_remoteplay_disabled, skipped_no_registered_source, skipped_no_free_slot,
       skipped_oom, (unsigned int)count_psn_context_hosts(), (unsigned int)context.num_hosts);
+  return added;
+}
+#endif
+
+int psn_remote_refresh_hosts(void) {
+#if CHIAKI_CAN_USE_HOLEPUNCH
+  uint64_t now_unix = (uint64_t)time(NULL);
+  psn_remote_log_refresh_begin(now_unix);
+  if (!psn_auth_enabled()) {
+    LOGD("PSN host refresh skipped: PSN internet mode disabled");
+    return 1;
+  }
+  if (!psn_auth_token_is_valid(now_unix) && !psn_auth_refresh_token_if_needed(now_unix, false)) {
+    LOGD("PSN host refresh skipped: OAuth token invalid and refresh failed");
+    return 1;
+  }
+  const char *token = psn_auth_access_token();
+  if (!token || !token[0]) {
+    LOGD("PSN host refresh skipped: missing OAuth access token");
+    return 1;
+  }
+  if (ui_state_connection_thread_active()) {
+    LOGD("PSN host refresh deferred: connection thread active");
+    return 1;
+  }
+
+  ChiakiHolepunchDeviceInfo *devices = NULL;
+  size_t device_count = 0;
+  if (psn_remote_fetch_devices(token, &devices, &device_count) != 0)
+    return 1;
+
+  psn_remote_apply_devices(devices, device_count);
+  chiaki_holepunch_free_device_list(&devices);
   if (!config_serialize(&context.config)) {
     LOGE("Failed to persist config after PSN host refresh");
   }

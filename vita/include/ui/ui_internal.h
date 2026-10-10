@@ -7,7 +7,6 @@
  *
  * Provides access to:
  * - Shared texture pointers
- * - Shared fonts
  * - Global state accessors
  * - Cross-module function declarations
  */
@@ -32,54 +31,18 @@ typedef struct vita_chiaki_context_t VitaChiakiContext;
 // Shared Texture Pointers (defined in ui.c, will move to ui_main.c)
 // ============================================================================
 
-// Fonts
-extern vita2d_font *font;
-extern vita2d_font *font_mono;
-
 // Console icons
 extern vita2d_texture *img_ps4;
 
-// UI symbols (particles)
+// UI symbols
 extern vita2d_texture *symbol_triangle, *symbol_circle, *symbol_ex, *symbol_square;
 
-// Status ellipses
-extern vita2d_texture *ellipse_green, *ellipse_yellow, *ellipse_red;
-
-// Navigation icons
-extern vita2d_texture *icon_play, *icon_settings, *icon_controller, *icon_profile;
-extern vita2d_texture *icon_button_triangle;
+// Home category icons
+extern vita2d_texture *icon_play, *icon_settings;
 
 // Other UI textures
-extern vita2d_texture *button_add_new;
-extern vita2d_texture *background_gradient, *vita_rps5_logo;
+extern vita2d_texture *vita_rps5_logo;
 extern vita2d_texture *ps5_logo;
-
-// ============================================================================
-// Shared Global State (defined in ui.c, will be organized into modules)
-// ============================================================================
-
-// Button configuration (set during init)
-extern int SCE_CTRL_CONFIRM;
-extern int SCE_CTRL_CANCEL;
-extern char *confirm_btn_str;
-extern char *cancel_btn_str;
-
-// Tooltip buffer
-extern char active_tile_tooltip_msg[MAX_TOOLTIP_CHARS];
-
-// PIN entry cursor blink state
-extern bool show_cursor;
-
-// Navigation state (defined in ui_navigation.c, exposed for backward compatibility)
-// Note: New code should use ui_nav_* query functions instead of direct access
-extern NavCollapseState nav_collapse;
-
-// Navigation selection (defined in ui_navigation.c)
-// Note: New code should use ui_nav_get/set functions instead of direct access
-// Exposed for backward compatibility during refactoring
-extern int selected_nav_icon;
-// Legacy: current_focus and last_console_selection removed in Phase 4
-// Use focus manager (ui_focus.h) instead
 
 // ============================================================================
 // Shared Context Access
@@ -112,25 +75,21 @@ extern VitaChiakiContext context;
  * ui_load_png_linear() - Load a PNG file and enable bilinear filtering
  * @param path: Filesystem path to the PNG (e.g. "app0:/assets/foo.png")
  *
- * Wraps vita2d_load_PNG_file() and immediately sets SCE_GXM_TEXTURE_FILTER_LINEAR
- * on both the minification and magnification samplers. This ensures all UI
- * textures scale smoothly, especially when rendered at non-native sizes.
+ * Creates an RGBA8 texture from the PNG and sets SCE_GXM_TEXTURE_FILTER_LINEAR on both the
+ * minification and magnification samplers. This ensures all UI textures scale smoothly,
+ * especially when rendered at non-native sizes.
  *
- * Returns the loaded texture pointer, or NULL if the load failed. Callers
- * must check for NULL before rendering (consistent with vita2d_load_PNG_file).
+ * While start-up runs, a path listed in ui_asset_preload.c is served from the preload worker's
+ * decoded pixels (see ui_asset_preload.h); any other path loads directly and logs a warning.
+ * After start-up it always loads directly. Main thread only.
+ *
+ * Returns the loaded texture pointer, or NULL if the load failed (logged with the path and the
+ * reason). Callers must check for NULL before rendering.
  *
  * Do NOT use this for streaming frame textures in video.c; those have their
  * own upload path and filter requirements.
  */
-static inline vita2d_texture *ui_load_png_linear(const char *path) {
-  vita2d_texture *tex = vita2d_load_PNG_file(path);
-  if (!tex) {
-    sceClibPrintf("[ERROR] ui_load_png_linear: failed to load '%s'\n", path);
-    return NULL;
-  }
-  vita2d_texture_set_filters(tex, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
-  return tex;
-}
+vita2d_texture *ui_load_png_linear(const char *path);
 
 /**
  * Linear interpolation
@@ -176,93 +135,36 @@ static inline int ui_get_dynamic_content_center_x(void) {
 
 // Input handling (ui_input.c)
 bool btn_pressed(SceCtrlButtons btn);
-bool btn_down(SceCtrlButtons btn);
-bool btn_released(SceCtrlButtons btn);
 void block_inputs_for_transition(void);
 bool is_point_in_circle(float px, float py, int cx, int cy, int radius);
 bool is_point_in_rect(float px, float py, int rx, int ry, int rw, int rh);
 uint32_t *ui_input_get_button_block_mask_ptr(void);
 bool *ui_input_get_touch_block_active_ptr(void);
-bool *ui_input_get_touch_block_pending_clear_ptr(void);
 
 // Graphics primitives (ui_graphics.c)
 void ui_draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
 void ui_draw_card_with_shadow(int x, int y, int w, int h, int radius, uint32_t color);
 void ui_draw_circle(int cx, int cy, int radius, uint32_t color);
 void ui_draw_circle_outline(int cx, int cy, int radius, uint32_t color);
-void ui_draw_spinner(int cx, int cy, int radius, int thickness, float rotation_deg, uint32_t color);
-void ui_draw_content_focus_overlay(void);
-void ui_draw_loss_indicator(void);
-
-// Navigation (ui_navigation.c)
-#include "ui_navigation.h"
-
-// Focus Manager (ui_focus.c)
-#include "ui_focus.h"
-
-// Legacy compatibility wrappers for ui.c (map to new navigation module)
-#define render_wave_navigation() ui_nav_render()
-#define nav_request_collapse() ui_nav_request_collapse()
-#define nav_request_expand() ui_nav_request_expand()
-#define nav_toggle_collapse() ui_nav_toggle()
-#define nav_reset_to_collapsed() ui_nav_reset_collapsed()
-#define update_nav_collapse_animation() ui_nav_update_collapse_animation()
-#define update_wave_animation() ui_nav_update_wave_animation()
-#define show_nav_collapse_toast() ui_nav_update_toast()
-#define render_nav_pill() ui_nav_render_pill()
-#define render_nav_collapse_toast() ui_nav_render_toast()
-#define nav_screen_for_index(i) ui_nav_screen_for_icon(i)
-#define nav_touch_hit(x, y, out) ui_nav_handle_touch(x, y, out)
-#define pill_touch_hit(x, y) ui_nav_handle_pill_touch(x, y)
-#define handle_global_nav_shortcuts(screen, out, dpad) ui_nav_handle_shortcuts(screen, out, dpad)
-
-// Procedural icon drawing (available globally)
-#define draw_play_icon(cx, cy, sz) ui_nav_draw_play_icon(cx, cy, sz)
-#define draw_settings_icon(cx, cy, sz) ui_nav_draw_settings_icon(cx, cy, sz)
-#define draw_controller_icon(cx, cy, sz) ui_nav_draw_controller_icon(cx, cy, sz)
-#define draw_profile_icon(cx, cy, sz) ui_nav_draw_profile_icon(cx, cy, sz)
-#define draw_hamburger_icon(x, cy, sz, col) ui_nav_draw_hamburger_icon(x, cy, sz, col)
 
 // Console cards (ui_console_cards.c)
 #include "ui_console_cards.h"
 
 // Animation (ui_animation.c)
-void ui_particles_init(void);
-void ui_particles_update(void);
-void ui_particles_render(void);
 uint64_t ui_anim_now_us(void);
 float ui_anim_elapsed_ms(uint64_t start_us);
 
 // State management (ui_state.c)
-bool stream_cooldown_active(void);
 uint64_t stream_cooldown_until_us(void);
 bool takion_cooldown_gate_active(void);
 bool start_connection_thread(VitaChiakiHost *host);
-int get_text_width_cached(const char *text, int font_size);
 bool ui_connection_overlay_active(void);
 UIConnectionStage ui_connection_stage(void);
 void ui_clear_waking_wait(void);
 
 // Components (ui_components.c)
 // Legacy compatibility wrappers - internal use only
-void draw_toggle_switch(int x, int y, int width, int height, float anim_value, bool selected);
-void draw_dropdown(int x, int y, int width, int height, const char *label, const char *value,
-                   bool expanded, bool selected);
-void draw_tab_bar(int x, int y, int width, int height, const char *tabs[], uint32_t colors[],
-                  int num_tabs, int selected);
-void draw_status_dot(int x, int y, int radius, int status);
-void draw_section_header(int x, int y, int width, const char *title);
-void render_pin_digit(int x, int y, uint32_t digit, bool is_current, bool has_value);
-void start_toggle_animation(int toggle_index, bool target_state);
-float get_toggle_animation_value(int toggle_index, bool current_state);
-void render_error_popup(void);
-void handle_error_popup_input(void);
-void render_connect_popup(void);
-void trigger_hints_popup(const char *hint_text);
-void render_hints_popup(void);
-void render_hints_indicator(void);
 void open_debug_menu(void);
-void close_debug_menu(void);
 void render_debug_menu(void);
 void handle_debug_menu_input(void);
 

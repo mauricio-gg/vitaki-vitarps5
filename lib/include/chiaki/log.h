@@ -42,6 +42,13 @@ CHIAKI_EXPORT void chiaki_log_cb_print(ChiakiLogLevel level, const char *msg, vo
 
 CHIAKI_EXPORT void chiaki_log(ChiakiLog *log, ChiakiLogLevel level, const char *fmt, ...);
 CHIAKI_EXPORT void chiaki_log_hexdump(ChiakiLog *log, ChiakiLogLevel level, const uint8_t *buf, size_t buf_size);
+/**
+ * Like chiaki_log_hexdump(), for buffers that hold HTTP-style text which may carry credentials:
+ * the buffer goes through chiaki_redact_secrets() first and only the redacted copy is dumped.
+ * Binary bytes pass through unchanged. At most 1024 input bytes are dumped; a longer buffer is
+ * cut and a line says so.
+ */
+CHIAKI_EXPORT void chiaki_log_hexdump_redacted(ChiakiLog *log, ChiakiLogLevel level, const uint8_t *buf, size_t buf_size);
 CHIAKI_EXPORT void chiaki_log_hexdump_raw(ChiakiLog *log, ChiakiLogLevel level, const uint8_t *buf, size_t buf_size);
 
 #define CHIAKI_LOGD(log, ...) do { chiaki_log((log), CHIAKI_LOG_DEBUG, __VA_ARGS__); } while(0)

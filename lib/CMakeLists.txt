@@ -52,6 +52,7 @@ set(SOURCE_FILES
 		src/base64.c
 		src/http.c
 		src/log.c
+		src/redact.c
 		src/ctrl.c
 		src/rpcrypt.c
 		src/takion.c
