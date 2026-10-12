@@ -135,7 +135,55 @@ When the console answers a plain user connect with RP_IN_USE, `arm_rp_in_use_aut
 
 The post-stop guard applies when the user ends a stream: after a clean disconnect the console acknowledged, a new connect is blocked for `POST_STOP_GUARD_DISCONNECT_ACKED_US` = 2 s; sent but not acknowledged, or never sent after the stream was live, 8 s (`POST_STOP_GUARD_DISCONNECT_UNACKED_US`); a connect cancelled before any stream started has no guard (`host_quit.c:34-35`, `229-258`).
 
-## 9. What is not here
+## 9. Delay probes (#413)
+
+Log lines added to find where the delay between a button press and the changed picture lives. They only measure: nothing here changes what is sent or when. All of them print only when `show_latency` is on, once per window next to `PIPE/LATENCY`, `PIPE/INPUT`, `PIPE/DISPLAY` and `PIPE/FPS` (`host_metrics_update_latency`, `vita/src/host_metrics.c`). Each log line has its own subsection below.
+
+### 9.1 `PIPE/PRESS`: from a button press to the changed picture
+
+**What it measures.** For one button press, how long until the console's answer is on the Vita screen, split into four points. The use: sit on a quiet PS5 screen (Settings), press D-pad down about once every two seconds, and the first big video frame after each press is the menu move. Thirty presses should give about thirty samples.
+
+**Clock.** Everything is `sceKernelGetProcessTimeWide()` in microseconds, the same clock as the other `PIPE/` lines. The library's millisecond stamps (`chiaki_time_now_monotonic_ms()`) are the same clock cut to whole milliseconds (`vita/src/video.c`, comment in `vita_video_render_latest_frame`).
+
+**Start point (press sent).** `feedback_sender_thread_func` in `lib/src/feedbacksender.c`: on a wake where the history packet goes out and at least one digital button changed from released to pressed, the time right after the send is stored with a press counter that only goes up. Releases, sticks, touches and the analog L2/R2 values do not count; a press and release gives one event. The receive thread reads it with `chiaki_feedback_sender_read_press_stamp` without any lock (a seqlock, so it never sees a count paired with another press's time).
+
+**The four points**, each in microseconds since the press was sent, for the same video frame (the "jump frame"):
+
+| Field | End point | Hook |
+|---|---|---|
+| `first_us` | The frame's first packet was read by the receive thread. Only known to 1 ms: the library stamps whole milliseconds, so this reads up to 999 us early. | `cur_frame_first_packet_ms` in `lib/src/videoreceiver.c`, passed in as `frame_first_packet_ms` |
+| `assembled_us` | The assembled frame reached the decode hand-off. | `press_meter_observe_frame`, called at the top of `vita_h264_decode_frame` (`vita/src/video.c`); one clock read per frame was added there |
+| `decoded_us` | Decoding of the frame that was shown finished. | The decode-done stamp in `decode_frame_now` (`vita/src/video.c`), the same value `PIPE/DISPLAY` uses for its pickup span |
+| `shown_us` | The swap that put the picture on screen. | The clock read right after `vita2d_swap_buffers()` in `vita_video_render_latest_frame` (no extra read) |
+
+**Which frame is shown.** The jump frame may never reach the screen: the decode queue can drop it, a newer decoded frame can replace it, `force_30fps` pacing can skip it, or the freeze-on-corrupt path can show the last good picture instead. Frames carry a running number. `shown_us` and `decoded_us` come from the first swap that presents a freshly decoded picture whose number is the jump frame's or newer; in those cases `decoded_us` is the newer frame's decode-done. A pass that only repeats an older picture, or is paced out, does not complete the sample.
+
+**Detection rule** (`vita/src/press_meter.c`, pure logic, tested natively). The detector keeps the sizes of the last `PRESS_METER_QUIET_WINDOW` = 16 quiet frames; the quiet reference is the largest of them. While a press waits, the first frame of at least `PRESS_METER_JUMP_RATIO` = 3 times the reference AND at least `PRESS_METER_JUMP_MIN_EXTRA_BYTES` = 2048 bytes more is the jump. The window must be full before any jump counts. One sample per press: later large frames of the same animation are ignored. A press with no jump within `PRESS_METER_EXPIRY_US` = 1.5 s expires (no sample). A press arriving while another waits is an overlap and is ignored; the oldest keeps waiting. Corrupt frames are ignored entirely (they neither trigger nor enter the quiet window). A large frame whose first packet was read in an earlier millisecond than the press was sent cannot be its answer and is ignored too. The numbers are first guesses, to be tuned from the first hardware log.
+
+**Fields of the line.**
+
+| Field | Meaning |
+|---|---|
+| `presses` | Presses sent this window. |
+| `n` | Completed samples this window. |
+| `first_us`, `assembled_us`, `decoded_us`, `shown_us` | The four points above for the newest sample of the window; 0 when `n=0`. |
+| `first_max_us`, `shown_max_us` | Window maximum of `first_us` and of `shown_us`; 0 when `n=0`. |
+| `frame_bytes`, `quiet_bytes` | Size of the newest sample's jump frame and the quiet reference at that moment, so a human can judge whether it was a real jump. |
+| `order_err` | Samples whose points were out of order (they should satisfy 0 <= first <= assembled <= decoded <= shown). Nothing is clamped; the raw values are still reported. |
+| `expired` | Presses that saw no jump in time. |
+| `overlap` | Presses ignored because another was pending (or because two presses fell between two frames and only the newer was seen). |
+| `lost` | Jumps replaced by a newer jump before they were shown (the screen did not swap for over a second). |
+| `presses_total`, `samples_total` | Session running totals; the last line of a log answers "thirty presses, how many samples". |
+
+Example: `PIPE/PRESS presses=1 n=1 first_us=41000 assembled_us=58210 decoded_us=63940 shown_us=79120 first_max_us=41000 shown_max_us=79120 frame_bytes=21480 quiet_bytes=1320 order_err=0 expired=0 overlap=0 lost=0 presses_total=14 samples_total=14`
+
+**What it cannot tell you.**
+- It needs a quiet screen. Anything else that changes the picture by a big step (a notification, a video playing, an animation, loss recovery that is not flagged corrupt) can be taken for the answer to a press, which gives a false sample. Check `frame_bytes` against `quiet_bytes`.
+- Corrupt frames are skipped, so a press answered only by a frame flagged corrupt shows up as `expired`.
+- `first_us` is 1 ms coarse; a sample can show `first_us` slightly early, and a press sent in the same millisecond as the first packet can give a small negative value (counted in `order_err`).
+- The press time is when the packet was handed to the network, not when the button was touched; the time from the physical press to the send is `PIPE/INPUT`.
+
+## 10. What is not here
 
 - No RTT or jitter figures are quoted in this document on purpose; the only two such readouts in the logs are explained in section 2.
 - PSN (internet) connection setup is in [psn.md](psn.md).

@@ -6,6 +6,7 @@
 
 #include "controller.h"
 #include "debug_tools.h"
+#include "press_meter.h"
 
 /* Maximum length of a resolved PSN holepunch address string.
  * INET6_ADDRSTRLEN is 46 bytes; 64 gives comfortable headroom. */
@@ -21,6 +22,22 @@
  * the newest) and vita/src/host_metrics.c (reader/reducer, at its existing 1s window). No
  * heap allocation, no per-frame growth either way. */
 #define LATENCY_WINDOW_SAMPLE_CAP 128
+
+/* PIPE/PRESS (#413): one ~1 s window of press-to-picture results (docs/design/streaming.md,
+ * "Delay probes"). Used twice in stream_state: press_acc is filled by
+ * vita_video_render_latest_frame() (UI thread) and press_pub is what host_metrics.c published
+ * from it at the last window close. Both are UI-thread only, so no locking. */
+typedef struct {
+  uint32_t presses;   /* presses sent this window (published copy only) */
+  uint32_t samples;   /* completed samples this window */
+  uint32_t order_err; /* samples whose stages were out of order */
+  uint32_t expired;   /* presses that saw no jump in time (published copy only) */
+  uint32_t overlap;   /* presses ignored, another was pending (published copy only) */
+  uint32_t lost;      /* jumps never shown because a newer jump replaced them (published copy only) */
+  PressSample newest; /* newest sample of the window; meaningful only when samples > 0 */
+  int32_t max_first_us; /* window maximum of first_us over the samples (meaningful if samples > 0) */
+  int32_t max_shown_us; /* window maximum of shown_us over the samples */
+} PressWindow;
 
 /* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,
  * and the leading hypothesis under test is a SUB-FRAME persistent depth shift (e.g.
@@ -363,6 +380,18 @@ typedef struct vita_chiaki_stream_t {
   uint32_t display_sample_n;
   uint32_t display_dropped_n;
   uint32_t display_paced_n;
+
+  // PIPE/PRESS (#413): see PressWindow above. The press_seen_* values are the running totals
+  // the previous window close saw (recv-thread counters are never reset mid-session, so the
+  // reducer prints deltas); press_total_* are the session running totals.
+  PressWindow press_acc;
+  PressWindow press_pub;
+  uint32_t press_seen_presses;
+  uint32_t press_seen_expired;
+  uint32_t press_seen_overlap;
+  uint32_t press_seen_lost;
+  uint32_t press_total_presses;
+  uint32_t press_total_samples;
 
   // Decode queue occupancy (vita/src/video.c). Time-weighted (area-under-the-depth-curve
   // divided by window duration), not a naive average of push/pop samples: see the

@@ -309,3 +309,16 @@ target_compile_definitions(config_writer_tests PRIVATE
 target_link_libraries(config_writer_tests Threads::Threads)
 
 add_test(NAME vitarps5_config_writer_tests COMMAND config_writer_tests)
+
+# press_meter_tests.c checks the pure press-to-picture jump detector behind the PIPE/PRESS log line
+# (#413). Standalone binary with its own main(); run natively (see the file header).
+add_executable(press_meter_tests
+    press_meter_tests.c
+    ../vita/src/press_meter.c
+)
+
+target_include_directories(press_meter_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_press_meter_tests COMMAND press_meter_tests)

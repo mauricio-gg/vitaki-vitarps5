@@ -61,6 +61,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	feedback_sender->controller_state_origin_us = 0;
 	feedback_sender->input_latency_sample_count = 0;
 	feedback_sender->input_latency_dropped_count = 0;
+	// Press stamp (#413): same soft-restart reasoning as above. The sender thread is not
+	// started yet, so plain stores are fine here.
+	feedback_sender->press_stamp_seq = 0;
+	feedback_sender->press_count = 0;
+	feedback_sender->press_time_us = 0;
 #endif
 
 	ChiakiErrorCode err = chiaki_feedback_history_buffer_init(&feedback_sender->history_buf, FEEDBACK_HISTORY_BUFFER_SIZE);
@@ -347,6 +352,43 @@ static void feedback_sender_send_history(ChiakiFeedbackSender *feedback_sender)
 }
 
 #ifdef __PSVITA__
+// Max attempts of the lock-free press stamp read before giving up for this call.
+#define PRESS_STAMP_READ_ATTEMPTS 4
+
+// Press-to-picture meter (#413): publishes "a button press was sent at time_us" for the
+// receive thread. Sender thread only (single writer). Seqlock: seq goes odd, fields change,
+// seq goes even; __sync_synchronize() keeps the stores in that order on the Cortex-A9.
+static void feedback_sender_publish_press(ChiakiFeedbackSender *feedback_sender, uint64_t time_us)
+{
+	uint32_t seq = feedback_sender->press_stamp_seq;
+	feedback_sender->press_stamp_seq = seq + 1;
+	__sync_synchronize();
+	feedback_sender->press_count++;
+	feedback_sender->press_time_us = time_us;
+	__sync_synchronize();
+	feedback_sender->press_stamp_seq = seq + 2;
+}
+
+CHIAKI_EXPORT bool chiaki_feedback_sender_read_press_stamp(const ChiakiFeedbackSender *feedback_sender, uint32_t *press_count, uint64_t *press_time_us)
+{
+	for(int attempt = 0; attempt < PRESS_STAMP_READ_ATTEMPTS; attempt++)
+	{
+		uint32_t seq_before = feedback_sender->press_stamp_seq;
+		if(seq_before & 1)
+			continue; // write in progress
+		__sync_synchronize();
+		uint32_t count = feedback_sender->press_count;
+		uint64_t time_us = feedback_sender->press_time_us;
+		__sync_synchronize();
+		if(feedback_sender->press_stamp_seq != seq_before)
+			continue; // a write overlapped the read, values may be mismatched
+		*press_count = count;
+		*press_time_us = time_us;
+		return true;
+	}
+	return false;
+}
+
 // PIPE/INPUT instrumentation: records one origin_us -> wire_us sample into
 // the per-window ring. Overwrite-oldest on overflow (same semantics as the
 // PIPE/LATENCY ring at vita/src/video.c -- dropping the newest instead would
@@ -536,10 +578,25 @@ static void *feedback_sender_thread_func(void *user)
 		// out. That's precisely the send whose latency -- including the
 		// floor's own contribution -- this instrumentation exists to show;
 		// gating on real_change would silently miss it.
+		uint64_t wire_us = 0;
 		if(feedback_sender->controller_state_origin_us != 0 && (send_feedback_state || send_feedback_history))
 		{
-			uint64_t wire_us = sceKernelGetProcessTimeWide();
+			wire_us = sceKernelGetProcessTimeWide();
 			feedback_sender_record_input_latency(feedback_sender, wire_us);
+		}
+
+		// Press-to-picture meter (#413): a history send that carries at least one
+		// released -> pressed digital button edge. Releases, sticks, touches and the analog
+		// L2/R2 values never count. controller_state_history_prev is still the OLD reference
+		// here (it is advanced at the bottom of the loop). Reuses wire_us when the PIPE/INPUT
+		// block above already read the clock this wake.
+		const uint32_t button_mask = (uint32_t)((1u << CHIAKI_CONTROLLER_BUTTONS_COUNT) - 1u);
+		if(send_feedback_history &&
+			(feedback_sender->controller_state.buttons & ~feedback_sender->controller_state_history_prev.buttons & button_mask) != 0)
+		{
+			if(wire_us == 0)
+				wire_us = sceKernelGetProcessTimeWide();
+			feedback_sender_publish_press(feedback_sender, wire_us);
 		}
 
 		// Clear the latch once nothing remains deferred, so the next real

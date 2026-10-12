@@ -75,6 +75,16 @@ typedef struct chiaki_feedback_sender_t
 	uint32_t input_latency_samples_us[FEEDBACK_SENDER_INPUT_LATENCY_SAMPLE_CAP];
 	uint32_t input_latency_sample_count;
 	uint32_t input_latency_dropped_count;  // overwrite-oldest count, this window
+	// Press stamp for the press-to-picture meter (#413, see vita/include/press_meter.h).
+	// Written ONLY by the feedback sender thread, read by the Takion receive thread
+	// WITHOUT any lock via chiaki_feedback_sender_read_press_stamp(). The count and the
+	// 64-bit time cannot be updated atomically together on 32-bit ARM, so they are guarded
+	// by a seqlock: press_stamp_seq is odd while a write is in progress and changes on
+	// every write; a reader retries unless it saw the same even value before and after
+	// reading both fields. press_count only ever goes up (reset to 0 in init).
+	volatile uint32_t press_stamp_seq;
+	volatile uint32_t press_count;
+	volatile uint64_t press_time_us;  // sceKernelGetProcessTimeWide() right after the send
 #endif
 } ChiakiFeedbackSender;
 
@@ -83,6 +93,13 @@ CHIAKI_EXPORT void chiaki_feedback_sender_fini(ChiakiFeedbackSender *feedback_se
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state);
 #ifdef __PSVITA__
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state_ts(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state, uint64_t origin_us);
+
+/**
+ * Lock-free read of the newest "button press sent" stamp (see press_stamp_seq above).
+ * Safe from any thread. Returns false if no consistent pair could be read (a write kept
+ * overlapping); the caller just tries again on its next call.
+ */
+CHIAKI_EXPORT bool chiaki_feedback_sender_read_press_stamp(const ChiakiFeedbackSender *feedback_sender, uint32_t *press_count, uint64_t *press_time_us);
 #endif
 
 #ifdef __cplusplus
