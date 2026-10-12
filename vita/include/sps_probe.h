@@ -20,7 +20,8 @@
 #include <stdint.h>
 
 /* Bytes of the SPS NAL unit (starting at its NAL header byte, start code not included) that are
- * kept and compared. A typical SPS is 20 to 40 bytes; 128 leaves room for a VUI and scaling lists. */
+ * kept and compared. A typical SPS is 20 to 40 bytes; 128 leaves room for a VUI and scaling lists.
+ */
 #define SPS_PROBE_CAP 128
 /* How far past the NAL header sps_probe_locate() looks for the end of the SPS. Real SPS are far
  * shorter, so a start code is found at once; the bound only stops a damaged buffer from being

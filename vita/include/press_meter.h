@@ -68,12 +68,13 @@
 /* Cumulative counters, all only ever going up within a session. The first five are kept by the
  * meter; `lost` is kept by the hand-off to the UI thread (vita/src/video.c). */
 typedef struct {
-  uint32_t expired;   /* presses that saw no jump in time */
-  uint32_t full;      /* presses refused because the queue was full */
-  uint32_t inburst;   /* presses sent while a burst was running (queued, marked on the sample) */
-  uint32_t unseen;    /* presses that fell between two polls of the press stamp (times unknown) */
-  uint32_t unmatched; /* jumps with no eligible waiting press (not asked for, or already under way) */
-  uint32_t lost;      /* jumps dropped because the UI thread had not shown the earlier ones */
+  uint32_t expired; /* presses that saw no jump in time */
+  uint32_t full;    /* presses refused because the queue was full */
+  uint32_t inburst; /* presses sent while a burst was running (queued, marked on the sample) */
+  uint32_t unseen;  /* presses that fell between two polls of the press stamp (times unknown) */
+  uint32_t
+      unmatched; /* jumps with no eligible waiting press (not asked for, or already under way) */
+  uint32_t lost; /* jumps dropped because the UI thread had not shown the earlier ones */
 } PressCounters;
 
 typedef struct {
@@ -83,9 +84,9 @@ typedef struct {
 } PressEntry;
 
 typedef struct {
-  uint32_t quiet[PRESS_METER_QUIET_WINDOW]; /* ring of recent calm frame sizes */
-  uint32_t quiet_count;                     /* filled slots, up to PRESS_METER_QUIET_WINDOW */
-  uint32_t quiet_next;                      /* next slot to overwrite */
+  uint32_t quiet[PRESS_METER_QUIET_WINDOW];  /* ring of recent calm frame sizes */
+  uint32_t quiet_count;                      /* filled slots, up to PRESS_METER_QUIET_WINDOW */
+  uint32_t quiet_next;                       /* next slot to overwrite */
   PressEntry queue[PRESS_METER_QUEUE_DEPTH]; /* waiting presses, oldest first */
   uint32_t queue_len;
   uint32_t last_press_count; /* newest press counter already handed to on_press() */
