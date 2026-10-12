@@ -784,6 +784,15 @@ extern SceUIntVAddr sceCodecEngineAllocMemoryFromUnmapMemBlock(SceUID unmapUid, 
                                                                SceUInt32 alignment);
 extern SceInt32 sceCodecEngineFreeMemoryFromUnmapMemBlock(SceUID unmapUid, SceUIntVAddr vaCtx);
 extern SceInt32 sceAvcdecDecodeAvailableSize(const SceAvcdecCtrl *decoder);
+/* #413 experiment: also undeclared in the VitaSDK headers; its stub exists in the SDK
+ * (libSceVideodec_stub.a). The return type is uncertain: the references disagree (SceInt32
+ * in one header, void in another patch, an int read in a third). Declared SceInt32; see
+ * video_setup_avc_lib() for what the logged value means if it is really void. */
+extern SceInt32 sceAvcdecSetDecodeMode(SceUInt32 codecType, SceInt32 mode);
+
+/* Decode mode "extended" (0x80): the value every reference passes to sceAvcdecSetDecodeMode()
+ * to have the decoder hand pictures out as they are ready. */
+#define AVCDEC_DECODE_MODE_EXTENDED 0x80
 
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
@@ -901,6 +910,14 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   initVideodec->hwAvc.vertical = VITA_DECODER_RESOLUTION(height);
   initVideodec->hwAvc.numOfStreams = 1;
   initVideodec->hwAvc.numOfRefFrames = REF_FRAMES;
+
+  /* #413 experiment: every reference sets the decode mode before the library memory-size
+   * query (and so before the decoder one). A failure is logged and ignored so the stream
+   * runs exactly as without the call. If the function is really void, the logged value is
+   * whatever was left in the return register and means nothing. */
+  int mode_ret =
+      sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, AVCDEC_DECODE_MODE_EXTENDED);
+  LOGD("PIPE/DECMODE mode=0x%x ret=0x%08x", AVCDEC_DECODE_MODE_EXTENDED, (unsigned)mode_ret);
 
   int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
   if (ret < 0) {
