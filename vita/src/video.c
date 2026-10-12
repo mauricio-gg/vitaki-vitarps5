@@ -915,8 +915,7 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
    * query (and so before the decoder one). A failure is logged and ignored so the stream
    * runs exactly as without the call. If the function is really void, the logged value is
    * whatever was left in the return register and means nothing. */
-  int mode_ret =
-      sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, AVCDEC_DECODE_MODE_EXTENDED);
+  int mode_ret = sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, AVCDEC_DECODE_MODE_EXTENDED);
   LOGD("PIPE/DECMODE mode=0x%x ret=0x%08x", AVCDEC_DECODE_MODE_EXTENDED, (unsigned)mode_ret);
 
   int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
