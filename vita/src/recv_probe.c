@@ -12,12 +12,14 @@
 /* q_avg of PIPE/AUDIO is printed with two decimals. */
 #define AUDIO_Q_AVG_SCALE 100u
 
-/* What PIPE/RECVTHREAD printed last this stream; the line repeats only when one of these moves. */
+/* What PIPE/RECVTHREAD printed last this stream; the line repeats only when one of these moves,
+ * or when audio has started or stopped since (the confirmation that the thread stayed put). */
 static struct {
   bool printed;
   int32_t prio;
   int32_t affinity;
   int32_t cpu;
+  uint32_t audio_started;
 } thread_printed;
 
 ChiakiTakionRecvTimeAcc *recv_probe_acc(void) {
@@ -89,11 +91,12 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow 
       a->decoded, w->acatchup, a->catchup_frames, a->q_n ? a->q_min : 0,
       q_avg_x100 / AUDIO_Q_AVG_SCALE, q_avg_x100 % AUDIO_Q_AVG_SCALE, a->q_max);
   LOGD(
-      "PIPE/AUDIOOUT out_calls=%u out_frames=%u aout_us=%u aout_max_us=%u rest_n=%u rest_err=%u "
+      "PIPE/AUDIOOUT win=%u out_calls=%u out_frames=%u aout_us=%u aout_max_us=%u rest_n=%u "
+      "rest_err=%u "
       "rest_min=%d rest_max=%d out_dry=%u out_gap_max_us=%u out_late=%u waits=%u wall_us=%u",
-      ao->out_calls, ao->out_frames, ao->aout_us, ao->aout_max_us, ao->rest_n, ao->rest_err,
-      ao->rest_min, ao->rest_max, ao->out_dry, ao->out_gap_max_us, ao->out_late, ao->waits,
-      ao->wall_us);
+      ao->win, ao->out_calls, ao->out_frames, ao->aout_us, ao->aout_max_us, ao->rest_n,
+      ao->rest_err, ao->rest_min, ao->rest_max, ao->out_dry, ao->out_gap_max_us, ao->out_late,
+      ao->waits, ao->wall_us);
   LOGD(
       "PIPE/SOCKQ ok=%u n=%u min=%u avg=%u max=%u wake_avg=%u wake_max=%u query_us=%u "
       "query_max_us=%u err=%u",
@@ -104,13 +107,16 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow 
   const ChiakiTakionRecvThread *t = &w->thread;
   if (!s->valid)
     return;
+  uint32_t audio_started = vita_audio_started() ? 1u : 0u;
   if (thread_printed.printed && thread_printed.prio == t->prio &&
-      thread_printed.affinity == t->affinity && thread_printed.cpu == t->cpu)
+      thread_printed.affinity == t->affinity && thread_printed.cpu == t->cpu &&
+      thread_printed.audio_started == audio_started)
     return;
   thread_printed.printed = true;
   thread_printed.prio = t->prio;
   thread_printed.affinity = t->affinity;
   thread_printed.cpu = t->cpu;
+  thread_printed.audio_started = audio_started;
   const ChiakiTakionRecvThread *st = &s->start;
   LOGD(
       "PIPE/RECVTHREAD prio=%d affinity=0x%x cpu=%d last_cpu=%d info_rc=%d start_prio=%d "
@@ -119,8 +125,8 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow 
       "sockq_info_rc_self=%d sockq_info_id=%d sockq_info_port_raw=%u sockname_rc=%d "
       "sockname_port_net=%u sockname_port_host=%u",
       t->prio, (unsigned int)t->affinity, t->cpu, t->last_cpu, t->info_rc, st->prio,
-      (unsigned int)st->affinity, st->cpu, st->info_rc, (unsigned int)vita_audio_started(),
-      s->clock_read_ns, s->thread_id_ns, s->sockq_ok, s->sockq_flags, s->sockq_id, s->sockq_info_rc,
+      (unsigned int)st->affinity, st->cpu, st->info_rc, audio_started, s->clock_read_ns,
+      s->thread_id_ns, s->sockq_ok, s->sockq_flags, s->sockq_id, s->sockq_info_rc,
       s->sockq_info_rc_self, s->sockq_info_id, s->sockq_info_port_raw, s->sockname_rc,
       s->sockname_port_net, s->sockname_port_host);
 }

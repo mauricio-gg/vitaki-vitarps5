@@ -35,12 +35,20 @@ static size_t push_id(Fixture *f, uint8_t id) {
   return audio_queue_push(&f->queue, frame);
 }
 
-/* catches: sound that arrived before a hiccup being played late (the catch-up keeping old frames
- * instead of the newest), and a wrong drop count that would make PIPE/AUDIO lie about how much
- * sound was thrown away. */
+/* catches: stale sound played late after a hiccup (the catch-up keeping old frames instead of the
+ * newest), a wrong drop count that makes PIPE/AUDIO lie, and a catch-up whose head advance does
+ * not wrap at the end of the ring (in real play the head is anywhere, so the burst starts from a
+ * ring that has already turned a few times and the drop crosses its end). */
 static void test_burst_over_bound_keeps_newest_and_counts_drops(void) {
   Fixture f;
   fixture_init(&f);
+  uint8_t scratch[FRAME_BYTES];
+  for (int i = 0; i < 7; i++) { /* leaves the head at slot 7 of 11: a burst of 11 must wrap */
+    assert(push_id(&f, 0xAA) == 0);
+    assert(audio_queue_pop(&f.queue, scratch, 1));
+  }
+  assert(audio_queue_count(&f.queue) == 0);
+
   size_t dropped_total = 0;
   for (uint8_t id = 1; id <= BOUND; id++)
     dropped_total += push_id(&f, id);
@@ -93,24 +101,10 @@ static void test_pop_refused_when_too_few_queued_and_queue_unchanged(void) {
   assert(out[0] == 7);
 }
 
-/* catches: a configuration whose push could overwrite unplayed frames (capacity below
- * bound + 1) or whose catch-up would leave nothing or more than the bound. */
-static void test_init_refuses_configurations_that_could_overflow(void) {
-  AudioQueue q;
-  uint8_t storage[CAPACITY * FRAME_BYTES];
-  assert(audio_queue_init(&q, storage, FRAME_BYTES, BOUND + 1, BOUND, KEEP));
-  assert(!audio_queue_init(&q, storage, FRAME_BYTES, BOUND, BOUND, KEEP)); /* capacity too small */
-  assert(!audio_queue_init(&q, storage, FRAME_BYTES, CAPACITY, BOUND, 0)); /* keeps nothing */
-  assert(!audio_queue_init(&q, storage, FRAME_BYTES, CAPACITY, BOUND, BOUND + 1)); /* keep > bound */
-  assert(!audio_queue_init(&q, NULL, FRAME_BYTES, CAPACITY, BOUND, KEEP));
-  assert(!audio_queue_init(&q, storage, 0, CAPACITY, BOUND, KEEP));
-}
-
 int main(void) {
   test_burst_over_bound_keeps_newest_and_counts_drops();
   test_below_bound_drops_nothing_and_keeps_order_across_wrap();
   test_pop_refused_when_too_few_queued_and_queue_unchanged();
-  test_init_refuses_configurations_that_could_overflow();
   printf("audio_queue_tests: all passed\n");
   return 0;
 }

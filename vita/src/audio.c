@@ -150,8 +150,9 @@ void vita_audio_init(unsigned int channels_, unsigned int rate_, void *user) {
 
 /* Publishes the audio thread's window under the audioout_lock seqlock (odd while writing; the
  * reporter retries unless it saw the same even value before and after), like PIPE/DECHOLD. */
-static void audio_publish_window(const AudioOutAcc *acc, uint64_t wall_us) {
+static void audio_publish_window(const AudioOutAcc *acc, uint32_t win, uint64_t wall_us) {
   AudioOutWindow out;
+  out.win = win;
   out.out_calls = acc->out_calls;
   out.out_frames = acc->out_frames;
   out.aout_us = clamp_u32(acc->aout_us);
@@ -169,16 +170,6 @@ static void audio_publish_window(const AudioOutAcc *acc, uint64_t wall_us) {
   context.stream.audioout_lock++;
   __sync_synchronize();
   context.stream.audioout_pub = out;
-  __sync_synchronize();
-  context.stream.audioout_lock++;
-}
-
-/* Clears the published PIPE/AUDIOOUT window (through the seqlock, so a concurrent reader never
- * keeps a half-cleared copy). Called before the audio thread exists. */
-static void audio_clear_published_window(void) {
-  context.stream.audioout_lock++;
-  __sync_synchronize();
-  memset(&context.stream.audioout_pub, 0, sizeof(context.stream.audioout_pub));
   __sync_synchronize();
   context.stream.audioout_lock++;
 }
@@ -229,6 +220,7 @@ static void *audio_thread_func(void *user) {
   memset(&acc, 0, sizeof(acc));
   uint64_t window_start_us = 0;
   uint64_t last_end_us = 0;
+  uint32_t windows_published = 0;
 
   for (;;) {
     chiaki_mutex_lock(&audio_mtx);
@@ -254,7 +246,7 @@ static void *audio_thread_func(void *user) {
     if (window_start_us == 0)
       window_start_us = start_us;
     if (end_us - window_start_us >= AUDIO_OUT_WINDOW_US) {
-      audio_publish_window(&acc, end_us - window_start_us);
+      audio_publish_window(&acc, ++windows_published, end_us - window_start_us);
       memset(&acc, 0, sizeof(acc));
       window_start_us = end_us;
     }
@@ -326,7 +318,6 @@ static bool audio_start(size_t samples_count) {
   audio_exit = false;
 
   sceAudioOutSetConfig(port, device_buffer_samples, rate, audio_port_format());
-  audio_clear_published_window();
 
   ChiakiErrorCode thread_err = chiaki_thread_create(&audio_thread, audio_thread_func, NULL);
   if (thread_err != CHIAKI_ERR_SUCCESS) {

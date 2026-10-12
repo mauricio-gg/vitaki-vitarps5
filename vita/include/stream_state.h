@@ -66,9 +66,10 @@ typedef struct {
  * second; the UI thread copies it under context.stream.audioout_lock. 32-bit fields only; times
  * are microseconds, totals saturate at UINT32_MAX. */
 typedef struct {
-  uint32_t out_calls;   /* sceAudioOutOutput calls */
-  uint32_t out_frames;  /* audio frames handed to the hardware by them */
-  uint32_t aout_us;     /* time inside sceAudioOutOutput, total */
+  uint32_t win;        /* windows the audio thread has published this session; 0 before the first */
+  uint32_t out_calls;  /* sceAudioOutOutput calls */
+  uint32_t out_frames; /* audio frames handed to the hardware by them */
+  uint32_t aout_us;    /* time inside sceAudioOutOutput, total */
   uint32_t aout_max_us; /* longest single call */
   uint32_t rest_n;      /* sceAudioOutGetRestSample reads that returned >= 0 */
   uint32_t rest_err;    /* reads that returned < 0 (kept out of rest_min/rest_max) */
