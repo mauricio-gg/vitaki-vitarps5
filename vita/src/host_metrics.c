@@ -6,7 +6,6 @@
 #include "audio.h"
 #include "video.h"
 #include "sps_probe.h"
-#include "h264_stream.h"
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/net/netctl.h>
@@ -70,12 +69,6 @@ static bool console_ts_printed;
 #define SPS_HEX_BUF_SIZE (SPS_PROBE_CAP * 2 + 1)
 #define SPS_CUT_BUF_SIZE 32
 #define SPS_OPT_BUF_SIZE 16
-/* The library files a parsed SPS in a 32-entry table indexed by seq_parameter_set_id without a
- * range check. The id is the first Exp-Golomb value after the NAL header, profile, constraint and
- * level bytes, so it starts at byte 4 of the NAL; a first byte below 0x08 has five or more leading
- * zero bits, i.e. an id of 31 or more. Such an SPS is not handed to the library. */
-#define SPS_ID_BYTE_INDEX 4
-#define SPS_ID_BYTE_MIN 0x08
 static uint32_t sps_seen_version;
 static bool sps_line_printed;
 static uint32_t sps_repeat_printed_seen;
@@ -529,10 +522,10 @@ static void sps_hex_encode(char *out, const uint8_t *bytes, uint32_t n) {
   out[n * 2] = '\0';
 }
 
-/* PIPE/SPS: parses the session's first SPS with the bundled h264-bitstream library and prints the
- * fields the app does not read elsewhere, or says why it could not and prints the bytes so the
- * line can be decoded by hand (docs/design/streaming.md section 9.5). UI thread only. The library
- * allocates (h264_new) and works on a private copy; nothing it touches is shared. */
+/* PIPE/SPS: reads the session's first SPS with sps_probe_parse() (bounded, no allocation) and
+ * prints the fields the app does not read elsewhere, or says why it refused (`fail=`) and prints
+ * the bytes so the line can be decoded by hand (docs/design/streaming.md section 9.5). UI thread
+ * only. */
 static void host_metrics_print_sps(const SpsProbeData *d) {
   uint32_t stored = d->first_len < SPS_PROBE_CAP ? d->first_len : SPS_PROBE_CAP;
   char hex[SPS_HEX_BUF_SIZE];
@@ -541,46 +534,28 @@ static void host_metrics_print_sps(const SpsProbeData *d) {
   if (stored < d->first_len)
     snprintf(cut, sizeof(cut), " truncated_to=%u", stored);
 
-  const char *fail = NULL;
-  h264_stream_t *h = NULL;
-  if (stored < d->first_len) {
-    fail = "longer_than_cap";
-  } else if (d->first[SPS_ID_BYTE_INDEX] < SPS_ID_BYTE_MIN) {
-    fail = "sps_id_out_of_range";
-  } else if ((h = h264_new()) == NULL) {
-    fail = "alloc";
-  } else {
-    uint8_t nal[SPS_PROBE_CAP]; /* read_nal_unit takes a non-const pointer; d stays untouched */
-    memcpy(nal, d->first, stored);
-    if (read_nal_unit(h, nal, (int)stored) < 0)
-      fail = "library_rejected";
+  SpsFields f;
+  SpsParseStatus status = sps_probe_parse(d->first, stored, d->first_len, &f);
+  if (status != SPS_PARSE_OK) {
+    LOGD("PIPE/SPS fail=%s sps_len=%u hex_cap=%u hex=%s%s", sps_probe_status_name(status),
+         d->first_len, SPS_PROBE_CAP, hex, cut);
+    return;
   }
-
-  if (fail != NULL) {
-    LOGD("PIPE/SPS parse=failed reason=%s sps_len=%u hex_cap=%u hex=%s%s", fail, d->first_len,
-         SPS_PROBE_CAP, hex, cut);
-  } else {
-    const sps_t *sps = h->sps;
-    bool vui = sps->vui_parameters_present_flag != 0;
-    bool restriction = vui && sps->vui.bitstream_restriction_flag != 0;
-    char restriction_s[SPS_OPT_BUF_SIZE];
-    char reorder_s[SPS_OPT_BUF_SIZE];
-    char dec_buffering_s[SPS_OPT_BUF_SIZE];
-    console_format_u64(restriction_s, sizeof(restriction_s), vui, restriction ? 1u : 0u);
-    console_format_u64(reorder_s, sizeof(reorder_s), restriction,
-                       (uint64_t)sps->vui.num_reorder_frames);
-    console_format_u64(dec_buffering_s, sizeof(dec_buffering_s), restriction,
-                       (uint64_t)sps->vui.max_dec_frame_buffering);
-    LOGD(
-        "PIPE/SPS sps_len=%u profile_idc=%d constraint_flags=0x%02x level_idc=%d poc_type=%d "
-        "frame_mbs_only=%d max_num_ref_frames=%d vui=%d bitstream_restriction=%s "
-        "num_reorder_frames=%s max_dec_frame_buffering=%s hex_cap=%u hex=%s",
-        d->first_len, sps->profile_idc, (unsigned)d->first[2], sps->level_idc,
-        sps->pic_order_cnt_type, sps->frame_mbs_only_flag, sps->num_ref_frames, vui ? 1 : 0,
-        restriction_s, reorder_s, dec_buffering_s, SPS_PROBE_CAP, hex);
-  }
-  if (h != NULL)
-    h264_free(h);
+  char restriction_s[SPS_OPT_BUF_SIZE];
+  char reorder_s[SPS_OPT_BUF_SIZE];
+  char dec_buffering_s[SPS_OPT_BUF_SIZE];
+  console_format_u64(restriction_s, sizeof(restriction_s), f.vui,
+                     f.bitstream_restriction ? 1u : 0u);
+  console_format_u64(reorder_s, sizeof(reorder_s), f.bitstream_restriction, f.num_reorder_frames);
+  console_format_u64(dec_buffering_s, sizeof(dec_buffering_s), f.bitstream_restriction,
+                     f.max_dec_frame_buffering);
+  LOGD(
+      "PIPE/SPS sps_len=%u profile_idc=%u constraint_flags=0x%02x level_idc=%u poc_type=%u "
+      "frame_mbs_only=%u max_num_ref_frames=%u vui=%d bitstream_restriction=%s "
+      "num_reorder_frames=%s max_dec_frame_buffering=%s hex_cap=%u hex=%s",
+      d->first_len, (unsigned)f.profile_idc, (unsigned)f.constraint_flags, (unsigned)f.level_idc,
+      f.poc_type, f.frame_mbs_only, f.max_num_ref_frames, f.vui ? 1 : 0, restriction_s, reorder_s,
+      dec_buffering_s, SPS_PROBE_CAP, hex);
 }
 
 /* PIPE/SPS (once per session) and PIPE/SPS_REPEAT (when the counts moved, at most once per
