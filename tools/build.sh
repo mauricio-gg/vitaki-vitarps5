@@ -21,7 +21,7 @@ DOCKER_RUN_USER="$(id -u):$(id -g)"
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="1179"
+VERSION_ITERATION="1180"
 
 # Colors for output
 RED='\033[0;31m'
