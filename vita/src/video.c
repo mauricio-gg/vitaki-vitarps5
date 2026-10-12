@@ -1461,12 +1461,12 @@ static void present_record_swap(uint32_t seq, bool fresh, uint64_t swap_us) {
 }
 
 bool vita_video_render_latest_frame(void) {
-  present_window.passes++;
   /* GH #245 code review round 2: mark entry before any early return, cleared before
    * every return below (mirrors the file's existing lock-then-unlock-before-each-return
    * style in decode_frame_now()). See ui_render_in_progress's declaration comment --
    * this is the flag vita_h264_stop() polls before destroying `mtx`. */
   ui_render_in_progress = true;
+  present_window.passes++;
   /* GH #245 code review round 3: explicit, load-bearing teardown gate. This is the
    * ACTUAL thing that keeps this function from ever reaching `mtx` (via
    * promote_decoded_frame_to_last_good() below) once vita_h264_stop() has begun --

@@ -56,12 +56,13 @@ bool vita_video_render_latest_frame(void);
  * passes did in one window. Counts buffer swaps, not what the panel displayed. */
 #define PRESENT_GAP_BUCKETS 6
 typedef struct {
-  uint32_t passes;      /* calls of vita_video_render_latest_frame() */
-  uint32_t misses;      /* of those, returned because no frame was ready */
-  uint32_t shown;       /* of those, presented a freshly decoded picture */
-  uint32_t back;        /* presents numbered lower than the previous present */
-  uint32_t same;        /* presents numbered equal to the previous present */
-  uint32_t back_max;    /* largest backwards step, in frames */
+  uint32_t passes;   /* every call of vita_video_render_latest_frame(), including ones that bail at
+                        the teardown gate */
+  uint32_t misses;   /* of those, returned because no frame was ready */
+  uint32_t shown;    /* of those, presented a freshly decoded picture */
+  uint32_t back;     /* presents numbered lower than the previous present */
+  uint32_t same;     /* presents numbered equal to the previous present */
+  uint32_t back_max; /* largest backwards step, in frames */
   uint32_t skip_frames; /* pictures that never reached the screen (forward steps minus one) */
   uint32_t gaps[PRESENT_GAP_BUCKETS]; /* swap-to-swap intervals: <12, 12-21, 21-29, 29-38, 38-55,
                                          >=55 ms */
