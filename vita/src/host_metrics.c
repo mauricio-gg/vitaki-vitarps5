@@ -8,6 +8,7 @@
 #include "sps_probe.h"
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/net/netctl.h>
 #include <stdio.h>
 #include <string.h>
@@ -52,6 +53,15 @@ static DecHoldWindow dechold_last;
  * consistent copy (printed again when no try succeeds). */
 #define AUDIOOUT_READ_ATTEMPTS 4
 static AudioOutWindow audioout_last;
+
+/* PIPE/UITHREAD: what was printed last this stream; the line repeats only when one of these moves.
+ */
+static struct {
+  bool printed;
+  int32_t prio;
+  int32_t affinity;
+  int32_t cpu;
+} ui_thread_printed;
 
 /* PIPE/RECVBUF: same scheme for the receive thread's published window. Reset with the stream. */
 #define RECVBUF_READ_ATTEMPTS 4
@@ -317,6 +327,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.audioout_lock = 0;
   memset(&context.stream.audioout_pub, 0, sizeof(context.stream.audioout_pub));
   memset(&audioout_last, 0, sizeof(audioout_last));
+  memset(&ui_thread_printed, 0, sizeof(ui_thread_printed));
   memset(&recvbuf_last, 0, sizeof(recvbuf_last));
   recv_probe_reset_report();
   memset(&console_prev, 0, sizeof(console_prev));
@@ -1070,6 +1081,37 @@ void host_metrics_update_latency(void) {
         context.stream.display_swap_p50_us, context.stream.display_swap_p95_us,
         context.stream.display_sample_n, context.stream.display_dropped_n,
         context.stream.display_paced_n);
+    // PIPE/PRESENT (#416): how evenly and in what order the UI thread presented pictures this
+    // window, then reset. Counts buffer swaps, not panel refreshes. See streaming.md section 9.10.
+    {
+      PresentWindow pr;
+      vita_video_present_take(&pr);
+      LOGD(
+          "PIPE/PRESENT passes=%u misses=%u shown=%u back=%u same=%u back_max=%u skip_frames=%u "
+          "gaps=%u,%u,%u,%u,%u,%u gap_max_us=%u",
+          pr.passes, pr.misses, pr.shown, pr.back, pr.same, pr.back_max, pr.skip_frames, pr.gaps[0],
+          pr.gaps[1], pr.gaps[2], pr.gaps[3], pr.gaps[4], pr.gaps[5], pr.gap_max_us);
+    }
+    // PIPE/UITHREAD (#416): the UI thread as the system reports it, sampled on the UI thread
+    // (this function), printed at the first window and when priority, affinity or cpu moved.
+    {
+      SceKernelThreadInfo ti;
+      memset(&ti, 0, sizeof(ti));
+      ti.size = sizeof(ti);
+      int info_rc = sceKernelGetThreadInfo(sceKernelGetThreadId(), &ti);
+      int32_t prio = info_rc == 0 ? (int32_t)ti.currentPriority : 0;
+      int32_t affinity = info_rc == 0 ? (int32_t)ti.currentCpuAffinityMask : 0;
+      int32_t cpu = info_rc == 0 ? (int32_t)ti.currentCpuId : 0;
+      if (!ui_thread_printed.printed || ui_thread_printed.prio != prio ||
+          ui_thread_printed.affinity != affinity || ui_thread_printed.cpu != cpu) {
+        ui_thread_printed.printed = true;
+        ui_thread_printed.prio = prio;
+        ui_thread_printed.affinity = affinity;
+        ui_thread_printed.cpu = cpu;
+        LOGD("PIPE/UITHREAD prio=%d affinity=0x%x cpu=%d last_cpu=%d info_rc=%d", prio,
+             (unsigned int)affinity, cpu, info_rc == 0 ? (int)ti.lastExecutedCpuId : 0, info_rc);
+      }
+    }
     // PIPE/PRESS: press-to-picture meter, one summary line per window, printed even when empty,
     // followed by one PIPE/PRESS_SAMPLE line per completed sample (up to PRESS_WINDOW_SAMPLE_CAP;
     // the rest are counted in sample_overflow). The *_us stages are microseconds since the press

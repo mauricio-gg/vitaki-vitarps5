@@ -142,6 +142,14 @@ static volatile bool ui_render_in_progress = false;
  * swap -- see decode_frame_now()). */
 static vita2d_texture *volatile last_good_texture = NULL;
 
+/* PIPE/PRESENT (#416): the frame number of the picture each of the two textures holds, 0 =
+ * unknown. frame_texture_seq is written by the decode thread under `mtx` when it finishes writing
+ * a picture into frame_texture; promote_decoded_frame_to_last_good() swaps the two numbers together
+ * with the pointers (also under `mtx`). last_good_texture_seq is touched only there. Log-only: no
+ * decision reads them except the PIPE/PRESENT accounting. */
+static volatile uint32_t frame_texture_seq = 0;
+static volatile uint32_t last_good_texture_seq = 0;
+
 /* Set inside decode_frame_now() on the dedicated decode thread, under `mtx`,
  * after a successful sceAvcdecDecode. Read by vita_video_render_latest_frame() on
  * the UI thread. Single-writer/single-reader on Vita Cortex-A9 — volatile sufficient. */
@@ -344,6 +352,9 @@ static vita2d_texture *promote_decoded_frame_to_last_good(void) {
   vita2d_texture *newly_decoded = frame_texture;
   frame_texture = last_good_texture;
   last_good_texture = newly_decoded;
+  uint32_t newly_decoded_seq = frame_texture_seq;
+  frame_texture_seq = last_good_texture_seq;
+  last_good_texture_seq = newly_decoded_seq;
   vita2d_texture *promoted = last_good_texture;
   chiaki_mutex_unlock(&mtx);
   return promoted;
@@ -1182,6 +1193,8 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     press_pub_lock++;
     __sync_synchronize();
     incoming_frame_seq = published_seq; /* the picture's own number when the decoder echoes it */
+    frame_texture_seq =
+        published_seq; /* PIPE/PRESENT: the number of the picture now in frame_texture */
     press_pub_decode_done_us = decode_done_us;
     __sync_synchronize();
     press_pub_lock++;
@@ -1385,7 +1398,70 @@ void vita_video_press_meter_totals(PressCounters *counters) {
   counters->lost = press_lost_total;
 }
 
+/* PIPE/PRESENT accounting. UI thread only: written in vita_video_render_latest_frame() and read
+ * and reset by vita_video_present_take(), both on the UI thread, so no lock. present_prev_seq and
+ * present_last_swap_us carry across windows (0 = none yet) and are cleared with the stream. */
+#define PRESENT_GAP_EDGE_1_US 12000u
+#define PRESENT_GAP_EDGE_2_US 21000u
+#define PRESENT_GAP_EDGE_3_US 29000u
+#define PRESENT_GAP_EDGE_4_US 38000u
+#define PRESENT_GAP_EDGE_5_US 55000u
+static PresentWindow present_window;
+static uint32_t present_prev_seq = 0;
+static uint64_t present_last_swap_us = 0;
+
+static void present_reset_session(void) {
+  memset(&present_window, 0, sizeof(present_window));
+  present_prev_seq = 0;
+  present_last_swap_us = 0;
+  frame_texture_seq = 0;
+  last_good_texture_seq = 0;
+}
+
+void vita_video_present_take(PresentWindow *out) {
+  *out = present_window;
+  memset(&present_window, 0, sizeof(present_window));
+}
+
+/* One swap just finished at swap_us and presented a picture numbered seq (0 = unknown) as a
+ * freshly decoded one (`fresh`) or as a repeat of an older one. */
+static void present_record_swap(uint32_t seq, bool fresh, uint64_t swap_us) {
+  PresentWindow *w = &present_window;
+  if (fresh)
+    w->shown++;
+  if (present_last_swap_us != 0 && swap_us >= present_last_swap_us) {
+    uint64_t gap_us = swap_us - present_last_swap_us;
+    uint32_t gap = gap_us > UINT32_MAX ? UINT32_MAX : (uint32_t)gap_us;
+    int bucket = gap < PRESENT_GAP_EDGE_1_US   ? 0
+                 : gap < PRESENT_GAP_EDGE_2_US ? 1
+                 : gap < PRESENT_GAP_EDGE_3_US ? 2
+                 : gap < PRESENT_GAP_EDGE_4_US ? 3
+                 : gap < PRESENT_GAP_EDGE_5_US ? 4
+                                               : 5;
+    w->gaps[bucket]++;
+    if (gap > w->gap_max_us)
+      w->gap_max_us = gap;
+  }
+  present_last_swap_us = swap_us;
+  if (seq == 0)
+    return;
+  if (present_prev_seq != 0) {
+    int32_t step = (int32_t)(seq - present_prev_seq);
+    if (step < 0) {
+      w->back++;
+      if ((uint32_t)-step > w->back_max)
+        w->back_max = (uint32_t)-step;
+    } else if (step == 0) {
+      w->same++;
+    } else {
+      w->skip_frames += (uint32_t)step - 1;
+    }
+  }
+  present_prev_seq = seq;
+}
+
 bool vita_video_render_latest_frame(void) {
+  present_window.passes++;
   /* GH #245 code review round 2: mark entry before any early return, cleared before
    * every return below (mirrors the file's existing lock-then-unlock-before-each-return
    * style in decode_frame_now()). See ui_render_in_progress's declaration comment --
@@ -1405,6 +1481,7 @@ bool vita_video_render_latest_frame(void) {
     return false;
   }
   if (!frame_ready_for_display) {
+    present_window.misses++;
     ui_render_in_progress = false;
     return false;
   }
@@ -1536,6 +1613,9 @@ bool vita_video_render_latest_frame(void) {
    * boundary itself must land at the same point in all three branches for draw_us below to
    * mean the same thing regardless of which branch was taken. */
   uint64_t after_snapshot_us = sceKernelGetProcessTimeWide();
+  /* PIPE/PRESENT: the number of the picture about to be drawn (the texture's own number). */
+  uint32_t present_seq =
+      present_texture == last_good_texture ? last_good_texture_seq : frame_texture_seq;
 
   vita2d_start_drawing();
 
@@ -1620,6 +1700,8 @@ bool vita_video_render_latest_frame(void) {
       }
     }
   }
+
+  present_record_swap(present_seq, showing_decoded_frame, now_us);
 
   /* PIPE/PRESS: "shown" for the armed jumps = the first swap that presents a decoded picture
    * which is the jump frame or newer (sequence numbers compared with wrap-safe subtraction).
@@ -1730,6 +1812,7 @@ void vita_h264_start() {
   incoming_frame_seq = 0;
   press_pub_decode_done_us = 0;
   dechold_reset_session();
+  present_reset_session();
   frozen_frame_streak = 0;
   /* GH #245 code review round 2: no render call is in flight at session start --
    * matches the same "reset to the idle value" treatment as frame_ready_for_display
