@@ -322,3 +322,16 @@ target_include_directories(press_meter_tests PRIVATE
 )
 
 add_test(NAME vitarps5_press_meter_tests COMMAND press_meter_tests)
+
+# sps_probe_tests.c checks the pure SPS detector and repeat counter behind the PIPE/SPS log lines
+# (#413). Standalone binary with its own main(); run natively (see the file header).
+add_executable(sps_probe_tests
+    sps_probe_tests.c
+    ../vita/src/sps_probe.c
+)
+
+target_include_directories(sps_probe_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_sps_probe_tests COMMAND sps_probe_tests)

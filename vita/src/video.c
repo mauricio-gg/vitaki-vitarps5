@@ -20,6 +20,7 @@
 #include "video.h"
 #include "video_overlay.h"
 #include "press_meter.h"
+#include "sps_probe.h"
 #include "context.h"
 #include "ui.h"
 
@@ -1255,6 +1256,11 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     return 0;
   }
 
+  /* PIPE/SPS (#413): read-only look at whether this buffer begins with an SPS (a few byte
+   * compares; one bounded copy or compare only when it does). buf is not modified and the
+   * decoder is fed exactly as before. Parsing and printing happen on the UI thread. */
+  sps_probe_observe(buf, buf_size);
+
   uint32_t frame_seq = press_meter_observe_frame(buf_size, frame_corrupt, frame_first_packet_ms);
 
   chiaki_mutex_lock(&decode_q_mtx);
@@ -1715,6 +1721,7 @@ void vita_h264_start() {
   incoming_frame_first_packet_ms = 0;
   incoming_frame_decode_done_us = 0;
   press_meter_reset(&press_meter);
+  sps_probe_reset();
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;

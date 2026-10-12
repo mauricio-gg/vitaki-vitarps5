@@ -5,6 +5,8 @@
 #include "host_callbacks.h"
 #include "audio.h"
 #include "video.h"
+#include "sps_probe.h"
+#include "h264_stream.h"
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/net/netctl.h>
@@ -59,6 +61,26 @@ static ChiakiTakionRecvbufWindow recvbuf_last;
 #define CONSOLE_READ_ATTEMPTS 4
 static ChiakiConsoleInfo console_prev;
 static bool console_ts_printed;
+
+/* PIPE/SPS and PIPE/SPS_REPEAT: the probe version at the last look (a new copy is taken only when
+ * it moved), whether the once-per-session PIPE/SPS line was printed, the repeat counts already
+ * printed and when. All reset with the stream. */
+#define SPS_READ_ATTEMPTS 4
+#define SPS_REPEAT_MIN_INTERVAL_US 1000000ULL /* at most one PIPE/SPS_REPEAT per window */
+#define SPS_HEX_BUF_SIZE (SPS_PROBE_CAP * 2 + 1)
+#define SPS_CUT_BUF_SIZE 32
+#define SPS_OPT_BUF_SIZE 16
+/* The library files a parsed SPS in a 32-entry table indexed by seq_parameter_set_id without a
+ * range check. The id is the first Exp-Golomb value after the NAL header, profile, constraint and
+ * level bytes, so it starts at byte 4 of the NAL; a first byte below 0x08 has five or more leading
+ * zero bits, i.e. an id of 31 or more. Such an SPS is not handed to the library. */
+#define SPS_ID_BYTE_INDEX 4
+#define SPS_ID_BYTE_MIN 0x08
+static uint32_t sps_seen_version;
+static bool sps_line_printed;
+static uint32_t sps_repeat_printed_seen;
+static uint32_t sps_repeat_printed_differed;
+static uint64_t sps_repeat_last_us;
 /* Text buffers of the PIPE/CONSOLE line: the type:count list (overflow is shown as "..."), one
  * formatted number, and the hex dump of the first periodic-timestamp message. */
 #define CONSOLE_TYPES_BUF_SIZE 256
@@ -298,6 +320,11 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   memset(&recvbuf_last, 0, sizeof(recvbuf_last));
   memset(&console_prev, 0, sizeof(console_prev));
   console_ts_printed = false;
+  sps_seen_version = 0;
+  sps_line_printed = false;
+  sps_repeat_printed_seen = 0;
+  sps_repeat_printed_differed = 0;
+  sps_repeat_last_us = 0;
 
   context.stream.input_latency_p50_us = 0;
   context.stream.input_latency_p95_us = 0;
@@ -490,6 +517,99 @@ static void host_metrics_report_console(ChiakiStreamConnection *stream_connectio
   }
 
   console_prev = cur;
+}
+
+/* Writes the lower-case hex of n bytes into out (room for 2n+1 chars). */
+static void sps_hex_encode(char *out, const uint8_t *bytes, uint32_t n) {
+  static const char hex_digits[] = "0123456789abcdef";
+  for (uint32_t i = 0; i < n; i++) {
+    out[i * 2] = hex_digits[bytes[i] >> 4];
+    out[i * 2 + 1] = hex_digits[bytes[i] & 0x0F];
+  }
+  out[n * 2] = '\0';
+}
+
+/* PIPE/SPS: parses the session's first SPS with the bundled h264-bitstream library and prints the
+ * fields the app does not read elsewhere, or says why it could not and prints the bytes so the
+ * line can be decoded by hand (docs/design/streaming.md section 9.5). UI thread only. The library
+ * allocates (h264_new) and works on a private copy; nothing it touches is shared. */
+static void host_metrics_print_sps(const SpsProbeData *d) {
+  uint32_t stored = d->first_len < SPS_PROBE_CAP ? d->first_len : SPS_PROBE_CAP;
+  char hex[SPS_HEX_BUF_SIZE];
+  char cut[SPS_CUT_BUF_SIZE] = "";
+  sps_hex_encode(hex, d->first, stored);
+  if (stored < d->first_len)
+    snprintf(cut, sizeof(cut), " truncated_to=%u", stored);
+
+  const char *fail = NULL;
+  h264_stream_t *h = NULL;
+  if (stored < d->first_len) {
+    fail = "longer_than_cap";
+  } else if (d->first[SPS_ID_BYTE_INDEX] < SPS_ID_BYTE_MIN) {
+    fail = "sps_id_out_of_range";
+  } else if ((h = h264_new()) == NULL) {
+    fail = "alloc";
+  } else {
+    uint8_t nal[SPS_PROBE_CAP]; /* read_nal_unit takes a non-const pointer; d stays untouched */
+    memcpy(nal, d->first, stored);
+    if (read_nal_unit(h, nal, (int)stored) < 0)
+      fail = "library_rejected";
+  }
+
+  if (fail != NULL) {
+    LOGD("PIPE/SPS parse=failed reason=%s sps_len=%u hex_cap=%u hex=%s%s", fail, d->first_len,
+         SPS_PROBE_CAP, hex, cut);
+  } else {
+    const sps_t *sps = h->sps;
+    bool vui = sps->vui_parameters_present_flag != 0;
+    bool restriction = vui && sps->vui.bitstream_restriction_flag != 0;
+    char restriction_s[SPS_OPT_BUF_SIZE];
+    char reorder_s[SPS_OPT_BUF_SIZE];
+    char dec_buffering_s[SPS_OPT_BUF_SIZE];
+    console_format_u64(restriction_s, sizeof(restriction_s), vui, restriction ? 1u : 0u);
+    console_format_u64(reorder_s, sizeof(reorder_s), restriction,
+                       (uint64_t)sps->vui.num_reorder_frames);
+    console_format_u64(dec_buffering_s, sizeof(dec_buffering_s), restriction,
+                       (uint64_t)sps->vui.max_dec_frame_buffering);
+    LOGD(
+        "PIPE/SPS sps_len=%u profile_idc=%d constraint_flags=0x%02x level_idc=%d poc_type=%d "
+        "frame_mbs_only=%d max_num_ref_frames=%d vui=%d bitstream_restriction=%s "
+        "num_reorder_frames=%s max_dec_frame_buffering=%s hex_cap=%u hex=%s",
+        d->first_len, sps->profile_idc, (unsigned)d->first[2], sps->level_idc,
+        sps->pic_order_cnt_type, sps->frame_mbs_only_flag, sps->num_ref_frames, vui ? 1 : 0,
+        restriction_s, reorder_s, dec_buffering_s, SPS_PROBE_CAP, hex);
+  }
+  if (h != NULL)
+    h264_free(h);
+}
+
+/* PIPE/SPS (once per session) and PIPE/SPS_REPEAT (when the counts moved, at most once per
+ * window). Copies the receive thread's record only when it changed. Not behind show_latency: it is
+ * one line per session and has to be in every testing log. UI thread only. */
+static void host_metrics_report_sps(uint64_t now_us) {
+  uint32_t version = sps_probe_version();
+  if (version == sps_seen_version || (version & 1))
+    return;
+  SpsProbeData d;
+  if (!sps_probe_snapshot(&d, SPS_READ_ATTEMPTS))
+    return; /* overlapped a write; look again on the next tick */
+  if (d.first_len == 0) {
+    sps_seen_version = version;
+    return;
+  }
+  if (!sps_line_printed) {
+    host_metrics_print_sps(&d);
+    sps_line_printed = true;
+  }
+  if (d.seen_again != sps_repeat_printed_seen || d.differed != sps_repeat_printed_differed) {
+    if (now_us - sps_repeat_last_us < SPS_REPEAT_MIN_INTERVAL_US)
+      return; /* too soon after the last repeat line; the change is still pending */
+    LOGD("PIPE/SPS_REPEAT seen_again=%u differed=%u", d.seen_again, d.differed);
+    sps_repeat_printed_seen = d.seen_again;
+    sps_repeat_printed_differed = d.differed;
+    sps_repeat_last_us = now_us;
+  }
+  sps_seen_version = version;
 }
 
 void host_metrics_update_latency(void) {
@@ -900,6 +1020,8 @@ void host_metrics_update_latency(void) {
     }
   }
 
+  host_metrics_report_sps(now_us);
+
   if (!context.config.show_latency)
     return;
 
@@ -971,7 +1093,7 @@ void host_metrics_update_latency(void) {
     // was sent; first_us is resolved to 1 ms (it comes from the lib's millisecond stamp). Printed
     // here, on the UI thread at window close, never from the receive or decode thread. See
     // section 9.1 of docs/design/streaming.md for the fields and for how to pick trustworthy
-    // samples (waiting=1, inburst=0, order_ok=1).
+    // samples (waiting=1 and order_ok=1; also inburst=0 for the strictest set).
     {
       const PressWindow *pw = &context.stream.press_pub;
       LOGD(

@@ -138,7 +138,7 @@ The post-stop guard applies when the user ends a stream: after a clean disconnec
 
 ## 9. Delay probes (#413)
 
-Log lines added to find where the delay between a button press and the changed picture lives. They only measure: nothing here changes what is sent or when. All of them print only when `show_latency` is on, once per window next to `PIPE/LATENCY`, `PIPE/INPUT`, `PIPE/DISPLAY` and `PIPE/FPS` (`host_metrics_update_latency`, `vita/src/host_metrics.c`). Each log line has its own subsection below.
+Log lines added to find where the delay between a button press and the changed picture lives. They only measure: nothing here changes what is sent or when. All of them except `PIPE/SPS` and `PIPE/SPS_REPEAT` (section 9.5, printed whatever `show_latency` says) print only when `show_latency` is on, once per window next to `PIPE/LATENCY`, `PIPE/INPUT`, `PIPE/DISPLAY` and `PIPE/FPS` (`host_metrics_update_latency`, `vita/src/host_metrics.c`). Each log line has its own subsection below.
 
 ### 9.1 `PIPE/PRESS` and `PIPE/PRESS_SAMPLE`: from a button press to the changed picture
 
@@ -353,6 +353,47 @@ Example: `PIPE/CONSOLE quality_win=1 quality_total=84 rtt_msgs_win=1 rtt_range_n
 - A message that fails to decode is logged as an error by the existing code and not counted here.
 - The lines print only with `show_latency` on, like the other probes. Window figures are not aligned with the console's cadence, so a message can appear in a neighbouring window.
 - No cost of the probe has been measured on hardware; per message it adds a few integer updates and, for a periodic timestamp, one clock read and one copy of at most 64 bytes (once).
+
+### 9.5 `PIPE/SPS`: what the stream says about its own reordering and buffering
+
+**What it shows and why.** The first hardware log has the hardware decoder holding a constant 8 pictures in one session and 4 in the next (section 9.2), with the same `max_num_ref_frames=9` reported by the library both times. Our own SPS parser (`lib/src/bitstream.c`, `header_h264`) stops at `gaps_in_frame_num_value_allowed_flag`; the fields that say how many pictures a decoder may hold before it outputs one come after that. `PIPE/SPS` prints the whole SPS of each session once, so the two sessions can be compared field by field. A second line, `PIPE/SPS_REPEAT`, counts SPS that arrive again later in the same session and differ from the first. It reports what the stream declares. It does not report what the Vita decoder does with it.
+
+**Where the bytes are taken.** The stream header (SPS, then PPS) reaches the Vita app unmodified: `lib/src/videoreceiver.c` calls the video callback with `profile->header`, it arrives in `host_video_cb` (`vita/src/host_callbacks.c`) and goes through `vita_h264_decode_frame()` (`vita/src/video.c`) like any frame. The header seen in log 26017450183 starts with a 4-byte start code and the SPS NAL directly (`00 00 00 01 67 4d 40 20 ...`), with no access unit delimiter in front, followed by a 4-byte start code and the PPS. `vita_h264_decode_frame()` calls `sps_probe_observe()` (`vita/src/sps_probe.c`) with the same pointer and length it then copies into the decode queue. The probe only reads: the bytes handed to the decoder, their order, the queue and its timing are unchanged.
+
+**Which thread does what.**
+- Receive thread (in `sps_probe_observe`): per buffer, a few byte compares to see whether it starts with a 3- or 4-byte start code followed by a NAL header of type 7 (SPS). Only for such a buffer: find the end of the NAL (next `00 00 00` / `00 00 01`, the end of the buffer, or `SPS_PROBE_SCAN_MAX` = 512 bytes), and either copy at most `SPS_PROBE_CAP` = 128 bytes of it into a fixed buffer (the first SPS of the session; the true length is kept) or compare it with that copy (length first, then the bytes up to the cap) and bump a counter. No parsing, allocation, formatting or logging happens there. The record is published under a sequence lock (odd while writing).
+- UI thread (`host_metrics_report_sps`, called from `host_metrics_update_latency`, `vita/src/host_metrics.c`): a plain read of the lock word each tick; only when it moved, a consistent copy (up to 4 tries; if every try overlapped a write it looks again on the next tick). The first SPS is parsed with the bundled h264-bitstream library (`vita/third_party/h264-bitstream`, `read_nal_unit`, which allocates and frees its own state and prints nothing on that path) and printed once. The library is run on a private copy of the stored bytes.
+- Reset: `sps_probe_reset()` in `vita_h264_start()` and the reporter's state in `host_metrics_reset_stream()`, so a second session in the same app run prints its own `PIPE/SPS`.
+
+**`PIPE/SPS` (once per session, whatever `show_latency` says).**
+
+| Field | Meaning |
+|---|---|
+| `sps_len` | True length in bytes of the SPS NAL unit (NAL header byte included, start code not). |
+| `profile_idc`, `level_idc` | As in the SPS (77 = Main; 32 = level 3.2). |
+| `constraint_flags` | The raw byte after `profile_idc`, in hex (constraint_set flags and the two reserved bits). |
+| `poc_type` | `pic_order_cnt_type`: 0, 1 or 2. 2 means output order equals decode order. |
+| `frame_mbs_only` | `frame_mbs_only_flag`. |
+| `max_num_ref_frames` | The same field the library log prints, repeated so this line stands alone. |
+| `vui` | 1 if the SPS carries VUI parameters, else 0. |
+| `bitstream_restriction` | `bitstream_restriction_flag`; `-` if there is no VUI (the field does not exist then). |
+| `num_reorder_frames` | `max_num_reorder_frames` of the standard; `-` unless `bitstream_restriction` is 1. |
+| `max_dec_frame_buffering` | As in the standard; `-` unless `bitstream_restriction` is 1. |
+| `hex_cap`, `hex` | The stored SPS bytes in hex, at most `hex_cap` = 128 bytes. If the SPS was longer, ` truncated_to=<n>` follows. |
+
+A value the stream does not contain prints as `-`, never as 0. Example (the header bytes dumped in log 26017450183, parsed natively with the same library; not yet seen on hardware): `PIPE/SPS sps_len=28 profile_idc=77 constraint_flags=0x40 level_idc=32 poc_type=2 frame_mbs_only=1 max_num_ref_frames=9 vui=1 bitstream_restriction=1 num_reorder_frames=0 max_dec_frame_buffering=9 hex_cap=128 hex=674d4020918a03c045fbc05a808080a00000fa400075301134387454`.
+
+**`PIPE/SPS` when the SPS cannot be read.** `PIPE/SPS parse=failed reason=<r> sps_len=<n> hex_cap=128 hex=<bytes>` (plus ` truncated_to=<n>` if cut), so the line can be decoded by hand. Reasons: `library_rejected` (the library reported an error or read past the end), `longer_than_cap` (the SPS is longer than 128 bytes, so only part is stored and it is not parsed), `sps_id_out_of_range` (the first byte of `seq_parameter_set_id` shows an id of 31 or more; the library files an SPS in a 32-entry table by that id without a range check, so such an SPS is not given to it), `alloc`. Example: `PIPE/SPS parse=failed reason=library_rejected sps_len=5 hex_cap=128 hex=674d4020ff`.
+
+**`PIPE/SPS_REPEAT`.** Printed from the UI thread only when a count changed since the last print, and at most once per second: `PIPE/SPS_REPEAT seen_again=<a> differed=<d>`. `seen_again` is how many buffers beginning with an SPS were seen after the first one in this session; `differed` is how many of those were not identical to the first (length, then bytes up to the 128-byte cap). Both are session totals. A differing SPS is counted, not parsed or logged in full. Example: `PIPE/SPS_REPEAT seen_again=3 differed=0` (made up).
+
+**What it cannot tell you.**
+- It reports what the stream declares, not what the Vita decoder does with it. The decoder is created with its own parameters (`REF_FRAMES`, section 5) and may hold pictures for reasons not in the SPS; compare with `PIPE/DECHOLD` (section 9.2).
+- Only an SPS at the very start of a buffer is noticed: the stream header, and in-band SPS only if they come first in a frame buffer. An SPS behind another NAL (an access unit delimiter, an SEI, a PPS) is not seen, so `seen_again=0` does not prove the console sent none.
+- A later SPS that differs is only counted. Its fields are not read, so a changed `max_dec_frame_buffering` mid-session would show up as `differed>0` without saying what changed.
+- An SPS whose end is not found within 512 bytes is taken to end there.
+- The library is not hardened against damaged data beyond the id check above (for example a `pic_order_cnt_type` 1 cycle count past its table); the SPS comes from the console over the encrypted, already-assembled stream, and none was observed to be malformed.
+- The numbers come from one parse of one SPS; no cost has been measured on hardware beyond "a few byte compares per buffer".
 
 ## 10. What is not here
 
