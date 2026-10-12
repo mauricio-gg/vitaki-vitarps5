@@ -149,9 +149,9 @@ typedef struct chiaki_takion_recvbuf_window_t
 	uint32_t busy_permille;     // work_us / wall_us in tenths of a percent
 	// PIPE/RECVTIME, PIPE/SOCKQ, PIPE/RECVTHREAD (sections 9.6 to 9.8), added after the fields above.
 	ChiakiTakionTimeWindow video, audio, ctrl;  // time in takion_handle_packet, by packet class
-	ChiakiTakionTimeWindow vsubmit, acb, aout;  // subsets: video submit callback, audio callback, audio output call
+	ChiakiTakionTimeWindow vsubmit, acb;        // subsets: video submit callback, audio hand-off callback
 	ChiakiTakionTimeWindow log;                 // log calls made by the receive thread (a subset of the classes)
-	uint32_t ashort, askip, acatchup;           // audio callback decisions
+	uint32_t acatchup;                          // pushes on which the audio catch-up rule dropped frames
 	ChiakiTakionAudioStats audio_stats;         // PIPE/AUDIO (section 9.9)
 	int64_t unacct_us;                          // work_us minus video, audio and ctrl only; may be negative
 	uint32_t vlog_us, alog_us, clog_us;         // log.us split by the class being handled

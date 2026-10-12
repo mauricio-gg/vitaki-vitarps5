@@ -61,6 +61,27 @@ typedef struct {
   uint32_t stale; /* good read-backs whose feed time was no longer remembered */
 } DecHoldWindow;
 
+/* PIPE/AUDIOOUT (#416): one window of what the audio output thread did (docs/design/streaming.md
+ * section 9.9). The audio thread fills it from private counters and publishes it about once a
+ * second; the UI thread copies it under context.stream.audioout_lock. 32-bit fields only; times
+ * are microseconds, totals saturate at UINT32_MAX. */
+typedef struct {
+  uint32_t out_calls;   /* sceAudioOutOutput calls */
+  uint32_t out_frames;  /* audio frames handed to the hardware by them */
+  uint32_t aout_us;     /* time inside sceAudioOutOutput, total */
+  uint32_t aout_max_us; /* longest single call */
+  uint32_t rest_n;      /* sceAudioOutGetRestSample reads that returned >= 0 */
+  uint32_t rest_err;    /* reads that returned < 0 (kept out of rest_min/rest_max) */
+  int32_t rest_min;     /* smallest / largest of the non-negative reads (0 when rest_n is 0) */
+  int32_t rest_max;
+  uint32_t out_dry; /* output calls made with the rest value read as <= 0 */
+  uint32_t
+      out_gap_max_us; /* longest time from one output call returning to the next being called */
+  uint32_t out_late;  /* such gaps longer than one device buffer's play time */
+  uint32_t waits;     /* times the thread slept because less than a device buffer was queued */
+  uint32_t wall_us;   /* length of the window */
+} AudioOutWindow;
+
 /* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,
  * and the leading hypothesis under test is a SUB-FRAME persistent depth shift (e.g.
  * 1.2 -> 1.9), which plain integer division cannot resolve -- both print "1" and the
@@ -418,6 +439,12 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t dechold_lock;
   DecHoldWindow dechold_pub;
 
+  // PIPE/AUDIOOUT (#416): written by the audio output thread (vita/src/audio.c), read by the UI
+  // thread (host_metrics.c). audioout_lock is a seqlock: odd while writing. Lives here, not in
+  // audio.c, so it outlives the audio thread and the reporter can read it at any time.
+  volatile uint32_t audioout_lock;
+  AudioOutWindow audioout_pub;
+
   // Decode queue occupancy (vita/src/video.c). Time-weighted (area-under-the-depth-curve
   // divided by window duration), not a naive average of push/pop samples: see the
   // decode_q_occ_area_us comment in video.c for why a push/pop-only sample is structurally
@@ -427,8 +454,8 @@ typedef struct vita_chiaki_stream_t {
   volatile uint32_t decode_q_occ_avg;  // Fixed-point x OCC_AVG_FIXED_POINT_SCALE (see above)
   volatile uint32_t decode_q_occ_max;  // Plain integer frame count (genuinely discrete)
 
-  // Audio ring occupancy in frames (vita/src/audio.c): audio thread writes each ~1s
-  // window, UI thread reads.
+  // Audio hand-off queue occupancy in frames (vita/src/audio.c): the Takion receive thread
+  // writes each ~1s window, UI thread reads.
   volatile uint32_t audio_q_occ_avg;  // Fixed-point x OCC_AVG_FIXED_POINT_SCALE (see above)
   volatile uint32_t audio_q_occ_max;  // Plain integer frame count (genuinely discrete)
 

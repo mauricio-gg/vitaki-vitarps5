@@ -47,7 +47,7 @@ typedef struct chiaki_takion_time_window_t
 /**
  * PIPE/AUDIO counts of one window (section 9.9). All 32-bit: a window is about a second. Written
  * only by the receive thread: the lib audio receiver (net_pkts .. gap_events), vita_audio_cb
- * (the rest).
+ * (the rest). What the audio output thread does is not here: it has its own record (PIPE/AUDIOOUT).
  */
 typedef struct chiaki_takion_audio_stats_t
 {
@@ -55,27 +55,24 @@ typedef struct chiaki_takion_audio_stats_t
 	uint32_t frames_new, frames_dup;             // audio frames accepted / discarded as old or repeated
 	uint32_t frames_missing, gap_events;         // frame indexes skipped between accepted frames, and the jumps
 	uint32_t decoded;                            // frames that reached vita_audio_cb
-	uint32_t out_calls, out_frames;              // sceAudioOutOutput calls, frames handed over by them
-	uint32_t catchup_frames;                     // buffered frames thrown away by catch-ups
-	uint32_t rest_n, rest_err;                   // reads of sceAudioOutGetRestSample that returned >= 0 / < 0
-	int32_t rest_min, rest_max;                  // smallest / largest of the non-negative values
-	uint32_t out_dry, out_forced;                // output calls with rest <= 0 / made without reading it (catch-up)
-	uint32_t out_gap_max_us, out_late;           // longest output-return to next-output-call gap, gaps over one device buffer's play time
+	uint32_t catchup_frames;                     // queued frames thrown away by the catch-up rule
+	uint32_t q_n, q_sum;                         // hand-off queue occupancy samples (one per push) and their sum, in frames
+	uint32_t q_min, q_max;                       // smallest / largest sample (q_min is meaningless while q_n is 0)
 } ChiakiTakionAudioStats;
 
 /**
  * Everything the receive thread accumulates for PIPE/RECVTIME and PIPE/SOCKQ in one window.
  * Written ONLY by the receive thread: the Takion loop (video, audio, ctrl, sockq_*, cur_class) and,
  * because they run synchronously on that thread, the Vita callbacks vita_audio_cb / host_video_cb
- * (vsubmit, acb, aout, ashort, askip, acatchup) and the log paths (log_*, via recv_probe.c, which
+ * (vsubmit, acb, acatchup) and the log paths (log_*, via recv_probe.c, which
  * checks the caller is the receive thread first). Zeroed by the same memset as ChiakiTakion.recvbuf_acc.
  */
 typedef struct chiaki_takion_recvtime_acc_t
 {
 	ChiakiTakionTimeBucket video, audio, ctrl;   // time in takion_handle_packet, by packet class
 	ChiakiTakionTimeBucket vsubmit;              // host_video_cb, inside video
-	ChiakiTakionTimeBucket acb, aout;            // vita_audio_cb, and sceAudioOutOutput inside it
-	uint32_t ashort, askip, acatchup;            // audio callback decisions
+	ChiakiTakionTimeBucket acb;                  // vita_audio_cb (the hand-off to the audio thread)
+	uint32_t acatchup;                           // pushes on which the catch-up rule dropped frames
 	ChiakiTakionAudioStats audio_stats;          // PIPE/AUDIO
 	ChiakiTakionTimeBucket log;                  // log calls made by the receive thread (a subset)
 	uint64_t vlog_us, alog_us, clog_us;          // log_us split by the class being handled

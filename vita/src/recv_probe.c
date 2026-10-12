@@ -9,6 +9,9 @@
 #include "audio.h"
 #include "context.h"
 
+/* q_avg of PIPE/AUDIO is printed with two decimals. */
+#define AUDIO_Q_AVG_SCALE 100u
+
 /* What PIPE/RECVTHREAD printed last this stream; the line repeats only when one of these moves. */
 static struct {
   bool printed;
@@ -66,28 +69,31 @@ void recv_probe_reset_report(void) {
   memset(&thread_printed, 0, sizeof(thread_printed));
 }
 
-void recv_probe_report(const ChiakiTakionRecvbufWindow *w) {
+void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow *ao) {
   LOGD(
       "PIPE/RECVTIME video_n=%u video_us=%u video_max_us=%u audio_n=%u audio_us=%u "
       "audio_max_us=%u ctrl_n=%u ctrl_us=%u ctrl_max_us=%u vsubmit_n=%u vsubmit_us=%u "
-      "vsubmit_max_us=%u acb_n=%u acb_us=%u acb_max_us=%u aout_n=%u aout_us=%u aout_max_us=%u "
-      "ashort=%u askip=%u acatchup=%u work_us=%u unacct_us=%lld log_n=%u log_us=%u "
-      "log_max_us=%u vlog_us=%u alog_us=%u clog_us=%u log_block=%u",
+      "vsubmit_max_us=%u acb_n=%u acb_us=%u acb_max_us=%u acatchup=%u work_us=%u "
+      "unacct_us=%lld log_n=%u log_us=%u log_max_us=%u vlog_us=%u alog_us=%u clog_us=%u "
+      "log_block=%u",
       w->video.n, w->video.us, w->video.max_us, w->audio.n, w->audio.us, w->audio.max_us, w->ctrl.n,
       w->ctrl.us, w->ctrl.max_us, w->vsubmit.n, w->vsubmit.us, w->vsubmit.max_us, w->acb.n,
-      w->acb.us, w->acb.max_us, w->aout.n, w->aout.us, w->aout.max_us, w->ashort, w->askip,
-      w->acatchup, w->work_us, (long long)w->unacct_us, w->log.n, w->log.us, w->log.max_us,
-      w->vlog_us, w->alog_us, w->clog_us, w->log_block);
+      w->acb.us, w->acb.max_us, w->acatchup, w->work_us, (long long)w->unacct_us, w->log.n,
+      w->log.us, w->log.max_us, w->vlog_us, w->alog_us, w->clog_us, w->log_block);
   const ChiakiTakionAudioStats *a = &w->audio_stats;
+  uint32_t q_avg_x100 = chiaki_takion_probe_avg((uint64_t)a->q_sum * AUDIO_Q_AVG_SCALE, a->q_n);
   LOGD(
       "PIPE/AUDIO net_pkts=%u haptic_pkts=%u frames_new=%u frames_dup=%u frames_missing=%u "
-      "gap_events=%u decoded=%u out_calls=%u out_frames=%u catchups=%u catchup_frames=%u "
-      "rest_n=%u rest_err=%u rest_min=%d rest_max=%d out_dry=%u out_forced=%u out_gap_max_us=%u "
-      "out_late=%u",
+      "gap_events=%u decoded=%u catchups=%u catchup_frames=%u q_min=%u q_avg=%u.%02u q_max=%u",
       a->net_pkts, a->haptic_pkts, a->frames_new, a->frames_dup, a->frames_missing, a->gap_events,
-      a->decoded, a->out_calls, a->out_frames, w->acatchup, a->catchup_frames, a->rest_n,
-      a->rest_err, a->rest_min, a->rest_max, a->out_dry, a->out_forced, a->out_gap_max_us,
-      a->out_late);
+      a->decoded, w->acatchup, a->catchup_frames, a->q_n ? a->q_min : 0,
+      q_avg_x100 / AUDIO_Q_AVG_SCALE, q_avg_x100 % AUDIO_Q_AVG_SCALE, a->q_max);
+  LOGD(
+      "PIPE/AUDIOOUT out_calls=%u out_frames=%u aout_us=%u aout_max_us=%u rest_n=%u rest_err=%u "
+      "rest_min=%d rest_max=%d out_dry=%u out_gap_max_us=%u out_late=%u waits=%u wall_us=%u",
+      ao->out_calls, ao->out_frames, ao->aout_us, ao->aout_max_us, ao->rest_n, ao->rest_err,
+      ao->rest_min, ao->rest_max, ao->out_dry, ao->out_gap_max_us, ao->out_late, ao->waits,
+      ao->wall_us);
   LOGD(
       "PIPE/SOCKQ ok=%u n=%u min=%u avg=%u max=%u wake_avg=%u wake_max=%u query_us=%u "
       "query_max_us=%u err=%u",

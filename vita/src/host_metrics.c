@@ -48,6 +48,10 @@
  * last copy that was won (printed again if a window's copy fails). Reset with the stream. */
 #define DECHOLD_READ_ATTEMPTS 4
 static DecHoldWindow dechold_last;
+/* PIPE/AUDIOOUT: tries at a consistent copy of the audio thread's published window, and the last
+ * consistent copy (printed again when no try succeeds). */
+#define AUDIOOUT_READ_ATTEMPTS 4
+static AudioOutWindow audioout_last;
 
 /* PIPE/RECVBUF: same scheme for the receive thread's published window. Reset with the stream. */
 #define RECVBUF_READ_ATTEMPTS 4
@@ -310,6 +314,9 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.dechold_lock = 0;
   memset(&context.stream.dechold_pub, 0, sizeof(context.stream.dechold_pub));
   memset(&dechold_last, 0, sizeof(dechold_last));
+  context.stream.audioout_lock = 0;
+  memset(&context.stream.audioout_pub, 0, sizeof(context.stream.audioout_pub));
+  memset(&audioout_last, 0, sizeof(audioout_last));
   memset(&recvbuf_last, 0, sizeof(recvbuf_last));
   recv_probe_reset_report();
   memset(&console_prev, 0, sizeof(console_prev));
@@ -1148,7 +1155,21 @@ void host_metrics_update_latency(void) {
           r->poll_us, r->poll_max_us, r->work_us, r->wall_us,
           r->busy_permille / RECVBUF_BUSY_PERMILLE_PER_PCT,
           r->busy_permille % RECVBUF_BUSY_PERMILLE_PER_PCT);
-      recv_probe_report(r);
+      // PIPE/AUDIOOUT: the audio output thread's last published window, same scheme.
+      AudioOutWindow ao;
+      bool ao_ok = false;
+      for (int attempt = 0; attempt < AUDIOOUT_READ_ATTEMPTS && !ao_ok; attempt++) {
+        uint32_t lock_before = context.stream.audioout_lock;
+        if (lock_before & 1)
+          continue;
+        __sync_synchronize();
+        ao = context.stream.audioout_pub;
+        __sync_synchronize();
+        ao_ok = context.stream.audioout_lock == lock_before;
+      }
+      if (ao_ok)
+        audioout_last = ao;
+      recv_probe_report(r, &audioout_last);
     }
     host_metrics_report_console(stream_connection);
     LOGD(

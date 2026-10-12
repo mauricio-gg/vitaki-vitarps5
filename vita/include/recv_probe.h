@@ -15,6 +15,8 @@
 #include <chiaki/takion.h>
 #include <stdint.h>
 
+#include "stream_state.h"
+
 /* An open timing of one log call; acc is NULL when the caller is not the receive thread. */
 typedef struct recv_probe_log_t {
   ChiakiTakionRecvTimeAcc *acc;
@@ -39,5 +41,6 @@ void recv_probe_log_end(RecvProbeLog log, ChiakiLogLevel level);
 /* Forgets what the reporter printed, so the next stream prints PIPE/RECVTHREAD again. */
 void recv_probe_reset_report(void);
 
-/* Prints PIPE/RECVTIME and PIPE/SOCKQ for the window, and PIPE/RECVTHREAD when it changed. */
-void recv_probe_report(const ChiakiTakionRecvbufWindow *window);
+/* Prints PIPE/RECVTIME, PIPE/AUDIO, PIPE/AUDIOOUT (from the audio output thread's window, which the
+ * caller copied) and PIPE/SOCKQ for the window, and PIPE/RECVTHREAD when it changed. */
+void recv_probe_report(const ChiakiTakionRecvbufWindow *window, const AudioOutWindow *audioout);

@@ -1564,10 +1564,7 @@ static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 	chiaki_takion_time_bucket_reduce(&rt->ctrl, &out.ctrl);
 	chiaki_takion_time_bucket_reduce(&rt->vsubmit, &out.vsubmit);
 	chiaki_takion_time_bucket_reduce(&rt->acb, &out.acb);
-	chiaki_takion_time_bucket_reduce(&rt->aout, &out.aout);
 	chiaki_takion_time_bucket_reduce(&rt->log, &out.log);
-	out.ashort = rt->ashort;
-	out.askip = rt->askip;
 	out.acatchup = rt->acatchup;
 	out.audio_stats = rt->audio_stats;
 	out.unacct_us = chiaki_takion_probe_unaccounted_us(work_us, rt->video.us, rt->audio.us, rt->ctrl.us);
@@ -1598,10 +1595,10 @@ static void *takion_thread_func(void *user)
 	ChiakiTakion *takion = user;
 
 #ifdef __PSVITA__
-	/* Pin network recv thread to USER_0 at prio 64. H.264 decode
-	 * (sceAvcdecDecode) runs on a dedicated VitaDecode thread (USER_1) —
-	 * the per-call re-pin block in vita_h264_decode_frame() was removed
-	 * when decode was decoupled from this thread. USER_2 = audio. */
+	/* Pin network recv thread to USER_0 at prio 64 and leave it there. H.264 decode
+	 * (sceAvcdecDecode) runs on the VitaDecode thread (USER_1) and the blocking sound output
+	 * on the VitaAudio thread (USER_2), each set up by its own thread function. vita_audio_cb
+	 * runs on this thread but only queues the frame, so nothing re-pins this thread. */
 	sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, TAKION_RECV_THREAD_PRIORITY);
 	sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_0);
 #endif
