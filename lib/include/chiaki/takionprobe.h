@@ -16,6 +16,9 @@
 extern "C" {
 #endif
 
+/** Return-code value meaning "that call was not made" (a real return code is never INT32_MIN). */
+#define CHIAKI_TAKION_PROBE_RC_NOT_TRIED INT32_MIN
+
 /** Which kind of packet the receive thread is handling right now (log calls are attributed to it). */
 typedef enum chiaki_takion_probe_class_t
 {
@@ -42,6 +45,25 @@ typedef struct chiaki_takion_time_window_t
 } ChiakiTakionTimeWindow;
 
 /**
+ * PIPE/AUDIO counts of one window (section 9.9). All 32-bit: a window is about a second. Written
+ * only by the receive thread: the lib audio receiver (net_pkts .. gap_events), vita_audio_cb
+ * (the rest).
+ */
+typedef struct chiaki_takion_audio_stats_t
+{
+	uint32_t net_pkts, haptic_pkts;              // audio / haptics AV packets that reached the audio receiver
+	uint32_t frames_new, frames_dup;             // audio frames accepted / discarded as old or repeated
+	uint32_t frames_missing, gap_events;         // frame indexes skipped between accepted frames, and the jumps
+	uint32_t decoded;                            // frames that reached vita_audio_cb
+	uint32_t out_calls, out_frames;              // sceAudioOutOutput calls, frames handed over by them
+	uint32_t catchup_frames;                     // buffered frames thrown away by catch-ups
+	uint32_t rest_n, rest_err;                   // reads of sceAudioOutGetRestSample that returned >= 0 / < 0
+	int32_t rest_min, rest_max;                  // smallest / largest of the non-negative values
+	uint32_t out_dry, out_forced;                // output calls with rest <= 0 / made without reading it (catch-up)
+	uint32_t out_gap_max_us, out_late;           // longest output-return to next-output-call gap, gaps over one device buffer's play time
+} ChiakiTakionAudioStats;
+
+/**
  * Everything the receive thread accumulates for PIPE/RECVTIME and PIPE/SOCKQ in one window.
  * Written ONLY by the receive thread: the Takion loop (video, audio, ctrl, sockq_*, cur_class) and,
  * because they run synchronously on that thread, the Vita callbacks vita_audio_cb / host_video_cb
@@ -54,6 +76,7 @@ typedef struct chiaki_takion_recvtime_acc_t
 	ChiakiTakionTimeBucket vsubmit;              // host_video_cb, inside video
 	ChiakiTakionTimeBucket acb, aout;            // vita_audio_cb, and sceAudioOutOutput inside it
 	uint32_t ashort, askip, acatchup;            // audio callback decisions
+	ChiakiTakionAudioStats audio_stats;          // PIPE/AUDIO
 	ChiakiTakionTimeBucket log;                  // log calls made by the receive thread (a subset)
 	uint64_t vlog_us, alog_us, clog_us;          // log_us split by the class being handled
 	uint32_t log_block;                          // emitted non-DEBUG calls (blocking mutex path)
@@ -65,21 +88,6 @@ typedef struct chiaki_takion_recvtime_acc_t
 	ChiakiTakionTimeBucket sockq_query;          // time spent in the queries (n counts attempts)
 } ChiakiTakionRecvTimeAcc;
 
-/** Once-per-session facts the receive thread establishes before its loop (published with every window). */
-typedef struct chiaki_takion_recvsession_t
-{
-	uint32_t valid;               // 1 once the receive thread has filled this in
-	uint32_t sockq_ok;            // 1 only if the self-check passed; sampling is off otherwise
-	int32_t sockq_id;             // SceNet socket id behind takion->sock, -1 if not resolved
-	int32_t sockq_info_rc;        // return code of the self-check sceNetGetSockInfo call
-	int32_t sockq_info_id;        // `s` field it returned
-	uint32_t sockq_info_port_raw; // `local_port` field it returned, unconverted
-	int32_t sockname_rc;          // return code of getsockname on the descriptor
-	uint32_t sockname_port_net;   // sin_port as getsockname stored it (unconverted)
-	uint32_t sockname_port_host;  // the same after ntohs
-	uint32_t clock_read_ns;       // measured cost of one chiaki_time_now_monotonic_us() read
-} ChiakiTakionRecvSession;
-
 /** The receive thread as the system reports it, sampled at each window close. */
 typedef struct chiaki_takion_recvthread_t
 {
@@ -89,6 +97,25 @@ typedef struct chiaki_takion_recvthread_t
 	int32_t cpu;          // currentCpuId
 	int32_t last_cpu;     // lastExecutedCpuId
 } ChiakiTakionRecvThread;
+
+/** Once-per-session facts the receive thread establishes before its loop (published with every window). */
+typedef struct chiaki_takion_recvsession_t
+{
+	uint32_t valid;               // 1 once the receive thread has filled this in
+	uint32_t sockq_ok;            // 1 only if the self-check passed; sampling is off otherwise
+	int32_t sockq_id;             // SceNet socket id behind takion->sock, -1 if not resolved
+	int32_t sockq_flags;          // last argument of sceNetGetSockInfo that passed the check, -1 if none did
+	int32_t sockq_info_rc;        // return code of the first self-check call (flags 0)
+	int32_t sockq_info_rc_self;   // return code of the second (flags SELF); NOT_TRIED if the first passed
+	int32_t sockq_info_id;        // `s` field of the last attempt
+	uint32_t sockq_info_port_raw; // `local_port` field of the last attempt, unconverted
+	int32_t sockname_rc;          // return code of getsockname on the descriptor
+	uint32_t sockname_port_net;   // sin_port as getsockname stored it (unconverted)
+	uint32_t sockname_port_host;  // the same after ntohs
+	uint32_t clock_read_ns;       // measured cost of one chiaki_time_now_monotonic_us() read
+	uint32_t thread_id_ns;        // measured cost of one sceKernelGetThreadId() call (0 off Vita)
+	ChiakiTakionRecvThread start; // the thread sample taken at receive-thread start
+} ChiakiTakionRecvSession;
 
 /** Adds one timed span to a bucket. */
 static inline void chiaki_takion_time_bucket_add(ChiakiTakionTimeBucket *bucket, uint64_t us)
@@ -118,6 +145,17 @@ static inline int64_t chiaki_takion_probe_unaccounted_us(uint64_t work_us, uint6
 {
 	uint64_t classes_us = video_us + audio_us + ctrl_us;
 	return classes_us > work_us ? -(int64_t)(classes_us - work_us) : (int64_t)(work_us - classes_us);
+}
+
+/**
+ * Frame indexes skipped between two consecutive accepted 16-bit frame indexes: the modular jump
+ * minus one, 0 for the next frame (jump 1). Modular, so a wrap from 0xffff to 0 is not a gap.
+ * Only meaningful when cur is newer than prev (the receiver's chiaki_seq_num_16_gt check).
+ */
+static inline uint32_t chiaki_takion_probe_seq16_missing(uint16_t prev, uint16_t cur)
+{
+	uint16_t jump = (uint16_t)(cur - prev);
+	return jump > 1 ? (uint32_t)(jump - 1) : 0;
 }
 
 /** Integer average, 0 when there are no samples (never divides by zero). */

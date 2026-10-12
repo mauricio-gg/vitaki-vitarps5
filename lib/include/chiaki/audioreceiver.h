@@ -34,6 +34,7 @@ typedef struct chiaki_audio_receiver_t
 	ChiakiMutex mutex;
 	ChiakiSeqNum16 frame_index_prev;
 	bool frame_index_startup; // whether frame_index_prev has definitely not wrapped yet
+	bool probe_have_prev; // PIPE/AUDIO only: a frame was accepted, so frame_index_prev is a real baseline
 	ChiakiPacketStats *packet_stats;
 } ChiakiAudioReceiver;
 

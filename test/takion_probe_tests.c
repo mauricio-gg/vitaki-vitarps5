@@ -47,10 +47,21 @@ static void test_bucket_tracks_max_and_saturates(void) {
   assert(window.n == 4 && window.us == UINT32_MAX && window.max_us == UINT32_MAX);
 }
 
+/* catches: a wrong 16-bit wrap in the audio frame-gap count: a plain subtraction would report tens
+ * of thousands of missing frames across the 0xffff -> 0 wrap, or none for a real gap. */
+static void test_seq16_missing_handles_wrap(void) {
+  assert(chiaki_takion_probe_seq16_missing(10, 11) == 0);
+  assert(chiaki_takion_probe_seq16_missing(10, 14) == 3);
+  assert(chiaki_takion_probe_seq16_missing(0xffff, 0) == 0);
+  assert(chiaki_takion_probe_seq16_missing(0xfffe, 1) == 2);
+  assert(chiaki_takion_probe_seq16_missing(0xffff, 5) == 5);
+}
+
 int main(void) {
   test_unaccounted_is_signed_and_exact();
   test_avg_handles_no_samples_and_overflow();
   test_bucket_tracks_max_and_saturates();
+  test_seq16_missing_handles_wrap();
   printf("takion_probe_tests: all passed\n");
   return 0;
 }

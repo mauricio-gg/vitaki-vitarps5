@@ -7,6 +7,12 @@
 
 static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, ChiakiSeqNum16 frame_index, bool is_haptics, uint8_t *buf, size_t buf_size);
 
+/** PIPE/AUDIO counters (#413, streaming.md 9.9): written on the Takion receive thread, which is the only caller. */
+static ChiakiTakionAudioStats *audio_receiver_probe_stats(ChiakiAudioReceiver *audio_receiver)
+{
+	return &audio_receiver->session->stream_connection.takion.recvtime_acc.audio_stats;
+}
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, ChiakiSession *session, ChiakiPacketStats *packet_stats)
 {
 	audio_receiver->session = session;
@@ -15,6 +21,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 
 	audio_receiver->frame_index_prev = 0;
 	audio_receiver->frame_index_startup = true;
+	audio_receiver->probe_have_prev = false;
 
 	ChiakiErrorCode err = chiaki_mutex_init(&audio_receiver->mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -50,6 +57,11 @@ CHIAKI_EXPORT void chiaki_audio_receiver_stream_info(ChiakiAudioReceiver *audio_
 
 CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_receiver, ChiakiTakionAVPacket *packet)
 {
+	if(packet->is_haptics)
+		audio_receiver_probe_stats(audio_receiver)->haptic_pkts++;
+	else
+		audio_receiver_probe_stats(audio_receiver)->net_pkts++;
+
 	if(packet->codec != 5)
 	{
 		CHIAKI_LOGE(audio_receiver->log, "Received Audio Packet with unknown Codec");
@@ -114,7 +126,24 @@ static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, Chi
 	chiaki_mutex_lock(&audio_receiver->mutex);
 
 	if(!chiaki_seq_num_16_gt(frame_index, audio_receiver->frame_index_prev))
+	{
+		if(!is_haptics)
+			audio_receiver_probe_stats(audio_receiver)->frames_dup++;
 		goto beach;
+	}
+	if(!is_haptics)
+	{
+		ChiakiTakionAudioStats *probe = audio_receiver_probe_stats(audio_receiver);
+		probe->frames_new++;
+		// 16-bit modular distance, so a wrap is not a gap; the first accepted frame has no baseline.
+		uint32_t missing = chiaki_takion_probe_seq16_missing(audio_receiver->frame_index_prev, frame_index);
+		if(audio_receiver->probe_have_prev && missing)
+		{
+			probe->frames_missing += missing;
+			probe->gap_events++;
+		}
+		audio_receiver->probe_have_prev = true;
+	}
 	audio_receiver->frame_index_prev = frame_index;
 
 	if(is_haptics && audio_receiver->session->haptics_sink.frame_cb)

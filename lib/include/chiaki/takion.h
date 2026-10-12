@@ -152,6 +152,7 @@ typedef struct chiaki_takion_recvbuf_window_t
 	ChiakiTakionTimeWindow vsubmit, acb, aout;  // subsets: video submit callback, audio callback, audio output call
 	ChiakiTakionTimeWindow log;                 // log calls made by the receive thread (a subset of the classes)
 	uint32_t ashort, askip, acatchup;           // audio callback decisions
+	ChiakiTakionAudioStats audio_stats;         // PIPE/AUDIO (section 9.9)
 	int64_t unacct_us;                          // work_us minus video, audio and ctrl only; may be negative
 	uint32_t vlog_us, alog_us, clog_us;         // log.us split by the class being handled
 	uint32_t log_block;                         // emitted non-DEBUG log calls (blocking mutex path)

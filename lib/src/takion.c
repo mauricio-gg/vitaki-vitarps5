@@ -93,7 +93,11 @@
 #ifdef __PSVITA__
 /* Room for exactly one SceNetSockInfo entry; the SDK headers do not say what `n` means. */
 #define TAKION_SOCKQ_INFO_ENTRIES 1
-#define TAKION_SOCKQ_INFO_FLAGS SCE_NET_SOCKINFO_F_SELF
+/* The last argument of sceNetGetSockInfo is undocumented. The self-check tries 0 first, then
+ * SCE_NET_SOCKINFO_F_SELF, and every sample uses the value that passed. */
+#define TAKION_SOCKQ_INFO_FLAGS_NONE 0
+#define TAKION_SOCKQ_INFO_FLAGS_SELF SCE_NET_SOCKINFO_F_SELF
+#define TAKION_SOCKQ_INFO_FLAGS_TRIES 2
 /* newlib's descriptor entry for a socket: leading int is the SceNet id, byte at offset 4 is the
  * kind, 2 = socket (disassembly of socket.o / recvfrom.o in the SDK's libc.a, see section 9.7). */
 #define TAKION_VITA_FD_KIND_SOCKET 2
@@ -1352,13 +1356,18 @@ static void takion_probe_packet_done(ChiakiTakion *takion, uint8_t packet_class,
  * sceNetGetSockInfo describes our own socket. Sampling (takion_sockq_sample) stays off unless the
  * check passes. Fills takion->recvsession.
  */
+static void takion_recvthread_sample(ChiakiTakion *takion, ChiakiTakionRecvThread *out);
+
 static void takion_recvprobe_setup(ChiakiTakion *takion)
 {
 	ChiakiTakionRecvSession *session = &takion->recvsession;
 	memset(session, 0, sizeof(*session));
 	session->sockq_id = -1;
-	session->sockq_info_rc = -1;
+	session->sockq_flags = -1;
+	session->sockq_info_rc = CHIAKI_TAKION_PROBE_RC_NOT_TRIED;
+	session->sockq_info_rc_self = CHIAKI_TAKION_PROBE_RC_NOT_TRIED;
 	session->sockname_rc = -1;
+	takion_recvthread_sample(takion, &session->start);
 
 	volatile uint64_t clock_sink = 0;
 	uint64_t clock_start_us = chiaki_time_now_monotonic_us();
@@ -1367,6 +1376,15 @@ static void takion_recvprobe_setup(ChiakiTakion *takion)
 	uint64_t clock_end_us = chiaki_time_now_monotonic_us();
 	(void)clock_sink;
 	session->clock_read_ns = (uint32_t)(((clock_end_us - clock_start_us) * TAKION_PROBE_NS_PER_US) / TAKION_PROBE_CLOCK_READS);
+
+#ifdef __PSVITA__
+	// The Vita log, audio and video paths call sceKernelGetThreadId() to ask "am I the receive thread".
+	clock_start_us = chiaki_time_now_monotonic_us();
+	for(uint32_t i = 0; i < TAKION_PROBE_CLOCK_READS; i++)
+		clock_sink = (uint64_t)sceKernelGetThreadId();
+	clock_end_us = chiaki_time_now_monotonic_us();
+	session->thread_id_ns = (uint32_t)(((clock_end_us - clock_start_us) * TAKION_PROBE_NS_PER_US) / TAKION_PROBE_CLOCK_READS);
+#endif
 
 #ifdef __PSVITA__
 	struct sockaddr_in name;
@@ -1387,19 +1405,29 @@ static void takion_recvprobe_setup(ChiakiTakion *takion)
 		__vita_fd_drop(entry); // balances the reference __vita_fd_grab took
 	}
 
-	if(session->sockq_id >= 0)
+	static const int flags_to_try[TAKION_SOCKQ_INFO_FLAGS_TRIES] = { TAKION_SOCKQ_INFO_FLAGS_NONE, TAKION_SOCKQ_INFO_FLAGS_SELF };
+	for(int attempt = 0; session->sockq_id >= 0 && attempt < TAKION_SOCKQ_INFO_FLAGS_TRIES; attempt++)
 	{
 		SceNetSockInfo info;
 		memset(&info, 0, sizeof(info));
-		session->sockq_info_rc = sceNetGetSockInfo(session->sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, TAKION_SOCKQ_INFO_FLAGS);
+		int rc = sceNetGetSockInfo(session->sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, flags_to_try[attempt]);
+		if(attempt == 0)
+			session->sockq_info_rc = rc;
+		else
+			session->sockq_info_rc_self = rc;
 		session->sockq_info_id = info.s;
 		session->sockq_info_port_raw = info.local_port;
 		// The byte order of local_port is not documented: either order of our own port counts.
-		session->sockq_ok = session->sockq_info_rc >= 0
+		if(rc >= 0
 			&& info.s == session->sockq_id
 			&& session->sockname_rc == 0
 			&& session->sockname_port_net != 0
-			&& (info.local_port == session->sockname_port_net || info.local_port == session->sockname_port_host);
+			&& (info.local_port == session->sockname_port_net || info.local_port == session->sockname_port_host))
+		{
+			session->sockq_flags = flags_to_try[attempt];
+			session->sockq_ok = 1;
+			break;
+		}
 	}
 #endif
 	session->valid = 1;
@@ -1416,7 +1444,7 @@ static uint64_t takion_sockq_sample(ChiakiTakion *takion, uint64_t start_us, boo
 #ifdef __PSVITA__
 	ChiakiTakionRecvTimeAcc *acc = &takion->recvtime_acc;
 	SceNetSockInfo info;
-	int rc = sceNetGetSockInfo(takion->recvsession.sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, TAKION_SOCKQ_INFO_FLAGS);
+	int rc = sceNetGetSockInfo(takion->recvsession.sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, takion->recvsession.sockq_flags);
 	uint64_t end_us = chiaki_time_now_monotonic_us();
 	chiaki_takion_time_bucket_add(&acc->sockq_query, end_us - start_us);
 	if(rc < 0 || info.recv_queue_length < 0)
@@ -1541,6 +1569,7 @@ static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 	out.ashort = rt->ashort;
 	out.askip = rt->askip;
 	out.acatchup = rt->acatchup;
+	out.audio_stats = rt->audio_stats;
 	out.unacct_us = chiaki_takion_probe_unaccounted_us(work_us, rt->video.us, rt->audio.us, rt->ctrl.us);
 	out.vlog_us = takion_recvbuf_clamp32(rt->vlog_us);
 	out.alog_us = takion_recvbuf_clamp32(rt->alog_us);

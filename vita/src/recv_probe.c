@@ -78,6 +78,16 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w) {
       w->acb.us, w->acb.max_us, w->aout.n, w->aout.us, w->aout.max_us, w->ashort, w->askip,
       w->acatchup, w->work_us, (long long)w->unacct_us, w->log.n, w->log.us, w->log.max_us,
       w->vlog_us, w->alog_us, w->clog_us, w->log_block);
+  const ChiakiTakionAudioStats *a = &w->audio_stats;
+  LOGD(
+      "PIPE/AUDIO net_pkts=%u haptic_pkts=%u frames_new=%u frames_dup=%u frames_missing=%u "
+      "gap_events=%u decoded=%u out_calls=%u out_frames=%u catchups=%u catchup_frames=%u "
+      "rest_n=%u rest_err=%u rest_min=%d rest_max=%d out_dry=%u out_forced=%u out_gap_max_us=%u "
+      "out_late=%u",
+      a->net_pkts, a->haptic_pkts, a->frames_new, a->frames_dup, a->frames_missing, a->gap_events,
+      a->decoded, a->out_calls, a->out_frames, w->acatchup, a->catchup_frames, a->rest_n,
+      a->rest_err, a->rest_min, a->rest_max, a->out_dry, a->out_forced, a->out_gap_max_us,
+      a->out_late);
   LOGD(
       "PIPE/SOCKQ ok=%u n=%u min=%u avg=%u max=%u wake_avg=%u wake_max=%u query_us=%u "
       "query_max_us=%u err=%u",
@@ -95,12 +105,16 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w) {
   thread_printed.prio = t->prio;
   thread_printed.affinity = t->affinity;
   thread_printed.cpu = t->cpu;
+  const ChiakiTakionRecvThread *st = &s->start;
   LOGD(
-      "PIPE/RECVTHREAD prio=%d affinity=0x%x cpu=%d last_cpu=%d info_rc=%d audio_started=%u "
-      "clock_read_ns=%u sockq_ok=%u sockq_id=%d sockq_info_rc=%d sockq_info_id=%d "
-      "sockq_info_port_raw=%u sockname_rc=%d sockname_port_net=%u sockname_port_host=%u",
-      t->prio, (unsigned int)t->affinity, t->cpu, t->last_cpu, t->info_rc,
-      (unsigned int)vita_audio_started(), s->clock_read_ns, s->sockq_ok, s->sockq_id,
-      s->sockq_info_rc, s->sockq_info_id, s->sockq_info_port_raw, s->sockname_rc,
+      "PIPE/RECVTHREAD prio=%d affinity=0x%x cpu=%d last_cpu=%d info_rc=%d start_prio=%d "
+      "start_affinity=0x%x start_cpu=%d start_info_rc=%d audio_started=%u clock_read_ns=%u "
+      "thread_id_ns=%u sockq_ok=%u sockq_flags=%d sockq_id=%d sockq_info_rc=%d "
+      "sockq_info_rc_self=%d sockq_info_id=%d sockq_info_port_raw=%u sockname_rc=%d "
+      "sockname_port_net=%u sockname_port_host=%u",
+      t->prio, (unsigned int)t->affinity, t->cpu, t->last_cpu, t->info_rc, st->prio,
+      (unsigned int)st->affinity, st->cpu, st->info_rc, (unsigned int)vita_audio_started(),
+      s->clock_read_ns, s->thread_id_ns, s->sockq_ok, s->sockq_flags, s->sockq_id, s->sockq_info_rc,
+      s->sockq_info_rc_self, s->sockq_info_id, s->sockq_info_port_raw, s->sockname_rc,
       s->sockname_port_net, s->sockname_port_host);
 }
