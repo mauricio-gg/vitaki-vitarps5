@@ -16,13 +16,13 @@
 #include <stdint.h>
 
 typedef struct audio_queue_t {
-  uint8_t *storage;    /* capacity * frame_bytes bytes, owned by the caller */
-  size_t frame_bytes;  /* size of one frame */
-  size_t capacity;     /* frames the ring can hold; always >= bound + 1 */
-  size_t bound;        /* more than this many queued frames triggers a catch-up */
-  size_t keep;         /* frames left after a catch-up, 1..bound */
-  size_t head;         /* index of the oldest frame */
-  size_t count;        /* frames queued now */
+  uint8_t *storage;   /* capacity * frame_bytes bytes, owned by the caller */
+  size_t frame_bytes; /* size of one frame */
+  size_t capacity;    /* frames the ring can hold; always >= bound + 1 */
+  size_t bound;       /* more than this many queued frames triggers a catch-up */
+  size_t keep;        /* frames left after a catch-up, 1..bound */
+  size_t head;        /* index of the oldest frame */
+  size_t count;       /* frames queued now */
 } AudioQueue;
 
 /*
