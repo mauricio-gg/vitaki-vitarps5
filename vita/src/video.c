@@ -96,12 +96,14 @@ static volatile bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
 /* #418: true for the whole of any vita_video_render_latest_frame() call. Written only by the UI
- * thread, read by vita_h264_stop() (Chiaki session or connect thread). The render call takes `mtx`
- * and draws from the textures, so vita_h264_stop() waits for this flag to clear, however long that
- * takes, before it destroys `mtx` and before its caller frees the textures. The flag is set with a
- * full barrier before the render call reads `active_video_thread`, and vita_h264_stop() clears
- * `active_video_thread` with a full barrier before it reads this flag, so either the render call
- * sees teardown and returns without touching `mtx`, or the stop path sees the call in progress. */
+ * thread while a stream runs (vita_h264_start() resets it to false on the connect thread before the
+ * stream starts, when no render call can be in progress), read by vita_h264_stop() (Chiaki session
+ * or connect thread). The render call takes `mtx` and draws from the textures, so
+ * vita_h264_stop() waits for this flag to clear, however long that takes, before it destroys `mtx`
+ * and before its caller frees the textures. The flag is set with a full barrier before the render
+ * call reads `active_video_thread`, and vita_h264_stop() clears `active_video_thread` with a full
+ * barrier before it reads this flag, so either the render call sees teardown and returns without
+ * touching `mtx`, or the stop path sees the call in progress. */
 static volatile bool ui_render_in_progress = false;
 
 /* --- Freeze-on-corrupt: last-good frame texture and presentation state ---
@@ -1138,8 +1140,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
       decode_ready_dropped_count++;
       if (decode_ready_dropped_logged < DECODE_ANOM_LOG_MAX) {
         decode_ready_dropped_logged++;
-        LOGE("DECODE/ANOM ready_dropped count=%u frame=%u%s", decode_ready_dropped_count,
-             frame_seq,
+        LOGE("DECODE/ANOM ready_dropped count=%u frame=%u%s", decode_ready_dropped_count, frame_seq,
              decode_ready_dropped_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)"
                                                                 : "");
       }
@@ -1979,9 +1980,10 @@ void vita_h264_stop() {
       uint64_t now_us = sceKernelGetProcessTimeWide();
       if (now_us >= next_report_us) {
         warned = true;
-        LOGE("VIDEO/STOP ui_wait still waiting for the UI thread to leave the render call "
-             "elapsed_us=%llu",
-             (unsigned long long)(now_us - wait_start_us));
+        LOGE(
+            "VIDEO/STOP ui_wait still waiting for the UI thread to leave the render call "
+            "elapsed_us=%llu",
+            (unsigned long long)(now_us - wait_start_us));
         next_report_us = now_us + UI_RENDER_QUIESCENCE_REPORT_INTERVAL_US;
       }
       sceKernelDelayThread(UI_RENDER_QUIESCENCE_POLL_US);
