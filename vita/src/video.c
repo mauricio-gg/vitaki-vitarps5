@@ -389,14 +389,14 @@ static void record_decode_timing_sample(uint32_t decode_elapsed_us) {
 #define DECHOLD_PTS_SENTINEL 0xFFFFFFFFu
 
 typedef struct {
-  uint32_t fed;       /* decodes accepted by the decoder (sceAvcdecDecode returned >= 0) */
-  uint32_t handed;    /* pictures handed back (sum of numOfOutput) */
-  uint32_t hold_min;  /* fed - handed, extremes over the window (running totals, not deltas) */
+  uint32_t fed;      /* decodes accepted by the decoder (sceAvcdecDecode returned >= 0) */
+  uint32_t handed;   /* pictures handed back (sum of numOfOutput) */
+  uint32_t hold_min; /* fed - handed, extremes over the window (running totals, not deltas) */
   uint32_t hold_max;
-  uint32_t good;      /* read-backs that passed validation */
-  uint32_t bad;       /* pictures whose read-back failed validation */
-  uint32_t stale;     /* good read-backs whose feed time is no longer in the ring */
-  uint32_t lag_min;   /* frame numbers fed minus read back, good read-backs only */
+  uint32_t good;    /* read-backs that passed validation */
+  uint32_t bad;     /* pictures whose read-back failed validation */
+  uint32_t stale;   /* good read-backs whose feed time is no longer in the ring */
+  uint32_t lag_min; /* frame numbers fed minus read back, good read-backs only */
   uint32_t lag_max;
   uint64_t lag_sum;
   uint32_t hold_us_n; /* good, non-stale read-backs */
@@ -1206,8 +1206,8 @@ static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
   if (context.stream.session_init) {
     uint32_t press_count;
     uint64_t press_us;
-    if (chiaki_feedback_sender_read_press_stamp(&context.stream.session.stream_connection.feedback_sender,
-                                                &press_count, &press_us))
+    if (chiaki_feedback_sender_read_press_stamp(
+            &context.stream.session.stream_connection.feedback_sender, &press_count, &press_us))
       press_meter_on_press(&press_meter, press_count, press_us);
   }
 

@@ -1019,13 +1019,12 @@ void host_metrics_update_latency(void) {
           "lag_avg=%u.%02u lag_max=%u hold_us_avg=%u hold_us_max=%u rb_good=%u rb_bad=%u "
           "rb_stale=%u",
           d->fed, d->handed, d->hold, d->hold_min, d->hold_max, d->lag_min,
-          d->lag_avg_x100 / OCC_AVG_FIXED_POINT_SCALE,
-          d->lag_avg_x100 % OCC_AVG_FIXED_POINT_SCALE, d->lag_max, d->hold_us_avg,
-          d->hold_us_max, d->good, d->bad, d->stale);
+          d->lag_avg_x100 / OCC_AVG_FIXED_POINT_SCALE, d->lag_avg_x100 % OCC_AVG_FIXED_POINT_SCALE,
+          d->lag_max, d->hold_us_avg, d->hold_us_max, d->good, d->bad, d->stale);
     }
     // PIPE/RECVBUF: packets and bytes drained per receive wake-up and the receive buffer size,
-    // from the Takion receive thread's last closed window (seqlock copy as above). The queue-length part
-    // was left out: see streaming.md section 9.3. drained_avg is x100 fixed point.
+    // from the Takion receive thread's last closed window (seqlock copy as above). The queue-length
+    // part was left out: see streaming.md section 9.3. drained_avg is x100 fixed point.
     {
       ChiakiTakion *takion = &stream_connection->takion;
       ChiakiTakionRecvbufWindow rb;
@@ -1047,8 +1046,8 @@ void host_metrics_update_latency(void) {
           "drained_bytes_max=%u drain_cap=%u rcvbuf_req=%u rcvbuf_actual=%u",
           r->wakeups, r->drained_avg_x100 / CHIAKI_TAKION_RECVBUF_AVG_SCALE,
           r->drained_avg_x100 % CHIAKI_TAKION_RECVBUF_AVG_SCALE, r->drained_max,
-          r->drained_bytes_avg, r->drained_bytes_max, r->drain_cap,
-          r->rcvbuf_requested, r->rcvbuf_actual);
+          r->drained_bytes_avg, r->drained_bytes_max, r->drain_cap, r->rcvbuf_requested,
+          r->rcvbuf_actual);
     }
     host_metrics_report_console(stream_connection);
     LOGD(

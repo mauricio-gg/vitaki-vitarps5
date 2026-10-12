@@ -23,7 +23,8 @@
 #define PRESS_METER_JUMP_RATIO 3
 /* ... AND at least this many bytes larger than it, so noise on tiny frames cannot trigger. */
 #define PRESS_METER_JUMP_MIN_EXTRA_BYTES 2048
-/* A press with no jump within this long expires (below the maintainer's two-second press rhythm). */
+/* A press with no jump within this long expires (below the maintainer's two-second press rhythm).
+ */
 #define PRESS_METER_EXPIRY_US 1500000ULL
 
 typedef struct {
@@ -43,11 +44,11 @@ typedef struct {
 /* The frame chosen as the answer to a press, as seen at the moment it arrived. */
 typedef struct {
   uint32_t press_count;
-  uint64_t press_us;    /* when the press was sent */
-  uint64_t first_us;    /* when the frame's first packet was read (1 ms resolution, 0 = unknown) */
-  uint64_t arrive_us;   /* when the assembled frame reached the decode hand-off */
-  uint32_t frame_size;  /* jump frame size in bytes */
-  uint32_t quiet_ref;   /* largest recent quiet frame at that moment */
+  uint64_t press_us;   /* when the press was sent */
+  uint64_t first_us;   /* when the frame's first packet was read (1 ms resolution, 0 = unknown) */
+  uint64_t arrive_us;  /* when the assembled frame reached the decode hand-off */
+  uint32_t frame_size; /* jump frame size in bytes */
+  uint32_t quiet_ref;  /* largest recent quiet frame at that moment */
 } PressJump;
 
 /* A finished sample: stage times in microseconds since the press was sent. Signed on purpose:
@@ -56,11 +57,11 @@ typedef struct {
   uint32_t press_count;
   uint32_t frame_size;
   uint32_t quiet_ref;
-  int32_t first_us;    /* press sent -> first packet of the frame read */
+  int32_t first_us;     /* press sent -> first packet of the frame read */
   int32_t assembled_us; /* press sent -> frame handed to vita_h264_decode_frame() */
-  int32_t decoded_us;  /* press sent -> decode finished */
-  int32_t shown_us;    /* press sent -> swapped to the screen */
-  bool order_ok;       /* 0 <= first <= assembled <= decoded <= shown, first known */
+  int32_t decoded_us;   /* press sent -> decode finished */
+  int32_t shown_us;     /* press sent -> swapped to the screen */
+  bool order_ok;        /* 0 <= first <= assembled <= decoded <= shown, first known */
 } PressSample;
 
 /* Clears everything, including the totals. Call at the start of a stream session. */

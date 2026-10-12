@@ -33,9 +33,10 @@ typedef struct {
   uint32_t order_err; /* samples whose stages were out of order */
   uint32_t expired;   /* presses that saw no jump in time (published copy only) */
   uint32_t overlap;   /* presses ignored, another was pending (published copy only) */
-  uint32_t lost;      /* jumps never shown because a newer jump replaced them (published copy only) */
+  uint32_t lost; /* jumps never shown because a newer jump replaced them (published copy only) */
   PressSample newest; /* newest sample of the window; meaningful only when samples > 0 */
-  int32_t max_first_us; /* window maximum of first_us over the samples (meaningful if samples > 0) */
+  int32_t
+      max_first_us; /* window maximum of first_us over the samples (meaningful if samples > 0) */
   int32_t max_shown_us; /* window maximum of shown_us over the samples */
 } PressWindow;
 
@@ -43,19 +44,19 @@ typedef struct {
  * decode thread fills it from private accumulators and publishes it at its ~1 s window close;
  * the UI thread copies it under context.stream.dechold_lock. 32-bit fields only. */
 typedef struct {
-  uint32_t fed;          /* decodes accepted by the decoder this window */
-  uint32_t handed;       /* pictures handed back this window */
-  uint32_t hold;         /* fed minus handed back, session running totals, at window close */
-  uint32_t hold_min;     /* same quantity, extremes over the window */
+  uint32_t fed;      /* decodes accepted by the decoder this window */
+  uint32_t handed;   /* pictures handed back this window */
+  uint32_t hold;     /* fed minus handed back, session running totals, at window close */
+  uint32_t hold_min; /* same quantity, extremes over the window */
   uint32_t hold_max;
   uint32_t lag_min;      /* frame numbers fed minus read back, good read-backs only (else 0) */
   uint32_t lag_avg_x100; /* fixed-point x OCC_AVG_FIXED_POINT_SCALE */
   uint32_t lag_max;
-  uint32_t hold_us_avg;  /* fed-to-handed-back microseconds (good, non-stale read-backs) */
+  uint32_t hold_us_avg; /* fed-to-handed-back microseconds (good, non-stale read-backs) */
   uint32_t hold_us_max;
-  uint32_t good;         /* read-backs that passed validation */
-  uint32_t bad;          /* pictures whose read-back failed validation */
-  uint32_t stale;        /* good read-backs whose feed time was no longer remembered */
+  uint32_t good;  /* read-backs that passed validation */
+  uint32_t bad;   /* pictures whose read-back failed validation */
+  uint32_t stale; /* good read-backs whose feed time was no longer remembered */
 } DecHoldWindow;
 
 /* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,
