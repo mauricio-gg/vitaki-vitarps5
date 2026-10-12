@@ -35,7 +35,7 @@ The recv thread never waits on the decoder for a whole frame: it copies the comp
 - **The reorder queue is control-channel only.** `takion->data_queue` (256 entries, `TAKION_REORDER_QUEUE_SIZE_EXP` 8, `takion.c:69`, init at `takion.c:1285`) is fed from the message path. The comment at `takion.c:1071` states video and audio never enter it, so its overflow/drop log lines say nothing about video loss.
 - **Transient errors (ENOBUFS) are not fatal.** In `takion_recv` (`takion.c:1616` onward) a transient error from `select()` or `recv()` is counted, logged at most once a second (`TAKION_RECV_TRANSIENT_LOG_INTERVAL_MS` = 1000), and retried after a backoff of `TAKION_RECV_TRANSIENT_RETRY_DELAY_MS` = 5 ms (`takion.c:140-143`). The non-blocking drain call (timeout 0) only counts and returns, it never sleeps (`takion.c:1641`, `1688`). The call gives up with `CHIAKI_ERR_NETWORK` only after more than `TAKION_RECV_TRANSIENT_MAX_CONSECUTIVE` = 400 consecutive hits AND at least `TAKION_RECV_TRANSIENT_MIN_PERSIST_MS` = 1500 ms since the first (`takion.c:1644-1646`, `1691-1693`). Any successful receive resets the count.
 - **Why the backoff has a fallback.** `takion_recv_transient_backoff` (`takion.c:1606`) first waits on the stop pipe. On Vita the stop pipe is itself a socket, so during an ENOBUFS storm that wait fails instantly; when it does not report a timeout or a cancel, the function falls back to `chiaki_sleep_ms`. Without that, the retry budget was burned in a tight spin (explained in the comment at `takion.c:113-139`). Giving up is what ends the session as a transport failure (section 8).
-- **The "jitter" number is not network jitter.** `takion->jitter_stats.jitter_us` is an EWMA (weight 1/8) of how much the gap between consecutive control-channel packets changes (`takion.c:2171-2176`). Video and audio never touch it. Video has its own, separate figure (`video_jitter_stats`, `takion.c:2454`). The log line starting `Latency metrics` prints `senkusha_rtt` (a single round trip measured during the handshake, never updated afterwards, `host_metrics.c:712-717`) and `ctrl_cadence_jitter` (that control-channel EWMA); the line itself says "NOT real network jitter". Neither is a live round trip.
+- **The "jitter" number is not network jitter.** `takion->jitter_stats.jitter_us` is an EWMA (weight 1/8) of how much the gap between consecutive control-channel packets changes (`takion.c:2171-2176`). Video and audio never touch it. Video has its own, separate figure (`video_jitter_stats`, `takion.c:2454`). The log line starting `Latency metrics` prints `senkusha_rtt` (a single round trip measured during the handshake, never updated afterwards, `host_metrics.c:712-717`) and `ctrl_cadence_jitter` (that control-channel EWMA); the line itself says "NOT real network jitter". Neither is a live round trip. The console's own round-trip estimate, which it sends in its connection-quality messages, is shown by `PIPE/CONSOLE` (section 9.4).
 
 ## 3. Video assembly and FEC
 
@@ -254,7 +254,45 @@ Example: `PIPE/RECVBUF wakeups=410 drained_avg=1.85 drained_max=23 drained_bytes
 - A wake-up that finds the packets one at a time says nothing about whether the socket buffer was deeper between wake-ups.
 - No cost of the probe has been measured on hardware; it adds one integer add per drained packet and a few integer updates per wake-up.
 
+### 9.4 `PIPE/CONSOLE`: what the console tells us
+
+**What it measures.** The control messages the console sends over the protobuf channel, which the stream connection mostly throws away. Two questions: what round-trip time does the console itself report (`CONNECTIONQUALITY`, field `rtt`), and which other message types arrive that we do nothing with (in particular `PERIODICTIMESTAMP`, type 27: does the PS5 send it, how often). Logging only: no message is handled differently, nothing is sent, no state outside the probe changes.
+
+**Where each number comes from.** All of it is recorded on the Takion receive thread in `stream_connection_takion_data_idle` (`lib/src/streamconnection.c`), the handler used once the stream is running.
+- `CONNECTIONQUALITY` (type 16, `ConnectionQualityPayload`): `rtt`, `target_bitrate`, `upstream_bitrate`, `upstream_loss`, `loss`. The latest value of each is kept, each only when the message carried that field (its `has_` flag). Never sent shows as `-`, not as 0. `rtt_msgs` counts the messages that carried an `rtt`.
+- Ignored types: every message that reaches the switch's `default:` is counted by its type number in an array sized from the highest type in `lib/protobuf/takion.proto` (32, `CHIAKI_CONSOLE_INFO_MSG_TYPE_MAX`); a number outside it goes into `other`. The types the switch handles (`DISCONNECT`, `CONNECTIONQUALITY`, `CORRUPTFRAME`, `STREAMINFOACK`) are not counted as ignored. `PERIODICTIMESTAMP` messages are counted both as ignored and in their own `ts_*` figures.
+- `PERIODICTIMESTAMP` (type 27): a count, and the time between the last two, from one read of the library's monotonic clock per such message (millisecond resolution). The raw bytes of the first one go to `PIPE/CONSOLE_TS`.
+
+**Hand-off.** The receive thread updates a `ChiakiConsoleInfo` (`lib/include/chiaki/streamconnection.h`) inside a sequence lock (`console_info_lock`, odd while writing), so the 64-bit `rtt` and the other fields are never read half-written. The reporter (`host_metrics_report_console`, `vita/src/host_metrics.c`) copies the whole struct, retries up to 4 times, and prints the previous copy if none was consistent. Counters in the struct are session totals; the per-window figures are the growth since the reporter's previous copy. The reporter writes nothing the receive thread owns. The struct is zeroed in `chiaki_stream_connection_init` (once per session start, as the other per-run counters are) and the reporter's state in `host_metrics_reset_stream`.
+
+**Fields of `PIPE/CONSOLE`** (printed once per window right after `PIPE/RECVBUF`).
+
+| Field | Meaning |
+|---|---|
+| `quality_win`, `quality_total` | `CONNECTIONQUALITY` messages in the window and in the session. |
+| `rtt_msgs_win` | Of the window's messages, how many carried an `rtt`. |
+| `rtt_range_n` | How many values `rtt_min` / `rtt_max` cover: the window's, but at most the newest 16 (`CHIAKI_CONSOLE_INFO_RTT_RING`). Smaller than `rtt_msgs_win` only if more than 16 arrived in one window. |
+| `rtt`, `rtt_min`, `rtt_max` | Latest `rtt` the console sent, and the smallest and largest in the window. Six decimals. `-` if none yet / none in the window. **Unit unverified** (the proto only says `double`). |
+| `target_bitrate`, `upstream_bitrate`, `upstream_loss`, `loss` | Latest values the console sent, as sent; `-` if never sent. Units as in the proto; not checked against hardware. |
+| `ignored_win`, `ignored_total` | Messages that reached the `default:` case in the window and in the session. |
+| `types=[type:count,...]` | Session totals per ignored type number, for every type seen at least once; `other:` for a number out of range. Cut off with `...` if the text does not fit in 256 characters. `[]` if none. |
+| `ts_win`, `ts_total` | `PERIODICTIMESTAMP` messages in the window and in the session. |
+| `ts_gap_ms` | Milliseconds between the last two `PERIODICTIMESTAMP` messages; `-` before the second one. |
+
+Example: `PIPE/CONSOLE quality_win=1 quality_total=84 rtt_msgs_win=1 rtt_range_n=1 rtt=0.018250 rtt_min=0.018250 rtt_max=0.018250 target_bitrate=6000 upstream_bitrate=0 upstream_loss=0.0000 loss=0 ignored_win=3 ignored_total=251 types=[27:84,3:167] ts_win=1 ts_total=84 ts_gap_ms=1002` (all numbers made up).
+
+**`PIPE/CONSOLE_TS`.** Printed once per session, from the UI thread, the first window after the first `PERIODICTIMESTAMP` message was seen: `PIPE/CONSOLE_TS first len=<n> hex=<bytes>`. `len` is the true length of that whole protobuf message; `hex` is its first 64 bytes (`CHIAKI_CONSOLE_INFO_FIRST_TS_CAP`), and ` truncated_to=64` is appended if the message was longer. It is the raw message including the type field, not decoded: `periodic_ts_info` is a callback-typed bytes field in nanopb and the decoding is left untouched. Example (made up): `PIPE/CONSOLE_TS first len=12 hex=081bda01080a0400000000`.
+
+**Handlers before the stream runs.** The expect-bang and expect-streaminfo handlers do not drop other types silently: a message of the wrong type is logged at error level (`expected bang payload but received something else: <type>` and the streaminfo equivalent) and returned from, apart from `DISCONNECT`, which is handled. They are not instrumented, because a periodic timestamp arriving there would already be logged.
+
+**What it cannot tell you.**
+- `rtt` is the console's estimate, not a measurement of ours, and its unit is unverified until the first hardware log. Do not convert it before then.
+- A type in the `types` list only means we do nothing with it; it says nothing about what the message contains.
+- A message that fails to decode is logged as an error by the existing code and not counted here.
+- The lines print only with `show_latency` on, like the other probes. Window figures are not aligned with the console's cadence, so a message can appear in a neighbouring window.
+- No cost of the probe has been measured on hardware; per message it adds a few integer updates and, for a periodic timestamp, one clock read and one copy of at most 64 bytes (once).
+
 ## 10. What is not here
 
-- No RTT or jitter figures are quoted in this document on purpose; the only two such readouts in the logs are explained in section 2.
+- No RTT or jitter figures are quoted in this document on purpose. The two readouts in section 2 are explained there; the console's own estimate in `PIPE/CONSOLE` (section 9.4) has an unverified unit and no value is quoted for it.
 - PSN (internet) connection setup is in [psn.md](psn.md).

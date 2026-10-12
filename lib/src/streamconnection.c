@@ -123,6 +123,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->diag_trylock_failures = 0;
 	stream_connection->av_last_corrupt_start = 0;
 	stream_connection->av_last_corrupt_end = 0;
+	stream_connection->console_info_lock = 0;
+	memset(&stream_connection->console_info, 0, sizeof(stream_connection->console_info));
 
 	return CHIAKI_ERR_SUCCESS;
 
@@ -686,6 +688,80 @@ static void stream_connection_takion_data_handle_disconnect(ChiakiStreamConnecti
 	chiaki_cond_signal(&stream_connection->state_cond);
 }
 
+/**
+ * PIPE/CONSOLE (#413): records one CONNECTIONQUALITY message in console_info. Takion receive
+ * thread only; copies numbers under the sequence lock, nothing else.
+ */
+static void stream_connection_note_connection_quality(ChiakiStreamConnection *stream_connection, const tkproto_ConnectionQualityPayload *q)
+{
+	ChiakiConsoleInfo *info = &stream_connection->console_info;
+	stream_connection->console_info_lock++;
+	__sync_synchronize();
+	info->quality_msgs++;
+	if(q->has_rtt)
+	{
+		info->rtt = q->rtt;
+		info->rtt_ring[info->quality_rtt_msgs % CHIAKI_CONSOLE_INFO_RTT_RING] = q->rtt;
+		info->quality_rtt_msgs++;
+	}
+	if(q->has_target_bitrate)
+	{
+		info->target_bitrate = q->target_bitrate;
+		info->quality_seen |= CHIAKI_CONSOLE_INFO_SEEN_TARGET_BITRATE;
+	}
+	if(q->has_upstream_bitrate)
+	{
+		info->upstream_bitrate = q->upstream_bitrate;
+		info->quality_seen |= CHIAKI_CONSOLE_INFO_SEEN_UPSTREAM_BITRATE;
+	}
+	if(q->has_upstream_loss)
+	{
+		info->upstream_loss = q->upstream_loss;
+		info->quality_seen |= CHIAKI_CONSOLE_INFO_SEEN_UPSTREAM_LOSS;
+	}
+	if(q->has_loss)
+	{
+		info->loss = q->loss;
+		info->quality_seen |= CHIAKI_CONSOLE_INFO_SEEN_LOSS;
+	}
+	__sync_synchronize();
+	stream_connection->console_info_lock++;
+}
+
+/**
+ * PIPE/CONSOLE (#413): records one message that the handler ignores (its default: case), counted
+ * by type number. For PERIODICTIMESTAMP also counts it, keeps the gap to the previous one and
+ * copies the raw message once (the first of the session). Takion receive thread only.
+ */
+static void stream_connection_note_ignored(ChiakiStreamConnection *stream_connection, int type, const uint8_t *buf, size_t buf_size)
+{
+	ChiakiConsoleInfo *info = &stream_connection->console_info;
+	// The one clock read of this probe, taken before the lock so the odd phase stays short.
+	uint64_t now_ms = type == tkproto_TakionMessage_PayloadType_PERIODICTIMESTAMP ? chiaki_time_now_monotonic_ms() : 0;
+	stream_connection->console_info_lock++;
+	__sync_synchronize();
+	info->ignored_msgs++;
+	if(type >= 0 && type <= CHIAKI_CONSOLE_INFO_MSG_TYPE_MAX)
+		info->ignored_by_type[type]++;
+	else
+		info->ignored_other++;
+	if(type == tkproto_TakionMessage_PayloadType_PERIODICTIMESTAMP)
+	{
+		if(info->ts_msgs > 0)
+			info->ts_gap_ms = (uint32_t)(now_ms - info->ts_last_ms);
+		info->ts_last_ms = now_ms;
+		info->ts_msgs++;
+		if(info->first_ts_len == 0)
+		{
+			size_t stored = buf_size < CHIAKI_CONSOLE_INFO_FIRST_TS_CAP ? buf_size : CHIAKI_CONSOLE_INFO_FIRST_TS_CAP;
+			memcpy(info->first_ts, buf, stored);
+			info->first_ts_len = (uint32_t)buf_size;
+		}
+	}
+	__sync_synchronize();
+	stream_connection->console_info_lock++;
+}
+
 static void stream_connection_takion_data_idle(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
 	tkproto_TakionMessage msg;
@@ -711,6 +787,7 @@ static void stream_connection_takion_data_idle(ChiakiStreamConnection *stream_co
 	case tkproto_TakionMessage_PayloadType_CONNECTIONQUALITY:
 	{
 		tkproto_ConnectionQualityPayload q = msg.connection_quality_payload;
+		stream_connection_note_connection_quality(stream_connection, &q);
 		CHIAKI_LOGV(
 			stream_connection->log,
 			"StreamConnection received connection quality: target_bitrate=%d, "
@@ -732,6 +809,7 @@ static void stream_connection_takion_data_idle(ChiakiStreamConnection *stream_co
 		CHIAKI_LOGV(stream_connection->log, "StreamConnection received streaminfo ack");
 		break;
 	default:
+		stream_connection_note_ignored(stream_connection, (int)msg.type, buf, buf_size);
 		break;
 	}
 }

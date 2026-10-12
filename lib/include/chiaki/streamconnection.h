@@ -28,6 +28,50 @@ typedef enum {
 	CHIAKI_STREAM_CONNECTION_DISCONNECT_ACKED,
 } ChiakiStreamConnectionDisconnectDelivery;
 
+/** Highest payload type number in lib/protobuf/takion.proto (TAKIONPROTOCOLREQUESTACK). */
+#define CHIAKI_CONSOLE_INFO_MSG_TYPE_MAX 32
+/** Bytes kept of the first PERIODICTIMESTAMP message (the whole protobuf message, from the start). */
+#define CHIAKI_CONSOLE_INFO_FIRST_TS_CAP 64
+/** Number of latest connection-quality rtt values kept; must be a power of two. */
+#define CHIAKI_CONSOLE_INFO_RTT_RING 16
+
+/** Bits of ChiakiConsoleInfo.quality_seen: set once the console has sent that field. */
+#define CHIAKI_CONSOLE_INFO_SEEN_TARGET_BITRATE (1u << 0)
+#define CHIAKI_CONSOLE_INFO_SEEN_UPSTREAM_BITRATE (1u << 1)
+#define CHIAKI_CONSOLE_INFO_SEEN_UPSTREAM_LOSS (1u << 2)
+#define CHIAKI_CONSOLE_INFO_SEEN_LOSS (1u << 3)
+
+/**
+ * PIPE/CONSOLE (#413, docs/design/streaming.md section 9.4): what the console tells us in
+ * control messages. Written only by the Takion receive thread, always between two increments of
+ * ChiakiStreamConnection.console_info_lock (a sequence lock: odd while writing); the UI thread
+ * copies the whole struct and retries unless the lock was even and unchanged. All counters are
+ * session totals; the reporter derives per-window figures from its previous copy.
+ */
+typedef struct chiaki_console_info_t
+{
+	uint32_t quality_msgs;      // CONNECTIONQUALITY messages received
+	uint32_t quality_rtt_msgs;  // of those, how many carried an rtt
+	uint32_t quality_seen;      // CHIAKI_CONSOLE_INFO_SEEN_* bits
+	double rtt;                 // latest rtt the console sent (unit unverified); valid if quality_rtt_msgs > 0
+	uint32_t target_bitrate;    // latest value sent
+	uint32_t upstream_bitrate;  // latest value sent
+	float upstream_loss;        // latest value sent
+	uint64_t loss;              // latest value sent
+	// Latest rtt values, newest at index (quality_rtt_msgs - 1) % CHIAKI_CONSOLE_INFO_RTT_RING.
+	double rtt_ring[CHIAKI_CONSOLE_INFO_RTT_RING];
+
+	uint32_t ignored_msgs;      // messages that reached the handler's default: case
+	uint32_t ignored_other;     // of those, type number outside 0..CHIAKI_CONSOLE_INFO_MSG_TYPE_MAX
+	uint32_t ignored_by_type[CHIAKI_CONSOLE_INFO_MSG_TYPE_MAX + 1];
+
+	uint32_t ts_msgs;           // PERIODICTIMESTAMP messages received
+	uint32_t ts_gap_ms;         // time between the last two of them; valid if ts_msgs >= 2
+	uint64_t ts_last_ms;        // monotonic ms of the last one (receive thread only)
+	uint32_t first_ts_len;      // true length of the first PERIODICTIMESTAMP message, 0 = none yet
+	uint8_t first_ts[CHIAKI_CONSOLE_INFO_FIRST_TS_CAP];  // its first min(len, cap) bytes
+} ChiakiConsoleInfo;
+
 typedef struct chiaki_stream_connection_t
 {
 	struct chiaki_session_t *session;
@@ -151,6 +195,8 @@ typedef struct chiaki_stream_connection_t
 	uint32_t diag_trylock_failures;
 	ChiakiSeqNum16 av_last_corrupt_start;
 	ChiakiSeqNum16 av_last_corrupt_end;
+	volatile uint32_t console_info_lock;  // sequence lock for console_info, see ChiakiConsoleInfo
+	ChiakiConsoleInfo console_info;
 } ChiakiStreamConnection;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session);
