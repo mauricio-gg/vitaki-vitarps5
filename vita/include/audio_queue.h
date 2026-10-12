@@ -23,7 +23,7 @@ typedef struct audio_queue_t {
   size_t capacity;    /* frames the ring can hold; always >= bound + 1 */
   size_t bound;       /* more than this many queued frames triggers a catch-up */
   size_t keep;        /* frames left after a catch-up and the start level, 1..bound */
-  bool primed;        /* the start level was reached since the queue was new / marked dry */
+  bool primed;        /* set once when the start level is first reached, cleared only by init */
   size_t head;        /* index of the oldest frame */
   size_t count;       /* frames queued now */
 } AudioQueue;
