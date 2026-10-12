@@ -1304,6 +1304,10 @@ static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 		? (uint32_t)((takion->recvbuf_acc.drained_sum * CHIAKI_TAKION_RECVBUF_AVG_SCALE) / takion->recvbuf_acc.wakeups)
 		: 0;
 	out.drained_max = takion->recvbuf_acc.drained_max;
+	out.drained_bytes_avg = takion->recvbuf_acc.wakeups
+		? (uint32_t)(takion->recvbuf_acc.drained_bytes_sum / takion->recvbuf_acc.wakeups)
+		: 0;
+	out.drained_bytes_max = takion->recvbuf_acc.drained_bytes_max;
 	out.drain_cap = TAKION_RECV_DRAIN_MAX;
 	out.rcvbuf_requested = takion->a_rwnd;
 	out.rcvbuf_actual = takion->rcvbuf_actual;
@@ -1484,6 +1488,7 @@ static void *takion_thread_func(void *user)
 		// This reduces per-packet syscall overhead and keeps the socket buffer drained.
 		{
 			int drain_count = 0;
+			uint32_t drain_bytes = 0; // PIPE/RECVBUF: bytes of the packets drained this wake-up
 			int drain_i;
 			for(drain_i = 0; drain_i < TAKION_RECV_DRAIN_MAX; drain_i++)
 			{
@@ -1491,6 +1496,7 @@ static void *takion_thread_func(void *user)
 				drain_err = takion_recv(takion, recvbuf, &drain_size, 0);
 				if(drain_err != CHIAKI_ERR_SUCCESS)
 					break;
+				drain_bytes += (uint32_t)drain_size;
 				takion_handle_packet(takion, recvbuf, drain_size, &recv_malloc_calls);
 				drain_count++;
 			}
@@ -1499,10 +1505,13 @@ static void *takion_thread_func(void *user)
 			takion->jitter_stats.drain_total_count += drain_count;
 			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
 				takion->jitter_stats.drain_max_count = drain_count;
-			/* PIPE/RECVBUF: its own accumulators; the jitter_stats drain counters above are
+			/* PIPE/RECVBUF (packets and bytes drained): its own accumulators; the jitter_stats drain counters above are
 			 * reset by the conditional "Takion jitter:" summary and cannot be reused. */
 			takion->recvbuf_acc.wakeups++;
 			takion->recvbuf_acc.drained_sum += (uint32_t)drain_count;
+			takion->recvbuf_acc.drained_bytes_sum += drain_bytes;
+			if(drain_bytes > takion->recvbuf_acc.drained_bytes_max)
+				takion->recvbuf_acc.drained_bytes_max = drain_bytes;
 			if((uint32_t)drain_count > takion->recvbuf_acc.drained_max)
 				takion->recvbuf_acc.drained_max = (uint32_t)drain_count;
 		}

@@ -129,6 +129,8 @@ typedef struct chiaki_takion_recvbuf_window_t
 	uint32_t wakeups;           // blocking receives that returned a packet
 	uint32_t drained_avg_x100;  // average packets drained per wake-up, x CHIAKI_TAKION_RECVBUF_AVG_SCALE
 	uint32_t drained_max;       // most packets drained in one wake-up
+	uint32_t drained_bytes_avg; // average bytes drained per wake-up (same packets as drained_avg)
+	uint32_t drained_bytes_max; // most bytes drained in one wake-up
 	uint32_t drain_cap;         // TAKION_RECV_DRAIN_MAX; drained_max equal to it means the cap was hit
 	uint32_t rcvbuf_requested;  // SO_RCVBUF asked for (bytes)
 	uint32_t rcvbuf_actual;     // SO_RCVBUF the kernel reports (bytes), 0 if unknown
@@ -312,8 +314,10 @@ typedef struct chiaki_takion_t
 	{
 		uint64_t window_start_ms;  // 0 until the first wake-up of the window
 		uint64_t drained_sum;      // packets drained after the waking one, summed over wake-ups
+		uint64_t drained_bytes_sum; // bytes of those packets, summed over wake-ups
 		uint32_t wakeups;          // blocking receives that returned a packet
 		uint32_t drained_max;      // largest drain count of a single wake-up
+		uint32_t drained_bytes_max; // most bytes drained in a single wake-up
 	} recvbuf_acc;
 	// Last closed window, published by the receive thread for the UI thread. recvbuf_lock is a
 	// seqlock: odd while the receive thread is writing.

@@ -220,16 +220,16 @@ Example (a decoder holding two frames): `PIPE/DECHOLD fed=60 handed=60 hold=2 ho
 - A window with no picture at all is not closed (the close runs when a picture arrives), so a total stall shows the last window until output resumes.
 - It does not change the decoder's behaviour; it only shows whether a held-frame delay exists, not how to remove it.
 
-### 9.3 `PIPE/RECVBUF`: how much packet backlog does the receive thread find?
+### 9.3 `PIPE/RECVBUF`: how much backlog does the receive thread find?
 
 **What it measures.** Video data that sits in the kernel's socket buffer before the receive thread reads it. All other timing starts when the receive thread reads a packet, so a standing backlog there is invisible. At 6 Mbit/s, 20 KB waiting is about 27 ms.
 
-**What shipped, and what did not.** Only the drain count and the buffer size. The planned second number, the bytes waiting in the socket (`sceNetGetSockInfo`, field `recv_queue_length`), was **left out** because it cannot be called reliably today:
+**What shipped, and what did not.** The drain count, the bytes drained and the buffer size. The planned second number, the bytes waiting in the socket (`sceNetGetSockInfo`, field `recv_queue_length`), was **left out** because it cannot be called reliably today:
 - `takion->sock` on Vita is a newlib file descriptor, not the SceNet socket id (`socket()` calls `sceNetSocket` and stores the id inside newlib's private descriptor table; every wrapper such as `recvfrom` looks it up there). The VitaSDK headers have no public call to turn the descriptor into the id; it would need newlib's private `__vita_fd_grab` and its undeclared struct layout.
 - The meaning of the `n` and `flags` arguments of `sceNetGetSockInfo` is not documented in the VitaSDK headers (`psp2/net/net.h`), and nothing else in this repo calls it.
 The unit of `recv_queue_length` (bytes or packets) is also undocumented. If this is picked up later, the sample belongs right after the blocking receive returns and before the drain loop, and the unit must be settled against the drain count from a hardware log.
 
-**Drained packets per wake-up.** In `takion_thread_func` (`lib/src/takion.c`) the blocking `takion_recv` wakes the thread with one packet; the drain loop then pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more with zero-timeout reads. The number counted for a wake-up is how many the drain loop pulled after the waking packet (the waking packet itself is not counted), taken when the loop ends. A wake-up is one blocking receive that returned a packet. The probe uses its own counters (`recvbuf_acc`); the existing `jitter_stats.drain_*` counters are left alone because the occasional "Takion jitter:" line resets them.
+**Drained packets and bytes per wake-up.** In `takion_thread_func` (`lib/src/takion.c`) the blocking `takion_recv` wakes the thread with one packet; the drain loop then pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more with zero-timeout reads. The number counted for a wake-up is how many the drain loop pulled after the waking packet (the waking packet itself is not counted), taken when the loop ends. A wake-up is one blocking receive that returned a packet. The bytes are the sum of the sizes (`drain_size` after each successful zero-timeout `takion_recv`) of exactly those packets; the waking packet is not included. The probe uses its own counters (`recvbuf_acc`); the existing `jitter_stats.drain_*` counters are left alone because the occasional "Takion jitter:" line resets them.
 
 **Receive buffer size.** `rcvbuf_req` is `takion->a_rwnd` (`TAKION_A_RWND`, 512 KB on Vita) and `rcvbuf_actual` is the value read back from the kernel right after the `SO_RCVBUF` set in both connect paths (the existing `Takion SO_RCVBUF requested=... actual=...` log line is unchanged and is still printed once per connection). `rcvbuf_actual` is 0 if the read-back failed.
 
@@ -241,17 +241,18 @@ The unit of `recv_queue_length` (bytes or packets) is also undocumented. If this
 |---|---|
 | `wakeups` | Blocking receives that returned a packet in the window. |
 | `drained_avg`, `drained_max` | Average (two decimals) and largest number of packets drained after the waking packet, per wake-up. |
+| `drained_bytes_avg`, `drained_bytes_max` | Bytes of the drained packets per wake-up (whole bytes): average and largest. Same packets as `drained_avg` / `drained_max`. |
 | `drain_cap` | `TAKION_RECV_DRAIN_MAX`. A `drained_max` equal to it means the cap was hit in that window. |
 | `rcvbuf_req`, `rcvbuf_actual` | Receive buffer size asked for and reported by the kernel, in bytes. |
 
-Example: `PIPE/RECVBUF wakeups=410 drained_avg=1.85 drained_max=23 drain_cap=256 rcvbuf_req=524288 rcvbuf_actual=524288`
+Example: `PIPE/RECVBUF wakeups=410 drained_avg=1.85 drained_max=23 drained_bytes_avg=2650 drained_bytes_max=32400 drain_cap=256 rcvbuf_req=524288 rcvbuf_actual=524288`
 
-**Reading it.** A wake-up that drains many packets means a burst had piled up while the thread was busy or asleep. If the average is near 0 the thread keeps up and no backlog stands behind each packet. Each drained packet is up to `TAKION_RECV_BUF_SIZE` = 1500 bytes; packets drained times 1500 times 8, divided by the bitrate, gives an upper bound in time. (When a bytes-waiting figure exists, the conversion is length times 8 divided by the measured bitrate, valid only if the unit turns out to be bytes.)
+**Reading it in milliseconds.** `drained_bytes` times 8, divided by the measured bitrate, is how many milliseconds of stream were waiting at that wake-up (for example 32400 bytes at 6 Mbit/s: 32400 x 8 / 6000000 = 43 ms). It stands in for the kernel's queue length, which is not read (see above). It leans high: packets that arrive while the drain loop runs are counted too, not only those already waiting when the thread woke. It also covers all Takion traffic on the socket (video, audio and control), not video alone. A `drained_max` equal to `drain_cap` means the drain stopped at the cap, so the byte figure of that wake-up is a lower bound. An average near 0 means the thread keeps up and nothing stands behind each waking packet.
 
 **What it cannot tell you.**
-- It counts packets pulled after the first one, not how long they waited, and it sees only the socket buffer, not the Wi-Fi chip or the console.
+- It counts the packets and bytes pulled after the first one, not how long they waited, and it sees only the socket buffer, not the Wi-Fi chip or the console.
 - A wake-up that finds the packets one at a time says nothing about whether the socket buffer was deeper between wake-ups.
-- No cost of the probe has been measured on hardware; it adds three integer updates per wake-up and one compare per iteration.
+- No cost of the probe has been measured on hardware; it adds one integer add per drained packet and a few integer updates per wake-up.
 
 ## 10. What is not here
 
