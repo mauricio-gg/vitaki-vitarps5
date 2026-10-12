@@ -5,6 +5,8 @@
  *
  * A ring of whole audio frames of one fixed size, plus the catch-up rule: after a push, if more
  * than `bound` frames are queued, the oldest are dropped so exactly `keep` (the newest) remain.
+ * `keep` is also the start level: a queue that is not primed (new, or marked dry) lets the
+ * consumer pop only once `keep` frames are queued, so playback always starts with a cushion.
  * Pure C99: no SDK headers, no locking (the caller holds its mutex around every call) and no
  * allocation (the caller supplies the storage), so it compiles and runs natively
  * (test/audio_queue_tests.c).
@@ -20,7 +22,8 @@ typedef struct audio_queue_t {
   size_t frame_bytes; /* size of one frame */
   size_t capacity;    /* frames the ring can hold; always >= bound + 1 */
   size_t bound;       /* more than this many queued frames triggers a catch-up */
-  size_t keep;        /* frames left after a catch-up, 1..bound */
+  size_t keep;        /* frames left after a catch-up and the start level, 1..bound */
+  bool primed;        /* the start level was reached since the queue was new / marked dry */
   size_t head;        /* index of the oldest frame */
   size_t count;       /* frames queued now */
 } AudioQueue;
@@ -44,6 +47,17 @@ size_t audio_queue_push(AudioQueue *queue, const void *frame);
  * changes nothing when fewer than n frames are queued.
  */
 bool audio_queue_pop(AudioQueue *queue, void *out, size_t n);
+
+/*
+ * The consumer's gate: may n frames be popped now? Not primed: only once `keep` frames are queued,
+ * which primes the queue. Primed: whenever n frames are queued. Pure answer plus that one state
+ * change, so it can be asked repeatedly (e.g. as a condition-wait predicate).
+ */
+bool audio_queue_may_pop(AudioQueue *queue, size_t n);
+
+/* The consumer found the device ran dry: un-primes, so the cushion is rebuilt before the next pop.
+ */
+void audio_queue_mark_dry(AudioQueue *queue);
 
 /* Frames queued now. */
 size_t audio_queue_count(const AudioQueue *queue);

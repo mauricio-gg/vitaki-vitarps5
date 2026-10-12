@@ -16,7 +16,8 @@
 
 #define FRAME_BYTES 8u
 #define BOUND 10u
-#define KEEP 2u
+#define KEEP 3u /* the start level: a device buffer (DEVICE_FRAMES) plus a cushion */
+#define DEVICE_FRAMES 2u
 #define CAPACITY (BOUND + 1u)
 
 typedef struct {
@@ -36,7 +37,8 @@ static size_t push_id(Fixture *f, uint8_t id) {
 }
 
 /* catches: stale sound played late after a hiccup (the catch-up keeping old frames instead of the
- * newest), a wrong drop count that makes PIPE/AUDIO lie, and a catch-up whose head advance does
+ * newest), a catch-up that leaves playback without its cushion (anything but exactly the start
+ * level of newest frames), a wrong drop count that makes PIPE/AUDIO lie, and a head advance that does
  * not wrap at the end of the ring (in real play the head is anywhere, so the burst starts from a
  * ring that has already turned a few times and the drop crosses its end). */
 static void test_burst_over_bound_keeps_newest_and_counts_drops(void) {
@@ -61,7 +63,8 @@ static void test_burst_over_bound_keeps_newest_and_counts_drops(void) {
 
   uint8_t out[KEEP * FRAME_BYTES];
   assert(audio_queue_pop(&f.queue, out, KEEP));
-  assert(out[0] == BOUND && out[FRAME_BYTES] == BOUND + 1); /* the newest two, in order */
+  for (size_t i = 0; i < KEEP; i++) /* the newest KEEP frames (9, 10, 11), in order */
+    assert(out[i * FRAME_BYTES] == BOUND + 1 - (KEEP - 1) + i);
   assert(audio_queue_count(&f.queue) == 0);
 }
 
@@ -101,10 +104,49 @@ static void test_pop_refused_when_too_few_queued_and_queue_unchanged(void) {
   assert(out[0] == 7);
 }
 
+/* catches: playback starting with no cushion (the crackle seen on hardware): a new queue must
+ * refuse pops until the start level is queued, then allow them down to one device buffer. */
+static void test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer(void) {
+  Fixture f;
+  fixture_init(&f);
+  for (uint8_t id = 1; id < KEEP; id++) {
+    push_id(&f, id);
+    assert(!audio_queue_may_pop(&f.queue, DEVICE_FRAMES)); /* enough for a buffer, not for the cushion */
+  }
+  push_id(&f, KEEP);
+  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES)); /* start level reached: primed */
+  uint8_t out[DEVICE_FRAMES * FRAME_BYTES];
+  assert(audio_queue_pop(&f.queue, out, DEVICE_FRAMES));
+  assert(audio_queue_count(&f.queue) == KEEP - DEVICE_FRAMES);
+  push_id(&f, KEEP + 1);
+  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES)); /* primed: no cushion needed any more */
+}
+
+/* catches: the cushion never being rebuilt after the device ran dry: once marked dry, pops are
+ * refused again until the start level is queued. */
+static void test_marked_dry_refuses_pops_until_start_level(void) {
+  Fixture f;
+  fixture_init(&f);
+  for (uint8_t id = 1; id <= KEEP; id++)
+    push_id(&f, id);
+  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
+  uint8_t out[KEEP * FRAME_BYTES];
+  assert(audio_queue_pop(&f.queue, out, KEEP));
+  audio_queue_mark_dry(&f.queue);
+  for (uint8_t id = 1; id < KEEP; id++) {
+    push_id(&f, id);
+    assert(!audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
+  }
+  push_id(&f, KEEP);
+  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
+}
+
 int main(void) {
   test_burst_over_bound_keeps_newest_and_counts_drops();
   test_below_bound_drops_nothing_and_keeps_order_across_wrap();
   test_pop_refused_when_too_few_queued_and_queue_unchanged();
+  test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer();
+  test_marked_dry_refuses_pops_until_start_level();
   printf("audio_queue_tests: all passed\n");
   return 0;
 }

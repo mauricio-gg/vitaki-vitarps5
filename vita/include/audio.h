@@ -17,10 +17,19 @@
 // once. Small enough that sound never sits more than about a tenth of a second behind, which is
 // about what the picture already waits in the decoder (PIPE/DECHOLD holds 4-5 frames, 65-80 ms).
 // Converted to frames in vita/src/audio.c from the real frame size and rate (10 frames for 480
-// samples at 48 kHz), and never below one device buffer plus one frame. After a catch-up exactly
-// one device buffer of the newest frames is kept (20 ms): the state playback starts from, so
-// sound continues from the newest audio with the smallest delay.
+// samples at 48 kHz), and never below the start level plus one frame. After a catch-up exactly the
+// start level of the newest frames is kept (50 ms, see below): the state playback starts from, so
+// sound continues from the newest audio and still has its cushion.
 #define AUDIO_CATCHUP_BOUND_MS 100
+
+// Cushion on top of one device buffer (20 ms) that must be queued before playback starts, and
+// again after the device has run dry: the start level is one device buffer plus this (50 ms, 5
+// frames for 480 samples at 48 kHz), converted to frames in vita/src/audio.c, at least 1 frame.
+// Measured on the first #416 hardware log: with about 20 ms of spare sound the device ran a minute
+// without a dry output call but never more than 64 samples (about 1.3 ms) from one; 30 ms adds
+// one frame of margin. Cost: sound plays about 30 ms later than in build 0.1.1175. Once playing,
+// output continues whenever one device buffer is queued, so the cushion absorbs arrival jitter.
+#define AUDIO_REFILL_CUSHION_MS 30
 
 void vita_audio_init(unsigned int channels, unsigned int rate, void *user);
 

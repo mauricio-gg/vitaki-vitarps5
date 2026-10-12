@@ -46,6 +46,21 @@ bool audio_queue_pop(AudioQueue *queue, void *out, size_t n) {
   return true;
 }
 
+bool audio_queue_may_pop(AudioQueue *queue, size_t n) {
+  if (n > queue->count)
+    return false;
+  if (!queue->primed) {
+    if (queue->count < queue->keep)
+      return false;
+    queue->primed = true;
+  }
+  return true;
+}
+
+void audio_queue_mark_dry(AudioQueue *queue) {
+  queue->primed = false;
+}
+
 size_t audio_queue_count(const AudioQueue *queue) {
   return queue->count;
 }

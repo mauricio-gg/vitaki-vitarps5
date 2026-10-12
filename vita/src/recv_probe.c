@@ -93,10 +93,11 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow 
   LOGD(
       "PIPE/AUDIOOUT win=%u out_calls=%u out_frames=%u aout_us=%u aout_max_us=%u rest_n=%u "
       "rest_err=%u "
-      "rest_min=%d rest_max=%d out_dry=%u out_gap_max_us=%u out_late=%u waits=%u wall_us=%u",
+      "rest_min=%d rest_max=%d out_dry=%u out_gap_max_us=%u out_late=%u waits=%u refills=%u "
+      "wall_us=%u",
       ao->win, ao->out_calls, ao->out_frames, ao->aout_us, ao->aout_max_us, ao->rest_n,
       ao->rest_err, ao->rest_min, ao->rest_max, ao->out_dry, ao->out_gap_max_us, ao->out_late,
-      ao->waits, ao->wall_us);
+      ao->waits, ao->refills, ao->wall_us);
   LOGD(
       "PIPE/SOCKQ ok=%u n=%u min=%u avg=%u max=%u wake_avg=%u wake_max=%u query_us=%u "
       "query_max_us=%u err=%u",

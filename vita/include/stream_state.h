@@ -80,6 +80,7 @@ typedef struct {
       out_gap_max_us; /* longest time from one output call returning to the next being called */
   uint32_t out_late;  /* such gaps longer than one device buffer's play time */
   uint32_t waits;     /* times the thread slept because less than a device buffer was queued */
+  uint32_t refills;   /* times it found the device dry and held output for the start level */
   uint32_t wall_us;   /* length of the window */
 } AudioOutWindow;
 
