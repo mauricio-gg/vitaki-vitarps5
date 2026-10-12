@@ -1292,6 +1292,15 @@ static void takion_recvbuf_publish(ChiakiTakion *takion, const ChiakiTakionRecvb
 }
 
 /**
+ * Narrows a 64-bit accumulator to the 32-bit published field, saturating instead of wrapping.
+ * Receive thread only.
+ */
+static uint32_t takion_recvbuf_clamp32(uint64_t value)
+{
+	return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
+/**
  * Closes the current PIPE/RECVBUF window: reduces the private accumulators to 32-bit values,
  * publishes them and starts the next window at now_ms. Receive thread only, about once per
  * second, no allocation and no logging.
@@ -1311,10 +1320,27 @@ static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 	out.drain_cap = TAKION_RECV_DRAIN_MAX;
 	out.rcvbuf_requested = takion->a_rwnd;
 	out.rcvbuf_actual = takion->rcvbuf_actual;
+
+	// The window's wall time ends here; work is whatever the two kinds of receive call did not use.
+	uint64_t now_us = chiaki_time_now_monotonic_us();
+	uint64_t wall_us = now_us - takion->recvbuf_acc.window_start_us;
+	uint64_t wait_us = takion->recvbuf_acc.block_us + takion->recvbuf_acc.poll_us;
+	uint64_t work_us = wall_us > wait_us ? wall_us - wait_us : 0;
+	out.packets = takion_recvbuf_clamp32(takion->recvbuf_acc.packets);
+	out.bytes = takion_recvbuf_clamp32(takion->recvbuf_acc.bytes);
+	out.drain_empty = takion->recvbuf_acc.drain_empty;
+	out.drain_capped = takion->recvbuf_acc.drain_capped;
+	out.block_us = takion_recvbuf_clamp32(takion->recvbuf_acc.block_us);
+	out.poll_us = takion_recvbuf_clamp32(takion->recvbuf_acc.poll_us);
+	out.poll_max_us = takion_recvbuf_clamp32(takion->recvbuf_acc.poll_max_us);
+	out.work_us = takion_recvbuf_clamp32(work_us);
+	out.wall_us = takion_recvbuf_clamp32(wall_us);
+	out.busy_permille = wall_us ? (uint32_t)((work_us * 1000) / wall_us) : 0;
 	takion_recvbuf_publish(takion, &out);
 
 	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
 	takion->recvbuf_acc.window_start_ms = now_ms;
+	takion->recvbuf_acc.window_start_us = now_us;
 }
 
 static void *takion_thread_func(void *user)
@@ -1370,6 +1396,7 @@ static void *takion_thread_func(void *user)
 
 	// PIPE/RECVBUF: zero the private accumulators and publish an empty window.
 	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
+	takion->recvbuf_acc.window_start_us = chiaki_time_now_monotonic_us(); // first window starts with the thread
 	{
 		ChiakiTakionRecvbufWindow empty;
 		memset(&empty, 0, sizeof(empty));
@@ -1474,11 +1501,15 @@ static void *takion_thread_func(void *user)
 			takion->postponed_packets_count = 0;
 		}
 
+		size_t wake_bytes = 0; // PIPE/RECVBUF: size of the packet that woke the thread
 		{
 			size_t received_size = TAKION_RECV_BUF_SIZE;
+			uint64_t block_start_us = chiaki_time_now_monotonic_us(); // PIPE/RECVBUF
 			err = takion_recv(takion, recvbuf, &received_size, UINT64_MAX);
+			takion->recvbuf_acc.block_us += chiaki_time_now_monotonic_us() - block_start_us;
 			if(err != CHIAKI_ERR_SUCCESS)
 				break;
+			wake_bytes = received_size;
 			takion_handle_packet(takion, recvbuf, received_size, &recv_malloc_calls);
 		}
 
@@ -1493,7 +1524,12 @@ static void *takion_thread_func(void *user)
 			for(drain_i = 0; drain_i < TAKION_RECV_DRAIN_MAX; drain_i++)
 			{
 				size_t drain_size = TAKION_RECV_BUF_SIZE;
+				uint64_t poll_start_us = chiaki_time_now_monotonic_us(); // PIPE/RECVBUF
 				drain_err = takion_recv(takion, recvbuf, &drain_size, 0);
+				uint64_t poll_took_us = chiaki_time_now_monotonic_us() - poll_start_us;
+				takion->recvbuf_acc.poll_us += poll_took_us;
+				if(poll_took_us > takion->recvbuf_acc.poll_max_us)
+					takion->recvbuf_acc.poll_max_us = poll_took_us;
 				if(drain_err != CHIAKI_ERR_SUCCESS)
 					break;
 				drain_bytes += (uint32_t)drain_size;
@@ -1514,6 +1550,15 @@ static void *takion_thread_func(void *user)
 				takion->recvbuf_acc.drained_bytes_max = drain_bytes;
 			if((uint32_t)drain_count > takion->recvbuf_acc.drained_max)
 				takion->recvbuf_acc.drained_max = (uint32_t)drain_count;
+			// How the drain loop ended: at the cap, or on a zero-timeout call that found no packet
+			// (CHIAKI_ERR_TIMEOUT; takion_recv also returns it for a transient error). Any other
+			// error is counted as neither. drain_err is fresh whenever the loop broke early.
+			if(drain_i >= TAKION_RECV_DRAIN_MAX)
+				takion->recvbuf_acc.drain_capped++;
+			else if(drain_err == CHIAKI_ERR_TIMEOUT)
+				takion->recvbuf_acc.drain_empty++;
+			takion->recvbuf_acc.packets += 1 + (uint32_t)drain_count;
+			takion->recvbuf_acc.bytes += wake_bytes + drain_bytes;
 		}
 		{
 			uint64_t rm_now = chiaki_time_now_monotonic_ms();

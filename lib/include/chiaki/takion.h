@@ -134,6 +134,18 @@ typedef struct chiaki_takion_recvbuf_window_t
 	uint32_t drain_cap;         // TAKION_RECV_DRAIN_MAX; drained_max equal to it means the cap was hit
 	uint32_t rcvbuf_requested;  // SO_RCVBUF asked for (bytes)
 	uint32_t rcvbuf_actual;     // SO_RCVBUF the kernel reports (bytes), 0 if unknown
+	// Time and traffic of the window, added after the fields above (section 9.3). Durations are
+	// microseconds, saturated at UINT32_MAX.
+	uint32_t packets;           // all packets received: waking ones and drained ones
+	uint32_t bytes;             // their total size
+	uint32_t drain_empty;       // drain loops that ended because a zero-timeout call found no packet
+	uint32_t drain_capped;      // drain loops that ended at drain_cap
+	uint32_t block_us;          // time inside the blocking receive (waiting for the waking packet)
+	uint32_t poll_us;           // time inside the zero-timeout receives of the drain loop, total
+	uint32_t poll_max_us;       // longest single zero-timeout receive
+	uint32_t work_us;           // wall_us minus block_us and poll_us (0 if that would be negative)
+	uint32_t wall_us;           // length of the window
+	uint32_t busy_permille;     // work_us / wall_us in tenths of a percent
 } ChiakiTakionRecvbufWindow;
 
 
@@ -318,6 +330,14 @@ typedef struct chiaki_takion_t
 		uint32_t wakeups;          // blocking receives that returned a packet
 		uint32_t drained_max;      // largest drain count of a single wake-up
 		uint32_t drained_bytes_max; // most bytes drained in a single wake-up
+		uint64_t window_start_us;  // start of the window on the microsecond clock
+		uint64_t packets;          // all packets received in the window
+		uint64_t bytes;            // their total size
+		uint64_t block_us;         // time inside the blocking receive
+		uint64_t poll_us;          // time inside the zero-timeout receives
+		uint64_t poll_max_us;      // longest single zero-timeout receive
+		uint32_t drain_empty;      // drain loops ended by an empty zero-timeout call
+		uint32_t drain_capped;     // drain loops ended at the cap
 	} recvbuf_acc;
 	// Last closed window, published by the receive thread for the UI thread. recvbuf_lock is a
 	// seqlock: odd while the receive thread is writing.

@@ -50,6 +50,7 @@ static DecHoldWindow dechold_last;
 
 /* PIPE/RECVBUF: same scheme for the receive thread's published window. Reset with the stream. */
 #define RECVBUF_READ_ATTEMPTS 4
+#define RECVBUF_BUSY_PERMILLE_PER_PCT 10 /* busy_permille is in tenths of a percent */
 static ChiakiTakionRecvbufWindow recvbuf_last;
 
 /* PIPE/CONSOLE: tries at a consistent copy of the stream connection's console info; the
@@ -1043,11 +1044,16 @@ void host_metrics_update_latency(void) {
       const ChiakiTakionRecvbufWindow *r = &recvbuf_last;
       LOGD(
           "PIPE/RECVBUF wakeups=%u drained_avg=%u.%02u drained_max=%u drained_bytes_avg=%u "
-          "drained_bytes_max=%u drain_cap=%u rcvbuf_req=%u rcvbuf_actual=%u",
+          "drained_bytes_max=%u drain_cap=%u rcvbuf_req=%u rcvbuf_actual=%u packets=%u bytes=%u "
+          "drain_empty=%u drain_capped=%u block_us=%u poll_us=%u poll_max_us=%u work_us=%u "
+          "wall_us=%u busy_pct=%u.%u",
           r->wakeups, r->drained_avg_x100 / CHIAKI_TAKION_RECVBUF_AVG_SCALE,
           r->drained_avg_x100 % CHIAKI_TAKION_RECVBUF_AVG_SCALE, r->drained_max,
           r->drained_bytes_avg, r->drained_bytes_max, r->drain_cap, r->rcvbuf_requested,
-          r->rcvbuf_actual);
+          r->rcvbuf_actual, r->packets, r->bytes, r->drain_empty, r->drain_capped, r->block_us,
+          r->poll_us, r->poll_max_us, r->work_us, r->wall_us,
+          r->busy_permille / RECVBUF_BUSY_PERMILLE_PER_PCT,
+          r->busy_permille % RECVBUF_BUSY_PERMILLE_PER_PCT);
     }
     host_metrics_report_console(stream_connection);
     LOGD(
