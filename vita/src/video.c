@@ -95,30 +95,13 @@ SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 static volatile bool active_video_thread = true;
 static volatile bool frame_ready_for_display = false;
 
-/* GH #245 code review round 2 (BLOCKING finding, now fixed): UI-thread render
- * quiescence signal for vita_h264_stop(). True for the entire duration of any
- * vita_video_render_latest_frame() call, set/cleared ONLY by the UI thread --
- * same single-writer/single-reader volatile discipline as frame_ready_for_display
- * above, just with the roles reversed (UI writes, vita_h264_stop() -- called on
- * the Chiaki session thread when it handles CHIAKI_EVENT_QUIT synchronously, see
- * host_lifecycle.c host_shutdown_media_pipeline() -- reads/polls).
- *
- * Why this exists: vita_video_render_latest_frame() takes `mtx` for its claim of
- * every frame (and calls promote_decoded_frame_to_last_good() inside it). vita_h264_stop() calls
- * chiaki_mutex_fini(&mtx) (== sceKernelDeleteMutex on Vita). Deleting a mutex a
- * live thread currently owns (or is about to lock) is kernel UB, not a benign
- * race -- and unlike the pre-fix single-texture race this file already documents
- * a use-after-free history for, this one is NOT bounded by "no decode thread
- * holds mtx" (see the comment on the decode-thread join in vita_h264_stop()):
- * the UI thread is a SEPARATE, third thread that was never accounted for there.
- * `context.stream.is_streaming = false` (set by host_shutdown_media_pipeline()
- * right before calling vita_h264_stop()) is NOT a barrier against this -- it only
- * gates the UI thread's *next* main-loop iteration (ui.c), so the UI thread can
- * already be inside a render call, holding or about to take `mtx`, at the exact
- * moment vita_h264_stop() runs on the session thread. vita_h264_stop() polls this
- * flag (bounded, see UI_RENDER_QUIESCENCE_TIMEOUT_US below) before calling
- * chiaki_mutex_fini(&mtx), so that call only ever runs once the UI thread has
- * provably left this function and cannot be holding or acquiring `mtx`. */
+/* #418: true for the whole of any vita_video_render_latest_frame() call. Written only by the UI
+ * thread, read by vita_h264_stop() (Chiaki session or connect thread). The render call takes `mtx`
+ * and draws from the textures, so vita_h264_stop() waits for this flag to clear, however long that
+ * takes, before it destroys `mtx` and before its caller frees the textures. The flag is set with a
+ * full barrier before the render call reads `active_video_thread`, and vita_h264_stop() clears
+ * `active_video_thread` with a full barrier before it reads this flag, so either the render call
+ * sees teardown and returns without touching `mtx`, or the stop path sees the call in progress. */
 static volatile bool ui_render_in_progress = false;
 
 /* --- Freeze-on-corrupt: last-good frame texture and presentation state ---
@@ -629,6 +612,9 @@ static uint32_t decode_queue_drops = 0;
  * catch. */
 static uint32_t decode_neg_ret_count = 0;
 static uint32_t decode_no_output_count = 0;
+/* #418: failed decodes (ret < 0) that found an earlier picture still unclaimed and withdrew it.
+ * Same threading as the two counters above. */
+static uint32_t decode_ready_dropped_count = 0;
 
 /* First-N-then-suppress guard for the per-occurrence DECODE/ANOM log lines
  * below. If the decoder starts erroring, those lines fire 30-60/s and would
@@ -641,6 +627,7 @@ static uint32_t decode_no_output_count = 0;
 #define DECODE_ANOM_LOG_MAX 5
 static uint32_t decode_neg_ret_logged = 0;
 static uint32_t decode_no_output_logged = 0;
+static uint32_t decode_ready_dropped_logged = 0;
 
 /* Decode queue occupancy (latency investigation, item 2) — TIME-WEIGHTED, not a naive
  * average of samples taken only at push/pop. Code review (2026-08) caught the original
@@ -1143,6 +1130,20 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
       LOGE("DECODE/ANOM neg_ret=0x%08X count=%u%s", (unsigned int)ret, decode_neg_ret_count,
            decode_neg_ret_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
     }
+    /* #418: this decode was pointed at frame_texture and may have partly written it. If an
+     * earlier picture was still unclaimed there, it can no longer be trusted: withdraw it, so
+     * the UI keeps showing what it showed until the next good decode. */
+    if (frame_ready_for_display) {
+      frame_ready_for_display = false;
+      decode_ready_dropped_count++;
+      if (decode_ready_dropped_logged < DECODE_ANOM_LOG_MAX) {
+        decode_ready_dropped_logged++;
+        LOGE("DECODE/ANOM ready_dropped count=%u frame=%u%s", decode_ready_dropped_count,
+             frame_seq,
+             decode_ready_dropped_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)"
+                                                                : "");
+      }
+    }
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -1457,21 +1458,16 @@ static void present_record_swap(uint32_t seq, bool fresh, uint64_t swap_us) {
 }
 
 bool vita_video_render_latest_frame(void) {
-  /* GH #245 code review round 2: mark entry before any early return, cleared before
-   * every return below (mirrors the file's existing lock-then-unlock-before-each-return
-   * style in decode_frame_now()). See ui_render_in_progress's declaration comment --
-   * this is the flag vita_h264_stop() polls before destroying `mtx`. */
+  /* #418: mark entry before any early return; cleared before every return below.
+   * vita_h264_stop() waits for this flag to clear before it destroys `mtx`. The full barrier
+   * orders this store before the read of active_video_thread, and vita_h264_stop() does the
+   * same in the other order, so one of the two sides always sees the other. */
   ui_render_in_progress = true;
+  __sync_synchronize();
   present_window.passes++;
-  /* GH #245 code review round 3: explicit, load-bearing teardown gate. This is the
-   * ACTUAL thing that keeps this function from ever reaching `mtx` (via
-   * the claim below) once vita_h264_stop() has begun --
-   * not an incidental side effect of the frame_ready_for_display check right below
-   * it. vita_h264_stop() clears active_video_thread FIRST, before joining the decode
-   * thread and before polling ui_render_in_progress, so this check is guaranteed to
-   * see teardown-has-started by the time this function can next be entered after
-   * that clear is visible. See active_video_thread's declaration comment and the
-   * ordering invariant documented above chiaki_mutex_fini(&mtx) in vita_h264_stop(). */
+  /* Teardown gate: once vita_h264_stop() has cleared active_video_thread, this function never
+   * reaches the claim's lock below. is_streaming = false is not enough, it only takes effect on
+   * the UI loop's next iteration. */
   if (!active_video_thread) {
     ui_render_in_progress = false;
     return false;
@@ -1494,9 +1490,11 @@ bool vita_video_render_latest_frame(void) {
    * any two of these steps: the facts read here belong to exactly the picture the swap hands to
    * the draw, the flag cannot be left set for a picture that was already taken, and an
    * overwritten picture is counted (frame_overwrite_count). The two unlocked early returns above
-   * stay lock-free (a miss takes no lock); after the lock is taken the flag can only have stayed
-   * true unless vita_h264_stop() cleared it, which is treated as a miss. Nothing in here blocks,
-   * logs, allocates or reads a clock, and `mtx` is taken once and released once per pass. */
+   * stay lock-free (a miss takes no lock); after the lock is taken the flag can only be false if
+   * vita_h264_stop() cleared it, or if decode_frame_now() cleared it after a failed decode that
+   * may have written the unclaimed picture's texture (#418); both are treated as a miss. Nothing
+   * in here blocks, logs, allocates or reads a clock, and `mtx` is taken once and released once
+   * per pass. */
   chiaki_mutex_lock(&mtx);
   if (!frame_ready_for_display) {
     chiaki_mutex_unlock(&mtx);
@@ -1903,22 +1901,20 @@ void vita_h264_start() {
   vitavideo_overlay_on_stream_start();
 }
 
-/* Bound on how long vita_h264_stop() will poll ui_render_in_progress before giving up
- * and destroying `mtx` anyway. See the poll loop's comment in vita_h264_stop() for the
- * reasoning behind this specific value. NOT an order of magnitude of margin in the
- * worst case: vita_h264_stop() calls vita2d_set_vblank_wait(true) before clearing
- * active_video_thread, so a UI thread already past the active_video_thread gate when
- * teardown begins can have its vita2d_swap_buffers() block for a full vsync
- * (~16.6ms) instead of the low-single-digit-ms common case -- call it ~3x margin
- * under this bound, not ~10x. Still comfortably under 50ms either way. */
-#define UI_RENDER_QUIESCENCE_TIMEOUT_US (50 * 1000)
-/* Poll granularity for the wait above -- matches the existing 1ms busy-spin-avoidance
- * sleep already used for this same "nothing to do yet" situation in ui.c's main loop. */
+/* #418: vita_h264_stop() waits without a bound for the UI thread to leave
+ * vita_video_render_latest_frame(). After this long it starts logging that it is still waiting,
+ * and repeats the line every UI_RENDER_QUIESCENCE_REPORT_INTERVAL_US. A normal wait ends in a few
+ * ms (one draw, a GPU wait and a vsync). */
+#define UI_RENDER_QUIESCENCE_WARN_US (50 * 1000)
+#define UI_RENDER_QUIESCENCE_REPORT_INTERVAL_US (1000 * 1000)
+/* Poll granularity of the wait -- matches the 1 ms sleep ui.c's main loop uses for the same
+ * "nothing to do yet" situation. */
 #define UI_RENDER_QUIESCENCE_POLL_US 1000
 
 void vita_h264_stop() {
   vita2d_set_vblank_wait(true);
   active_video_thread = false;
+  __sync_synchronize(); /* pairs with the barrier in vita_video_render_latest_frame() */
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
@@ -1941,17 +1937,20 @@ void vita_h264_stop() {
   }
 
   /* GH #251 A/B totals: the join above is the happens-before edge that makes it
-   * safe to read decode_neg_ret_count/decode_no_output_count here on the
+   * safe to read the DECODE/ANOM counters here on the
    * session/stop thread even though they are written without locking on the
    * decode thread (see their declaration comment). This runs exactly once per
    * stream end regardless of whether the decode thread ever started, so the
-   * reset below always leaves all four counters -- magnitude and log-suppression
+   * reset below always leaves all six counters -- magnitude and log-suppression
    * alike -- at 0 for the next stream. */
-  LOGD("DECODE/ANOM totals neg_ret=%u no_output=%u", decode_neg_ret_count, decode_no_output_count);
+  LOGD("DECODE/ANOM totals neg_ret=%u no_output=%u ready_dropped=%u", decode_neg_ret_count,
+       decode_no_output_count, decode_ready_dropped_count);
   decode_neg_ret_count = 0;
   decode_no_output_count = 0;
+  decode_ready_dropped_count = 0;
   decode_neg_ret_logged = 0;
   decode_no_output_logged = 0;
+  decode_ready_dropped_logged = 0;
 
   /* Free slot buffers. Non-NULL slots were allocated in vita_h264_start();
    * failed/skipped slots are already NULL so free() is a safe no-op. */
@@ -1962,71 +1961,34 @@ void vita_h264_stop() {
   chiaki_cond_fini(&decode_q_cond);
   chiaki_mutex_fini(&decode_q_mtx);
 
-  /* GH #245 code review round 2 (BLOCKING finding, now fixed) + round 3 (comment
-   * corrected to state the ACTUAL invariant, not an emergent one):
-   *
-   * The join above only proves the DECODE thread no longer holds `mtx` -- it says
-   * nothing about the UI thread, which is a separate, third thread that also takes
-   * `mtx` (the claim at the top of vita_video_render_latest_frame(), see the
-   * concurrency comment of promote_decoded_frame_to_last_good()).
-   * This function itself runs synchronously on the Chiaki SESSION thread (via
-   * host_shutdown_media_pipeline(), invoked from the CHIAKI_EVENT_QUIT handler) --
-   * a third thread again, distinct from both decode and UI. Destroying a mutex a
-   * live thread currently owns is kernel UB (sceKernelDeleteMutex), not a benign
-   * stale-pixel race, so getting this right matters.
-   *
-   * What actually keeps the UI thread out of `mtx` once we get here: the
-   * active_video_thread == false check at the top of
-   * vita_video_render_latest_frame() (see that check's comment). active_video_thread
-   * is cleared a few lines above, in THIS function, BEFORE the decode-thread join
-   * and BEFORE the poll below -- so by the time we reach chiaki_mutex_fini(&mtx),
-   * every subsequent entry to vita_video_render_latest_frame() bails before it can
-   * reach the claim's lock. This ordering --
-   * active_video_thread = false, THEN join, THEN this poll, THEN
-   * chiaki_mutex_fini(&mtx) -- is load-bearing and must be preserved; do not reorder
-   * the active_video_thread clear to later in this function without re-auditing this
-   * comment. (`context.stream.is_streaming = false`, set by the caller just before
-   * this function runs, is NOT what provides this guarantee -- it only takes effect
-   * on the UI thread's *next* main-loop check in ui.c and was the round-2 reviewer's
-   * original, mistaken theory for why this was safe.)
-   *
-   * The poll on ui_render_in_progress below is a SEPARATE, defense-in-depth
-   * safety net, not the primary mechanism: even with the ordering above,
-   * plain `volatile` alone only guarantees eventual cross-thread visibility on this
-   * hardware, not a bounded one, and vita_video_render_latest_frame() is already
-   * mid-call by the time active_video_thread's clear becomes visible to it in the
-   * worst case (see the timeout constant's comment for how long that call's tail --
-   * draw + GPU wait + swap -- can run). Polling ui_render_in_progress (set/cleared
-   * only by the UI thread, see its declaration comment) with a bounded timeout
-   * lets us wait out that in-flight call instead of racing it, while still making
-   * forward progress if the flag is somehow never cleared (e.g. a future bug that
-   * adds a return path in vita_video_render_latest_frame() without clearing it).
-   * If the timeout DOES fire, that is logged loudly (not swallowed) and we still
-   * proceed with the teardown below, since refusing to ever finalize shutdown would
-   * just trade a rare kernel-UB risk for a guaranteed hang.
-   *
-   * Why plain `volatile` is enough here, and why that would NOT generalize: the
-   * margin this correctness argument relies on is "an entire chiaki_thread_join()
-   * call's worth of time" (the decode-thread join above, which the poll below adds
-   * further margin on top of) -- not a nanosecond-scale propagation window. That is
-   * an enormous margin on any real hardware, which is why a plain volatile bool
-   * (no memory barrier, no atomic, no mutex around the flag itself) suffices for
-   * THIS specific handshake. It would NOT be sufficient for a general Dekker-style
-   * mutual-exclusion handshake between two threads racing at full speed with no
-   * such margin -- a future maintainer must not point to this code as precedent for
-   * that. */
+  /* The join above covers the decode thread only. The UI thread also takes `mtx` and draws
+   * from the textures, and this function runs on a third thread (the Chiaki session thread, or
+   * the connect thread on a failed start). The teardown gate in
+   * vita_video_render_latest_frame() plus the barriers decide who sees whom: a pass that starts
+   * after active_video_thread was cleared returns without touching `mtx`; a pass that started
+   * earlier is visible here as ui_render_in_progress. This wait is what guarantees the UI thread
+   * has left the render call before `mtx` is destroyed and before the caller frees the textures.
+   * It has no bound on purpose: giving up would mean locking a destroyed mutex and drawing a
+   * freed texture, so a stuck wait is logged every second instead. Do not move the
+   * active_video_thread clear (and its barrier) later in this function. */
   if (ui_render_in_progress) {
-    uint64_t quiescence_wait_start_us = sceKernelGetProcessTimeWide();
+    uint64_t wait_start_us = sceKernelGetProcessTimeWide();
+    uint64_t next_report_us = wait_start_us + UI_RENDER_QUIESCENCE_WARN_US;
+    bool warned = false;
     while (ui_render_in_progress) {
-      if (sceKernelGetProcessTimeWide() - quiescence_wait_start_us >=
-          UI_RENDER_QUIESCENCE_TIMEOUT_US) {
-        LOGE(
-            "VIDEO: UI thread still in render critical region after %dus -- proceeding "
-            "with mtx teardown anyway (possible kernel UB if it is still mid-swap)",
-            UI_RENDER_QUIESCENCE_TIMEOUT_US);
-        break;
+      uint64_t now_us = sceKernelGetProcessTimeWide();
+      if (now_us >= next_report_us) {
+        warned = true;
+        LOGE("VIDEO/STOP ui_wait still waiting for the UI thread to leave the render call "
+             "elapsed_us=%llu",
+             (unsigned long long)(now_us - wait_start_us));
+        next_report_us = now_us + UI_RENDER_QUIESCENCE_REPORT_INTERVAL_US;
       }
       sceKernelDelayThread(UI_RENDER_QUIESCENCE_POLL_US);
+    }
+    if (warned) {
+      LOGE("VIDEO/STOP ui_wait done elapsed_us=%llu",
+           (unsigned long long)(sceKernelGetProcessTimeWide() - wait_start_us));
     }
   }
 
