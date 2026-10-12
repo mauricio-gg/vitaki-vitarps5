@@ -5,7 +5,7 @@ What the code on `main` does today between "a UDP packet arrives from the consol
 ## 1. Pipeline at a glance
 
 ```
- PS5 --UDP--> [Takion recv thread, USER_0 then USER_2 after first audio frame, prio 64]
+ PS5 --UDP--> [Takion recv thread, USER_0, prio 64]
                  | control packets -> reorder queue (256) -> stream connection
                  | video packets -> chiaki_video_receiver_av_packet()
                  |       frame assembly + FEC + reference checks
@@ -19,16 +19,20 @@ What the code on `main` does today between "a UDP packet arrives from the consol
                  v
         [UI thread]  vita_video_render_latest_frame() -> vita2d draw + swap
 
- audio packets -> decoded inline on the recv thread (vita_audio_cb); no separate audio thread
+ audio packets -> Opus decode inline on the recv thread -> vita_audio_cb copies the frame into a
+                 hand-off queue (short mutex hold) and returns
+                       |
+                       v
+        [VitaAudio thread, USER_2, prio 64]  pops one device buffer -> sceAudioOutOutput (blocks)
  loss stats    -> [congestion control thread, every 200 ms] -> PS5
  input         -> [feedback sender thread, prio 65] -> PS5
 ```
 
-The recv thread never waits on the decoder for a whole frame: it copies the compressed frame into a queue slot and returns (section 5).
+The recv thread never waits on the decoder for a whole frame: it copies the compressed frame into a queue slot and returns (section 5). It does not wait on the sound hardware either: it copies the decoded audio frame into a queue and returns (section 6).
 
 ## 2. Receive (Takion)
 
-- **Thread.** `takion_thread_func` is created at `lib/src/takion.c:581` (`chiaki_thread_create`). On Vita it sets itself to priority `TAKION_RECV_THREAD_PRIORITY` = 64 and pins to CPU `USER_0` (`takion.c:59-65` define, `takion.c:1277-1278` apply). Decode runs on `USER_1`. The audio callback also runs on this thread and pins it to `USER_2` on the first audio frame (section 6).
+- **Thread.** `takion_thread_func` is created in `chiaki_takion_connect` (`lib/src/takion.c:617`, `chiaki_thread_create`). On Vita it sets itself to priority `TAKION_RECV_THREAD_PRIORITY` = 64 and pins to CPU `USER_0` (`takion.c:65` define, `takion.c:1602-1603` apply). Decode runs on `USER_1` and sound output on `USER_2`. Nothing re-pins the recv thread: it stays on `USER_0` at 64 for the whole stream (#416; the audio callback runs on this thread but only queues the frame, section 6).
 - **Socket buffer.** On Vita the advertised window `TAKION_A_RWND` is `0x80000` (512 KB, `takion.c:51`), copied into `takion->a_rwnd` (`takion.c:330`) and applied with `setsockopt(SO_RCVBUF)` in both connect paths (`takion.c:370`, `takion.c:491`). The kernel's actual value is read back and logged as `Takion SO_RCVBUF requested=... actual=...` (`takion.c:380-381`, `501-502`). The same value is used for `SO_SNDBUF` (`takion.c:386`, `507`).
 - **Drain loop.** After the blocking `takion_recv` wakes the thread, it pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more packets with zero-timeout reads before blocking again (`takion.c:80`, loop at `takion.c:1432-1441`). The code intends the zero-timeout read to be a poll that returns at once when the socket is empty. On hardware it is not known to behave like that: the first `PIPE/RECVBUF` log hit the cap in 108 of 135 windows at stream rates far too low to have a standing backlog, so the loop may be spending its time inside the reads (section 9.3, "What the first hardware log showed").
 - **Packet dispatch.** `takion_handle_packet` (`takion.c:1810`) sends control packets to the message path and video/audio packets straight to `takion_handle_packet_av` (`takion.c:1820-1828`). If encryption is on and the remote key is not ready yet, AV packets are parked in a postpone list instead (`takion.c:1825-1826`).
@@ -76,8 +80,14 @@ All in `vita/src/video.c`.
   - corrupt frame and a last-good texture exists and fewer than `FREEZE_MAX_STREAK` = 8 corrupt frames in a row (`video.c:179`): the last good picture is shown again instead (`video.c:1200-1208`);
   - corrupt for 8 in a row, or no last-good texture: the decoded (possibly broken) frame is shown, so the picture always resumes (`video.c:1219-1224`).
   It then draws (`draw_streaming`), calls `vita2d_wait_rendering_done()` and `vita2d_swap_buffers()` (`video.c:1246-1247`). The optional `force_30fps` pacing can skip frames before this point (`should_drop_frame_for_pacing`, `video.c:311`).
-- **Audio.** There is no separate audio thread. Audio packets take the same recv-thread path as video (`takion_handle_packet_av`, `takion.c:1828`, then `streamconnection.c:1280`, `audioreceiver.c:123`, `opusdecoder.c:95`) and `vita_audio_cb` (`vita/src/audio.c:204`) is called inline, with no hand-off and no video queue. On its first call it changes the CALLING thread, i.e. the recv thread, to priority `VITA_AUDIO_THREAD_PRIORITY` = 64 (`vita/include/audio.h:5`) and CPU `USER_2` (`audio.c:207-208`). So the recv thread starts on `USER_0` (`takion.c:1277-1278`) and, from what the code shows, is re-pinned to `USER_2` once the first audio frame arrives. This is unverified on hardware; the comments at `takion.c:1273-1276` and `video.c:1329` assume two threads. See [architecture.md](architecture.md).
-- **Thread priorities in one place.** `host.c` logs `PIPE/PRIORITY decode=64 audio=64 recv=64 feedback=65 input=96` (`host.c:514`). `audio=64` is the priority `vita_audio_cb` applies to the calling (recv) thread, not a separate thread. Lower number means higher priority on Vita.
+- **Audio (#416).** Sound output is on its own thread; the receive thread only hands audio over. None of this has been measured on hardware yet: what follows is what the code does and what it is meant to achieve.
+  - **Path.** Audio packets take the recv-thread path (`takion_handle_packet_av`, then `stream_connection_takion_av` and `chiaki_audio_receiver_av_packet`, then `chiaki_audio_receiver_frame`), and the Opus decoder callback `chiaki_opus_decoder_frame` (`lib/src/opusdecoder.c`) runs `opus_decode` and calls `vita_audio_cb` (`vita/src/audio.c`), still on the recv thread. **Opus decoding still runs on the recv thread**; only the sound output moved.
+  - **Receive thread (`vita_audio_cb`).** Copies the decoded frame into a hand-off queue (`audio_queue_push`, `vita/src/audio_queue.c`) under `audio_mtx`, signals `audio_cond` once at least one device buffer is queued, and returns. The mutex is held for one bounded frame copy plus the catch-up bookkeeping. It never calls `sceAudioOutOutput`, never waits for the audio thread or for room in the queue (a full queue is handled by the catch-up rule, below), never allocates, and no longer changes its own priority or core. A frame whose sample count differs from the first frame's is logged and dropped.
+  - **One-time init, first audio frame.** `audio_start` runs on the recv thread when the first frame arrives (the frame size is only known then). It sizes the device buffer as the smallest whole number of frames that is a multiple of 64 samples (2 frames of 480 samples), allocates the queue storage and the audio thread's private play buffer once, calls `sceAudioOutSetConfig`, and creates the thread. If anything fails it undoes it, logs an error once and audio stays off for the session (`audio_disabled`). There is no allocation per frame afterwards.
+  - **Audio thread.** `audio_thread_func`, created in `audio_start` and named "VitaAudio". It sets itself to priority `VITA_AUDIO_THREAD_PRIORITY` = 64 (`vita/include/audio.h`) and CPU `USER_2`. Its loop waits on `audio_cond` until at least one device buffer's worth of frames is queued, copies exactly that many into its play buffer under `audio_mtx`, releases the mutex, then calls `sceAudioOutOutput`, which blocks until the hardware can take the data and is the pacing. The mutex is never held across that call. If less than a device buffer is queued it waits and writes nothing. It also reads `sceAudioOutGetRestSample` before each output call, for statistics only, not as a gate. It exits promptly when told to, without draining the queue.
+  - **Catch-up rule.** After each push, if more than the bound is queued, the oldest frames are dropped so exactly one device buffer of the newest remains (`audio_queue_push`). The bound is `AUDIO_CATCHUP_BOUND_MS` = 100 ms, converted to frames from the real frame size and rate (10 frames for 480 samples at 48 kHz) and never below one device buffer plus one frame; the kept amount is one device buffer (2 frames, 20 ms); the ring holds the bound plus one frame, so a push can never overflow. Reasoned, not measured on this build: 100 ms is above the arrival gaps seen in earlier hardware logs of otherwise good runs (routinely 50 to 60 ms, up to 88 ms, so up to about 9 frames arriving at once) and about what the picture already waits in the decoder (`PIPE/DECHOLD` holds 4 to 5 frames, 65 to 80 ms); the full reasoning is the comment on `AUDIO_CATCHUP_BOUND_MS`. What a listener gets after a hiccup: the burst that arrives after a stall does not play back late; the old part is dropped (a skip in the sound) and playback continues from the newest audio.
+  - **Why it exists.** Measured on the #413 probes build, before this change: `sceAudioOutOutput` took roughly 70 to 85 percent of the receive thread's elapsed time, so the thread could keep pace with the stream but not go faster; after a stream gap of about 0.45 s, 280 to 330 KB (about 0.55 to 0.6 s of stream) stayed unread in the socket for more than 80 s (`PIPE/SOCKQ`), and 15 to 30 KB was always waiting in good gameplay. The old ring's catch-up never ran (section 9.3). The probes for judging the change are in 9.6 to 9.9.
+- **Thread priorities in one place.** `host.c` logs `PIPE/PRIORITY decode=64 audio=64 recv=64 feedback=65 input=96` (`host.c:514`). `audio=64` is `VITA_AUDIO_THREAD_PRIORITY`, applied by the VitaAudio thread to itself. The three media threads are each pinned to their own core: recv `USER_0`, VitaDecode `USER_1`, VitaAudio `USER_2`. Lower number means higher priority on Vita.
 
 ## 7. Teardown order
 
@@ -85,13 +95,17 @@ All in `vita/src/video.c`.
 
 1. `context.stream.is_streaming = false`, then `vita_h264_stop()`.
 2. `sceKernelDelayThread(2000)`.
-3. `chiaki_opus_decoder_fini`, then `vita_h264_cleanup()` (frees the decoder and textures, `video.c:827`), then `vita_audio_cleanup()`.
+3. `chiaki_opus_decoder_fini`, then `vita_h264_cleanup()` (frees the decoder and textures, `video.c:827`), then `vita_audio_cleanup()` (stops and joins the audio thread, then frees its buffers; below).
 
 Inside `vita_h264_stop` (`video.c:1476` onward):
 
 - It clears `active_video_thread` first. This is what makes `vita_video_render_latest_frame` bail out (`video.c:1120`); `is_streaming = false` alone is not enough because the UI thread only reads it on its next loop.
 - It signals the decode thread to exit and **joins** it (`video.c:1486-1498`), so no `sceAvcdecDecode` is running on a decoder that is about to be freed.
 - It frees the queue slots, then polls `ui_render_in_progress` for up to `UI_RENDER_QUIESCENCE_TIMEOUT_US` = 50 ms, logging an error if the UI thread is still inside a render call (`video.c:1471`, `1575-1588`), and only then calls `chiaki_mutex_fini(&mtx)` (`video.c:1590`).
+
+Inside `vita_audio_cleanup` (`vita/src/audio.c`, #416), if the audio thread was started: it takes `audio_mtx`, sets `audio_exit`, signals `audio_cond`, releases the mutex and **joins** the thread (`chiaki_thread_join`). Only then does it log the session stats, free the queue storage and the play buffer, destroy the mutex and condition, and reset its state. The join comes first because the audio thread uses all of those, and it may be inside `sceAudioOutOutput` (it sees the exit request when that call returns, at most about one device buffer, 20 ms for 480-sample frames). Same discipline as `vita_h264_stop()`: signal, join, then free.
+
+Why the receive thread cannot still be calling `vita_audio_cb` (which locks `audio_mtx` and writes into the queue) when this runs: the call comes from `host_handle_quit_event` (`host_quit.c`) on `CHIAKI_EVENT_QUIT`, and `session_thread_func` (`lib/src/session.c`) sends that event only after `chiaki_stream_connection_run` has returned; on its way out that function calls `chiaki_takion_close` (`streamconnection.c`, label `close_takion`), which stops and **joins** the Takion thread (`takion.c`). The other caller, in the failure path of `host_stream` (`host.c`), runs only when the session did not start, so no Takion thread exists.
 
 Why the order matters: the decode thread writes into `frame_texture`, the UI thread draws from it and both take `mtx`. Freeing the texture or destroying the mutex while either thread is inside it is a use-after-free (destroying a mutex a thread holds is undefined on the Vita kernel). The comments at `video.c:1528-1548` call the order "load-bearing".
 
@@ -275,7 +289,7 @@ Example (a decoder holding two frames): `PIPE/DECHOLD fed=60 handed=60 hold=2 ho
 | `block_us` | Time inside the blocking `takion_recv(..., UINT64_MAX)`: from the clock read just before the call to the read just after it returns. This is the thread waiting for the packet that wakes it, and nothing else. |
 | `poll_us`, `poll_max_us` | Total and longest single time inside a zero-timeout `takion_recv` of the drain loop (clock read just before to just after, including the empty one that ends the loop and including the `recv()` copy of a successful one). |
 | `wall_us` | Length of the window: the microsecond clock at the close minus the clock at the previous close (the thread start for the first window). |
-| `work_us` | `wall_us - block_us - poll_us`, 0 if that would be negative: packet handling, frame assembly, the decode hand-off, audio, logging and the rest of the loop. Not measured directly. |
+| `work_us` | `wall_us - block_us - poll_us`, 0 if that would be negative: packet handling, frame assembly, the decode hand-off, audio (Opus decode and the hand-off to the audio thread; since #416 not the sound output call), logging and the rest of the loop. Not measured directly. |
 | `busy_pct` | `work_us / wall_us`, one decimal. |
 
 Cost of the timing: one clock read before and one after the blocking receive (2 per wake-up) and the same pair around every zero-timeout read, so 2 per drained packet plus 2 for the call that ends the loop (none extra when the cap ends it): 4 per wake-up plus 2 per drained packet. One more read per window at the close and one at thread start. The existing millisecond read per iteration is unchanged. On Vita each read is `sceKernelGetProcessTime`. The cost of one read is now measured once per session and printed as `clock_read_ns` on `PIPE/RECVTHREAD` (section 9.8); the sections 9.6 and 9.7 probes add reads on top of these, counted in their own sections.
@@ -409,7 +423,7 @@ Scaling lists are walked (their size is fixed at 16 or 64 entries and the loop e
 
 ### 9.6 `PIPE/RECVTIME`: where does the receive thread's time go?
 
-**What it measures.** `PIPE/RECVBUF` (9.3) says how long the receive thread is busy (`work_us`) but not on what. This line splits `work_us` of the same window by what the thread was doing: handling video packets, audio packets or control packets, and inside those, three suspects: the video hand-off to the decoder queue, the audio callback, and the call that plays audio (`sceAudioOutOutput`). It also counts how much of the time went into log calls. Logging only: no behaviour changes.
+**What it measures.** `PIPE/RECVBUF` (9.3) says how long the receive thread is busy (`work_us`) but not on what. This line splits `work_us` of the same window by what the thread was doing: handling video packets, audio packets or control packets, and inside those, two suspects: the video hand-off to the decoder queue and the audio callback (since #416 the hand-off to the audio thread; the call that plays audio, `sceAudioOutOutput`, moved to its own thread and is on `PIPE/AUDIOOUT`, 9.9). It also counts how much of the time went into log calls. Logging only: no behaviour changes.
 
 **Same window.** It is accumulated and published by the same window close, under the same sequence lock, as `PIPE/RECVBUF` (9.3), and printed right after it under `show_latency`. The accumulators are zeroed with the 9.3 ones. Nothing here is a second window.
 
@@ -425,13 +439,10 @@ Scaling lists are walked (their size is fixed at 16 or 64 entries and the loop e
 | `audio_n`, `audio_us`, `audio_max_us` | Same for audio (and haptics). |
 | `ctrl_n`, `ctrl_us`, `ctrl_max_us` | Same for control. |
 | `vsubmit_n`, `vsubmit_us`, `vsubmit_max_us` | Subset of `video_us`: calls of `host_video_cb` (the whole callback, including its call of `vita_h264_decode_frame` and any wait for a free slot in the decode queue). |
-| `acb_n`, `acb_us`, `acb_max_us` | Subset of `audio_us`: calls of `vita_audio_cb`. On the path that plays audio the callback is taken to end when `sceAudioOutOutput` returns (the three statements after it are not included); on the other paths it ends at the return. |
-| `aout_n`, `aout_us`, `aout_max_us` | Subset of `acb_us`: the `sceAudioOutOutput` call alone. |
-| `ashort` | Audio callbacks that returned at the `write_read_framediff < device_buffer_frames` check (not enough frames buffered to play). |
-| `askip` | Audio callbacks that returned because `audio_should_output_now()` was false. |
-| `acatchup` | Times the audio catch-up path ran (`audio_catchup_to_latest_frame`). |
+| `acb_n`, `acb_us`, `acb_max_us` | Subset of `audio_us`: calls of `vita_audio_cb`, which since #416 is the hand-off: the mutex, the copy into the queue, the catch-up check and the probe bookkeeping. It is timed from the start of the callback to its return. The Opus decode before it is in `audio_us` but not in `acb_us`. |
+| `acatchup` | Pushes on which the catch-up rule dropped frames (section 6); the same count is printed as `catchups` on `PIPE/AUDIO`. |
 | `work_us` | The `work_us` of the `PIPE/RECVBUF` line of the same window, repeated. |
-| `unacct_us` | `work_us - video_us - audio_us - ctrl_us`, printed **signed**. Only the three classes are subtracted: `vsubmit`, `acb`, `aout` and the log fields are already inside a class and must not be subtracted again. A negative value is printed as is (never clamped to 0). It contains everything the loop does outside packet handling, the postponed-packet flush, the time of the socket-queue queries (9.7, printed on their own line) and any packet type outside the three classes. |
+| `unacct_us` | `work_us - video_us - audio_us - ctrl_us`, printed **signed**. Only the three classes are subtracted: `vsubmit`, `acb` and the log fields are already inside a class and must not be subtracted again. A negative value is printed as is (never clamped to 0). It contains everything the loop does outside packet handling, the postponed-packet flush, the time of the socket-queue queries (9.7, printed on their own line) and any packet type outside the three classes. |
 | `log_n`, `log_us`, `log_max_us` | Log calls made by the receive thread that were actually written (passed the level mask and `vita_log_should_write_level`), their total time and the longest. |
 | `vlog_us`, `alog_us`, `clog_us` | `log_us` split by the class of the packet being handled when the call was made. What is left of `log_us` was logged outside packet handling. |
 | `log_block` | Written log calls of a level other than DEBUG: those take the blocking mutex path in `vita_log_submit_line` (`vita/src/logging.c`). |
@@ -440,15 +451,15 @@ Scaling lists are walked (their size is fixed at 16 or 64 entries and the loop e
 
 **Cost of the probe (added clock reads).**
 - Takion loop: none per packet. One per capped wake-up. One per socket-queue sample (9.7).
-- `vita_audio_cb`: 3 reads on a frame that plays audio (start, before and after `sceAudioOutOutput`), 2 on the others (start, end).
+- `vita_audio_cb`: 2 reads per frame on the receive thread (start, end); the start read also serves the queue occupancy window.
 - `host_video_cb`: 2 per submitted frame.
 - A lib log call: 2 on the receive thread (start and end of `log_cb_debugnet`), none on other threads. A Vita-macro log call: 1 on the receive thread (the start is the timestamp it reads anyway), none on other threads.
 - The "am I the receive thread" check is one `sceKernelGetThreadId()` call per audio frame, video frame and log call, from any thread, with no clock read. Its cost is measured once per session as `thread_id_ns`, and the clock read as `clock_read_ns` (both on `PIPE/RECVTHREAD`, 9.8); multiply by the call counts to get the probe's own cost. Neither value is known before the first hardware log.
 
-Example (made-up numbers, not from hardware): `PIPE/RECVTIME video_n=420 video_us=210000 video_max_us=9000 audio_n=100 audio_us=640000 audio_max_us=15000 ctrl_n=30 ctrl_us=2000 ctrl_max_us=300 vsubmit_n=55 vsubmit_us=150000 vsubmit_max_us=8000 acb_n=100 acb_us=600000 acb_max_us=14000 aout_n=100 aout_us=580000 aout_max_us=13000 ashort=0 askip=0 acatchup=0 work_us=917000 unacct_us=65000 log_n=300 log_us=40000 log_max_us=900 vlog_us=25000 alog_us=0 clog_us=3000 log_block=2`
+Example (made-up numbers, not from hardware; field order is the format string in `vita/src/recv_probe.c`): `PIPE/RECVTIME video_n=420 video_us=210000 video_max_us=9000 audio_n=100 audio_us=60000 audio_max_us=900 ctrl_n=30 ctrl_us=2000 ctrl_max_us=300 vsubmit_n=55 vsubmit_us=150000 vsubmit_max_us=8000 acb_n=100 acb_us=300 acb_max_us=40 acatchup=0 work_us=300000 unacct_us=28000 log_n=300 log_us=40000 log_max_us=900 vlog_us=25000 alog_us=0 clog_us=3000 log_block=2`
 
 **How to read it.**
-- Audio output is where the thread waits: `aout_us` is most of `acb_us` and `acb_us` is most of `audio_us` and of `work_us`; `aout_max_us` is in milliseconds (the audio buffer period) rather than microseconds. `audio_us - acb_us` is then opus decode, decryption and the audio receiver; `acb_us - aout_us` is the callback without the output call.
+- Audio: what is expected after #416 (not measured yet) is `acb_us` and `acb_max_us` small, microseconds per frame, because the callback no longer waits on the sound hardware; the milliseconds that `aout_us` showed on the #413 probes build now belong to `PIPE/AUDIOOUT` (9.9). `audio_us - acb_us` is Opus decode, decryption and the audio receiver. A large `acb_max_us` would mean the mutex was contended or the thread was descheduled inside the callback. `aout_*`, `ashort` and `askip` were removed from this line in #416.
 - Video submit is where it waits: `vsubmit_us` is most of `video_us`, with `vsubmit_max_us` near 10 ms (the decode queue's bounded wait in `vita_h264_decode_frame`, `vita/src/video.c`).
 - Logging: `log_us` large compared with `work_us`, mostly in `vlog_us` (the lib's per-frame lines).
 - Nothing accounts for it: `unacct_us` is most of `work_us` and the class buckets are small. Then the time is outside packet handling (the loop's own work, the postponed flush) or the thread is not running (preempted by another thread of equal or higher priority); `PIPE/RECVTHREAD` (9.8) shows priority and core.
@@ -487,7 +498,7 @@ Example (made-up numbers): `PIPE/SOCKQ ok=1 n=14 min=0 avg=21000 max=96000 wake_
 
 ### 9.8 `PIPE/RECVTHREAD`: which core and priority does the receive thread really have?
 
-**What it measures.** The receive thread's priority, affinity mask and CPU as the system reports them (`sceKernelGetThreadInfo` for the thread's own id), not as our constants say. The thread starts at priority `TAKION_RECV_THREAD_PRIORITY` on `SCE_KERNEL_CPU_MASK_USER_0`; the first audio frame runs `vita_audio_cb`'s one-time init on the same thread, which sets `VITA_AUDIO_THREAD_PRIORITY` and `SCE_KERNEL_CPU_MASK_USER_2` (section 6), so the expected change is `start_*` values (USER_0) and, after the first audio frame, current values on USER_2.
+**What it measures.** The receive thread's priority, affinity mask and CPU as the system reports them (`sceKernelGetThreadInfo` for the thread's own id), not as our constants say. The thread starts at priority `TAKION_RECV_THREAD_PRIORITY` on `SCE_KERNEL_CPU_MASK_USER_0` and, since #416, nothing moves it: `vita_audio_cb` only queues the frame, and the sound output runs on the VitaAudio thread (section 6). So the expected reading is current values equal to the `start_*` values (USER_0, priority 64) for the whole stream. Before #416 the first audio frame re-pinned this thread to USER_2; hardware logs of the #413 probes build showed that move (`PIPE/RECVTHREAD` confirmed the thread went from core 0 to core 2 about a second after audio started).
 
 **When it is sampled and printed.** The receive thread samples at each window close, off the per-packet path, and once at thread start. The start sample is kept in the once-per-session facts and printed on every line as `start_*`, because the reporter only sees whichever window is published when it runs (once a window, only while the latency printing is on) and may never see the start window itself. The reporter prints the line at the first window it sees and again whenever the current priority, affinity mask or CPU differs from what it printed last; that state is reset in `host_metrics_reset_stream`. One line therefore shows "started on X, now on Y".
 
@@ -498,23 +509,31 @@ Example (made-up numbers): `PIPE/SOCKQ ok=1 n=14 min=0 avg=21000 max=96000 wake_
 | `prio`, `affinity`, `cpu`, `last_cpu` | `currentPriority`, `currentCpuAffinityMask` (hex), `currentCpuId`, `lastExecutedCpuId` from `SceKernelThreadInfo`. |
 | `info_rc` | Return code of `sceKernelGetThreadInfo` (0 is success; the other fields are 0 otherwise). |
 | `start_prio`, `start_affinity`, `start_cpu`, `start_info_rc` | The same sample taken once when the receive thread started, before its loop. |
-| `audio_started` | 1 once the audio callback's one-time init has run. |
+| `audio_started` | 1 once `vita_audio_cb`'s one-time init has succeeded (`vita_audio_started()`): queue, audio thread and output config in place. It no longer says anything about this thread's core. |
 | `clock_read_ns` | Cost of one `chiaki_time_now_monotonic_us()` read, from 1000 back-to-back reads timed once at receive-thread start (`TAKION_PROBE_CLOCK_READS`), in nanoseconds. Its resolution is 1 ns only because of the averaging over 1000 reads. |
 | `thread_id_ns` | Cost of one `sceKernelGetThreadId()` call, timed the same way (1000 back-to-back calls at receive-thread start), in nanoseconds. This is the "am I the receive thread" check made by every log call, audio frame and video frame (9.6). 0 off Vita. |
 | `sockq_ok`, `sockq_flags`, `sockq_id`, `sockq_info_rc`, `sockq_info_rc_self`, `sockq_info_id` | The 9.7 self-check: whether it passed, the last argument that passed (-1 if none), the SceNet id resolved (-1 if not), the return codes of the `flags = 0` attempt and of the `SCE_NET_SOCKINFO_F_SELF` attempt (-2147483648 means that attempt was not made because the first passed), and the `s` field of the last attempt. |
 | `sockq_info_port_raw`, `sockname_rc`, `sockname_port_net`, `sockname_port_host` | The `local_port` field `sceNetGetSockInfo` returned (unconverted), the return code of `getsockname`, and its port as stored and after `ntohs`. |
 
-Example (made-up numbers): `PIPE/RECVTHREAD prio=64 affinity=0x40000 cpu=2 last_cpu=2 info_rc=0 start_prio=64 start_affinity=0x10000 start_cpu=0 start_info_rc=0 audio_started=1 clock_read_ns=450 thread_id_ns=300 sockq_ok=1 sockq_flags=0 sockq_id=7 sockq_info_rc=0 sockq_info_rc_self=-2147483648 sockq_info_id=7 sockq_info_port_raw=51234 sockname_rc=0 sockname_port_net=51234 sockname_port_host=51234`
+Example (made-up numbers): `PIPE/RECVTHREAD prio=64 affinity=0x10000 cpu=0 last_cpu=0 info_rc=0 start_prio=64 start_affinity=0x10000 start_cpu=0 start_info_rc=0 audio_started=1 clock_read_ns=450 thread_id_ns=300 sockq_ok=1 sockq_flags=0 sockq_id=7 sockq_info_rc=0 sockq_info_rc_self=-2147483648 sockq_info_id=7 sockq_info_port_raw=51234 sockname_rc=0 sockname_port_net=51234 sockname_port_host=51234`
 
-**How to read it.** `start_affinity=0x10000` with `affinity=0x40000` and `audio_started=1` confirms the thread moved to the audio core. If `prio` equals the audio or decode thread's priority (all 64) and the thread shares a core with them, equal-priority threads time-slice, which `PIPE/RECVTIME` would show as a large `unacct_us` or inflated class times. `clock_read_ns` tells how much of `PIPE/RECVBUF`'s `work_us` can be clock overhead (4 reads per wake-up plus 2 per drained packet).
+**How to read it.** `affinity` equal to `start_affinity` (`0x10000`, USER_0) with `prio=64` and `cpu=0` means the thread was not moved (expected after #416, not measured yet). The reporter prints this line at the first window it sees and again only when `prio`, `affinity` or `cpu` changed, so with no move it normally prints once, and that one line shows `audio_started` as it was at that moment (0 if the first audio frame had not arrived yet). The confirmation is therefore the absence of a second line; a second line with a different `affinity` or `cpu` means something moved the thread. The recv, decode and audio threads are each pinned to their own core, so equal priority (all 64) does not make them time-slice against each other; if the recv thread did share a core with another busy thread, `PIPE/RECVTIME` would show a large `unacct_us` or inflated class times. `clock_read_ns` tells how much of `PIPE/RECVBUF`'s `work_us` can be clock overhead (4 reads per wake-up plus 2 per drained packet).
 
 **What it cannot tell you.** It is a sample once a window, so a core change inside a window shows at the next close. It says where the thread is, not whether it was waiting. Values are "to be measured"; no hardware result is recorded here yet.
 
-### 9.9 `PIPE/AUDIO`: is audio delivered and played without gaps?
+### 9.9 `PIPE/AUDIO` and `PIPE/AUDIOOUT`: is audio delivered and played without gaps?
 
-**What it measures.** Why audio might crackle, which no other line shows: how many audio packets and frames arrive, how many are new, how many frame indexes go missing, what reaches the audio callback, what is handed to the sound hardware, and whether the hand-over is late. Logging only. Printed once per window right after `PIPE/RECVTIME` (same window, same publication, 9.3).
+**What it measures.** Why audio might crackle, which no other line shows. Two lines, written by two threads (#416):
+- `PIPE/AUDIO` is the receive side: how many audio packets and frames arrive, how many are new, how many frame indexes go missing, what reaches `vita_audio_cb`, how full the hand-off queue is and whether the catch-up rule dropped frames.
+- `PIPE/AUDIOOUT` is the output side: what the VitaAudio thread did with the sound hardware, and whether its calls were late.
 
-**Where each count accumulates.** All on the receive thread, in `recvtime_acc.audio_stats`, reset and published by the same window close as the rest. The lib audio receiver (`lib/src/audioreceiver.c`) writes the receiver counters: it reaches the accumulator through its session (`session->stream_connection.takion.recvtime_acc`). `vita_audio_cb` (`vita/src/audio.c`) writes the rest. The audio receiver code is shared with haptics (one receiver instance each, same functions); haptics are kept out of every audio count (`haptic_pkts` is the only haptics figure).
+Logging only. Both are printed once per reporter pass right after `PIPE/RECVTIME`, in the order `PIPE/RECVTIME`, `PIPE/AUDIO`, `PIPE/AUDIOOUT`, `PIPE/SOCKQ`. Before #416 the output fields were on `PIPE/AUDIO`; they are now on `PIPE/AUDIOOUT` and `out_forced` is gone with the old output gate.
+
+**Where each count accumulates.**
+- `PIPE/AUDIO`: all on the receive thread, in `recvtime_acc.audio_stats`, reset and published by the same window close as the rest (same window as `PIPE/RECVBUF`, 9.3). The lib audio receiver (`lib/src/audioreceiver.c`) writes the receiver counters: it reaches the accumulator through its session (`session->stream_connection.takion.recvtime_acc`). `vita_audio_cb` (`vita/src/audio.c`) writes the rest (`decoded`, `catchup_frames`, the `q_*` samples) and `acatchup`. The audio receiver code is shared with haptics (one receiver instance each, same functions); haptics are kept out of every audio count (`haptic_pkts` is the only haptics figure).
+- `PIPE/AUDIOOUT`: all on the VitaAudio thread, in private counters (`AudioOutAcc`, `vita/src/audio.c`), which it alone touches.
+
+**`PIPE/AUDIO` fields.** `PIPE/AUDIO net_pkts= haptic_pkts= frames_new= frames_dup= frames_missing= gap_events= decoded= catchups= catchup_frames= q_min= q_avg= q_max=`
 
 | Field | Meaning |
 |---|---|
@@ -523,24 +542,47 @@ Example (made-up numbers): `PIPE/RECVTHREAD prio=64 affinity=0x40000 cpu=2 last_
 | `frames_dup` | Units the receiver discarded because their frame index is not newer than the last accepted one. Each packet carries redundant copies of earlier frames, so this is normally large (about as many as `frames_new` times the redundancy). Units skipped at start-up (before the 16-bit index could have wrapped) never reach the check and are not counted. |
 | `frames_missing`, `gap_events` | Frame indexes skipped between two consecutive accepted frames: the jump minus one (`chiaki_takion_probe_seq16_missing`), and the number of jumps. The jump is the 16-bit modular difference, so the wrap from 0xffff to 0 is not a gap. The first accepted frame of a receiver has no baseline and is not counted. A frame that arrives late after its successor was accepted is discarded as a duplicate, so it stays counted as missing. |
 | `decoded` | Frames that reached `vita_audio_cb` (after opus decoding). `frames_new - decoded` is frames lost between the receiver and the callback, mostly opus decode failures. `decode_err` is not printed: the opus decoder (`opusdecoder.c`) has no path to the accumulator without restructuring, so failures are only derivable that way. |
-| `out_calls`, `out_frames` | Calls to `sceAudioOutOutput` and the frames they handed over (`out_calls` times `device_buffer_frames`). |
-| `catchups`, `catchup_frames` | Times the ring caught up (`audio_catchup_to_latest_frame`) and the buffered frames thrown away by them: `write_read_framediff` before minus after, both values the code already computes. |
-| `rest_n`, `rest_err` | Reads of `sceAudioOutGetRestSample` (the existing call in `audio_should_output_now`; none is added) that returned a value >= 0 and < 0. |
-| `rest_min`, `rest_max` | Smallest and largest of the non-negative values. The header documents the call only as "number of remaining samples to be output on the specified port, < 0 on error". |
-| `out_dry` | Output calls made with the value read as <= 0. The code outputs only when the value is 0 (the queue limit is 0), so this is normally `out_calls - out_forced`. |
-| `out_forced` | Output calls made without the value being read, because the catch-up branch returned first. |
-| `out_gap_max_us`, `out_late` | Longest time from one `sceAudioOutOutput` returning to the next being called, and the number of gaps longer than the play time of one device buffer (`device_buffer_samples * 1000000 / rate` microseconds, derived at run time). These reuse the clock reads already made around the output call; no read is added. |
+| `catchups`, `catchup_frames` | Pushes on which the catch-up rule (section 6) dropped frames, and the total number of queued frames it dropped. Normally 0 and 0. The same event is logged as `VITA AUDIO :: audio catchup: dropped N frames, M queued` and counted in the end-of-session `Catchups` line. |
+| `q_min`, `q_avg`, `q_max` | Hand-off queue occupancy in frames, one sample per push, taken after the push and after any catch-up (so a catch-up shows as a sample of 2, the kept device buffer). `q_avg` has two decimals. `q_min` prints 0 when the window had no sample. The samples come from the receive thread, so they are never taken while the queue is only being drained: a stall in the stream gives no samples, not low ones. (`PIPE/LATENCY` prints the same samples as `audio_q_avg` and `audio_q_max` on its own 1 s window.) |
 
-Example (made-up numbers, not from hardware): `PIPE/AUDIO net_pkts=100 haptic_pkts=0 frames_new=100 frames_dup=300 frames_missing=0 gap_events=0 decoded=100 out_calls=25 out_frames=100 catchups=0 catchup_frames=0 rest_n=25 rest_err=0 rest_min=0 rest_max=0 out_dry=25 out_forced=0 out_gap_max_us=9000 out_late=0`
+**`PIPE/AUDIOOUT` fields.** `PIPE/AUDIOOUT out_calls= out_frames= aout_us= aout_max_us= rest_n= rest_err= rest_min= rest_max= out_dry= out_gap_max_us= out_late= waits= wall_us=`
+
+| Field | Meaning |
+|---|---|
+| `out_calls`, `out_frames` | Calls to `sceAudioOutOutput` in the window and the frames they handed over (`out_calls` times `device_buffer_frames`). |
+| `aout_us`, `aout_max_us` | Total and longest single time inside `sceAudioOutOutput` (32-bit, saturating). This is the time the receive thread used to spend on the call before #416 (roughly 70 to 85 percent of its elapsed time on the #413 probes build, measured as `aout_us` on `PIPE/RECVTIME`). The call blocks until the hardware can take the buffer, so a call is expected to last about one device buffer's play time (20 ms for 2 frames of 480 samples at 48 kHz) when the thread keeps up. |
+| `rest_n`, `rest_err` | Reads of `sceAudioOutGetRestSample` (one before each output call, statistic only) that returned a value >= 0 and < 0. |
+| `rest_min`, `rest_max` | Smallest and largest of the non-negative values (0 when `rest_n` is 0). The header documents the call only as "number of remaining samples to be output on the specified port, < 0 on error". |
+| `out_dry` | Output calls whose preceding read gave a value <= 0 (an error return counts too). Raw value: what a rest of zero means for what is heard is **not established**. |
+| `out_gap_max_us`, `out_late` | Longest time from one `sceAudioOutOutput` returning to the next being called, and the number of such gaps longer than the play time of one device buffer (`device_buffer_samples * 1000000 / rate` microseconds, derived at run time). The gap includes the time the thread slept waiting for a device buffer's worth of frames (`waits`). The first call of the session has no previous call and is not counted. |
+| `waits` | Times the thread went to sleep because less than one device buffer was queued. |
+| `wall_us` | Length of the window: from the previous window's close (for the first window, the start of its first output call) to the return of the call that closed this one. |
+
+**The `PIPE/AUDIOOUT` window.** It is the audio thread's own, not the receive thread's. It closes inside the audio thread, right after an output call returns, once at least 1 s (`AUDIO_OUT_WINDOW_US`) has passed since the window started; the thread then publishes the counters under a sequence lock (`audioout_lock`, odd while writing, `audioout_pub`, both in `context.stream`) and zeroes its counters. Because it closes only after an output call, a thread that is starved (asleep waiting for frames, or stuck in the call) shows its last window again until sound resumes: a repeated `PIPE/AUDIOOUT` line is a sign of that, not of a quiet window. It is not aligned with the reporter's window or with the receive thread's, so the same window can be printed twice, or one skipped, between two `PIPE/AUDIO` lines; compare figures per second (`wall_us`), not by line. The reporter (`host_metrics_update_latency`, `vita/src/host_metrics.c`) copies the published window the same way as `PIPE/DECHOLD` (up to `AUDIOOUT_READ_ATTEMPTS` = 4 tries at a consistent copy) and prints the last consistent copy if none succeeds. The line is all zeros until the first window closes (about the first second after audio starts) and for the whole session if audio is off. The published window is cleared when audio starts (`audio_start`) and with the stream (`host_metrics_reset_stream`), so a window never carries over from an earlier session.
+
+Examples (made-up numbers, not from hardware; field order is the format strings in `vita/src/recv_probe.c`):
+
+`PIPE/AUDIO net_pkts=100 haptic_pkts=0 frames_new=100 frames_dup=300 frames_missing=0 gap_events=0 decoded=100 catchups=0 catchup_frames=0 q_min=1 q_avg=1.40 q_max=3`
+
+`PIPE/AUDIOOUT out_calls=50 out_frames=100 aout_us=980000 aout_max_us=21000 rest_n=50 rest_err=0 rest_min=0 rest_max=0 out_dry=50 out_gap_max_us=2000 out_late=0 waits=3 wall_us=1000000`
 
 **How crackling would be expected to show** (hypotheses, none established):
 - Frames lost on the network: `frames_missing` above 0 with `gap_events`, or `frames_new` clearly below the stream's frame rate (about 100 a second is expected; the 9928 frames over 103 s of the first session was 3% short).
 - Frames lost after the receiver: `decoded` below `frames_new`.
-- The hardware starved: `out_late` above 0, or `out_gap_max_us` well over the device buffer's play time. This does not depend on what `sceAudioOutGetRestSample` returns. Whether a rest of zero means an audible gap is **not established**; `rest_*` and `out_dry` are raw values.
-- Frames thrown away: `catchups` and `catchup_frames` above 0 (the first session printed `Catchups: 0`).
-- Delivery in bursts instead of steadily is not visible here; compare with `PIPE/RECVTIME` (`aout_max_us`, `acb_us`).
+- The hardware starved: `out_late` above 0, or `out_gap_max_us` well over the device buffer's play time. With `waits` also high, the queue ran short, so the stream delivered less than the hardware consumed (compare `q_min` and `frames_missing`); with late gaps but `waits` low, frames were queued and the audio thread itself was delayed. Both readings are reasoned, not established. This does not depend on what `sceAudioOutGetRestSample` returns; `rest_*` and `out_dry` are raw values.
+- Frames thrown away on purpose: `catchups` and `catchup_frames` above 0. That is the rule working, and it is audible as a skip; it is a fault only if it repeats without a stream hiccup before it.
+- Delivery in bursts: `q_max` approaching the bound (10 frames for 480-sample frames at 48 kHz) shows arrivals building up faster than they are played; compare with `PIPE/SOCKQ` and `PIPE/RECVBUF`.
 
-**What it cannot tell you.** It never hears the output: a late call or a skipped frame is a risk of a gap, not proof of one. `out_late` counts only the calls this code makes, so a hardware underrun that the code does not notice is invisible. The gap between calls is measured only when two output calls are both timed, so the first call after a catch-up of the thread or session start is not counted. Values are "to be measured"; no hardware result is recorded here yet.
+**How to judge #416 on hardware.** Expectations, none measured yet. Compare against the #413 probes-build logs, where the output fields were on `PIPE/AUDIO` and `aout_us` on `PIPE/RECVTIME`.
+- The socket drains after a hiccup: `PIPE/SOCKQ` near zero, and back to near zero within about a second after a stream gap (before: 280 to 330 KB stayed for more than 80 s; 15 to 30 KB was always waiting in good gameplay).
+- The receive thread no longer pays for the sound hardware: `acb_us` and `acb_max_us` on `PIPE/RECVTIME` small.
+- The catch-up rule runs only when it should: `catchups` and `catchup_frames` above 0 once at a hiccup and 0 otherwise.
+- Sound is not sitting late in the queue: `q_min` stays low. A `q_min` that stays high for many windows means audio is queued late without ever crossing the bound, which the rule does not fix.
+- The output keeps pace: `out_late` and `out_gap_max_us` no worse than in the baseline logs.
+- The burst after a hiccup does not cost video: `decode_q_drops` on `PIPE/FPS` stays 0 during it.
+- The recv thread stays on `USER_0` (9.8).
+
+**What it cannot tell you.** It never hears the output: a late call or a dropped frame is a risk of a gap, not proof of one. `out_late` counts only the calls this code makes, so a hardware underrun that the code does not notice is invisible. `q_*` samples are taken at pushes only, so they say nothing about the queue while the stream is silent. A `q_min` that stays low does not show that no sound was late, only that it was not queued late. `PIPE/AUDIOOUT` windows are not aligned with anything else. Values are "to be measured"; no hardware result is recorded here yet.
 
 ## 10. What is not here
 

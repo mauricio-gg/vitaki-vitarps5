@@ -38,7 +38,7 @@ Layering rule: `vita/` calls into `lib/`, never the other way round. Where `vita
 
 **Media**
 - `video.c`: H.264 decode through `sceAvcdec`, with a queue feeding the VitaDecode thread, plus frame rendering.
-- `audio.c`: `sceAudioOut` output, fed by `vita_audio_cb()`.
+- `audio.c`, `audio_queue.c`: `sceAudioOut` output on the VitaAudio thread, fed through a hand-off queue by `vita_audio_cb()` on the recv thread. `audio_queue.c` is the pure queue with the catch-up rule, tested natively in `test/audio_queue_tests.c`.
 - `video_overlay.c`: in-stream overlays: the exit hint pill, the stats panel and the Network Unstable pill (C19 and C25, see `ui-mocks/SPEC.md` 3.5), counted as one `UI/DRAWS` frame named `overlay`; in testing builds it also draws the debug resync widget from `debug_tools.c`.
 
 **Config and discovery**
@@ -110,18 +110,19 @@ Vita rule: a lower number is a higher priority. "Default" is the literal `0x1000
 | VitaLogThread | `vita_log_worker_init()`, `vita/src/logging.c:354` | `0x40` (64) |
 | Session | `chiaki_session_start()`, `lib/src/session.c:322` | default |
 | Ctrl | `chiaki_ctrl_start()` (called at `session.c:603`), `lib/src/ctrl.c:162` | default |
-| Takion recv | `chiaki_takion_connect()`, `lib/src/takion.c:581`; one for the Senkusha probe (`senkusha.c:164`), one for the stream (`streamconnection.c:287`) | 64 (`TAKION_RECV_THREAD_PRIORITY`, `takion.c:64`, applied at `takion.c:1277`), core USER_0 |
+| Takion recv | `chiaki_takion_connect()`, `lib/src/takion.c:617`; one for the Senkusha probe (`senkusha.c:164`), one for the stream (`streamconnection.c:287`) | 64 (`TAKION_RECV_THREAD_PRIORITY`, `takion.c:65`, applied at `takion.c:1602-1603`), core USER_0, never moved afterwards (#416) |
 | Takion send buffer | `chiaki_takion_send_buffer_init()`, `lib/src/takionsendbuffer.c:53`, called from the Takion thread (`takion.c:1345`) | default |
 | GKCrypt key buffer | `chiaki_gkcrypt_init()`, `lib/src/gkcrypt.c:75`, only when a key buffer is configured | default |
 | Congestion control | `chiaki_congestion_control_start()`, `lib/src/congestioncontrol.c:129`, called from `streamconnection.c:308` | default |
 | Feedback sender | `chiaki_feedback_sender_init()`, `lib/src/feedbacksender.c:78` | 65 (`FEEDBACK_SENDER_THREAD_PRIORITY`, `feedbacksender.c:31`, applied at L413), no core pin |
 | VitaDecode | `vita_h264_start()`, `vita/src/video.c:1447` | 64 (`VITA_DECODE_THREAD_PRIORITY`, `vita/include/video.h:39`, applied at `video.c:1330`), core USER_1 |
+| VitaAudio | `audio_start()`, `vita/src/audio.c`, from `vita_audio_cb()` on the first audio frame (a one-time init, run on the Takion recv thread); stopped and joined by `vita_audio_cleanup()` | 64 (`VITA_AUDIO_THREAD_PRIORITY`, `vita/include/audio.h`, applied by the thread itself in `audio_thread_func()`), core USER_2 |
 | Input | `host_stream()`, `vita/src/host.c:536`; body `host_input_thread_func()` | 96 (`VITA_INPUT_THREAD_PRIORITY`, `vita/include/host_input.h:11`, applied at `host_input.c:261`), affinity mask 0 |
 | ConfigWriter | first config save, `config_writer_submit()` in `vita/src/config_writer.c`; lives until the process ends and sleeps until a save is queued | 176 (`CONFIG_WRITER_PRIORITY`, lower than the UI thread), default stack |
 | Discovery service | `chiaki_discovery_service_init()`, `lib/src/discoveryservice.c:75`, via `start_discovery()` | default; stopped while a stream runs (`host.c:456-460`) |
 
 Notes:
-- There is no audio thread. `vita_audio_cb()` (`vita/src/audio.c:204`) runs inline on whichever thread delivers the decoded audio. The call chain `takion_handle_packet_av()` (`takion.c:1828`) to `chiaki_audio_receiver_av_packet()` (`streamconnection.c:1280`) to the Opus decoder callback (`opusdecoder.c:95`) has no thread hand-off, so this is the Takion recv thread. On its first call the callback sets that calling thread to priority 64 (`VITA_AUDIO_THREAD_PRIORITY`, `vita/include/audio.h:5`) and core USER_2 (`audio.c:207-208`). The comments in `takion.c:1273-1276` and `video.c:1329` describe USER_2 as "audio" and USER_0 as "recv" as if they were separate threads; from the code they appear to be the same thread, re-pinned on the first audio frame. This is unverified on hardware.
+- Audio (#416) has its own output thread. `vita_audio_cb()` (`vita/src/audio.c`) runs on the Takion recv thread: the call chain `takion_handle_packet_av()` to `chiaki_audio_receiver_av_packet()` to the Opus decoder callback (`chiaki_opus_decoder_frame()`, `lib/src/opusdecoder.c`) has no thread hand-off, so Opus decoding still happens on the recv thread. The callback only copies the decoded frame into a hand-off queue (`vita/src/audio_queue.c`) under a short mutex hold and returns; it no longer changes the calling thread's priority or core. The VitaAudio thread pops one device buffer at a time and makes the blocking `sceAudioOutOutput()` call. Details, the catch-up rule and the probes are in [streaming.md](streaming.md) sections 6 and 9.9. Not yet measured on hardware.
 - The log line `PIPE/PRIORITY` (`host.c:514`) prints decode, audio, recv, feedback and input priorities at each stream start.
 - Registration (`regist.c:69`) and PSN hole punching (`lib/src/remote/holepunch.c:990`, `rudpsendbuffer.c:57`) start their own lib threads only on those paths; see [psn.md](psn.md).
 
@@ -142,4 +143,4 @@ Notes:
 1. `is_streaming = false`, then `vita_h264_stop()` (joins VitaDecode) and a 2 ms delay, so the UI thread stops drawing the frame texture before it is freed;
 2. `chiaki_opus_decoder_fini()`;
 3. `vita_h264_cleanup()`;
-4. `vita_audio_cleanup()`.
+4. `vita_audio_cleanup()` (signals the VitaAudio thread, joins it, then frees the queue and buffers; the Takion thread is already joined by then, see [streaming.md](streaming.md) section 7).
