@@ -80,8 +80,10 @@ typedef struct {
       out_gap_max_us; /* longest time from one output call returning to the next being called */
   uint32_t out_late;  /* such gaps longer than one device buffer's play time */
   uint32_t waits;     /* times the thread slept because less than a device buffer was queued */
-  uint32_t refills;   /* times it found the device dry and held output for the start level */
   uint32_t wall_us;   /* length of the window */
+  int32_t prio;       /* the audio thread's own priority, affinity mask and CPU as the system */
+  int32_t affinity;   /* reports them (sceKernelGetThreadInfo), read at each window; 0 if the */
+  int32_t cpu;        /* call failed */
 } AudioOutWindow;
 
 /* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,

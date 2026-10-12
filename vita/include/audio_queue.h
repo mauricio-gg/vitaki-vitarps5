@@ -5,7 +5,7 @@
  *
  * A ring of whole audio frames of one fixed size, plus the catch-up rule: after a push, if more
  * than `bound` frames are queued, the oldest are dropped so exactly `keep` (the newest) remain.
- * `keep` is also the start level: a queue that is not primed (new, or marked dry) lets the
+ * `keep` is also the start level: a queue that is not primed (new) lets the
  * consumer pop only once `keep` frames are queued, so playback always starts with a cushion.
  * Pure C99: no SDK headers, no locking (the caller holds its mutex around every call) and no
  * allocation (the caller supplies the storage), so it compiles and runs natively
@@ -54,10 +54,6 @@ bool audio_queue_pop(AudioQueue *queue, void *out, size_t n);
  * change, so it can be asked repeatedly (e.g. as a condition-wait predicate).
  */
 bool audio_queue_may_pop(AudioQueue *queue, size_t n);
-
-/* The consumer found the device ran dry: un-primes, so the cushion is rebuilt before the next pop.
- */
-void audio_queue_mark_dry(AudioQueue *queue);
 
 /* Frames queued now. */
 size_t audio_queue_count(const AudioQueue *queue);

@@ -22,14 +22,22 @@
 // sound continues from the newest audio and still has its cushion.
 #define AUDIO_CATCHUP_BOUND_MS 100
 
-// Cushion on top of one device buffer (20 ms) that must be queued before playback starts, and
-// again after the device has run dry: the start level is one device buffer plus this (50 ms, 5
-// frames for 480 samples at 48 kHz), converted to frames in vita/src/audio.c, at least 1 frame.
+// Start cushion on top of one device buffer (20 ms) that must be queued before playback starts:
+// the start level is one device buffer plus this (50 ms, 5 frames for 480 samples at 48 kHz),
+// converted to frames in vita/src/audio.c, at least 1 frame. It is a start cushion only; there is
+// no re-arm after the device runs dry (the level rebuilds by itself, see streaming.md section 6).
 // Measured on the first #416 hardware log: with about 20 ms of spare sound the device ran a minute
 // without a dry output call but never more than 64 samples (about 1.3 ms) from one; 30 ms adds
 // one frame of margin. Cost: sound plays about 30 ms later than in build 0.1.1175. Once playing,
 // output continues whenever one device buffer is queued, so the cushion absorbs arrival jitter.
 #define AUDIO_REFILL_CUSHION_MS 30
+
+// Number of play buffers the audio thread rotates through. A block handed to sceAudioOutOutput is
+// not written again until AUDIO_PLAY_BUFFERS - 1 further calls (3 calls, 60 ms at 20 ms per block)
+// have gone by: the same distance as the 4-device-buffer ring before #416. Why: the SDK does not
+// say the call copies the data, and the device still reports up to 704 of 960 samples outstanding
+// when the call returns, so rewriting the same buffer right away could change sound it is playing.
+#define AUDIO_PLAY_BUFFERS 4
 
 void vita_audio_init(unsigned int channels, unsigned int rate, void *user);
 

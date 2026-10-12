@@ -44,8 +44,8 @@ static bool audio_disabled = false;
 static volatile bool did_secondary_init = false;
 
 /* The hand-off. audio_mtx guards audio_queue and audio_exit; audio_cond wakes the audio thread
- * when a device buffer's worth is queued or exit is requested. play_buffer is the audio thread's
- * private copy of what it is outputting. All allocated once in audio_start(). */
+ * when a device buffer's worth is queued or exit is requested. The play buffers are the audio
+ * thread's private copy of what it is outputting. All allocated once in audio_start(). */
 static ChiakiMutex audio_mtx;
 static ChiakiCond audio_cond;
 static bool audio_sync_ready = false;
@@ -54,7 +54,7 @@ static bool audio_thread_started = false;
 static bool audio_exit = false;
 static AudioQueue audio_queue;
 static uint8_t *queue_storage = NULL;
-static uint8_t *play_buffer = NULL;
+static uint8_t *play_buffers = NULL;
 
 /* Receive-thread-only session counters (read by the cleanup caller after the receive thread is
  * gone, for the end-of-session log line). */
@@ -75,7 +75,7 @@ typedef struct {
   uint32_t out_calls, out_frames, aout_max_us;
   uint32_t rest_n, rest_err;
   int32_t rest_min, rest_max;
-  uint32_t out_dry, out_gap_max_us, out_late, waits, refills;
+  uint32_t out_dry, out_gap_max_us, out_late, waits;
 } AudioOutAcc;
 
 static uint32_t clamp_u32(uint64_t value) {
@@ -165,7 +165,13 @@ static void audio_publish_window(const AudioOutAcc *acc, uint32_t win, uint64_t 
   out.out_gap_max_us = acc->out_gap_max_us;
   out.out_late = acc->out_late;
   out.waits = acc->waits;
-  out.refills = acc->refills;
+  SceKernelThreadInfo info;
+  memset(&info, 0, sizeof(info));
+  info.size = sizeof(info);
+  bool info_ok = sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) == 0;
+  out.prio = info_ok ? (int32_t)info.currentPriority : 0;
+  out.affinity = info_ok ? (int32_t)info.currentCpuAffinityMask : 0;
+  out.cpu = info_ok ? (int32_t)info.currentCpuId : 0;
   out.wall_us = clamp_u32(wall_us);
 
   context.stream.audioout_lock++;
@@ -210,16 +216,12 @@ static void audio_account_output(AudioOutAcc *acc, int rest, uint64_t start_us, 
 
 /* The audio output thread. Sets its own priority and core, then loops: wait until the queue's
  * gate allows one device buffer (the start level the first time, one device buffer once playing),
- * read the device's rest sample, copy the buffer out of the queue under the mutex, release the
- * mutex, output it. sceAudioOutOutput blocks until the hardware can take the data and that is the
- * pacing; the mutex is never held across it. Exits promptly when audio_exit is set, also while
- * holding for a refill, without draining.
- *
- * Re-arm: when the thread had to sleep for lack of a device buffer while playing, and the rest
- * sample then reads exactly 0 (the device has run empty, the gap has already happened), the queue
- * is marked dry and output is held until the start level is queued again (counted as a refill).
- * A rest above 0 (the device still has sound) or an error return outputs at once. The rest read
- * that decides this is the same one that is the statistic for the output. */
+ * copy the buffer out of the queue under the mutex into the next play buffer of the rotation,
+ * release the mutex, read the device's rest sample (a statistic only, nothing decides on it),
+ * output it. sceAudioOutOutput blocks until the hardware can take the data and that is the
+ * pacing; the mutex is never held across it. Exits promptly when audio_exit is set without
+ * draining. The play buffers rotate (AUDIO_PLAY_BUFFERS) so a block just handed to the device is
+ * not rewritten for the next calls. */
 static void *audio_thread_func(void *user) {
   (void)user;
   sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_AUDIO_THREAD_PRIORITY);
@@ -230,16 +232,13 @@ static void *audio_thread_func(void *user) {
   uint64_t window_start_us = 0;
   uint64_t last_end_us = 0;
   uint32_t windows_published = 0;
-  bool playing = false;  // at least one output call made: a wait is then an underrun, not the start
-  bool slept = false;    // slept for lack of a device buffer since the last output
+  size_t play_index = 0;  // which play buffer of the rotation the next block goes to
 
   for (;;) {
     chiaki_mutex_lock(&audio_mtx);
     if (!audio_exit && !audio_queue_may_pop(&audio_queue, device_buffer_frames)) {
-      if (audio_queue_count(&audio_queue) < device_buffer_frames) {
+      if (audio_queue_count(&audio_queue) < device_buffer_frames)
         acc.waits++;
-        slept = playing;
-      }
       while (!audio_exit && !audio_queue_may_pop(&audio_queue, device_buffer_frames))
         chiaki_cond_wait(&audio_cond, &audio_mtx);
     }
@@ -248,28 +247,18 @@ static void *audio_thread_func(void *user) {
     if (exit_requested)
       break;
 
-    int rest = sceAudioOutGetRestSample(port);
-    if (slept) {
-      slept = false;
-      if (rest == 0) {
-        chiaki_mutex_lock(&audio_mtx);
-        audio_queue_mark_dry(&audio_queue);
-        chiaki_mutex_unlock(&audio_mtx);
-        acc.refills++;
-        continue;
-      }
-    }
-
+    uint8_t *block = play_buffers + play_index * device_buffer_frames * frame_bytes;
     chiaki_mutex_lock(&audio_mtx);
-    bool popped = audio_queue_pop(&audio_queue, play_buffer, device_buffer_frames);
+    bool popped = audio_queue_pop(&audio_queue, block, device_buffer_frames);
     chiaki_mutex_unlock(&audio_mtx);
     if (!popped)  // cannot happen (only this thread pops, a catch-up keeps >= a device buffer)
       continue;
 
-    playing = true;
+    int rest = sceAudioOutGetRestSample(port);  // statistic only
     uint64_t start_us = sceKernelGetProcessTimeWide();
-    sceAudioOutOutput(port, play_buffer);
+    sceAudioOutOutput(port, block);
     uint64_t end_us = sceKernelGetProcessTimeWide();
+    play_index = (play_index + 1) % AUDIO_PLAY_BUFFERS;
 
     audio_account_output(&acc, rest, start_us, end_us, last_end_us);
     last_end_us = end_us;
@@ -289,8 +278,8 @@ static void *audio_thread_func(void *user) {
 static void audio_release_resources(void) {
   free(queue_storage);
   queue_storage = NULL;
-  free(play_buffer);
-  play_buffer = NULL;
+  free(play_buffers);
+  play_buffers = NULL;
   if (audio_sync_ready) {
     chiaki_cond_fini(&audio_cond);
     chiaki_mutex_fini(&audio_mtx);
@@ -328,7 +317,7 @@ static bool audio_start(size_t samples_count) {
       two_pow >= DEVICE_FRAME_ALIGN_SAMPLES ? 1 : DEVICE_FRAME_ALIGN_SAMPLES / two_pow;
   device_buffer_samples = frame_size * device_buffer_frames;
 
-  // Start level: a device buffer plus the refill cushion (at least one frame). It is also what a
+  // Start level: a device buffer plus the start cushion (at least one frame). It is also what a
   // catch-up keeps.
   size_t cushion_frames =
       (size_t)(AUDIO_REFILL_CUSHION_MS * (uint64_t)rate / (AUDIO_MS_PER_SECOND * frame_size));
@@ -338,10 +327,11 @@ static bool audio_start(size_t samples_count) {
   size_t bound = audio_catchup_bound_frames(start_level);
   size_t capacity = bound + 1;
   queue_storage = malloc(capacity * frame_bytes);
-  play_buffer = malloc(device_buffer_frames * frame_bytes);
-  if (!queue_storage || !play_buffer) {
+  play_buffers = malloc(AUDIO_PLAY_BUFFERS * device_buffer_frames * frame_bytes);
+  if (!queue_storage || !play_buffers) {
     LOGE("VITA AUDIO :: failed to allocate audio buffers (%d + %d bytes) - audio off",
-         (int)(capacity * frame_bytes), (int)(device_buffer_frames * frame_bytes));
+         (int)(capacity * frame_bytes),
+         (int)(AUDIO_PLAY_BUFFERS * device_buffer_frames * frame_bytes));
     goto fail;
   }
   if (!audio_queue_init(&audio_queue, queue_storage, frame_bytes, capacity, bound, start_level)) {

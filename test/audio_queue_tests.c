@@ -122,31 +122,11 @@ static void test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer
   assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES)); /* primed: no cushion needed any more */
 }
 
-/* catches: the cushion never being rebuilt after the device ran dry: once marked dry, pops are
- * refused again until the start level is queued. */
-static void test_marked_dry_refuses_pops_until_start_level(void) {
-  Fixture f;
-  fixture_init(&f);
-  for (uint8_t id = 1; id <= KEEP; id++)
-    push_id(&f, id);
-  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
-  uint8_t out[KEEP * FRAME_BYTES];
-  assert(audio_queue_pop(&f.queue, out, KEEP));
-  audio_queue_mark_dry(&f.queue);
-  for (uint8_t id = 1; id < KEEP; id++) {
-    push_id(&f, id);
-    assert(!audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
-  }
-  push_id(&f, KEEP);
-  assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES));
-}
-
 int main(void) {
   test_burst_over_bound_keeps_newest_and_counts_drops();
   test_below_bound_drops_nothing_and_keeps_order_across_wrap();
   test_pop_refused_when_too_few_queued_and_queue_unchanged();
   test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer();
-  test_marked_dry_refuses_pops_until_start_level();
   printf("audio_queue_tests: all passed\n");
   return 0;
 }
