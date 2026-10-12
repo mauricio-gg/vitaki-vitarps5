@@ -171,9 +171,9 @@ static volatile uint64_t incoming_frame_first_packet_ms = 0;
  * same clock as every other stamp in this file) taken the instant decode_frame_now() finishes
  * a successful sceAvcdecDecode for the frame currently sitting in frame_texture. Set alongside
  * incoming_frame_first_packet_ms/incoming_frame_corrupt in decode_frame_now() under `mtx`, on
- * the decode thread; read by vita_video_render_latest_frame() on the UI thread at render entry
- * to measure the "decode done -> UI picked it up" span (see the display_pickup_* fields in
- * stream_state.h). Same single-writer(decode thread)/single-reader(UI thread) volatile
+ * the decode thread; read by vita_video_render_latest_frame() on the UI thread inside its claim
+ * (under `mtx`) to measure the "decode done -> UI picked it up" span (see the display_pickup_*
+ * fields in stream_state.h). Same single-writer(decode thread)/single-reader(UI thread) volatile
  * handshake as incoming_frame_corrupt / frame_ready_for_display above -- Cortex-A9 cache
  * coherency makes plain volatile sufficient here, per established project convention.
  * 0 = no valid timestamp yet (never decoded a frame this session); the reader must check for
@@ -1593,8 +1593,9 @@ bool vita_video_render_latest_frame(void) {
    *
    * The corruption flag is updated under mtx inside decode_frame_now() on the
    * decode thread, so it is always consistent with the pixels in frame_texture
-   * when we read it here. The clean branch below promotes it to last-good via an
-   * O(1) pointer swap (GH #245) -- see promote_decoded_frame_to_last_good(). */
+   * when we read it here. For a clean frame the promotion to last-good (an O(1)
+   * pointer swap, GH #245) was already done in the claim above, under `mtx` -- see
+   * promote_decoded_frame_to_last_good(). */
   vita2d_texture *present_texture = frame_texture;
   uint32_t present_seq = claimed_seq; /* PIPE/PRESENT: the number of the texture drawn */
   bool showing_decoded_frame = true;  /* PIPE/PRESS: false when an older picture is re-shown */
@@ -1608,12 +1609,12 @@ bool vita_video_render_latest_frame(void) {
     present_texture = last_good_texture;
     present_seq = last_good_texture_seq;
   } else if (!corrupt) {
-    /* Clean frame — promote it to last-good here on the UI thread, BEFORE drawing
-     * (not after): the swap must land before draw_streaming() below submits the GPU
-     * draw call, so that by the time the decode thread re-reads frame_texture (its
-     * next write target) it already sees the OTHER, unrelated texture rather than
-     * the one currently being drawn. See promote_decoded_frame_to_last_good() for
-     * the full ordering argument. */
+    /* Clean frame — it was promoted to last-good in the claim above (UI thread, under
+     * `mtx`), BEFORE drawing and not after: the swap lands before draw_streaming() below
+     * submits the GPU draw call, so that by the time the decode thread re-reads
+     * frame_texture (its next write target) it already sees the OTHER, unrelated texture
+     * rather than the one currently being drawn. clean_texture is the promoted texture.
+     * See promote_decoded_frame_to_last_good() for the full ordering argument. */
     if (frozen_frame_streak > 0) {
       LOGD("PIPE/FREEZE cleared streak=%d", frozen_frame_streak);
       frozen_frame_streak = 0;
@@ -1629,9 +1630,9 @@ bool vita_video_render_latest_frame(void) {
 
   /* PIPE/DISPLAY: read here, right after the if/else chain above, NOT inside any one
    * branch -- the corrupt/freeze and cap-release branches skip the promotion swap
-   * (so their snapshot_us is genuinely ~0, a real measurement worth keeping; the clean
-   * branch's swap is also ~0 now that it's a pointer exchange rather than a ~2 MB copy
-   * -- this stage should read near-zero across all three branches post-fix), but the
+   * (the swap itself, an O(1) pointer exchange, now happens in the claim for the clean
+   * branch only), but since #416 the stage runs from render entry through the claim, so in
+   * all three branches it includes the wait for `mtx` (up to one decode), and the
    * boundary itself must land at the same point in all three branches for draw_us below to
    * mean the same thing regardless of which branch was taken. */
   uint64_t after_snapshot_us = sceKernelGetProcessTimeWide();
