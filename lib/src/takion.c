@@ -31,6 +31,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/net/net.h>
 #else
 #include <unistd.h>
 #include <netinet/in.h>
@@ -82,6 +83,21 @@
 /* PIPE/RECVBUF (#413): length of one reporting window. Closed by the receive thread using the
  * clock value the loop already reads once per iteration (docs/design/streaming.md section 9.3). */
 #define TAKION_RECVBUF_WINDOW_MS 1000
+
+/* PIPE/RECVTIME, PIPE/SOCKQ, PIPE/RECVTHREAD (#413, streaming.md sections 9.6 to 9.8). */
+/* Back-to-back clock reads timed once per session to get the cost of one read. */
+#define TAKION_PROBE_CLOCK_READS 1000
+#define TAKION_PROBE_NS_PER_US 1000
+/* PIPE/SOCKQ: besides the sample after each blocking receive, one after every Nth drained packet. */
+#define TAKION_SOCKQ_DRAIN_SAMPLE_EVERY 64
+#ifdef __PSVITA__
+/* Room for exactly one SceNetSockInfo entry; the SDK headers do not say what `n` means. */
+#define TAKION_SOCKQ_INFO_ENTRIES 1
+#define TAKION_SOCKQ_INFO_FLAGS SCE_NET_SOCKINFO_F_SELF
+/* newlib's descriptor entry for a socket: leading int is the SceNet id, byte at offset 4 is the
+ * kind, 2 = socket (disassembly of socket.o / recvfrom.o in the SDK's libc.a, see section 9.7). */
+#define TAKION_VITA_FD_KIND_SOCKET 2
+#endif
 
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
@@ -334,6 +350,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->a_rwnd = TAKION_A_RWND;
 	takion->rcvbuf_actual = 0;
 	takion->recvbuf_lock = 0;
+	memset(&takion->recvbuf_pub, 0, sizeof(takion->recvbuf_pub)); // no stale window of an earlier session
+	memset(&takion->recvtime_acc, 0, sizeof(takion->recvtime_acc));
+	memset(&takion->recvsession, 0, sizeof(takion->recvsession));
+	takion->recvtime_thread_id = 0;
 
 	takion->tag_local = chiaki_random_32(); // 0x4823
 	takion->seq_num_local = takion->tag_local;
@@ -1277,6 +1297,177 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user, C
 	free(entry);
 }
 
+#ifdef __PSVITA__
+/* newlib's private descriptor table. Only the leading fields are mirrored, and only read. */
+typedef struct takion_vita_fd_entry_t
+{
+	int32_t sce_id;
+	uint8_t kind;
+} TakionVitaFdEntry;
+extern void *__vita_fd_grab(int fd);
+extern int __vita_fd_drop(void *entry);
+#endif
+
+/**
+ * Packet class of a Takion packet from its first byte, as takion_handle_packet() dispatches it.
+ * Anything that is not video, audio or control is NONE (it lands in unacct_us).
+ */
+static uint8_t takion_probe_class_of(uint8_t first_byte)
+{
+	switch(first_byte & TAKION_PACKET_BASE_TYPE_MASK)
+	{
+		case TAKION_PACKET_TYPE_VIDEO:
+			return CHIAKI_TAKION_PROBE_CLASS_VIDEO;
+		case TAKION_PACKET_TYPE_AUDIO:
+			return CHIAKI_TAKION_PROBE_CLASS_AUDIO;
+		case TAKION_PACKET_TYPE_CONTROL:
+			return CHIAKI_TAKION_PROBE_CLASS_CONTROL;
+		default:
+			return CHIAKI_TAKION_PROBE_CLASS_NONE;
+	}
+}
+
+/** Charges the time one packet spent in takion_handle_packet to its class. Receive thread only. */
+static void takion_probe_packet_done(ChiakiTakion *takion, uint8_t packet_class, uint64_t took_us)
+{
+	switch(packet_class)
+	{
+		case CHIAKI_TAKION_PROBE_CLASS_VIDEO:
+			chiaki_takion_time_bucket_add(&takion->recvtime_acc.video, took_us);
+			break;
+		case CHIAKI_TAKION_PROBE_CLASS_AUDIO:
+			chiaki_takion_time_bucket_add(&takion->recvtime_acc.audio, took_us);
+			break;
+		case CHIAKI_TAKION_PROBE_CLASS_CONTROL:
+			chiaki_takion_time_bucket_add(&takion->recvtime_acc.ctrl, took_us);
+			break;
+		default:
+			break;
+	}
+}
+
+/**
+ * Once per receive-thread run, before the loop: times TAKION_PROBE_CLOCK_READS back-to-back clock
+ * reads and, on Vita, resolves the SceNet id behind takion->sock and checks that
+ * sceNetGetSockInfo describes our own socket. Sampling (takion_sockq_sample) stays off unless the
+ * check passes. Fills takion->recvsession.
+ */
+static void takion_recvprobe_setup(ChiakiTakion *takion)
+{
+	ChiakiTakionRecvSession *session = &takion->recvsession;
+	memset(session, 0, sizeof(*session));
+	session->sockq_id = -1;
+	session->sockq_info_rc = -1;
+	session->sockname_rc = -1;
+
+	volatile uint64_t clock_sink = 0;
+	uint64_t clock_start_us = chiaki_time_now_monotonic_us();
+	for(uint32_t i = 0; i < TAKION_PROBE_CLOCK_READS; i++)
+		clock_sink = chiaki_time_now_monotonic_us();
+	uint64_t clock_end_us = chiaki_time_now_monotonic_us();
+	(void)clock_sink;
+	session->clock_read_ns = (uint32_t)(((clock_end_us - clock_start_us) * TAKION_PROBE_NS_PER_US) / TAKION_PROBE_CLOCK_READS);
+
+#ifdef __PSVITA__
+	struct sockaddr_in name;
+	socklen_t name_len = sizeof(name);
+	session->sockname_rc = getsockname(takion->sock, (struct sockaddr *)&name, &name_len);
+	if(session->sockname_rc == 0)
+	{
+		session->sockname_port_net = name.sin_port;
+		session->sockname_port_host = ntohs(name.sin_port);
+	}
+
+	void *entry = __vita_fd_grab(takion->sock);
+	if(entry)
+	{
+		const TakionVitaFdEntry *fd_entry = entry;
+		if(fd_entry->kind == TAKION_VITA_FD_KIND_SOCKET)
+			session->sockq_id = fd_entry->sce_id;
+		__vita_fd_drop(entry); // balances the reference __vita_fd_grab took
+	}
+
+	if(session->sockq_id >= 0)
+	{
+		SceNetSockInfo info;
+		memset(&info, 0, sizeof(info));
+		session->sockq_info_rc = sceNetGetSockInfo(session->sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, TAKION_SOCKQ_INFO_FLAGS);
+		session->sockq_info_id = info.s;
+		session->sockq_info_port_raw = info.local_port;
+		// The byte order of local_port is not documented: either order of our own port counts.
+		session->sockq_ok = session->sockq_info_rc >= 0
+			&& info.s == session->sockq_id
+			&& session->sockname_rc == 0
+			&& session->sockname_port_net != 0
+			&& (info.local_port == session->sockname_port_net || info.local_port == session->sockname_port_host);
+	}
+#endif
+	session->valid = 1;
+}
+
+/**
+ * One PIPE/SOCKQ sample: asks the system how much is queued on our socket, timing the query from
+ * start_us (a clock read the caller already made) to a read made here. Returns that second read, so
+ * the caller can start timing the packet's handling after the query. Only called when
+ * recvsession.sockq_ok. Receive thread only.
+ */
+static uint64_t takion_sockq_sample(ChiakiTakion *takion, uint64_t start_us, bool after_blocking_recv)
+{
+#ifdef __PSVITA__
+	ChiakiTakionRecvTimeAcc *acc = &takion->recvtime_acc;
+	SceNetSockInfo info;
+	int rc = sceNetGetSockInfo(takion->recvsession.sockq_id, &info, TAKION_SOCKQ_INFO_ENTRIES, TAKION_SOCKQ_INFO_FLAGS);
+	uint64_t end_us = chiaki_time_now_monotonic_us();
+	chiaki_takion_time_bucket_add(&acc->sockq_query, end_us - start_us);
+	if(rc < 0 || info.recv_queue_length < 0)
+	{
+		acc->sockq_err++;
+		return end_us;
+	}
+	uint32_t queued = (uint32_t)info.recv_queue_length;
+	if(acc->sockq_n == 0 || queued < acc->sockq_min)
+		acc->sockq_min = queued;
+	if(queued > acc->sockq_max)
+		acc->sockq_max = queued;
+	acc->sockq_n++;
+	acc->sockq_sum += queued;
+	if(after_blocking_recv)
+	{
+		if(queued > acc->sockq_wake_max)
+			acc->sockq_wake_max = queued;
+		acc->sockq_wake_n++;
+		acc->sockq_wake_sum += queued;
+	}
+	return end_us;
+#else
+	(void)takion;
+	(void)after_blocking_recv;
+	return start_us;
+#endif
+}
+
+/** Reads priority, affinity and CPU of the receive thread back from the system. Receive thread, off the packet path. */
+static void takion_recvthread_sample(ChiakiTakion *takion, ChiakiTakionRecvThread *out)
+{
+	memset(out, 0, sizeof(*out));
+	out->info_rc = -1;
+#ifdef __PSVITA__
+	SceKernelThreadInfo info;
+	memset(&info, 0, sizeof(info));
+	info.size = sizeof(info);
+	out->info_rc = sceKernelGetThreadInfo(takion->recvtime_thread_id, &info);
+	if(out->info_rc == 0)
+	{
+		out->prio = info.currentPriority;
+		out->affinity = info.currentCpuAffinityMask;
+		out->cpu = info.currentCpuId;
+		out->last_cpu = info.lastExecutedCpuId;
+	}
+#else
+	(void)takion;
+#endif
+}
+
 /**
  * Publishes a PIPE/RECVBUF window to the UI thread under the recvbuf_lock seqlock (odd while
  * writing; the reader retries unless it saw the same even value before and after).
@@ -1308,6 +1499,7 @@ static uint32_t takion_recvbuf_clamp32(uint64_t value)
 static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 {
 	ChiakiTakionRecvbufWindow out;
+	memset(&out, 0, sizeof(out));
 	out.wakeups = takion->recvbuf_acc.wakeups;
 	out.drained_avg_x100 = takion->recvbuf_acc.wakeups
 		? (uint32_t)((takion->recvbuf_acc.drained_sum * CHIAKI_TAKION_RECVBUF_AVG_SCALE) / takion->recvbuf_acc.wakeups)
@@ -1336,8 +1528,37 @@ static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
 	out.work_us = takion_recvbuf_clamp32(work_us);
 	out.wall_us = takion_recvbuf_clamp32(wall_us);
 	out.busy_permille = wall_us ? (uint32_t)((work_us * 1000) / wall_us) : 0;
+
+	// PIPE/RECVTIME, PIPE/SOCKQ, PIPE/RECVTHREAD: the same window.
+	const ChiakiTakionRecvTimeAcc *rt = &takion->recvtime_acc;
+	chiaki_takion_time_bucket_reduce(&rt->video, &out.video);
+	chiaki_takion_time_bucket_reduce(&rt->audio, &out.audio);
+	chiaki_takion_time_bucket_reduce(&rt->ctrl, &out.ctrl);
+	chiaki_takion_time_bucket_reduce(&rt->vsubmit, &out.vsubmit);
+	chiaki_takion_time_bucket_reduce(&rt->acb, &out.acb);
+	chiaki_takion_time_bucket_reduce(&rt->aout, &out.aout);
+	chiaki_takion_time_bucket_reduce(&rt->log, &out.log);
+	out.ashort = rt->ashort;
+	out.askip = rt->askip;
+	out.acatchup = rt->acatchup;
+	out.unacct_us = chiaki_takion_probe_unaccounted_us(work_us, rt->video.us, rt->audio.us, rt->ctrl.us);
+	out.vlog_us = takion_recvbuf_clamp32(rt->vlog_us);
+	out.alog_us = takion_recvbuf_clamp32(rt->alog_us);
+	out.clog_us = takion_recvbuf_clamp32(rt->clog_us);
+	out.log_block = rt->log_block;
+	out.sockq_n = rt->sockq_n;
+	out.sockq_min = rt->sockq_n ? rt->sockq_min : 0;
+	out.sockq_avg = chiaki_takion_probe_avg(rt->sockq_sum, rt->sockq_n);
+	out.sockq_max = rt->sockq_max;
+	out.sockq_wake_avg = chiaki_takion_probe_avg(rt->sockq_wake_sum, rt->sockq_wake_n);
+	out.sockq_wake_max = rt->sockq_wake_max;
+	out.sockq_err = rt->sockq_err;
+	chiaki_takion_time_bucket_reduce(&rt->sockq_query, &out.sockq_query);
+	out.session = takion->recvsession;
+	takion_recvthread_sample(takion, &out.thread);
 	takion_recvbuf_publish(takion, &out);
 
+	memset(&takion->recvtime_acc, 0, sizeof(takion->recvtime_acc));
 	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
 	takion->recvbuf_acc.window_start_ms = now_ms;
 	takion->recvbuf_acc.window_start_us = now_us;
@@ -1397,9 +1618,16 @@ static void *takion_thread_func(void *user)
 	// PIPE/RECVBUF: zero the private accumulators and publish an empty window.
 	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
 	takion->recvbuf_acc.window_start_us = chiaki_time_now_monotonic_us(); // first window starts with the thread
+	memset(&takion->recvtime_acc, 0, sizeof(takion->recvtime_acc));
+#ifdef __PSVITA__
+	takion->recvtime_thread_id = sceKernelGetThreadId();
+#endif
+	takion_recvprobe_setup(takion);
 	{
 		ChiakiTakionRecvbufWindow empty;
 		memset(&empty, 0, sizeof(empty));
+		empty.session = takion->recvsession; // the first reported window already carries the start-up facts
+		takion_recvthread_sample(takion, &empty.thread);
 		takion_recvbuf_publish(takion, &empty);
 	}
 
@@ -1502,15 +1730,26 @@ static void *takion_thread_func(void *user)
 		}
 
 		size_t wake_bytes = 0; // PIPE/RECVBUF: size of the packet that woke the thread
+		// PIPE/RECVTIME: a packet's handling time is the span from the clock read that ended the receive
+		// (or the socket-queue query) to the next read the loop makes anyway, so it costs no extra read.
+		uint64_t handle_from_us = 0;
+		uint8_t handle_class = CHIAKI_TAKION_PROBE_CLASS_NONE; // class of the packet whose handling is not yet charged
 		{
 			size_t received_size = TAKION_RECV_BUF_SIZE;
 			uint64_t block_start_us = chiaki_time_now_monotonic_us(); // PIPE/RECVBUF
 			err = takion_recv(takion, recvbuf, &received_size, UINT64_MAX);
-			takion->recvbuf_acc.block_us += chiaki_time_now_monotonic_us() - block_start_us;
+			uint64_t block_end_us = chiaki_time_now_monotonic_us();
+			takion->recvbuf_acc.block_us += block_end_us - block_start_us;
 			if(err != CHIAKI_ERR_SUCCESS)
 				break;
 			wake_bytes = received_size;
+			handle_from_us = block_end_us;
+			if(takion->recvsession.sockq_ok)
+				handle_from_us = takion_sockq_sample(takion, block_end_us, true);
+			handle_class = takion_probe_class_of(recvbuf[0]);
+			takion->recvtime_acc.cur_class = handle_class;
 			takion_handle_packet(takion, recvbuf, received_size, &recv_malloc_calls);
+			takion->recvtime_acc.cur_class = CHIAKI_TAKION_PROBE_CLASS_NONE;
 		}
 
 		// Drain any additional buffered packets without blocking.
@@ -1525,17 +1764,30 @@ static void *takion_thread_func(void *user)
 			{
 				size_t drain_size = TAKION_RECV_BUF_SIZE;
 				uint64_t poll_start_us = chiaki_time_now_monotonic_us(); // PIPE/RECVBUF
+				// The previous packet's handling ends at this read.
+				takion_probe_packet_done(takion, handle_class, poll_start_us - handle_from_us);
+				handle_class = CHIAKI_TAKION_PROBE_CLASS_NONE;
 				drain_err = takion_recv(takion, recvbuf, &drain_size, 0);
-				uint64_t poll_took_us = chiaki_time_now_monotonic_us() - poll_start_us;
+				uint64_t poll_end_us = chiaki_time_now_monotonic_us();
+				uint64_t poll_took_us = poll_end_us - poll_start_us;
 				takion->recvbuf_acc.poll_us += poll_took_us;
 				if(poll_took_us > takion->recvbuf_acc.poll_max_us)
 					takion->recvbuf_acc.poll_max_us = poll_took_us;
 				if(drain_err != CHIAKI_ERR_SUCCESS)
 					break;
 				drain_bytes += (uint32_t)drain_size;
+				handle_from_us = poll_end_us;
+				if(takion->recvsession.sockq_ok && (drain_count + 1) % TAKION_SOCKQ_DRAIN_SAMPLE_EVERY == 0)
+					handle_from_us = takion_sockq_sample(takion, poll_end_us, false);
+				handle_class = takion_probe_class_of(recvbuf[0]);
+				takion->recvtime_acc.cur_class = handle_class;
 				takion_handle_packet(takion, recvbuf, drain_size, &recv_malloc_calls);
+				takion->recvtime_acc.cur_class = CHIAKI_TAKION_PROBE_CLASS_NONE;
 				drain_count++;
 			}
+			// A loop that ended at the cap has no following poll to end the last packet's span: one extra read.
+			if(handle_class != CHIAKI_TAKION_PROBE_CLASS_NONE)
+				takion_probe_packet_done(takion, handle_class, chiaki_time_now_monotonic_us() - handle_from_us);
 			/* D3: Track drain batch statistics */
 			takion->jitter_stats.drain_cycles++;
 			takion->jitter_stats.drain_total_count += drain_count;

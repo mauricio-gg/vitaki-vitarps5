@@ -4,6 +4,7 @@
 #include "host_metrics.h"
 #include "host_quit.h"
 #include "host_callbacks.h"
+#include "recv_probe.h"
 #include "ui.h"
 #include "video.h"
 
@@ -85,8 +86,8 @@ void host_event_cb(ChiakiEvent *event, void *user) {
   }
 }
 
-bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered,
-                   void *user) {
+static bool host_video_cb_body(uint8_t *buf, size_t buf_size, int32_t frames_lost,
+                               bool frame_recovered) {
   if (context.stream.stop_requested)
     return false;
   if (!context.stream.video_first_frame_logged) {
@@ -149,4 +150,18 @@ bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fram
     return false;
   }
   return true;
+}
+
+/* Times the whole callback for PIPE/RECVTIME (vsubmit_*): 2 clock reads per submitted frame, taken
+ * only when the caller is the receive thread. */
+bool host_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered,
+                   void *user) {
+  (void)user;
+  ChiakiTakionRecvTimeAcc *probe = recv_probe_acc();
+  if (!probe)
+    return host_video_cb_body(buf, buf_size, frames_lost, frame_recovered);
+  uint64_t start_us = sceKernelGetProcessTimeWide();
+  bool ok = host_video_cb_body(buf, buf_size, frames_lost, frame_recovered);
+  chiaki_takion_time_bucket_add(&probe->vsubmit, sceKernelGetProcessTimeWide() - start_us);
+  return ok;
 }

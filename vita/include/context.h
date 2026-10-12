@@ -9,6 +9,7 @@
 #include "host.h"
 #include "logging.h"
 #include "message_log.h"
+#include "recv_probe.h"
 #include "stream_state.h"
 #include "ui.h"
 // #include "debugnet.h"
@@ -16,10 +17,12 @@
 #define LOGD(fmt, ...)                                                                    \
   do {                                                                                    \
     uint64_t timestamp = sceKernelGetProcessTimeWide();                                   \
+    RecvProbeLog recv_probe_log = recv_probe_log_begin_at(timestamp);                     \
     char msg[800];                                                                        \
     sceClibSnprintf(msg, sizeof(msg), "[DEBUG] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
     sceClibPrintf("%s", msg);                                                             \
     vita_log_submit_line(CHIAKI_LOG_DEBUG, msg);                                          \
+    recv_probe_log_end(recv_probe_log, CHIAKI_LOG_DEBUG);                                 \
     if (!context.stream.is_streaming) {                                                   \
       if (context.mlog) {                                                                 \
         write_message_log(context.mlog, msg);                                             \
@@ -30,10 +33,12 @@
 #define LOGE(fmt, ...)                                                                    \
   do {                                                                                    \
     uint64_t timestamp = sceKernelGetProcessTimeWide();                                   \
+    RecvProbeLog recv_probe_log = recv_probe_log_begin_at(timestamp);                     \
     char msg[800];                                                                        \
     sceClibSnprintf(msg, sizeof(msg), "[ERROR] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
     sceClibPrintf("%s", msg);                                                             \
     vita_log_submit_line(CHIAKI_LOG_ERROR, msg);                                          \
+    recv_probe_log_end(recv_probe_log, CHIAKI_LOG_ERROR);                                 \
     if (!context.stream.is_streaming) {                                                   \
       if (context.mlog) {                                                                 \
         write_message_log(context.mlog, msg);                                             \
@@ -44,10 +49,12 @@
 #define LOGW(fmt, ...)                                                                   \
   do {                                                                                   \
     uint64_t timestamp = sceKernelGetProcessTimeWide();                                  \
+    RecvProbeLog recv_probe_log = recv_probe_log_begin_at(timestamp);                    \
     char msg[800];                                                                       \
     sceClibSnprintf(msg, sizeof(msg), "[WARN] %ju " fmt "\n", timestamp, ##__VA_ARGS__); \
     sceClibPrintf("%s", msg);                                                            \
     vita_log_submit_line(CHIAKI_LOG_WARNING, msg);                                       \
+    recv_probe_log_end(recv_probe_log, CHIAKI_LOG_WARNING);                              \
     if (!context.stream.is_streaming) {                                                  \
       if (context.mlog) {                                                                \
         write_message_log(context.mlog, msg);                                            \

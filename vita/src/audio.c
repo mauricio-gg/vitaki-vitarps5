@@ -5,6 +5,7 @@
 
 #include "audio.h"
 #include "context.h"
+#include "recv_probe.h"
 
 #define DEVICE_BUFFERS 4
 #define DEVICE_FRAME_QUEUE_LIMIT 0
@@ -52,6 +53,12 @@ static uint32_t audio_occ_window_sum = 0;
 static uint32_t audio_occ_window_count = 0;
 static uint32_t audio_occ_window_max = 0;
 
+/* PIPE/RECVTIME (#413): the receive thread's accumulator for the duration of one vita_audio_cb
+ * call, or NULL when the caller is not the receive thread; and the clock read that ended the
+ * sceAudioOutOutput call (0 if there was none), reused as the end of the callback. */
+static ChiakiTakionRecvTimeAcc *audio_probe = NULL;
+static uint64_t audio_output_end_us = 0;
+
 static void record_audio_occupancy_sample(void) {
   /* write_read_framediff is signed (see declaration above) and briefly negative is not
    * something this code path expects, but a bare (uint32_t) cast of a negative value
@@ -97,6 +104,8 @@ size_t device_buffer_from_frame(int frame) {
 
 static void audio_catchup_to_latest_frame(void) {
   audio_catchup_count++;
+  if (audio_probe)
+    audio_probe->acatchup++;
   LOGD(
       "VITA AUDIO :: audio catchup: [before] write_read_framediff %d, write_frame_offset %d, "
       "device_buffer_offset %d (read frame offset %d)",
@@ -201,7 +210,11 @@ void vita_audio_cleanup() {
   context.stream.audio_q_occ_max = 0;
 }
 
-void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
+bool vita_audio_started(void) {
+  return did_secondary_init;
+}
+
+static void audio_cb_body(int16_t *buf_in, size_t samples_count) {
   if (!did_secondary_init) {
     // Set audio thread priority for low latency
     sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, VITA_AUDIO_THREAD_PRIORITY);
@@ -232,12 +245,41 @@ void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
   audio_frames_processed++;
   record_audio_occupancy_sample();
 
-  if (write_read_framediff < device_buffer_frames)
+  if (write_read_framediff < device_buffer_frames) {
+    if (audio_probe)
+      audio_probe->ashort++;
     return;
-  if (!audio_should_output_now())
+  }
+  if (!audio_should_output_now()) {
+    if (audio_probe)
+      audio_probe->askip++;
     return;
+  }
 
+  uint64_t output_start_us = audio_probe ? sceKernelGetProcessTimeWide() : 0;
   sceAudioOutOutput(port, buffer + device_buffer_offset * device_buffer_samples * sample_steps);
+  if (audio_probe) {
+    audio_output_end_us = sceKernelGetProcessTimeWide();
+    chiaki_takion_time_bucket_add(&audio_probe->aout, audio_output_end_us - output_start_us);
+  }
   device_buffer_offset = (device_buffer_offset + 1) % DEVICE_BUFFERS;
   write_read_framediff -= device_buffer_frames;
+}
+
+/* Times the whole callback for PIPE/RECVTIME. On the output path the callback is taken to end when
+ * sceAudioOutOutput returns (the three statements after it are not included), which saves a clock
+ * read: 3 per audio frame on that path, 2 on the others. */
+void vita_audio_cb(int16_t *buf_in, size_t samples_count, void *user) {
+  (void)user;
+  audio_probe = recv_probe_acc();
+  if (!audio_probe) {
+    audio_cb_body(buf_in, samples_count);
+    return;
+  }
+  uint64_t start_us = sceKernelGetProcessTimeWide();
+  audio_output_end_us = 0;
+  audio_cb_body(buf_in, samples_count);
+  uint64_t end_us = audio_output_end_us ? audio_output_end_us : sceKernelGetProcessTimeWide();
+  chiaki_takion_time_bucket_add(&audio_probe->acb, end_us - start_us);
+  audio_probe = NULL;
 }

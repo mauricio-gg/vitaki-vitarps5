@@ -12,6 +12,7 @@
 #include "reorderqueue.h"
 #include "feedback.h"
 #include "takionsendbuffer.h"
+#include "takionprobe.h"
 
 #include <stdbool.h>
 
@@ -146,6 +147,20 @@ typedef struct chiaki_takion_recvbuf_window_t
 	uint32_t work_us;           // wall_us minus block_us and poll_us (0 if that would be negative)
 	uint32_t wall_us;           // length of the window
 	uint32_t busy_permille;     // work_us / wall_us in tenths of a percent
+	// PIPE/RECVTIME, PIPE/SOCKQ, PIPE/RECVTHREAD (sections 9.6 to 9.8), added after the fields above.
+	ChiakiTakionTimeWindow video, audio, ctrl;  // time in takion_handle_packet, by packet class
+	ChiakiTakionTimeWindow vsubmit, acb, aout;  // subsets: video submit callback, audio callback, audio output call
+	ChiakiTakionTimeWindow log;                 // log calls made by the receive thread (a subset of the classes)
+	uint32_t ashort, askip, acatchup;           // audio callback decisions
+	int64_t unacct_us;                          // work_us minus video, audio and ctrl only; may be negative
+	uint32_t vlog_us, alog_us, clog_us;         // log.us split by the class being handled
+	uint32_t log_block;                         // emitted non-DEBUG log calls (blocking mutex path)
+	uint32_t sockq_n, sockq_min, sockq_avg, sockq_max; // raw recv_queue_length samples
+	uint32_t sockq_wake_avg, sockq_wake_max;    // only the samples taken right after a blocking receive
+	uint32_t sockq_err;                         // failed queries
+	ChiakiTakionTimeWindow sockq_query;         // time spent querying (n counts attempts)
+	ChiakiTakionRecvSession session;            // once-per-session facts (valid = 1 once set)
+	ChiakiTakionRecvThread thread;              // sampled at the window close
 } ChiakiTakionRecvbufWindow;
 
 
@@ -343,6 +358,12 @@ typedef struct chiaki_takion_t
 	// seqlock: odd while the receive thread is writing.
 	volatile uint32_t recvbuf_lock;
 	ChiakiTakionRecvbufWindow recvbuf_pub;
+	// PIPE/RECVTIME and friends: accumulators of the same window (see takionprobe.h for who writes
+	// what), the receive thread's own id (0 until it has started; compared by the Vita log paths to
+	// decide "am I the receive thread"), and the facts established before its loop.
+	ChiakiTakionRecvTimeAcc recvtime_acc;
+	volatile int32_t recvtime_thread_id;
+	ChiakiTakionRecvSession recvsession;
 } ChiakiTakion;
 
 

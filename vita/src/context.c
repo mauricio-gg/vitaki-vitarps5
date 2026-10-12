@@ -11,12 +11,14 @@ VitaChiakiContext context;
 
 void log_cb_debugnet(ChiakiLogLevel lvl, const char *msg, void *user) {
   (void)user;
+  RecvProbeLog recv_probe_log = recv_probe_log_begin();
   char line[800];
   sceClibSnprintf(line, sizeof(line), "[CHIAKI] %s\n", msg);
   if (vita_log_should_write_level(lvl)) {
     sceClibPrintf("%s", line);
     vita_log_submit_line(lvl, line);
   }
+  recv_probe_log_end(recv_probe_log, lvl);
   if (!context.stream.is_streaming) {
     if (context.mlog) {
       write_message_log(context.mlog, line);
