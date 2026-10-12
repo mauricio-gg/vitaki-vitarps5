@@ -79,6 +79,10 @@
  * time. */
 #define TAKION_RECV_DRAIN_MAX 256
 
+/* PIPE/RECVBUF (#413): length of one reporting window. Closed by the receive thread using the
+ * clock value the loop already reads once per iteration (docs/design/streaming.md section 9.3). */
+#define TAKION_RECVBUF_WINDOW_MS 1000
+
 // Adaptive jitter buffer constants
 #define TAKION_JITTER_MIN_THRESHOLD_US  2000   // 2ms: responsive gap timeout floor
 #ifdef __PSVITA__
@@ -328,6 +332,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->stream_connection = NULL;
 #endif /* VITARPS5_ENHANCED_RECOVERY */
 	takion->a_rwnd = TAKION_A_RWND;
+	takion->rcvbuf_actual = 0;
+	takion->recvbuf_lock = 0;
 
 	takion->tag_local = chiaki_random_32(); // 0x4823
 	takion->seq_num_local = takion->tag_local;
@@ -378,7 +384,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			int actual_rcvbuf = 0;
 			socklen_t optlen = sizeof(actual_rcvbuf);
 			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+			{
 				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
+				takion->rcvbuf_actual = (uint32_t)actual_rcvbuf; // kept for PIPE/RECVBUF
+			}
 		}
 		/* Match send buffer to receive buffer so IDR/feedback/ACK bursts are not
 		 * stalled by a tiny OS-default SO_SNDBUF. */
@@ -499,7 +508,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			int actual_rcvbuf = 0;
 			socklen_t optlen = sizeof(actual_rcvbuf);
 			if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual_rcvbuf, &optlen) == 0)
+			{
 				CHIAKI_LOGI(takion->log, "Takion SO_RCVBUF requested=%d actual=%d", rcvbuf_val, actual_rcvbuf);
+				takion->rcvbuf_actual = (uint32_t)actual_rcvbuf; // kept for PIPE/RECVBUF
+			}
 		}
 		/* Match send buffer to receive buffer so IDR/feedback/ACK bursts are not
 		 * stalled by a tiny OS-default SO_SNDBUF. */
@@ -1265,6 +1277,42 @@ static void takion_data_drop(uint64_t seq_num, void *elem_user, void *cb_user, C
 	free(entry);
 }
 
+/**
+ * Publishes a PIPE/RECVBUF window to the UI thread under the recvbuf_lock seqlock (odd while
+ * writing; the reader retries unless it saw the same even value before and after).
+ * Receive thread only.
+ */
+static void takion_recvbuf_publish(ChiakiTakion *takion, const ChiakiTakionRecvbufWindow *window)
+{
+	takion->recvbuf_lock++;
+	__sync_synchronize();
+	takion->recvbuf_pub = *window;
+	__sync_synchronize();
+	takion->recvbuf_lock++;
+}
+
+/**
+ * Closes the current PIPE/RECVBUF window: reduces the private accumulators to 32-bit values,
+ * publishes them and starts the next window at now_ms. Receive thread only, about once per
+ * second, no allocation and no logging.
+ */
+static void takion_recvbuf_close_window(ChiakiTakion *takion, uint64_t now_ms)
+{
+	ChiakiTakionRecvbufWindow out;
+	out.wakeups = takion->recvbuf_acc.wakeups;
+	out.drained_avg_x100 = takion->recvbuf_acc.wakeups
+		? (uint32_t)((takion->recvbuf_acc.drained_sum * CHIAKI_TAKION_RECVBUF_AVG_SCALE) / takion->recvbuf_acc.wakeups)
+		: 0;
+	out.drained_max = takion->recvbuf_acc.drained_max;
+	out.drain_cap = TAKION_RECV_DRAIN_MAX;
+	out.rcvbuf_requested = takion->a_rwnd;
+	out.rcvbuf_actual = takion->rcvbuf_actual;
+	takion_recvbuf_publish(takion, &out);
+
+	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
+	takion->recvbuf_acc.window_start_ms = now_ms;
+}
+
 static void *takion_thread_func(void *user)
 {
 	ChiakiTakion *takion = user;
@@ -1315,6 +1363,14 @@ static void *takion_thread_func(void *user)
 	takion->jitter_stats.drain_total_count = 0;
 	takion->jitter_stats.drain_cycles = 0;
 	takion->jitter_stats.startup_log_count = 0;
+
+	// PIPE/RECVBUF: zero the private accumulators and publish an empty window.
+	memset(&takion->recvbuf_acc, 0, sizeof(takion->recvbuf_acc));
+	{
+		ChiakiTakionRecvbufWindow empty;
+		memset(&empty, 0, sizeof(empty));
+		takion_recvbuf_publish(takion, &empty);
+	}
 
 	// Latency investigation: genuine video-packet arrival jitter (separate from
 	// jitter_stats above -- see takion_handle_packet_av()).
@@ -1443,6 +1499,12 @@ static void *takion_thread_func(void *user)
 			takion->jitter_stats.drain_total_count += drain_count;
 			if((uint64_t)drain_count > takion->jitter_stats.drain_max_count)
 				takion->jitter_stats.drain_max_count = drain_count;
+			/* PIPE/RECVBUF: its own accumulators; the jitter_stats drain counters above are
+			 * reset by the conditional "Takion jitter:" summary and cannot be reused. */
+			takion->recvbuf_acc.wakeups++;
+			takion->recvbuf_acc.drained_sum += (uint32_t)drain_count;
+			if((uint32_t)drain_count > takion->recvbuf_acc.drained_max)
+				takion->recvbuf_acc.drained_max = (uint32_t)drain_count;
 		}
 		{
 			uint64_t rm_now = chiaki_time_now_monotonic_ms();
@@ -1461,6 +1523,10 @@ static void *takion_thread_func(void *user)
 
 		size_t queue_used = chiaki_reorder_queue_count(&takion->data_queue);
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();
+		if(takion->recvbuf_acc.window_start_ms == 0)
+			takion->recvbuf_acc.window_start_ms = now_ms;
+		else if(now_ms - takion->recvbuf_acc.window_start_ms >= TAKION_RECVBUF_WINDOW_MS)
+			takion_recvbuf_close_window(takion, now_ms);
 		if(queue_used > takion->jitter_stats.queue_highwater)
 		{
 			takion->jitter_stats.queue_highwater = queue_used;

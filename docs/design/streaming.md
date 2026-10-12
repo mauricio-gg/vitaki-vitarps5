@@ -220,6 +220,39 @@ Example (a decoder holding two frames): `PIPE/DECHOLD fed=60 handed=60 hold=2 ho
 - A window with no picture at all is not closed (the close runs when a picture arrives), so a total stall shows the last window until output resumes.
 - It does not change the decoder's behaviour; it only shows whether a held-frame delay exists, not how to remove it.
 
+### 9.3 `PIPE/RECVBUF`: how much packet backlog does the receive thread find?
+
+**What it measures.** Video data that sits in the kernel's socket buffer before the receive thread reads it. All other timing starts when the receive thread reads a packet, so a standing backlog there is invisible. At 6 Mbit/s, 20 KB waiting is about 27 ms.
+
+**What shipped, and what did not.** Only the drain count and the buffer size. The planned second number, the bytes waiting in the socket (`sceNetGetSockInfo`, field `recv_queue_length`), was **left out** because it cannot be called reliably today:
+- `takion->sock` on Vita is a newlib file descriptor, not the SceNet socket id (`socket()` calls `sceNetSocket` and stores the id inside newlib's private descriptor table; every wrapper such as `recvfrom` looks it up there). The VitaSDK headers have no public call to turn the descriptor into the id; it would need newlib's private `__vita_fd_grab` and its undeclared struct layout.
+- The meaning of the `n` and `flags` arguments of `sceNetGetSockInfo` is not documented in the VitaSDK headers (`psp2/net/net.h`), and nothing else in this repo calls it.
+The unit of `recv_queue_length` (bytes or packets) is also undocumented. If this is picked up later, the sample belongs right after the blocking receive returns and before the drain loop, and the unit must be settled against the drain count from a hardware log.
+
+**Drained packets per wake-up.** In `takion_thread_func` (`lib/src/takion.c`) the blocking `takion_recv` wakes the thread with one packet; the drain loop then pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more with zero-timeout reads. The number counted for a wake-up is how many the drain loop pulled after the waking packet (the waking packet itself is not counted), taken when the loop ends. A wake-up is one blocking receive that returned a packet. The probe uses its own counters (`recvbuf_acc`); the existing `jitter_stats.drain_*` counters are left alone because the occasional "Takion jitter:" line resets them.
+
+**Receive buffer size.** `rcvbuf_req` is `takion->a_rwnd` (`TAKION_A_RWND`, 512 KB on Vita) and `rcvbuf_actual` is the value read back from the kernel right after the `SO_RCVBUF` set in both connect paths (the existing `Takion SO_RCVBUF requested=... actual=...` log line is unchanged and is still printed once per connection). `rcvbuf_actual` is 0 if the read-back failed.
+
+**Window.** The receive thread closes its own window with the clock value the loop already reads once per iteration (no extra clock read), once at least `TAKION_RECVBUF_WINDOW_MS` = 1000 have passed. It reduces it to 32-bit values and publishes them under a sequence lock (`recvbuf_lock`, odd while writing), the same way as `PIPE/DECHOLD`. The reporter copies with a few retries and prints the previous copy if none is consistent. The window closes only when a packet arrives, so a total stall shows the last window until packets resume. The UI thread never resets a counter the receive thread writes. The shown window is not aligned with the reporter's, so one can be printed twice or skipped now and then. State is zeroed when the receive thread starts and in `host_metrics_reset_stream`.
+
+**Fields of the line.**
+
+| Field | Meaning |
+|---|---|
+| `wakeups` | Blocking receives that returned a packet in the window. |
+| `drained_avg`, `drained_max` | Average (two decimals) and largest number of packets drained after the waking packet, per wake-up. |
+| `drain_cap` | `TAKION_RECV_DRAIN_MAX`. A `drained_max` equal to it means the cap was hit in that window. |
+| `rcvbuf_req`, `rcvbuf_actual` | Receive buffer size asked for and reported by the kernel, in bytes. |
+
+Example: `PIPE/RECVBUF wakeups=410 drained_avg=1.85 drained_max=23 drain_cap=256 rcvbuf_req=524288 rcvbuf_actual=524288`
+
+**Reading it.** A wake-up that drains many packets means a burst had piled up while the thread was busy or asleep. If the average is near 0 the thread keeps up and no backlog stands behind each packet. Each drained packet is up to `TAKION_RECV_BUF_SIZE` = 1500 bytes; packets drained times 1500 times 8, divided by the bitrate, gives an upper bound in time. (When a bytes-waiting figure exists, the conversion is length times 8 divided by the measured bitrate, valid only if the unit turns out to be bytes.)
+
+**What it cannot tell you.**
+- It counts packets pulled after the first one, not how long they waited, and it sees only the socket buffer, not the Wi-Fi chip or the console.
+- A wake-up that finds the packets one at a time says nothing about whether the socket buffer was deeper between wake-ups.
+- No cost of the probe has been measured on hardware; it adds three integer updates per wake-up and one compare per iteration.
+
 ## 10. What is not here
 
 - No RTT or jitter figures are quoted in this document on purpose; the only two such readouts in the logs are explained in section 2.

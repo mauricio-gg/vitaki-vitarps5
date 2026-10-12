@@ -47,6 +47,10 @@
 #define DECHOLD_READ_ATTEMPTS 4
 static DecHoldWindow dechold_last;
 
+/* PIPE/RECVBUF: same scheme for the receive thread's published window. Reset with the stream. */
+#define RECVBUF_READ_ATTEMPTS 4
+static ChiakiTakionRecvbufWindow recvbuf_last;
+
 /* Insertion sort for the bounded (<= LATENCY_WINDOW_SAMPLE_CAP) per-window latency sample
  * array. O(n^2) worst case is trivial at this size (<=64 elements) and this runs once per
  * ~1s window on the UI thread -- not a hot path -- so a tiny in-place sort is simpler than
@@ -276,6 +280,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.dechold_lock = 0;
   memset(&context.stream.dechold_pub, 0, sizeof(context.stream.dechold_pub));
   memset(&dechold_last, 0, sizeof(dechold_last));
+  memset(&recvbuf_last, 0, sizeof(recvbuf_last));
 
   context.stream.input_latency_p50_us = 0;
   context.stream.input_latency_p95_us = 0;
@@ -852,6 +857,32 @@ void host_metrics_update_latency(void) {
           d->lag_avg_x100 / OCC_AVG_FIXED_POINT_SCALE,
           d->lag_avg_x100 % OCC_AVG_FIXED_POINT_SCALE, d->lag_max, d->hold_us_avg,
           d->hold_us_max, d->good, d->bad, d->stale);
+    }
+    // PIPE/RECVBUF: packets drained per receive wake-up and the receive buffer size, from the
+    // Takion receive thread's last closed window (seqlock copy as above). The queue-length part
+    // was left out: see streaming.md section 9.3. drained_avg is x100 fixed point.
+    {
+      ChiakiTakion *takion = &stream_connection->takion;
+      ChiakiTakionRecvbufWindow rb;
+      bool rb_ok = false;
+      for (int attempt = 0; attempt < RECVBUF_READ_ATTEMPTS && !rb_ok; attempt++) {
+        uint32_t lock_before = takion->recvbuf_lock;
+        if (lock_before & 1)
+          continue;
+        __sync_synchronize();
+        rb = takion->recvbuf_pub;
+        __sync_synchronize();
+        rb_ok = takion->recvbuf_lock == lock_before;
+      }
+      if (rb_ok)
+        recvbuf_last = rb;
+      const ChiakiTakionRecvbufWindow *r = &recvbuf_last;
+      LOGD(
+          "PIPE/RECVBUF wakeups=%u drained_avg=%u.%02u drained_max=%u drain_cap=%u "
+          "rcvbuf_req=%u rcvbuf_actual=%u",
+          r->wakeups, r->drained_avg_x100 / CHIAKI_TAKION_RECVBUF_AVG_SCALE,
+          r->drained_avg_x100 % CHIAKI_TAKION_RECVBUF_AVG_SCALE, r->drained_max, r->drain_cap,
+          r->rcvbuf_requested, r->rcvbuf_actual);
     }
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "

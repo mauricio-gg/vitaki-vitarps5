@@ -116,6 +116,24 @@ typedef struct chiaki_takion_connect_info_t
 	bool close_socket; // close socket when finishing takion
 } ChiakiTakionConnectInfo;
 
+/** Fixed-point scale of ChiakiTakionRecvbufWindow.drained_avg_x100 (two decimals). */
+#define CHIAKI_TAKION_RECVBUF_AVG_SCALE 100
+
+/**
+ * One PIPE/RECVBUF window (#413, docs/design/streaming.md section 9.3): the receive thread's
+ * last closed window, reduced to 32-bit fields so the UI thread can copy it under
+ * ChiakiTakion.recvbuf_lock.
+ */
+typedef struct chiaki_takion_recvbuf_window_t
+{
+	uint32_t wakeups;           // blocking receives that returned a packet
+	uint32_t drained_avg_x100;  // average packets drained per wake-up, x CHIAKI_TAKION_RECVBUF_AVG_SCALE
+	uint32_t drained_max;       // most packets drained in one wake-up
+	uint32_t drain_cap;         // TAKION_RECV_DRAIN_MAX; drained_max equal to it means the cap was hit
+	uint32_t rcvbuf_requested;  // SO_RCVBUF asked for (bytes)
+	uint32_t rcvbuf_actual;     // SO_RCVBUF the kernel reports (bytes), 0 if unknown
+} ChiakiTakionRecvbufWindow;
+
 
 typedef struct chiaki_takion_t
 {
@@ -284,6 +302,23 @@ typedef struct chiaki_takion_t
 		ChiakiSeqNum16 last_frame_index;  // frame_index of the last frame boundary seen
 		bool has_last_frame_index;        // false until the first video packet is observed
 	} video_jitter_stats;
+
+	// PIPE/RECVBUF (#413, docs/design/streaming.md section 9.3). SO_RCVBUF as the kernel reports
+	// it after the set at connect (0 when it could not be read back); written before the receive
+	// thread starts, read-only afterwards.
+	uint32_t rcvbuf_actual;
+	// Receive-thread-private window accumulators (never touched by another thread).
+	struct
+	{
+		uint64_t window_start_ms;  // 0 until the first wake-up of the window
+		uint64_t drained_sum;      // packets drained after the waking one, summed over wake-ups
+		uint32_t wakeups;          // blocking receives that returned a packet
+		uint32_t drained_max;      // largest drain count of a single wake-up
+	} recvbuf_acc;
+	// Last closed window, published by the receive thread for the UI thread. recvbuf_lock is a
+	// seqlock: odd while the receive thread is writing.
+	volatile uint32_t recvbuf_lock;
+	ChiakiTakionRecvbufWindow recvbuf_pub;
 } ChiakiTakion;
 
 
