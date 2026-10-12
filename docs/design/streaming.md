@@ -140,13 +140,13 @@ The post-stop guard applies when the user ends a stream: after a clean disconnec
 
 Log lines added to find where the delay between a button press and the changed picture lives. They only measure: nothing here changes what is sent or when. All of them print only when `show_latency` is on, once per window next to `PIPE/LATENCY`, `PIPE/INPUT`, `PIPE/DISPLAY` and `PIPE/FPS` (`host_metrics_update_latency`, `vita/src/host_metrics.c`). Each log line has its own subsection below.
 
-### 9.1 `PIPE/PRESS`: from a button press to the changed picture
+### 9.1 `PIPE/PRESS` and `PIPE/PRESS_SAMPLE`: from a button press to the changed picture
 
-**What it measures.** For one button press, how long until the console's answer is on the Vita screen, split into four points. The use: sit on a quiet PS5 screen (Settings), press D-pad down about once every two seconds, and the first big video frame after each press is the menu move. Thirty presses should give about thirty samples.
+**What it measures.** For a button press, how long until the console's answer is on the Vita screen, split into four points. The use: navigate a quiet PS5 menu (Settings) at one to two presses a second; the first big video frame after each press is the menu move. Two log lines come out: one `PIPE/PRESS` summary per window and one `PIPE/PRESS_SAMPLE` per completed sample.
 
 **Clock.** Everything is `sceKernelGetProcessTimeWide()` in microseconds, the same clock as the other `PIPE/` lines. The library's millisecond stamps (`chiaki_time_now_monotonic_ms()`) are the same clock cut to whole milliseconds (`vita/src/video.c`, comment in `vita_video_render_latest_frame`).
 
-**Start point (press sent).** `feedback_sender_thread_func` in `lib/src/feedbacksender.c`: on a wake where the history packet goes out and at least one digital button changed from released to pressed, the time right after the send is stored with a press counter that only goes up. Releases, sticks, touches and the analog L2/R2 values do not count; a press and release gives one event. The receive thread reads it with `chiaki_feedback_sender_read_press_stamp` without any lock (a seqlock, so it never sees a count paired with another press's time).
+**Start point (press sent).** `feedback_sender_thread_func` in `lib/src/feedbacksender.c`: on a wake where the history packet goes out and at least one digital button changed from released to pressed, the time right after the send is stored with a press counter that only goes up. Releases, sticks, touches and the analog L2/R2 values do not count; a press and release gives one event. The receive thread reads it with `chiaki_feedback_sender_read_press_stamp` without any lock (a seqlock, so it never sees a count paired with another press's time). Only the newest press is stored, so two presses between two polls (one frame, about 16 ms) leave one unknown press, counted as `unseen`.
 
 **The four points**, each in microseconds since the press was sent, for the same video frame (the "jump frame"):
 
@@ -157,32 +157,65 @@ Log lines added to find where the delay between a button press and the changed p
 | `decoded_us` | Decoding of the frame that was shown finished. | The decode-done stamp in `decode_frame_now` (`vita/src/video.c`), the same value `PIPE/DISPLAY` uses for its pickup span |
 | `shown_us` | The swap that put the picture on screen. | The clock read right after `vita2d_swap_buffers()` in `vita_video_render_latest_frame` (no extra read) |
 
-**Which frame is shown.** The jump frame may never reach the screen: the decode queue can drop it, a newer decoded frame can replace it, `force_30fps` pacing can skip it, or the freeze-on-corrupt path can show the last good picture instead. Frames carry a running number. The number of the picture in `frame_texture` is the one the decoder reports back for it (`PIPE/DECHOLD`, section 9.2) when that read-back is good, and the number that was fed in when it is not; so if the decoder holds frames back, `decoded_us` and `shown_us` still belong to the frame that is really on screen. `shown_us` and `decoded_us` come from the first swap that presents a freshly decoded picture whose number is the jump frame's or newer; in those cases `decoded_us` is the newer frame's decode-done. A pass that only repeats an older picture, or is paced out, does not complete the sample.
+**Detector** (`vita/src/press_meter.c`, pure logic, tested natively; constants in `vita/include/press_meter.h`). It runs on the receive thread, with integer compares only.
 
-**Detection rule** (`vita/src/press_meter.c`, pure logic, tested natively). The detector keeps the sizes of the last `PRESS_METER_QUIET_WINDOW` = 16 quiet frames; the quiet reference is the largest of them. While a press waits, the first frame of at least `PRESS_METER_JUMP_RATIO` = 3 times the reference AND at least `PRESS_METER_JUMP_MIN_EXTRA_BYTES` = 2048 bytes more is the jump. The window must be full before any jump counts. One sample per press: later large frames of the same animation are ignored. A press with no jump within `PRESS_METER_EXPIRY_US` = 1.5 s expires (no sample). A press arriving while another waits is an overlap and is ignored; the oldest keeps waiting. Corrupt frames are ignored entirely (they neither trigger nor enter the quiet window). A large frame whose first packet was read in an earlier millisecond than the press was sent cannot be its answer and is ignored too. The numbers are first guesses, to be tuned from the first hardware log.
+- **Queue.** Presses wait in a FIFO of `PRESS_METER_QUEUE_DEPTH` = 4. A press finding it full is refused and counted (`full`). Each press expires `PRESS_METER_EXPIRY_US` = 1 s after it was sent (`expired`), oldest first.
+- **Quiet reference.** The second largest of the last `PRESS_METER_QUIET_WINDOW` = 8 calm frames (133 ms at 60 fps). Second largest, so one outlier frame cannot hide an answer; 8 frames, so it follows the picture within about a tenth of a second. The window must be full before any jump counts.
+- **Jump.** Outside a burst, a frame of at least `PRESS_METER_JUMP_RATIO` = 3 times the reference AND at least `PRESS_METER_JUMP_MIN_EXTRA_BYTES` = 1536 bytes more. Corrupt frames are ignored entirely.
+- **Burst.** Every jump (matched or not) starts a burst, which stays until `PRESS_METER_BURST_END_CALM_FRAMES` = 8 calm frames in a row (133 ms). A frame in a burst is calm when it is below the reference frozen at burst start plus `PRESS_METER_CALM_MARGIN_BYTES` = 1024. Frames in a burst are never jumps and only calm ones enter the quiet window, so the tail of one menu move can neither become the next press's sample nor raise the reference. A burst longer than `PRESS_METER_BURST_MAX_US` = 2 s is cut off and the quiet window is rebuilt from scratch, so a picture that stays busier cannot blind the meter for good.
+- **Matching rule.** A jump is matched to the OLDEST waiting press that is eligible. A press is eligible when it was sent no later (compared in whole milliseconds) than the jump frame's first packet; a frame already under way when the press was sent cannot be its answer. `waiting` on the sample is the number of eligible presses, so `waiting=1` means no other press could have been the cause. With `waiting>1` the answer may belong to a younger press (the oldest may have had no answer at all, e.g. a press at the end of a list); the oldest is picked because answers take 150-650 ms against presses 500-1000 ms apart, so the oldest is the likelier. The other eligible presses stay in the queue.
+- **Presses inside a burst.** A press sent while a burst is running is queued like any other but counted (`inburst`) and marked `inburst=1` on its sample. Its answer arrives at least 150 ms later, usually after the burst has ended, so it is normally measured. If instead its answer merges into the running burst it cannot be seen (no jump is allowed inside a burst); the press then expires, or, worse, a later jump is taken for it. That is why the mark exists: drop `inburst=1` samples when in doubt.
+- **No match.** A jump with no eligible waiting press (nobody asked, or the frame began before the press) is counted as `unmatched`. It still starts a burst.
 
-**Fields of the line.**
+**Which frame is shown.** The jump frame may never reach the screen: the decode queue can drop it, a newer decoded frame can replace it, `force_30fps` pacing can skip it, or the freeze-on-corrupt path can show the last good picture instead. Frames carry a running number. The number of the picture in `frame_texture` is the one the decoder reports back for it (`PIPE/DECHOLD`, section 9.2) when that read-back is good, and the number that was fed in when it is not; so if the decoder holds frames back, `decoded_us` and `shown_us` still belong to the frame that is really on screen. A jump completes at the first swap that presents a freshly decoded picture whose number is the jump frame's or newer; then `decoded_us` is that picture's decode-done. A pass that only repeats an older picture, or is paced out, completes nothing.
+
+**Several jumps in flight.** Answers can be 300 ms apart while a picture is shown up to about 150 ms after it is assembled, so more than one armed jump can be outstanding. They go from the receive thread to the UI thread through a single-producer / single-consumer ring of `PRESS_JUMP_RING_DEPTH` = 8 slots in `vita/src/video.c`, no lock: the receive thread writes a slot and then raises `press_jump_head`; the UI thread reads a slot, completes it and then raises `press_jump_tail`; the receive thread only writes a slot that the tail has already released. At one swap every armed jump whose frame number the shown picture has reached completes, oldest first (they then share the same `decoded_us` and `shown_us` basis, which is the picture that was really shown). A jump whose frame is still ahead of the picture stays armed. If the ring is full the new jump is dropped and counted in `lost`.
+
+**`PIPE/PRESS` (one per window, printed even when empty).**
 
 | Field | Meaning |
 |---|---|
 | `presses` | Presses sent this window. |
-| `n` | Completed samples this window. |
-| `first_us`, `assembled_us`, `decoded_us`, `shown_us` | The four points above for the newest sample of the window; 0 when `n=0`. |
-| `first_max_us`, `shown_max_us` | Window maximum of `first_us` and of `shown_us`; 0 when `n=0`. |
-| `frame_bytes`, `quiet_bytes` | Size of the newest sample's jump frame and the quiet reference at that moment, so a human can judge whether it was a real jump. |
-| `order_err` | Samples whose points were out of order (they should satisfy 0 <= first <= assembled <= decoded <= shown). Nothing is clamped; the raw values are still reported. |
-| `expired` | Presses that saw no jump in time. |
-| `overlap` | Presses ignored because another was pending (or because two presses fell between two frames and only the newer was seen). |
-| `lost` | Jumps replaced by a newer jump before they were shown (the screen did not swap for over a second). |
-| `presses_total`, `samples_total` | Session running totals; the last line of a log answers "thirty presses, how many samples". |
+| `n` | Completed samples this window (all of them, listed or not). |
+| `amb` | Samples with `waiting>1` this window. |
+| `order_err` | Samples whose points were out of order (they should satisfy 0 <= first <= assembled <= decoded <= shown). Nothing is clamped. |
+| `expired` | Presses that saw no jump within the expiry. |
+| `full` | Presses refused because the queue was full. |
+| `inburst` | Presses sent while a burst was running (they are still measured; see above). |
+| `unseen` | Presses that fell between two polls of the press stamp (their times are unknown). |
+| `unmatched` | Jumps with no eligible waiting press. |
+| `lost` | Jumps dropped because the UI thread had not yet shown the earlier ones (ring full). |
+| `sample_overflow` | Completed samples beyond the per-window list of `PRESS_WINDOW_SAMPLE_CAP` = 8 (counted in `n`, no `PIPE/PRESS_SAMPLE` line). |
+| `presses_total`, `samples_total` | Session running totals. |
 
-Example: `PIPE/PRESS presses=1 n=1 first_us=41000 assembled_us=58210 decoded_us=63940 shown_us=79120 first_max_us=41000 shown_max_us=79120 frame_bytes=21480 quiet_bytes=1320 order_err=0 expired=0 overlap=0 lost=0 presses_total=14 samples_total=14`
+Example: `PIPE/PRESS presses=2 n=1 amb=0 order_err=0 expired=0 full=0 inburst=1 unseen=0 unmatched=0 lost=0 sample_overflow=0 presses_total=21 samples_total=15`
+
+Removed from the old line (they were the newest sample only, now carried in full by `PIPE/PRESS_SAMPLE`): `first_us`, `assembled_us`, `decoded_us`, `shown_us`, `first_max_us`, `shown_max_us`, `frame_bytes`, `quiet_bytes`. `overlap` is gone too: presses are no longer ignored while another waits; the cases it covered are now `full`, `inburst` and `unseen`.
+
+**`PIPE/PRESS_SAMPLE` (one per completed sample).** Printed on the UI thread at window close, from a fixed per-window buffer, under the same `show_latency` gate; never from the receive or decode thread. The window's first samples come out in completion order.
+
+| Field | Meaning |
+|---|---|
+| `press` | The sender's press number (the same counter that `presses_total` ends at), so a missing number in a log shows a lost sample or line. |
+| `first_us`, `assembled_us`, `decoded_us`, `shown_us` | The four points above. |
+| `frame_bytes`, `quiet_bytes` | Size of the jump frame and the quiet reference at that moment. |
+| `waiting` | Presses eligible for this frame when it was matched; 1 = unambiguous. |
+| `inburst` | 1 when the matched press was sent while a burst was running. |
+| `order_ok` | 1 when 0 <= first <= assembled <= decoded <= shown (first known). |
+
+Example: `PIPE/PRESS_SAMPLE press=15 first_us=312000 assembled_us=330510 decoded_us=455720 shown_us=468330 frame_bytes=4175 quiet_bytes=520 waiting=1 inburst=1 order_ok=1`
+
+**Picking trustworthy samples.** Keep lines with `waiting=1` and `order_ok=1`; for the strictest set also `inburst=0`. `frame_bytes` should be several times `quiet_bytes`. To see how much was left out, compare `presses_total` with the number of samples kept, and read `expired`, `inburst`, `unmatched` and `amb` over the run. A ragged number sequence in `press=` means the log dropped lines (see below).
+
+**What the first hardware log showed** (log 26017450183, PS5 menu at one to two presses a second, 60 fps; this was the old one-slot detector). Of 45 presses in the first session only 12 became samples. Measured: the surviving samples had `first_us` 155-646 ms and `shown_us` 255-820 ms, jump frames of 3033-7995 bytes and quiet references of 39-1612 bytes; the visible lines of that session summed to 10 expired and 14 overlapped presses; the 45 presses are 12 samples plus at least 10 expired plus at least 14 overlapped, with the rest in lines the log lost. Reasoned (the log has no per-frame sizes): (1) Overlap: a press waits 150-650 ms for its answer and presses come 500-1000 ms apart, so a second press arrives while the first waits in roughly a third to nearly all cases; the single slot dropped every one of them, and a press with no answer held the slot for 1.5 s. (2) Quiet reference: it was the largest of 16 frames and the frames of the menu move itself (windows with one sample show `lg=22..26` frames above the previous window's average, i.e. about 0.4 s, and `fsz` maxima of 5-8 KB) were pushed into it, so for the move plus 16 frames (about 0.7 s) a 3-8 KB answer needed 9-24 KB to count and could not be seen; any press answered within 0.7 s of the previous answer, which at 500-700 ms spacing is most of them, expired. An outlier of 1612 bytes would by itself require 4836 bytes: three of the eight answers in that session (3033, 3955, 4175) are below that. (3) Expiry: the 10 expired presses cannot be split into "no answer" (end of a list) and "answer not seen"; the log cannot separate them. (4) Reporting: `PIPE/PRESS` printed only the newest sample, but no visible line had `n>1`, so that truncation was not observed. What was lost was whole lines: the session's `samples_total` was 12 while eight lines showed `n=1`; the four others fell in windows whose `PIPE/PRESS` line is missing (79 lines for about 114 windows), and the log itself reports `LOG_LINES_DROPPED` of about 35 lines a second. `PIPE/PRESS_SAMPLE` lines go through the same log, so they can be lost the same way; the `press=` numbers and the totals on `PIPE/PRESS` show how many.
 
 **What it cannot tell you.**
 - It needs a quiet screen. Anything else that changes the picture by a big step (a notification, a video playing, an animation, loss recovery that is not flagged corrupt) can be taken for the answer to a press, which gives a false sample. Check `frame_bytes` against `quiet_bytes`.
+- Presses whose answers merge into a running burst are not measured; at about two presses a second (500 ms apart) most answers fall into the previous move's burst and its 133 ms tail, so the yield drops. Compare `n` with `presses`.
 - Corrupt frames are skipped, so a press answered only by a frame flagged corrupt shows up as `expired`.
 - `first_us` is 1 ms coarse; a sample can show `first_us` slightly early, and a press sent in the same millisecond as the first packet can give a small negative value (counted in `order_err`).
 - The press time is when the packet was handed to the network, not when the button was touched; the time from the physical press to the send is `PIPE/INPUT`.
+- The constants are first guesses taken from one log; tune them from the next one.
 
 ### 9.2 `PIPE/DECHOLD`: does the hardware decoder hold pictures back?
 
