@@ -257,10 +257,7 @@ Example (a decoder holding two frames): `PIPE/DECHOLD fed=60 handed=60 hold=2 ho
 
 **What it measures.** Video data that sits in the kernel's socket buffer before the receive thread reads it. All other timing starts when the receive thread reads a packet, so a standing backlog there is invisible. At 6 Mbit/s, 20 KB waiting is about 27 ms.
 
-**What shipped, and what did not.** The drain count, the bytes drained and the buffer size. The planned second number, the bytes waiting in the socket (`sceNetGetSockInfo`, field `recv_queue_length`), was **left out** because it cannot be called reliably today:
-- `takion->sock` on Vita is a newlib file descriptor, not the SceNet socket id (`socket()` calls `sceNetSocket` and stores the id inside newlib's private descriptor table; every wrapper such as `recvfrom` looks it up there). The VitaSDK headers have no public call to turn the descriptor into the id; it would need newlib's private `__vita_fd_grab` and its undeclared struct layout.
-- The meaning of the `n` and `flags` arguments of `sceNetGetSockInfo` is not documented in the VitaSDK headers (`psp2/net/net.h`), and nothing else in this repo calls it.
-The unit of `recv_queue_length` (bytes or packets) is also undocumented. If this is picked up later, the sample belongs right after the blocking receive returns and before the drain loop, and the unit must be settled against the drain count from a hardware log.
+**What shipped.** The drain count, the bytes drained and the buffer size (this section), and the bytes waiting in the socket as `PIPE/SOCKQ` (section 9.7). The second number was first left out because `takion->sock` on Vita is a newlib file descriptor, not the SceNet socket id, and the meaning of `sceNetGetSockInfo`'s `n` and `flags` arguments and of the unit of `recv_queue_length` is not documented. Section 9.7 says how the id is now resolved (newlib's private `__vita_fd_grab`, read from the SDK's disassembly) and how the call is checked against our own socket before any sample is trusted. The unit is still undocumented: it must be settled against the `bytes` and `packets` fields of this line on hardware.
 
 **Drained packets and bytes per wake-up.** In `takion_thread_func` (`lib/src/takion.c`) the blocking `takion_recv` wakes the thread with one packet; the drain loop then pulls up to `TAKION_RECV_DRAIN_MAX` = 256 more with zero-timeout reads. The number counted for a wake-up is how many the drain loop pulled after the waking packet (the waking packet itself is not counted), taken when the loop ends. A wake-up is one blocking receive that returned a packet. The bytes are the sum of the sizes (`drain_size` after each successful zero-timeout `takion_recv`) of exactly those packets; the waking packet is not included. The probe uses its own counters (`recvbuf_acc`); the existing `jitter_stats.drain_*` counters are left alone because the occasional "Takion jitter:" line resets them. These fields do **not** measure a backlog (see "What the first hardware log showed"): a drained count only equals "packets that were already waiting" if the zero-timeout read returns at once.
 
@@ -281,7 +278,7 @@ The unit of `recv_queue_length` (bytes or packets) is also undocumented. If this
 | `work_us` | `wall_us - block_us - poll_us`, 0 if that would be negative: packet handling, frame assembly, the decode hand-off, audio, logging and the rest of the loop. Not measured directly. |
 | `busy_pct` | `work_us / wall_us`, one decimal. |
 
-Cost of the timing: one clock read before and one after the blocking receive (2 per wake-up) and the same pair around every zero-timeout read, so 2 per drained packet plus 2 for the call that ends the loop (none extra when the cap ends it): 4 per wake-up plus 2 per drained packet. One more read per window at the close and one at thread start. The existing millisecond read per iteration is unchanged. On Vita each read is `sceKernelGetProcessTime`; its cost has not been measured.
+Cost of the timing: one clock read before and one after the blocking receive (2 per wake-up) and the same pair around every zero-timeout read, so 2 per drained packet plus 2 for the call that ends the loop (none extra when the cap ends it): 4 per wake-up plus 2 per drained packet. One more read per window at the close and one at thread start. The existing millisecond read per iteration is unchanged. On Vita each read is `sceKernelGetProcessTime`. The cost of one read is now measured once per session and printed as `clock_read_ns` on `PIPE/RECVTHREAD` (section 9.8); the sections 9.6 and 9.7 probes add reads on top of these, counted in their own sections.
 
 **Fields of the line.**
 
@@ -301,6 +298,8 @@ Example (made-up numbers): `PIPE/RECVBUF wakeups=3 drained_avg=256.00 drained_ma
 - Established, read from code and disassembly: on Vita `chiaki_stop_pipe_select_single` calls `select()` with a timeval of {0,0} for a zero timeout (`lib/src/stoppipe.c:222-229`). The SDK's newlib `select()` (disassembly of `lib_a-select.o`, `libc.a`) turns the timeval into microseconds (`tv_sec * 1000000 + tv_usec`), and for every call creates a SceNet epoll (`sceNetEpollCreate`), registers each descriptor below `nfds` that is open as a SceNet socket (`__vita_fd_grab`, `sceNetEpollControl`), calls `sceNetEpollWait(epoll, events, 255, timeout_us)` with 0 for {0,0}, and destroys the epoll. So a zero-timeout "poll" is at least four SceNet kernel calls plus clearing about 8 KB of event buffer, not a flag test. The `timeout == NULL` case passes -1; the Vita-only "999999999 seconds" workaround in `stoppipe.c` wraps in the 32-bit multiply to a negative number (-1531494976), so the blocking receive also relies on `sceNetEpollWait` treating any negative timeout as infinite.
 - Inference, not established: the numbers above fit a drain loop whose zero-timeout reads are not instant, so that packets keep arriving while a read is in progress and the loop rarely sees an empty socket. Why a read would take milliseconds is not known. Candidate causes: `sceNetEpollWait` with timeout 0 does not return at once in the firmware; or the receive, decode and audio threads share priority 64 (`PIPE/PRIORITY`) and the poll's kernel calls give up the CPU; or per-packet handling is slow enough that the loop really is saturated. The disassembly cannot tell these apart because `sceNetEpollWait` is a firmware call. The "saturated" explanation fits badly with 0.68 Mbit/s and a decoder idling at 1.7 ms per frame, but is not excluded.
 - Confidence: high that the drained counts are not a measure of backlog; moderate that the zero-timeout read is the cause rather than a symptom; low on which mechanism. The new fields settle it: see below.
+
+**What the second hardware log showed** (`26571013903_vitarps5-testing.log`, with the time fields). Established, read from the log (`LC_ALL=C grep -a`): `busy_pct` is already above 90 in the early windows of the stream while `drain_empty` still equals `wakeups` and `drain_capped` is 0, for example the window printed at 31918416 (`wakeups=16 drained_avg=21.75 drain_empty=16 drain_capped=0 poll_max_us=282 work_us=917147 wall_us=1000120 busy_pct=91.7`). Over the first windows it climbs from `busy_pct=50.9` (first window with traffic, 23878576) through 66.8, 72.0 and 81.8 to that 91.7. So the thread is busy before it stops finding the socket empty: the busy time is not a consequence of a standing backlog. `poll_max_us` stays under 0.5 ms in these windows. The session printed `Catchups: 0` (`VITA AUDIO :: Session stats - Frames: 9928, Catchups: 0 (0.00%)`), so the audio catch-up path never ran. Where the busy time goes is what section 9.6 measures.
 
 **How to read it.**
 - Saturated (the thread never idles, data stands in the socket): `busy_pct` high (above roughly 80), `block_us` near 0, `poll_max_us` in the tens of microseconds, `drain_capped` close to `wakeups`.
@@ -407,6 +406,141 @@ Scaling lists are walked (their size is fixed at 16 or 64 entries and the loop e
 - An SPS whose end is not found within 512 bytes is taken to end there.
 - Fields after the bitstream restriction (the trailing bits) are not read or checked, and values that only describe the picture (width, height, cropping, bit depth) are skipped, not range-checked: they size nothing.
 - The numbers come from one parse of one SPS; no cost has been measured on hardware beyond "a few byte compares per buffer".
+
+### 9.6 `PIPE/RECVTIME`: where does the receive thread's time go?
+
+**What it measures.** `PIPE/RECVBUF` (9.3) says how long the receive thread is busy (`work_us`) but not on what. This line splits `work_us` of the same window by what the thread was doing: handling video packets, audio packets or control packets, and inside those, three suspects: the video hand-off to the decoder queue, the audio callback, and the call that plays audio (`sceAudioOutOutput`). It also counts how much of the time went into log calls. Logging only: no behaviour changes.
+
+**Same window.** It is accumulated and published by the same window close, under the same sequence lock, as `PIPE/RECVBUF` (9.3), and printed right after it under `show_latency`. The accumulators are zeroed with the 9.3 ones. Nothing here is a second window.
+
+**Who writes what.** Only the receive thread. The Takion loop (`takion_thread_func`, `lib/src/takion.c`) writes the packet-class buckets. `vita_audio_cb` (`vita/src/audio.c`), `host_video_cb` (`vita/src/host_callbacks.c`) and the log paths write their own fields; they run synchronously on the receive thread (the audio callback via `takion_handle_packet_av` -> `stream_connection_takion_av` -> `chiaki_audio_receiver_av_packet` -> `chiaki_opus_decoder_frame`; the video callback from `chiaki_video_receiver_av_packet` / `chiaki_video_receiver_flush_frame`). Each of them first compares the calling thread's id with the one the receive thread recorded at start (`recvtime_thread_id`), and writes nothing from any other thread. There is no lock, no allocation and no log call on these paths.
+
+**How a packet's handling time is measured.** A packet's handling time is the span from the clock read that ended its receive (or the end of its socket-queue query, 9.7) to the next clock read the loop makes anyway: the start of the next zero-timeout receive. That reuses the reads 9.3 already makes, so it adds none per packet. The one exception: when a drain loop ends at the cap there is no following poll, so one extra read closes the last packet (at most one per capped wake-up). The class comes from the Takion base type of the packet's first byte, as `takion_handle_packet` dispatches it: video, audio (haptics packets share the audio base type, so they are counted as audio), control. Anything else, and packets handled from the postponed-packet flush, are not in a class and fall into `unacct_us`.
+
+**Fields.** All per window, times in microseconds saturated at 32 bits.
+
+| Field | Meaning |
+|---|---|
+| `video_n`, `video_us`, `video_max_us` | Packets of the video class, total time in `takion_handle_packet` for them, longest single one. |
+| `audio_n`, `audio_us`, `audio_max_us` | Same for audio (and haptics). |
+| `ctrl_n`, `ctrl_us`, `ctrl_max_us` | Same for control. |
+| `vsubmit_n`, `vsubmit_us`, `vsubmit_max_us` | Subset of `video_us`: calls of `host_video_cb` (the whole callback, including its call of `vita_h264_decode_frame` and any wait for a free slot in the decode queue). |
+| `acb_n`, `acb_us`, `acb_max_us` | Subset of `audio_us`: calls of `vita_audio_cb`. On the path that plays audio the callback is taken to end when `sceAudioOutOutput` returns (the three statements after it are not included); on the other paths it ends at the return. |
+| `aout_n`, `aout_us`, `aout_max_us` | Subset of `acb_us`: the `sceAudioOutOutput` call alone. |
+| `ashort` | Audio callbacks that returned at the `write_read_framediff < device_buffer_frames` check (not enough frames buffered to play). |
+| `askip` | Audio callbacks that returned because `audio_should_output_now()` was false. |
+| `acatchup` | Times the audio catch-up path ran (`audio_catchup_to_latest_frame`). |
+| `work_us` | The `work_us` of the `PIPE/RECVBUF` line of the same window, repeated. |
+| `unacct_us` | `work_us - video_us - audio_us - ctrl_us`, printed **signed**. Only the three classes are subtracted: `vsubmit`, `acb`, `aout` and the log fields are already inside a class and must not be subtracted again. A negative value is printed as is (never clamped to 0). It contains everything the loop does outside packet handling, the postponed-packet flush, the time of the socket-queue queries (9.7, printed on their own line) and any packet type outside the three classes. |
+| `log_n`, `log_us`, `log_max_us` | Log calls made by the receive thread that were actually written (passed the level mask and `vita_log_should_write_level`), their total time and the longest. |
+| `vlog_us`, `alog_us`, `clog_us` | `log_us` split by the class of the packet being handled when the call was made. What is left of `log_us` was logged outside packet handling. |
+| `log_block` | Written log calls of a level other than DEBUG: those take the blocking mutex path in `vita_log_submit_line` (`vita/src/logging.c`). |
+
+**The log fields are not a class.** `log_us` is a subset that cuts across `video_us`, `audio_us`, `ctrl_us` and `unacct_us`. It is never subtracted in the `unacct_us` formula. The timed span of a lib log call (`CHIAKI_LOG*`) is the whole Vita callback `log_cb_debugnet` (`vita/src/context.c`): the second formatting, `sceClibPrintf`, `vita_log_submit_line`. The `vsnprintf` the lib does before it calls the callback (`chiaki_log` in `lib/src/log.c`) is **not** covered. For the Vita `LOGD/LOGW/LOGE` macros (`vita/include/context.h`) the span runs from the timestamp read they already make to after `vita_log_submit_line` returns.
+
+**Cost of the probe (added clock reads).**
+- Takion loop: none per packet. One per capped wake-up. One per socket-queue sample (9.7).
+- `vita_audio_cb`: 3 reads on a frame that plays audio (start, before and after `sceAudioOutOutput`), 2 on the others (start, end).
+- `host_video_cb`: 2 per submitted frame.
+- A lib log call: 2 on the receive thread (start and end of `log_cb_debugnet`), none on other threads. A Vita-macro log call: 1 on the receive thread (the start is the timestamp it reads anyway), none on other threads.
+- The "am I the receive thread" check is one `sceKernelGetThreadId()` call per audio frame, video frame and log call, from any thread, with no clock read. Its cost is measured once per session as `thread_id_ns`, and the clock read as `clock_read_ns` (both on `PIPE/RECVTHREAD`, 9.8); multiply by the call counts to get the probe's own cost. Neither value is known before the first hardware log.
+
+Example (made-up numbers, not from hardware): `PIPE/RECVTIME video_n=420 video_us=210000 video_max_us=9000 audio_n=100 audio_us=640000 audio_max_us=15000 ctrl_n=30 ctrl_us=2000 ctrl_max_us=300 vsubmit_n=55 vsubmit_us=150000 vsubmit_max_us=8000 acb_n=100 acb_us=600000 acb_max_us=14000 aout_n=100 aout_us=580000 aout_max_us=13000 ashort=0 askip=0 acatchup=0 work_us=917000 unacct_us=65000 log_n=300 log_us=40000 log_max_us=900 vlog_us=25000 alog_us=0 clog_us=3000 log_block=2`
+
+**How to read it.**
+- Audio output is where the thread waits: `aout_us` is most of `acb_us` and `acb_us` is most of `audio_us` and of `work_us`; `aout_max_us` is in milliseconds (the audio buffer period) rather than microseconds. `audio_us - acb_us` is then opus decode, decryption and the audio receiver; `acb_us - aout_us` is the callback without the output call.
+- Video submit is where it waits: `vsubmit_us` is most of `video_us`, with `vsubmit_max_us` near 10 ms (the decode queue's bounded wait in `vita_h264_decode_frame`, `vita/src/video.c`).
+- Logging: `log_us` large compared with `work_us`, mostly in `vlog_us` (the lib's per-frame lines).
+- Nothing accounts for it: `unacct_us` is most of `work_us` and the class buckets are small. Then the time is outside packet handling (the loop's own work, the postponed flush) or the thread is not running (preempted by another thread of equal or higher priority); `PIPE/RECVTHREAD` (9.8) shows priority and core.
+- A clearly negative `unacct_us` means the class buckets add up to more than the window's remainder: the clock reads disagree (see `clock_read_ns`) or `work_us` was clamped.
+
+**What it cannot tell you.**
+- It measures elapsed time, not CPU time: a thread that is preempted while inside `takion_handle_packet` is charged for the wait too. It cannot tell waiting on a lock or the sound hardware from being descheduled.
+- The class split sees time inside `takion_handle_packet` only; the sub-buckets cover three call sites, not the whole of the handling.
+- All of it is "to be measured": no result from hardware is recorded here yet.
+
+### 9.7 `PIPE/SOCKQ`: bytes waiting in the socket
+
+**What it measures.** How much `sceNetGetSockInfo` says is queued on the Takion socket (`recv_queue_length`), sampled by the receive thread. Unit: the raw `recv_queue_length` value; the unit is not documented, to be settled against `PIPE/RECVBUF` bytes on hardware.
+
+**From the newlib descriptor to the SceNet id.** `takion->sock` is a newlib descriptor. Evidence (disassembly of the SDK's `libc.a`, `arm-vita-eabi-objdump`): `recvfrom` calls `__vita_fd_grab(fd)`, loads `[r0, #0]` of the returned pointer as the first argument of `sceNetRecvfrom`, then calls `__vita_fd_drop(ptr)`; `getsockname` does the same with `sceNetGetsockname`; `socket` stores the `sceNetSocket` result at `[entry, #0]` and the byte `2` at `[entry, #4]`; `__vita_fd_grab` returns `__vita_fdmap[fd]` after incrementing the reference count at `[entry, #8]` (NULL for a descriptor outside 1..255 or unset), and `__vita_fd_drop` decrements it (and would close the socket at a count of 1, which cannot happen while the grab holds one). So the id is the leading `int`, the kind byte is `2` for a socket. `takion_recvprobe_setup` (`lib/src/takion.c`) declares the two private functions itself, grabs once, reads the id, checks the kind byte, and drops.
+
+**Self-check, once per receive-thread run, before the loop.** It calls `sceNetGetSockInfo(id, &info, 1, flags)` with room for exactly one entry (the SDK headers do not say what `n` means; one entry is an assumption) and compares: the returned `s` field with the id, and the returned `local_port` with the port `getsockname` reports for the descriptor (accepted if equal to it either as stored or after `ntohs`, because the byte order of `local_port` is not documented). The last argument is undocumented too. `SCE_NET_SOCKINFO_F_SELF` comes from the header's enum "flags for ::SceNetSockInfo structure" (which also holds wait-state bits), so it may describe the struct's own `flags` field and the argument may be a reserved 0. The check therefore tries `flags = 0` (`TAKION_SOCKQ_INFO_FLAGS_NONE`) first and, only if that does not pass, `SCE_NET_SOCKINFO_F_SELF` (`TAKION_SOCKQ_INFO_FLAGS_SELF`). The value that passed is used for every sample and printed as `sockq_flags`. If neither passes, `ok=0` and no sample is taken for the session. Both return codes and the raw values of the last attempt are kept for `PIPE/RECVTHREAD` (9.8). No queue length is ever printed unless it was measured.
+
+**When it samples.** Once per wake-up, right after the blocking receive returns and before that packet is handled; and after every 64th drained packet inside a drain loop (`TAKION_SOCKQ_DRAIN_SAMPLE_EVERY`), so a thread that wakes only 1 to 3 times a second still gives samples. Each query is timed from the clock read the loop already made when the receive returned to one read after the call: 1 added clock read per sample. The query time is not inside any packet class (the packet's handling is timed from the end of the query) and so lands in `unacct_us`.
+
+**Fields of the line.** `PIPE/SOCKQ ok= n= min= avg= max= wake_avg= wake_max= query_us= query_max_us= err=`
+
+| Field | Meaning |
+|---|---|
+| `ok` | 1 if the self-check passed and sampling is on. |
+| `n`, `min`, `avg`, `max` | Number of samples in the window and the smallest, integer average and largest `recv_queue_length` over all of them (0 when `n` is 0). |
+| `wake_avg`, `wake_max` | Average and largest over only the samples taken right after a blocking receive returned. |
+| `query_us`, `query_max_us` | Total and longest time spent inside the queries of the window. |
+| `err` | Queries that failed (or returned a negative length) in the window; not in the samples. |
+
+Example (made-up numbers): `PIPE/SOCKQ ok=1 n=14 min=0 avg=21000 max=96000 wake_avg=18000 wake_max=33000 query_us=900 query_max_us=120 err=0`
+
+**How to read it.** Compare `avg`/`max` with `bytes` and `packets` of `PIPE/RECVBUF` to settle the unit. If the unit is bytes, `max` times 8 divided by the bitrate is the milliseconds of stream waiting at that sample (9.3's byte-to-milliseconds reading, but from the system's own queue count rather than from the drain loop). `wake_*` is what was already queued when the thread came back from waiting; if `wake_avg` is large while `PIPE/RECVTIME` shows the thread blocked in nothing, data really stands in the socket.
+
+**What it cannot tell you.** It is a point sample, not a continuous measurement: up to 64 drained packets pass between two drain samples. It sees the socket only, not the Wi-Fi chip. The queue length is not necessarily the whole backlog if the firmware holds more elsewhere. The unit, the meaning of `n` and `flags`, and whether the call has a side effect on the socket are not documented: all to be measured.
+
+### 9.8 `PIPE/RECVTHREAD`: which core and priority does the receive thread really have?
+
+**What it measures.** The receive thread's priority, affinity mask and CPU as the system reports them (`sceKernelGetThreadInfo` for the thread's own id), not as our constants say. The thread starts at priority `TAKION_RECV_THREAD_PRIORITY` on `SCE_KERNEL_CPU_MASK_USER_0`; the first audio frame runs `vita_audio_cb`'s one-time init on the same thread, which sets `VITA_AUDIO_THREAD_PRIORITY` and `SCE_KERNEL_CPU_MASK_USER_2` (section 6), so the expected change is `start_*` values (USER_0) and, after the first audio frame, current values on USER_2.
+
+**When it is sampled and printed.** The receive thread samples at each window close, off the per-packet path, and once at thread start. The start sample is kept in the once-per-session facts and printed on every line as `start_*`, because the reporter only sees whichever window is published when it runs (once a window, only while the latency printing is on) and may never see the start window itself. The reporter prints the line at the first window it sees and again whenever the current priority, affinity mask or CPU differs from what it printed last; that state is reset in `host_metrics_reset_stream`. One line therefore shows "started on X, now on Y".
+
+**Fields.** `PIPE/RECVTHREAD prio= affinity=0x cpu= last_cpu= info_rc= start_prio= start_affinity=0x start_cpu= start_info_rc= audio_started= clock_read_ns= thread_id_ns= sockq_ok= sockq_flags= sockq_id= sockq_info_rc= sockq_info_rc_self= sockq_info_id= sockq_info_port_raw= sockname_rc= sockname_port_net= sockname_port_host=`
+
+| Field | Meaning |
+|---|---|
+| `prio`, `affinity`, `cpu`, `last_cpu` | `currentPriority`, `currentCpuAffinityMask` (hex), `currentCpuId`, `lastExecutedCpuId` from `SceKernelThreadInfo`. |
+| `info_rc` | Return code of `sceKernelGetThreadInfo` (0 is success; the other fields are 0 otherwise). |
+| `start_prio`, `start_affinity`, `start_cpu`, `start_info_rc` | The same sample taken once when the receive thread started, before its loop. |
+| `audio_started` | 1 once the audio callback's one-time init has run. |
+| `clock_read_ns` | Cost of one `chiaki_time_now_monotonic_us()` read, from 1000 back-to-back reads timed once at receive-thread start (`TAKION_PROBE_CLOCK_READS`), in nanoseconds. Its resolution is 1 ns only because of the averaging over 1000 reads. |
+| `thread_id_ns` | Cost of one `sceKernelGetThreadId()` call, timed the same way (1000 back-to-back calls at receive-thread start), in nanoseconds. This is the "am I the receive thread" check made by every log call, audio frame and video frame (9.6). 0 off Vita. |
+| `sockq_ok`, `sockq_flags`, `sockq_id`, `sockq_info_rc`, `sockq_info_rc_self`, `sockq_info_id` | The 9.7 self-check: whether it passed, the last argument that passed (-1 if none), the SceNet id resolved (-1 if not), the return codes of the `flags = 0` attempt and of the `SCE_NET_SOCKINFO_F_SELF` attempt (-2147483648 means that attempt was not made because the first passed), and the `s` field of the last attempt. |
+| `sockq_info_port_raw`, `sockname_rc`, `sockname_port_net`, `sockname_port_host` | The `local_port` field `sceNetGetSockInfo` returned (unconverted), the return code of `getsockname`, and its port as stored and after `ntohs`. |
+
+Example (made-up numbers): `PIPE/RECVTHREAD prio=64 affinity=0x40000 cpu=2 last_cpu=2 info_rc=0 start_prio=64 start_affinity=0x10000 start_cpu=0 start_info_rc=0 audio_started=1 clock_read_ns=450 thread_id_ns=300 sockq_ok=1 sockq_flags=0 sockq_id=7 sockq_info_rc=0 sockq_info_rc_self=-2147483648 sockq_info_id=7 sockq_info_port_raw=51234 sockname_rc=0 sockname_port_net=51234 sockname_port_host=51234`
+
+**How to read it.** `start_affinity=0x10000` with `affinity=0x40000` and `audio_started=1` confirms the thread moved to the audio core. If `prio` equals the audio or decode thread's priority (all 64) and the thread shares a core with them, equal-priority threads time-slice, which `PIPE/RECVTIME` would show as a large `unacct_us` or inflated class times. `clock_read_ns` tells how much of `PIPE/RECVBUF`'s `work_us` can be clock overhead (4 reads per wake-up plus 2 per drained packet).
+
+**What it cannot tell you.** It is a sample once a window, so a core change inside a window shows at the next close. It says where the thread is, not whether it was waiting. Values are "to be measured"; no hardware result is recorded here yet.
+
+### 9.9 `PIPE/AUDIO`: is audio delivered and played without gaps?
+
+**What it measures.** Why audio might crackle, which no other line shows: how many audio packets and frames arrive, how many are new, how many frame indexes go missing, what reaches the audio callback, what is handed to the sound hardware, and whether the hand-over is late. Logging only. Printed once per window right after `PIPE/RECVTIME` (same window, same publication, 9.3).
+
+**Where each count accumulates.** All on the receive thread, in `recvtime_acc.audio_stats`, reset and published by the same window close as the rest. The lib audio receiver (`lib/src/audioreceiver.c`) writes the receiver counters: it reaches the accumulator through its session (`session->stream_connection.takion.recvtime_acc`). `vita_audio_cb` (`vita/src/audio.c`) writes the rest. The audio receiver code is shared with haptics (one receiver instance each, same functions); haptics are kept out of every audio count (`haptic_pkts` is the only haptics figure).
+
+| Field | Meaning |
+|---|---|
+| `net_pkts`, `haptic_pkts` | AV packets that reached `chiaki_audio_receiver_av_packet`, audio and haptics, counted at entry before any validity check. |
+| `frames_new` | Audio frames the receiver accepted (the `chiaki_seq_num_16_gt` branch of `chiaki_audio_receiver_frame`); each is passed to the sink. |
+| `frames_dup` | Units the receiver discarded because their frame index is not newer than the last accepted one. Each packet carries redundant copies of earlier frames, so this is normally large (about as many as `frames_new` times the redundancy). Units skipped at start-up (before the 16-bit index could have wrapped) never reach the check and are not counted. |
+| `frames_missing`, `gap_events` | Frame indexes skipped between two consecutive accepted frames: the jump minus one (`chiaki_takion_probe_seq16_missing`), and the number of jumps. The jump is the 16-bit modular difference, so the wrap from 0xffff to 0 is not a gap. The first accepted frame of a receiver has no baseline and is not counted. A frame that arrives late after its successor was accepted is discarded as a duplicate, so it stays counted as missing. |
+| `decoded` | Frames that reached `vita_audio_cb` (after opus decoding). `frames_new - decoded` is frames lost between the receiver and the callback, mostly opus decode failures. `decode_err` is not printed: the opus decoder (`opusdecoder.c`) has no path to the accumulator without restructuring, so failures are only derivable that way. |
+| `out_calls`, `out_frames` | Calls to `sceAudioOutOutput` and the frames they handed over (`out_calls` times `device_buffer_frames`). |
+| `catchups`, `catchup_frames` | Times the ring caught up (`audio_catchup_to_latest_frame`) and the buffered frames thrown away by them: `write_read_framediff` before minus after, both values the code already computes. |
+| `rest_n`, `rest_err` | Reads of `sceAudioOutGetRestSample` (the existing call in `audio_should_output_now`; none is added) that returned a value >= 0 and < 0. |
+| `rest_min`, `rest_max` | Smallest and largest of the non-negative values. The header documents the call only as "number of remaining samples to be output on the specified port, < 0 on error". |
+| `out_dry` | Output calls made with the value read as <= 0. The code outputs only when the value is 0 (the queue limit is 0), so this is normally `out_calls - out_forced`. |
+| `out_forced` | Output calls made without the value being read, because the catch-up branch returned first. |
+| `out_gap_max_us`, `out_late` | Longest time from one `sceAudioOutOutput` returning to the next being called, and the number of gaps longer than the play time of one device buffer (`device_buffer_samples * 1000000 / rate` microseconds, derived at run time). These reuse the clock reads already made around the output call; no read is added. |
+
+Example (made-up numbers, not from hardware): `PIPE/AUDIO net_pkts=100 haptic_pkts=0 frames_new=100 frames_dup=300 frames_missing=0 gap_events=0 decoded=100 out_calls=25 out_frames=100 catchups=0 catchup_frames=0 rest_n=25 rest_err=0 rest_min=0 rest_max=0 out_dry=25 out_forced=0 out_gap_max_us=9000 out_late=0`
+
+**How crackling would be expected to show** (hypotheses, none established):
+- Frames lost on the network: `frames_missing` above 0 with `gap_events`, or `frames_new` clearly below the stream's frame rate (about 100 a second is expected; the 9928 frames over 103 s of the first session was 3% short).
+- Frames lost after the receiver: `decoded` below `frames_new`.
+- The hardware starved: `out_late` above 0, or `out_gap_max_us` well over the device buffer's play time. This does not depend on what `sceAudioOutGetRestSample` returns. Whether a rest of zero means an audible gap is **not established**; `rest_*` and `out_dry` are raw values.
+- Frames thrown away: `catchups` and `catchup_frames` above 0 (the first session printed `Catchups: 0`).
+- Delivery in bursts instead of steadily is not visible here; compare with `PIPE/RECVTIME` (`aout_max_us`, `acb_us`).
+
+**What it cannot tell you.** It never hears the output: a late call or a skipped frame is a risk of a gap, not proof of one. `out_late` counts only the calls this code makes, so a hardware underrun that the code does not notice is invisible. The gap between calls is measured only when two output calls are both timed, so the first call after a catch-up of the thread or session start is not counted. Values are "to be measured"; no hardware result is recorded here yet.
 
 ## 10. What is not here
 

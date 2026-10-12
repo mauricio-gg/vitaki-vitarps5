@@ -323,6 +323,19 @@ target_include_directories(press_meter_tests PRIVATE
 
 add_test(NAME vitarps5_press_meter_tests COMMAND press_meter_tests)
 
+# takion_probe_tests.c checks the window arithmetic (signed unaccounted remainder, averages, time
+# buckets) behind PIPE/RECVTIME and PIPE/SOCKQ (#413). Header-only helper, standalone binary with
+# its own main(); run natively (see the file header).
+add_executable(takion_probe_tests
+    takion_probe_tests.c
+)
+
+target_include_directories(takion_probe_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/lib/include
+)
+
+add_test(NAME vitarps5_takion_probe_tests COMMAND takion_probe_tests)
+
 # sps_probe_tests.c checks the pure SPS detector and repeat counter behind the PIPE/SPS log lines
 # (#413). Standalone binary with its own main(); run natively (see the file header).
 add_executable(sps_probe_tests

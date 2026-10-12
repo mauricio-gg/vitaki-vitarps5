@@ -311,6 +311,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   memset(&context.stream.dechold_pub, 0, sizeof(context.stream.dechold_pub));
   memset(&dechold_last, 0, sizeof(dechold_last));
   memset(&recvbuf_last, 0, sizeof(recvbuf_last));
+  recv_probe_reset_report();
   memset(&console_prev, 0, sizeof(console_prev));
   console_ts_printed = false;
   sps_seen_version = 0;
@@ -1147,6 +1148,7 @@ void host_metrics_update_latency(void) {
           r->poll_us, r->poll_max_us, r->work_us, r->wall_us,
           r->busy_permille / RECVBUF_BUSY_PERMILLE_PER_PCT,
           r->busy_permille % RECVBUF_BUSY_PERMILLE_PER_PCT);
+      recv_probe_report(r);
     }
     host_metrics_report_console(stream_connection);
     LOGD(
