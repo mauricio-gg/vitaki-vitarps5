@@ -39,6 +39,25 @@ typedef struct {
   int32_t max_shown_us; /* window maximum of shown_us over the samples */
 } PressWindow;
 
+/* PIPE/DECHOLD (#413): one decoder-hold window (docs/design/streaming.md section 9.2). The
+ * decode thread fills it from private accumulators and publishes it at its ~1 s window close;
+ * the UI thread copies it under context.stream.dechold_lock. 32-bit fields only. */
+typedef struct {
+  uint32_t fed;          /* decodes accepted by the decoder this window */
+  uint32_t handed;       /* pictures handed back this window */
+  uint32_t hold;         /* fed minus handed back, session running totals, at window close */
+  uint32_t hold_min;     /* same quantity, extremes over the window */
+  uint32_t hold_max;
+  uint32_t lag_min;      /* frame numbers fed minus read back, good read-backs only (else 0) */
+  uint32_t lag_avg_x100; /* fixed-point x OCC_AVG_FIXED_POINT_SCALE */
+  uint32_t lag_max;
+  uint32_t hold_us_avg;  /* fed-to-handed-back microseconds (good, non-stale read-backs) */
+  uint32_t hold_us_max;
+  uint32_t good;         /* read-backs that passed validation */
+  uint32_t bad;          /* pictures whose read-back failed validation */
+  uint32_t stale;        /* good read-backs whose feed time was no longer remembered */
+} DecHoldWindow;
+
 /* Code review fix: a 4-slot decode queue's entire interesting range is 0.00-4.00 frames,
  * and the leading hypothesis under test is a SUB-FRAME persistent depth shift (e.g.
  * 1.2 -> 1.9), which plain integer division cannot resolve -- both print "1" and the
@@ -392,6 +411,11 @@ typedef struct vita_chiaki_stream_t {
   uint32_t press_seen_lost;
   uint32_t press_total_presses;
   uint32_t press_total_samples;
+
+  // PIPE/DECHOLD (#413): written by the decode thread at its window close (vita/src/video.c),
+  // read by the UI thread (host_metrics.c). dechold_lock is a seqlock: odd while writing.
+  volatile uint32_t dechold_lock;
+  DecHoldWindow dechold_pub;
 
   // Decode queue occupancy (vita/src/video.c). Time-weighted (area-under-the-depth-curve
   // divided by window duration), not a naive average of push/pop samples: see the

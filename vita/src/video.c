@@ -374,6 +374,150 @@ static void record_decode_timing_sample(uint32_t decode_elapsed_us) {
   context.stream.decode_window_count++;
 }
 
+/* PIPE/DECHOLD (#413, docs/design/streaming.md section 9.2): does the hardware decoder hold
+ * pictures back? Decode thread only (everything below is read and written in
+ * decode_frame_now() under `mtx`, or in vita_h264_start() before the thread exists), except the
+ * published window in context.stream.dechold_pub which the UI thread reads under a seqlock. */
+
+/* Feed-time ring: frame number modulo this -> when that frame was handed to the decoder. Must
+ * stay larger than DECHOLD_LAG_MAX or every plausible read-back would count as too old. */
+#define DECHOLD_FEED_RING 64u
+/* A read-back more than this many frame numbers behind the frame just fed is not believed. */
+#define DECHOLD_LAG_MAX 32u
+/* The "no timestamp" value the decoder is primed with before every decode (and the value both
+ * halves of the access unit's pts carried before #413). */
+#define DECHOLD_PTS_SENTINEL 0xFFFFFFFFu
+
+typedef struct {
+  uint32_t fed;       /* decodes accepted by the decoder (sceAvcdecDecode returned >= 0) */
+  uint32_t handed;    /* pictures handed back (sum of numOfOutput) */
+  uint32_t hold_min;  /* fed - handed, extremes over the window (running totals, not deltas) */
+  uint32_t hold_max;
+  uint32_t good;      /* read-backs that passed validation */
+  uint32_t bad;       /* pictures whose read-back failed validation */
+  uint32_t stale;     /* good read-backs whose feed time is no longer in the ring */
+  uint32_t lag_min;   /* frame numbers fed minus read back, good read-backs only */
+  uint32_t lag_max;
+  uint64_t lag_sum;
+  uint32_t hold_us_n; /* good, non-stale read-backs */
+  uint64_t hold_us_sum;
+  uint32_t hold_us_max;
+} DecHoldAcc;
+
+static DecHoldAcc dechold_acc;
+static uint32_t dechold_fed_total = 0;
+static uint32_t dechold_handed_total = 0;
+static uint32_t dechold_feed_seq[DECHOLD_FEED_RING];
+static uint64_t dechold_feed_us[DECHOLD_FEED_RING];
+
+/* Frames fed minus pictures handed back, never negative. */
+static uint32_t dechold_current_hold(void) {
+  return dechold_fed_total >= dechold_handed_total ? dechold_fed_total - dechold_handed_total : 0;
+}
+
+/* Starts a fresh window whose hold extremes begin at the current hold. */
+static void dechold_reset_window(void) {
+  memset(&dechold_acc, 0, sizeof(dechold_acc));
+  dechold_acc.hold_min = dechold_current_hold();
+  dechold_acc.hold_max = dechold_acc.hold_min;
+}
+
+/* Clears all PIPE/DECHOLD decode-thread state; called from vita_h264_start(). */
+static void dechold_reset_session(void) {
+  dechold_fed_total = 0;
+  dechold_handed_total = 0;
+  memset(dechold_feed_seq, 0, sizeof(dechold_feed_seq));
+  memset(dechold_feed_us, 0, sizeof(dechold_feed_us));
+  dechold_reset_window();
+}
+
+/* Reduces the window to 32-bit fields, publishes it to the UI thread under the dechold_lock
+ * seqlock (odd while writing; the reader retries unless it saw the same even value before and
+ * after) and starts the next window. Decode thread, about once per second. */
+static void dechold_close_window(void) {
+  const DecHoldAcc *a = &dechold_acc;
+  DecHoldWindow out;
+  out.fed = a->fed;
+  out.handed = a->handed;
+  out.hold = dechold_current_hold();
+  out.hold_min = a->hold_min;
+  out.hold_max = a->hold_max;
+  out.lag_min = a->good > 0 ? a->lag_min : 0;
+  out.lag_max = a->good > 0 ? a->lag_max : 0;
+  out.lag_avg_x100 =
+      a->good > 0 ? (uint32_t)((a->lag_sum * OCC_AVG_FIXED_POINT_SCALE) / a->good) : 0;
+  out.hold_us_avg = a->hold_us_n > 0 ? (uint32_t)(a->hold_us_sum / a->hold_us_n) : 0;
+  out.hold_us_max = a->hold_us_max;
+  out.good = a->good;
+  out.bad = a->bad;
+  out.stale = a->stale;
+
+  context.stream.dechold_lock++;
+  __sync_synchronize();
+  context.stream.dechold_pub = out;
+  __sync_synchronize();
+  context.stream.dechold_lock++;
+
+  dechold_reset_window();
+}
+
+/* Accounts for one decode that sceAvcdecDecode accepted (return value >= 0). frame_seq is the
+ * number that was fed as the access unit's pts, fed_us/done_us the clock reads taken before and
+ * after the call (both already existed), readback_pts the output picture's info.pts. Returns
+ * true and the read-back frame number in *readback_seq when this decode produced a picture whose
+ * pts echoes a number we could have fed; false otherwise (no picture, or a read-back that fails
+ * validation). */
+static bool dechold_record_decode(uint32_t frame_seq, uint64_t fed_us, uint64_t done_us,
+                                  uint32_t num_output, const SceVideodecTimeStamp *readback_pts,
+                                  uint32_t *readback_seq) {
+  DecHoldAcc *a = &dechold_acc;
+
+  uint32_t slot = frame_seq % DECHOLD_FEED_RING;
+  dechold_feed_seq[slot] = frame_seq;
+  dechold_feed_us[slot] = fed_us;
+
+  dechold_fed_total++;
+  dechold_handed_total += num_output;
+  a->fed++;
+  a->handed += num_output;
+  uint32_t hold = dechold_current_hold();
+  if (hold < a->hold_min)
+    a->hold_min = hold;
+  if (hold > a->hold_max)
+    a->hold_max = hold;
+
+  if (num_output == 0)
+    return false;
+
+  uint32_t rb_lower = readback_pts->lower;
+  uint32_t lag = frame_seq - rb_lower;
+  if (readback_pts->upper != 0 || rb_lower == 0 || rb_lower == DECHOLD_PTS_SENTINEL ||
+      lag > DECHOLD_LAG_MAX) {
+    a->bad++;
+    return false;
+  }
+
+  if (a->good == 0 || lag < a->lag_min)
+    a->lag_min = lag;
+  if (lag > a->lag_max)
+    a->lag_max = lag;
+  a->lag_sum += lag;
+  a->good++;
+
+  uint32_t rb_slot = rb_lower % DECHOLD_FEED_RING;
+  if (dechold_feed_seq[rb_slot] != rb_lower) {
+    a->stale++;
+  } else {
+    uint32_t hold_us = (uint32_t)(done_us - dechold_feed_us[rb_slot]);
+    a->hold_us_n++;
+    a->hold_us_sum += hold_us;
+    if (hold_us > a->hold_us_max)
+      a->hold_us_max = hold_us;
+  }
+  *readback_seq = rb_lower;
+  return true;
+}
+
 void update_scaling_settings(int width, int height) {
   // Initialize defaults - full screen
   image_scaling.texture_width = SCREEN_WIDTH;
@@ -558,6 +702,9 @@ static void record_incoming_frame_sample(void) {
     context.stream.decode_window_total_us = 0;
     context.stream.decode_window_max_us = 0;
     context.stream.decode_window_count = 0;
+
+    // PIPE/DECHOLD: same window, same thread (decode thread, via decode_frame_now()).
+    dechold_close_window();
 
     // Latency investigation (item 2): publish TIME-WEIGHTED decode queue occupancy for
     // this window (see the decode_q_occ_area_us block above for why). Safe to lock
@@ -960,6 +1107,13 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * cross-thread read needs no additional synchronization beyond the volatile
    * qualifier already on that pointer. */
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
+  /* PIPE/DECHOLD: the frame's running number rides through the decoder as the presentation
+   * timestamp, and the output timestamp is primed with the sentinel so a decoder that does not
+   * write it back cannot leave an old (valid-looking) number behind. dts is unchanged. */
+  au.pts.upper = 0;
+  au.pts.lower = frame_seq;
+  picture.info.pts.upper = DECHOLD_PTS_SENTINEL;
+  picture.info.pts.lower = DECHOLD_PTS_SENTINEL;
   uint64_t decode_start_us = sceKernelGetProcessTimeWide();
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
@@ -981,6 +1135,15 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
+
+  /* PIPE/DECHOLD: count what went in and what came out, and match the output picture to the
+   * frame number it carries. Must run before the numOfOutput check: a decode that returns no
+   * picture is exactly a held frame. */
+  uint32_t published_seq = frame_seq;
+  uint32_t readback_seq = 0;
+  if (dechold_record_decode(frame_seq, decode_start_us, decode_end_us, array_picture.numOfOutput,
+                            &picture.info.pts, &readback_seq))
+    published_seq = readback_seq;
 
   if (array_picture.numOfOutput != 1) {
     LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
@@ -1014,7 +1177,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
     incoming_frame_decode_done_us = decode_done_us;
     press_pub_lock++;
     __sync_synchronize();
-    incoming_frame_seq = frame_seq;
+    incoming_frame_seq = published_seq; /* the picture's own number when the decoder echoes it */
     press_pub_decode_done_us = decode_done_us;
     __sync_synchronize();
     press_pub_lock++;
@@ -1563,6 +1726,7 @@ void vita_h264_start() {
   press_pub_lock = 0;
   incoming_frame_seq = 0;
   press_pub_decode_done_us = 0;
+  dechold_reset_session();
   frozen_frame_streak = 0;
   /* GH #245 code review round 2: no render call is in flight at session start --
    * matches the same "reset to the idle value" treatment as frame_ready_for_display

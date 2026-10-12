@@ -66,6 +66,7 @@ All in `vita/src/video.c`.
 - **Queue.** `DECODE_QUEUE_DEPTH` = 4 slots (`video.c:389`), each `DECODE_SLOT_CAPACITY` = 256 KB (`video.c:392`), allocated once in `vita_h264_start` (`video.c:1386` onward). One slot is always held by the decoder, so at most 3 frames wait.
 - **When full.** The producer first waits up to 10 ms for the consumer to free a slot (`chiaki_cond_timedwait`, `video.c:1015-1017`). If still full, it drops the oldest queued slot by advancing the head and counts it in `decode_queue_drops` (`video.c:1020-1025`). The comment at `video.c:1007-1013` records the reason for waiting first: dropping a compressed P-frame before decode breaks the decoder's reference chain, which is worse than a short stall.
 - **Consumer.** `decode_thread_func` (`video.c:1326`) is created in `vita_h264_start` (`video.c:1447`, named "VitaDecode"). It sets priority `VITA_DECODE_THREAD_PRIORITY` = 64 (`vita/include/video.h:39`) and CPU `USER_1` (`video.c:1330-1331`), waits on `decode_q_cond`, and takes the head slot's data without advancing the head (`video.c:1350`). It runs `decode_frame_now` (`video.c:900`, calls `sceAvcdecDecode` at `video.c:925`), and only afterwards advances `decode_q_head` and signals (`video.c:1370-1380`). Keeping the head put during decode means the producer's "full" test cannot reuse the slot being decoded. Decode always runs, even for frames flagged corrupt, to keep the hardware decoder's reference state in step (`host_callbacks.c:123-127`).
+- **Timestamp.** The access unit's presentation timestamp is the frame's running number (upper half 0, lower half the number); before #413 it was `0xFFFFFFFF` in both halves. The decode timestamp (`dts`) is unchanged. The number is read back from the output picture to see which frame came out (section 9.2).
 - **Handoff to the UI.** `decode_frame_now` stores the corrupt flag with the decoded pixels under `mtx`, then sets `frame_ready_for_display` (`video.c:967-976`).
 
 ## 6. Display and audio
@@ -156,7 +157,7 @@ Log lines added to find where the delay between a button press and the changed p
 | `decoded_us` | Decoding of the frame that was shown finished. | The decode-done stamp in `decode_frame_now` (`vita/src/video.c`), the same value `PIPE/DISPLAY` uses for its pickup span |
 | `shown_us` | The swap that put the picture on screen. | The clock read right after `vita2d_swap_buffers()` in `vita_video_render_latest_frame` (no extra read) |
 
-**Which frame is shown.** The jump frame may never reach the screen: the decode queue can drop it, a newer decoded frame can replace it, `force_30fps` pacing can skip it, or the freeze-on-corrupt path can show the last good picture instead. Frames carry a running number. `shown_us` and `decoded_us` come from the first swap that presents a freshly decoded picture whose number is the jump frame's or newer; in those cases `decoded_us` is the newer frame's decode-done. A pass that only repeats an older picture, or is paced out, does not complete the sample.
+**Which frame is shown.** The jump frame may never reach the screen: the decode queue can drop it, a newer decoded frame can replace it, `force_30fps` pacing can skip it, or the freeze-on-corrupt path can show the last good picture instead. Frames carry a running number. The number of the picture in `frame_texture` is the one the decoder reports back for it (`PIPE/DECHOLD`, section 9.2) when that read-back is good, and the number that was fed in when it is not; so if the decoder holds frames back, `decoded_us` and `shown_us` still belong to the frame that is really on screen. `shown_us` and `decoded_us` come from the first swap that presents a freshly decoded picture whose number is the jump frame's or newer; in those cases `decoded_us` is the newer frame's decode-done. A pass that only repeats an older picture, or is paced out, does not complete the sample.
 
 **Detection rule** (`vita/src/press_meter.c`, pure logic, tested natively). The detector keeps the sizes of the last `PRESS_METER_QUIET_WINDOW` = 16 quiet frames; the quiet reference is the largest of them. While a press waits, the first frame of at least `PRESS_METER_JUMP_RATIO` = 3 times the reference AND at least `PRESS_METER_JUMP_MIN_EXTRA_BYTES` = 2048 bytes more is the jump. The window must be full before any jump counts. One sample per press: later large frames of the same animation are ignored. A press with no jump within `PRESS_METER_EXPIRY_US` = 1.5 s expires (no sample). A press arriving while another waits is an overlap and is ignored; the oldest keeps waiting. Corrupt frames are ignored entirely (they neither trigger nor enter the quiet window). A large frame whose first packet was read in an earlier millisecond than the press was sent cannot be its answer and is ignored too. The numbers are first guesses, to be tuned from the first hardware log.
 
@@ -182,6 +183,42 @@ Example: `PIPE/PRESS presses=1 n=1 first_us=41000 assembled_us=58210 decoded_us=
 - Corrupt frames are skipped, so a press answered only by a frame flagged corrupt shows up as `expired`.
 - `first_us` is 1 ms coarse; a sample can show `first_us` slightly early, and a press sent in the same millisecond as the first packet can give a small negative value (counted in `order_err`).
 - The press time is when the packet was handed to the network, not when the button was touched; the time from the physical press to the send is `PIPE/INPUT`.
+
+### 9.2 `PIPE/DECHOLD`: does the hardware decoder hold pictures back?
+
+**What it measures.** Whether feeding frame N makes the decoder hand back frame N, or an older one (N-1, N-2), and how long each picture sat inside the decoder. Today's code assumes the picture that comes out is the one that just went in; two or three held frames would be a large share of a delay of tens of milliseconds, and nothing else can see it.
+
+**Change to what the decoder is given.** In `decode_frame_now` (`vita/src/video.c`) the access unit's presentation timestamp (`au.pts`) is now the frame's running number (the same number `PIPE/PRESS` uses; `upper` = 0, `lower` = number) instead of `0xFFFFFFFF` in both halves. It is fed so that the number can be read back. `au.dts`, the decoder init parameters and the reference-frame count are unchanged. Before each decode the output picture's `info.pts` is set to `0xFFFFFFFF`, so a decoder that does not write it cannot leave an old number behind. **Whether the Vita decoder echoes the timestamp into `info.pts` is unverified until the first hardware log.** If it does not, `rb_good` stays 0 and `rb_bad` equals the pictures handed back; the frame counts still work on their own.
+
+**Counts.** `fed` counts decodes where `sceAvcdecDecode` returned 0 or more; `handed` is the sum of `numOfOutput`. The hold is `fed - handed`, a running value for the whole session (it does not restart each window).
+
+**Per picture** (only when the read-back is good):
+- *Lag in frame numbers* = the number just fed minus the number read back. 0 means the decoder returned the frame it was just given. The numbers are the receive thread's counter, so a frame the decode queue dropped before decoding also shows up as lag; compare with `hold`, which counts only frames the decoder actually received.
+- *Hold time* = the clock read taken right after `sceAvcdecDecode` returned minus the clock read taken right before the call that fed the same-numbered frame (both reads already existed for `PIPE/DECODE`). Feed times are kept for the last `DECHOLD_FEED_RING` = 64 frame numbers; a read-back that is no longer in that ring (or was never fed) counts in `rb_stale` and gets no hold time.
+- *Good read-back*: `info.pts.upper` is 0, the lower half is not 0 and not `0xFFFFFFFF`, and the number is not ahead of the frame just fed nor more than `DECHOLD_LAG_MAX` = 32 behind it. Anything else counts in `rb_bad`. A decode that returned no picture counts in neither.
+
+**Which frame the press meter uses.** When the read-back is good, `PIPE/PRESS` takes the read-back number as the frame in `frame_texture` (section 9.1); otherwise the fed number.
+
+**Window.** The decode thread closes its own window together with the `decode_avg_us` window (about 1 s, closed only when a picture arrives), reduces it to 32-bit values and publishes them under a sequence lock (`dechold_lock`, odd while writing). The reporter copies them with a few retries and prints the previous copy if none is consistent. The UI thread never resets a counter the decode thread writes. The window the line shows is the decode thread's last closed window, which is not aligned with the reporter's window, so a window can be printed twice or skipped now and then. Reset with the stream (`host_metrics_reset_stream`, `vita_h264_start`).
+
+**Fields of the line.**
+
+| Field | Meaning |
+|---|---|
+| `fed`, `handed` | Decodes accepted and pictures handed back in the window. |
+| `hold` | `fed - handed` over the session, at window close. |
+| `hold_min`, `hold_max` | Smallest and largest `hold` seen after any decode in the window. |
+| `lag_min`, `lag_avg`, `lag_max` | Lag in frame numbers over good read-backs; average with two decimals; 0 when there were none. |
+| `hold_us_avg`, `hold_us_max` | Hold time in microseconds over good, non-stale read-backs; 0 when there were none. |
+| `rb_good`, `rb_bad`, `rb_stale` | Read-backs that passed, failed validation, and good ones whose feed time was no longer remembered. |
+
+Example (a decoder holding two frames): `PIPE/DECHOLD fed=60 handed=60 hold=2 hold_min=2 hold_max=2 lag_min=2 lag_avg=2.00 lag_max=2 hold_us_avg=66800 hold_us_max=71200 rb_good=60 rb_bad=0 rb_stale=0`
+
+**What it cannot tell you.**
+- It is only as good as the echo: with `rb_good=0` only `hold` is known, and `hold` alone cannot say which frame came out.
+- Hold time is measured at the end of the decode call, so it covers time inside the decoder, not the wait before it (decode queue) or after it (waiting for the UI thread).
+- A window with no picture at all is not closed (the close runs when a picture arrives), so a total stall shows the last window until output resumes.
+- It does not change the decoder's behaviour; it only shows whether a held-frame delay exists, not how to remove it.
 
 ## 10. What is not here
 

@@ -42,6 +42,11 @@
  * inside the same failure window as the resume burst. */
 #define SUSPEND_RESYNC_SHOTS 2
 
+/* PIPE/DECHOLD: tries at a consistent copy of the decode thread's published window, and the
+ * last copy that was won (printed again if a window's copy fails). Reset with the stream. */
+#define DECHOLD_READ_ATTEMPTS 4
+static DecHoldWindow dechold_last;
+
 /* Insertion sort for the bounded (<= LATENCY_WINDOW_SAMPLE_CAP) per-window latency sample
  * array. O(n^2) worst case is trivial at this size (<=64 elements) and this runs once per
  * ~1s window on the UI thread -- not a hot path -- so a tiny in-place sort is simpler than
@@ -267,6 +272,10 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.press_seen_lost = 0;
   context.stream.press_total_presses = 0;
   context.stream.press_total_samples = 0;
+
+  context.stream.dechold_lock = 0;
+  memset(&context.stream.dechold_pub, 0, sizeof(context.stream.dechold_pub));
+  memset(&dechold_last, 0, sizeof(dechold_last));
 
   context.stream.input_latency_p50_us = 0;
   context.stream.input_latency_p95_us = 0;
@@ -815,6 +824,34 @@ void host_metrics_update_latency(void) {
           have ? pw->max_shown_us : 0, have ? ps->frame_size : 0, have ? ps->quiet_ref : 0,
           pw->order_err, pw->expired, pw->overlap, pw->lost, context.stream.press_total_presses,
           context.stream.press_total_samples);
+    }
+    // PIPE/DECHOLD: decoder hold (frames fed minus pictures handed back) and the per-picture
+    // lag / hold time from the timestamp read-back. Copied under the decode thread's seqlock;
+    // when no consistent copy is won in a few tries the previous window's values are printed.
+    // lag_avg is x100 fixed point like the occupancy lines. See streaming.md section 9.2.
+    {
+      DecHoldWindow dh;
+      bool dh_ok = false;
+      for (int attempt = 0; attempt < DECHOLD_READ_ATTEMPTS && !dh_ok; attempt++) {
+        uint32_t lock_before = context.stream.dechold_lock;
+        if (lock_before & 1)
+          continue;
+        __sync_synchronize();
+        dh = context.stream.dechold_pub;
+        __sync_synchronize();
+        dh_ok = context.stream.dechold_lock == lock_before;
+      }
+      if (dh_ok)
+        dechold_last = dh;
+      const DecHoldWindow *d = &dechold_last;
+      LOGD(
+          "PIPE/DECHOLD fed=%u handed=%u hold=%u hold_min=%u hold_max=%u lag_min=%u "
+          "lag_avg=%u.%02u lag_max=%u hold_us_avg=%u hold_us_max=%u rb_good=%u rb_bad=%u "
+          "rb_stale=%u",
+          d->fed, d->handed, d->hold, d->hold_min, d->hold_max, d->lag_min,
+          d->lag_avg_x100 / OCC_AVG_FIXED_POINT_SCALE,
+          d->lag_avg_x100 % OCC_AVG_FIXED_POINT_SCALE, d->lag_max, d->hold_us_avg,
+          d->hold_us_max, d->good, d->bad, d->stale);
     }
     LOGD(
         "PIPE/FPS gen=%u reconnect_gen=%u incoming=%u target=%u low_windows=%u "
