@@ -323,6 +323,19 @@ target_include_directories(press_meter_tests PRIVATE
 
 add_test(NAME vitarps5_press_meter_tests COMMAND press_meter_tests)
 
+# audio_queue_tests.c checks the pure audio hand-off queue and its catch-up rule (#416).
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(audio_queue_tests
+    audio_queue_tests.c
+    ../vita/src/audio_queue.c
+)
+
+target_include_directories(audio_queue_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_audio_queue_tests COMMAND audio_queue_tests)
+
 # takion_probe_tests.c checks the window arithmetic (signed unaccounted remainder, averages, time
 # buckets) behind PIPE/RECVTIME and PIPE/SOCKQ (#413). Header-only helper, standalone binary with
 # its own main(); run natively (see the file header).

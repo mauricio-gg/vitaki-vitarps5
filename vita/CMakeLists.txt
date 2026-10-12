@@ -52,6 +52,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/sps_probe.c
     src/video_overlay.c
     src/audio.c
+    src/audio_queue.c
     src/message_log.c
     src/logging.c
 
