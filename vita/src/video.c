@@ -181,20 +181,23 @@ static volatile uint64_t incoming_frame_decode_done_us = 0;
  * DecodeSlot, 0 = no frame yet). */
 static PressMeter press_meter;
 static uint32_t press_frame_seq = 0;
-/* Recv thread only: generation of the newest armed jump. */
-static uint32_t press_arm_gen = 0;
-/* Jumps armed whose predecessor never finished (UI did not swap for a long time). Recv writes. */
+/* Jumps armed whose hand-off ring was full (the UI thread had not shown the earlier ones). The
+ * jump is dropped, not queued. Recv writes. */
 static volatile uint32_t press_lost_total = 0;
 
-/* The armed jump, recv thread -> UI thread, no lock. press_jump_lock is a seqlock: odd while
- * the recv thread writes, changed by every write; the UI thread copies press_jump and retries
- * unless it saw the same even value before and after. press_jump_gen != press_done_gen means
- * "a jump is waiting to be shown"; press_done_gen is written only by the UI thread. */
-static volatile uint32_t press_jump_lock = 0;
-static PressJump press_jump;
-static volatile uint32_t press_jump_frame_seq = 0;
-static volatile uint32_t press_jump_gen = 0;
-static volatile uint32_t press_done_gen = 0;
+/* Armed jumps, recv thread -> UI thread, no lock and no seqlock: a single-producer /
+ * single-consumer ring. Several jumps can be in flight at once (answers 300 ms apart, a picture
+ * is shown up to about 150 ms after it is assembled). press_jump_head counts jumps armed and is
+ * written only by the recv thread; press_jump_tail counts jumps completed and is written only by
+ * the UI thread. A slot is written by recv only while head - tail < PRESS_JUMP_RING_DEPTH, i.e.
+ * after the UI thread has finished reading it and advanced the tail; the UI thread reads a slot
+ * only after seeing the head move past it. Barriers order the slot contents against the counter
+ * on each side. */
+#define PRESS_JUMP_RING_DEPTH 8
+static PressJump press_jump_ring[PRESS_JUMP_RING_DEPTH];
+static uint32_t press_jump_ring_frame_seq[PRESS_JUMP_RING_DEPTH];
+static volatile uint32_t press_jump_head = 0;
+static volatile uint32_t press_jump_tail = 0;
 
 /* Decode thread -> UI thread: which frame is sitting in frame_texture and when its decode
  * finished, published as a pair under the same seqlock scheme (press_pub_lock) so the UI
@@ -1197,7 +1200,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
  * the jump for a waiting press, arms it for the UI thread. Returns the frame's sequence number.
  * Takes one clock read (the "assembled" point: the frame has just been handed to us) and no
  * lock: the press stamp is read lock-free from the feedback sender (seqlock), and the armed jump
- * goes out through press_jump_lock. */
+ * goes out through the press_jump_ring hand-off. */
 static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
                                           uint64_t frame_first_packet_ms) {
   uint64_t arrive_us = sceKernelGetProcessTimeWide();
@@ -1217,16 +1220,17 @@ static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
   PressJump jump;
   if (press_meter_on_frame(&press_meter, (uint32_t)buf_size, frame_corrupt,
                            frame_first_packet_ms * 1000ULL, arrive_us, &jump)) {
-    press_arm_gen++;
-    if (press_arm_gen - 1 != press_done_gen && press_arm_gen > 1)
-      press_lost_total++; /* the previous jump was never shown; it is overwritten */
-    press_jump_lock++;
-    __sync_synchronize();
-    press_jump = jump;
-    press_jump_frame_seq = frame_seq;
-    press_jump_gen = press_arm_gen;
-    __sync_synchronize();
-    press_jump_lock++;
+    uint32_t head = press_jump_head;
+    uint32_t tail = press_jump_tail;
+    __sync_synchronize(); /* the slot is written only after the tail has been read */
+    if (head - tail >= PRESS_JUMP_RING_DEPTH) {
+      press_lost_total++; /* the UI thread is far behind; this jump gets no sample */
+    } else {
+      press_jump_ring[head % PRESS_JUMP_RING_DEPTH] = jump;
+      press_jump_ring_frame_seq[head % PRESS_JUMP_RING_DEPTH] = frame_seq;
+      __sync_synchronize();
+      press_jump_head = head + 1;
+    }
   }
   return frame_seq;
 }
@@ -1358,21 +1362,21 @@ static void record_display_stage_sample(uint32_t *samples, uint32_t *sample_coun
  * (context.stream.press_acc; host_metrics.c reduces and clears it, same thread). */
 static void press_window_record(const PressSample *sample) {
   PressWindow *w = &context.stream.press_acc;
+  if (w->samples - w->sample_overflow < PRESS_WINDOW_SAMPLE_CAP)
+    w->list[w->samples - w->sample_overflow] = *sample;
+  else
+    w->sample_overflow++;
   w->samples++;
-  w->newest = *sample;
   if (!sample->order_ok)
     w->order_err++;
-  if (w->samples == 1 || sample->first_us > w->max_first_us)
-    w->max_first_us = sample->first_us;
-  if (w->samples == 1 || sample->shown_us > w->max_shown_us)
-    w->max_shown_us = sample->shown_us;
+  if (sample->waiting > 1)
+    w->ambiguous++;
   context.stream.press_total_samples++;
 }
 
-void vita_video_press_meter_totals(uint32_t *expired, uint32_t *overlap, uint32_t *lost) {
-  *expired = press_meter.expired_total;
-  *overlap = press_meter.overlap_total;
-  *lost = press_lost_total;
+void vita_video_press_meter_totals(PressCounters *counters) {
+  press_meter_counters(&press_meter, counters);
+  counters->lost = press_lost_total;
 }
 
 bool vita_video_render_latest_frame(void) {
@@ -1427,7 +1431,7 @@ bool vita_video_render_latest_frame(void) {
   /* PIPE/PRESS: only while a jump is waiting to be shown, take one consistent (frame number,
    * decode-done time) pair of the frame this pass picked up, at the same point as the
    * snapshots above. Costs one volatile compare per pass otherwise. */
-  bool press_pending = press_jump_gen != press_done_gen;
+  bool press_pending = press_jump_head != press_jump_tail;
   bool press_pub_ok = false;
   uint32_t press_pub_frame_seq = 0;
   uint64_t press_pub_decode_done = 0;
@@ -1611,31 +1615,26 @@ bool vita_video_render_latest_frame(void) {
     }
   }
 
-  /* PIPE/PRESS: "shown" for the waiting jump = the first swap that presents a decoded picture
+  /* PIPE/PRESS: "shown" for the armed jumps = the first swap that presents a decoded picture
    * which is the jump frame or newer (sequence numbers compared with wrap-safe subtraction).
-   * now_us above is the swap clock read; no extra clock read here. */
+   * Every armed jump the shown picture has reached completes at this swap, oldest first; a jump
+   * whose frame is still ahead of the picture stays armed. now_us above is the swap clock read;
+   * no extra clock read here. The tail is written only here; the slot is fully read before the
+   * tail moves past it, which is what lets the recv thread reuse it. */
   if (press_pending && press_pub_ok && showing_decoded_frame) {
-    PressJump jump;
-    uint32_t jump_frame_seq = 0;
-    uint32_t jump_gen = 0;
-    bool jump_ok = false;
-    for (int attempt = 0; attempt < PRESS_SEQLOCK_READ_ATTEMPTS && !jump_ok; attempt++) {
-      uint32_t lock_before = press_jump_lock;
-      if (lock_before & 1)
-        continue;
-      __sync_synchronize();
-      jump = press_jump;
-      jump_frame_seq = press_jump_frame_seq;
-      jump_gen = press_jump_gen;
-      __sync_synchronize();
-      jump_ok = press_jump_lock == lock_before;
-    }
-    if (jump_ok && jump_gen != press_done_gen &&
-        (int32_t)(press_pub_frame_seq - jump_frame_seq) >= 0) {
+    uint32_t tail = press_jump_tail;
+    uint32_t head = press_jump_head;
+    __sync_synchronize();
+    while (tail != head) {
+      PressJump jump = press_jump_ring[tail % PRESS_JUMP_RING_DEPTH];
+      uint32_t jump_frame_seq = press_jump_ring_frame_seq[tail % PRESS_JUMP_RING_DEPTH];
+      if ((int32_t)(press_pub_frame_seq - jump_frame_seq) < 0)
+        break;
       PressSample sample;
       press_meter_complete(&jump, press_pub_decode_done, now_us, &sample);
       press_window_record(&sample);
-      press_done_gen = jump_gen;
+      __sync_synchronize();
+      press_jump_tail = ++tail;
     }
   }
 
@@ -1717,12 +1716,9 @@ void vita_h264_start() {
   incoming_frame_decode_done_us = 0;
   press_meter_reset(&press_meter);
   press_frame_seq = 0;
-  press_arm_gen = 0;
   press_lost_total = 0;
-  press_jump_lock = 0;
-  press_jump_frame_seq = 0;
-  press_jump_gen = 0;
-  press_done_gen = 0;
+  press_jump_head = 0;
+  press_jump_tail = 0;
   press_pub_lock = 0;
   incoming_frame_seq = 0;
   press_pub_decode_done_us = 0;

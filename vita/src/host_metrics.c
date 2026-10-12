@@ -288,9 +288,7 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   memset(&context.stream.press_acc, 0, sizeof(context.stream.press_acc));
   memset(&context.stream.press_pub, 0, sizeof(context.stream.press_pub));
   context.stream.press_seen_presses = 0;
-  context.stream.press_seen_expired = 0;
-  context.stream.press_seen_overlap = 0;
-  context.stream.press_seen_lost = 0;
+  memset(&context.stream.press_seen, 0, sizeof(context.stream.press_seen));
   context.stream.press_total_presses = 0;
   context.stream.press_total_samples = 0;
 
@@ -820,8 +818,8 @@ void host_metrics_update_latency(void) {
     // the window's figures are deltas against what the previous close saw. Unconditional like
     // the reducers above; only the LOGD print further down is gated by show_latency.
     {
-      uint32_t expired_total, overlap_total, lost_total;
-      vita_video_press_meter_totals(&expired_total, &overlap_total, &lost_total);
+      PressCounters counters_now;
+      vita_video_press_meter_totals(&counters_now);
       uint32_t press_count = 0;
       uint64_t press_time_us;
       if (!chiaki_feedback_sender_read_press_stamp(&stream_connection->feedback_sender,
@@ -833,19 +831,9 @@ void host_metrics_update_latency(void) {
       pub->presses = press_count >= context.stream.press_seen_presses
                          ? press_count - context.stream.press_seen_presses
                          : press_count;
-      pub->expired = expired_total >= context.stream.press_seen_expired
-                         ? expired_total - context.stream.press_seen_expired
-                         : expired_total;
-      pub->overlap = overlap_total >= context.stream.press_seen_overlap
-                         ? overlap_total - context.stream.press_seen_overlap
-                         : overlap_total;
-      pub->lost = lost_total >= context.stream.press_seen_lost
-                      ? lost_total - context.stream.press_seen_lost
-                      : lost_total;
+      press_counters_delta(&counters_now, &context.stream.press_seen, &pub->counters);
       context.stream.press_seen_presses = press_count;
-      context.stream.press_seen_expired = expired_total;
-      context.stream.press_seen_overlap = overlap_total;
-      context.stream.press_seen_lost = lost_total;
+      context.stream.press_seen = counters_now;
       context.stream.press_total_presses = press_count;
       memset(&context.stream.press_acc, 0, sizeof(context.stream.press_acc));
     }
@@ -977,24 +965,32 @@ void host_metrics_update_latency(void) {
         context.stream.display_swap_p50_us, context.stream.display_swap_p95_us,
         context.stream.display_sample_n, context.stream.display_dropped_n,
         context.stream.display_paced_n);
-    // PIPE/PRESS: press-to-picture meter, one line per window, printed even when empty. The
-    // *_us stages are microseconds since the press was sent, for the newest sample of the
-    // window (0 when n=0); first_max_us / shown_max_us are the window maxima. first_us is
-    // resolved to 1 ms (it comes from the lib's millisecond stamp). See the "Delay probes
-    // (#413)" section of docs/design/streaming.md for the exact start and end hooks.
+    // PIPE/PRESS: press-to-picture meter, one summary line per window, printed even when empty,
+    // followed by one PIPE/PRESS_SAMPLE line per completed sample (up to PRESS_WINDOW_SAMPLE_CAP;
+    // the rest are counted in sample_overflow). The *_us stages are microseconds since the press
+    // was sent; first_us is resolved to 1 ms (it comes from the lib's millisecond stamp). Printed
+    // here, on the UI thread at window close, never from the receive or decode thread. See
+    // section 9.1 of docs/design/streaming.md for the fields and for how to pick trustworthy
+    // samples (waiting=1, inburst=0, order_ok=1).
     {
       const PressWindow *pw = &context.stream.press_pub;
-      const PressSample *ps = &pw->newest;
-      bool have = pw->samples > 0;
       LOGD(
-          "PIPE/PRESS presses=%u n=%u first_us=%d assembled_us=%d decoded_us=%d shown_us=%d "
-          "first_max_us=%d shown_max_us=%d frame_bytes=%u quiet_bytes=%u order_err=%u "
-          "expired=%u overlap=%u lost=%u presses_total=%u samples_total=%u",
-          pw->presses, pw->samples, have ? ps->first_us : 0, have ? ps->assembled_us : 0,
-          have ? ps->decoded_us : 0, have ? ps->shown_us : 0, have ? pw->max_first_us : 0,
-          have ? pw->max_shown_us : 0, have ? ps->frame_size : 0, have ? ps->quiet_ref : 0,
-          pw->order_err, pw->expired, pw->overlap, pw->lost, context.stream.press_total_presses,
+          "PIPE/PRESS presses=%u n=%u amb=%u order_err=%u expired=%u full=%u inburst=%u unseen=%u "
+          "unmatched=%u lost=%u sample_overflow=%u presses_total=%u samples_total=%u",
+          pw->presses, pw->samples, pw->ambiguous, pw->order_err, pw->counters.expired,
+          pw->counters.full, pw->counters.inburst, pw->counters.unseen, pw->counters.unmatched,
+          pw->counters.lost, pw->sample_overflow, context.stream.press_total_presses,
           context.stream.press_total_samples);
+      uint32_t listed = pw->samples - pw->sample_overflow;
+      for (uint32_t i = 0; i < listed; i++) {
+        const PressSample *ps = &pw->list[i];
+        LOGD(
+            "PIPE/PRESS_SAMPLE press=%u first_us=%d assembled_us=%d decoded_us=%d shown_us=%d "
+            "frame_bytes=%u quiet_bytes=%u waiting=%u inburst=%u order_ok=%u",
+            ps->press_count, ps->first_us, ps->assembled_us, ps->decoded_us, ps->shown_us,
+            ps->frame_size, ps->quiet_ref, ps->waiting, ps->in_burst ? 1u : 0u,
+            ps->order_ok ? 1u : 0u);
+      }
     }
     // PIPE/DECHOLD: decoder hold (frames fed minus pictures handed back) and the per-picture
     // lag / hold time from the timestamp read-back. Copied under the decode thread's seqlock;

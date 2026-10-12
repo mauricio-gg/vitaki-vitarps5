@@ -21,6 +21,8 @@
 #include <stdint.h>
 #include <math.h>
 
+#include "press_meter.h"
+
 // Vita's sceVideodecInitLibrary only accept resolution that is multiple of 16 on either dimension,
 // and the smallest resolution is 64
 // Full supported resolution list can be found at:
@@ -50,6 +52,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                            uint64_t frame_first_packet_ms);
 bool vita_video_render_latest_frame(void);
 uint32_t vita_video_decode_queue_drops(void);
-/* PIPE/PRESS (#413): running totals of the press meter's expired presses, overlapped presses and
- * jumps that were replaced before being shown. Cheap, lock-free, any thread. */
-void vita_video_press_meter_totals(uint32_t *expired, uint32_t *overlap, uint32_t *lost);
+/* PIPE/PRESS (#413): fills *counters with the press meter's running totals (expired, refused,
+ * in-burst, unseen and unmatched, plus jumps dropped before being shown). Cheap, lock-free, any
+ * thread. */
+void vita_video_press_meter_totals(PressCounters *counters);

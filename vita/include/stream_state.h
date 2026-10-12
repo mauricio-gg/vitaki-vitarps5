@@ -23,21 +23,23 @@
  * heap allocation, no per-frame growth either way. */
 #define LATENCY_WINDOW_SAMPLE_CAP 128
 
+/* Most PIPE/PRESS_SAMPLE lines one window can carry. At one to two presses a second a window
+ * holds 0-3 samples; 8 leaves headroom. Samples beyond it are still counted (PressWindow.samples)
+ * and the overflow is shown in the PIPE/PRESS line. */
+#define PRESS_WINDOW_SAMPLE_CAP 8
+
 /* PIPE/PRESS (#413): one ~1 s window of press-to-picture results (docs/design/streaming.md,
- * "Delay probes"). Used twice in stream_state: press_acc is filled by
+ * section 9.1). Used twice in stream_state: press_acc is filled by
  * vita_video_render_latest_frame() (UI thread) and press_pub is what host_metrics.c published
  * from it at the last window close. Both are UI-thread only, so no locking. */
 typedef struct {
-  uint32_t presses;   /* presses sent this window (published copy only) */
-  uint32_t samples;   /* completed samples this window */
-  uint32_t order_err; /* samples whose stages were out of order */
-  uint32_t expired;   /* presses that saw no jump in time (published copy only) */
-  uint32_t overlap;   /* presses ignored, another was pending (published copy only) */
-  uint32_t lost; /* jumps never shown because a newer jump replaced them (published copy only) */
-  PressSample newest; /* newest sample of the window; meaningful only when samples > 0 */
-  int32_t
-      max_first_us; /* window maximum of first_us over the samples (meaningful if samples > 0) */
-  int32_t max_shown_us; /* window maximum of shown_us over the samples */
+  uint32_t presses;         /* presses sent this window (published copy only) */
+  uint32_t samples;         /* completed samples this window (all of them, listed or not) */
+  uint32_t order_err;       /* samples whose stages were out of order */
+  uint32_t ambiguous;       /* samples with more than one candidate press (waiting > 1) */
+  uint32_t sample_overflow; /* samples completed beyond PRESS_WINDOW_SAMPLE_CAP, not listed */
+  PressCounters counters;   /* this window's deltas of the meter counters (published copy only) */
+  PressSample list[PRESS_WINDOW_SAMPLE_CAP]; /* the first samples of the window, in order */
 } PressWindow;
 
 /* PIPE/DECHOLD (#413): one decoder-hold window (docs/design/streaming.md section 9.2). The
@@ -407,9 +409,7 @@ typedef struct vita_chiaki_stream_t {
   PressWindow press_acc;
   PressWindow press_pub;
   uint32_t press_seen_presses;
-  uint32_t press_seen_expired;
-  uint32_t press_seen_overlap;
-  uint32_t press_seen_lost;
+  PressCounters press_seen;
   uint32_t press_total_presses;
   uint32_t press_total_samples;
 
