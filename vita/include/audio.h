@@ -32,6 +32,16 @@
 // output continues whenever one device buffer is queued, so the cushion absorbs arrival jitter.
 #define AUDIO_REFILL_CUSHION_MS 30
 
+// Standing-sound-delay rule (#413). A burst of late sound after a stream hiccup can leave the
+// hand-off queue standing at about 7.8 frames instead of about 3 and nothing lowers it unless it
+// crosses the catch-up bound above. Once per window, if the lowest level seen in that window
+// stayed above the start cushion (AUDIO_REFILL_CUSHION_MS), AUDIO_DRAIN_FRAMES of the oldest
+// frames are dropped. One window is long enough that ordinary jitter touches the cushion at least
+// once and nothing is dropped; the drop is one frame (10 ms for 480 samples at 48 kHz, taken from
+// the real frame size) so each step is a barely audible skip, at most one per window.
+#define AUDIO_DRAIN_WINDOW_MS 1000
+#define AUDIO_DRAIN_FRAMES 1
+
 // Number of play buffers the audio thread rotates through. A block handed to sceAudioOutOutput is
 // not written again until AUDIO_PLAY_BUFFERS - 1 further calls (3 calls, 60 ms at 20 ms per block)
 // have gone by: the same distance as the 4-device-buffer ring before #416. Why: the SDK does not

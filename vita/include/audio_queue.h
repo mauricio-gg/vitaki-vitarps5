@@ -7,6 +7,8 @@
  * than `bound` frames are queued, the oldest are dropped so exactly `keep` (the newest) remain.
  * `keep` is also the start level: a queue that is not primed (new) lets the
  * consumer pop only once `keep` frames are queued, so playback always starts with a cushion.
+ * It also holds the standing-sound-delay rule (#413): a drain window that decides, from the queue
+ * levels seen over one window, whether to drop the single oldest frame (audio_drain_sample).
  * Pure C99: no SDK headers, no locking (the caller holds its mutex around every call) and no
  * allocation (the caller supplies the storage), so it compiles and runs natively
  * (test/audio_queue_tests.c).
@@ -57,3 +59,34 @@ bool audio_queue_may_pop(AudioQueue *queue, size_t n);
 
 /* Frames queued now. */
 size_t audio_queue_count(const AudioQueue *queue);
+
+/*
+ * Drops the n oldest frames (or all of them if fewer are queued) without copying. Returns how many
+ * were dropped. Does not touch the primed state. Used by the standing-sound-delay rule (#413).
+ */
+size_t audio_queue_drop_oldest(AudioQueue *queue, size_t n);
+
+/*
+ * One window of the standing-sound-delay rule (#413): the lowest queue level seen since the window
+ * opened and how many samples it holds. Zero-initialise before first use. closed_min/closed_n keep
+ * the figures of the window that closed last, for logging.
+ */
+typedef struct audio_drain_window_t {
+  uint64_t start_us; /* when the open window began, 0 = no window open yet */
+  uint64_t last_us;  /* time of the newest sample in the open window */
+  size_t min;        /* lowest level in the open window; valid when n > 0 */
+  uint32_t n;        /* samples in the open window */
+  size_t closed_min; /* lowest level of the window that closed last */
+  uint32_t closed_n; /* samples in the window that closed last */
+} AudioDrainWindow;
+
+/*
+ * Adds one queue-level sample (taken right after a push, at now_us) and, when the window has run
+ * for window_us, closes it. Returns true only when the closed window qualifies: its lowest level
+ * stayed above cushion, i.e. the queue never came down to the start cushion in a whole window, so
+ * the caller should drop one frame. At most one true per window; a new, empty window opens at every
+ * close. A window whose newest sample is already window_us old when the next one arrives is a
+ * stalled stream, not a standing level: it is discarded and the answer is false.
+ */
+bool audio_drain_sample(AudioDrainWindow *window, size_t level, uint64_t now_us, uint64_t window_us,
+                        size_t cushion);

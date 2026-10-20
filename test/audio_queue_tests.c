@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
-// Native (non-Vita) test for the audio hand-off queue and its catch-up rule in
-// vita/src/audio_queue.c (ticket #416). `./tools/build.sh test` only cross-compiles, so run it
-// on the host:
+// Native (non-Vita) test for the audio hand-off queue, its catch-up rule and the standing-delay
+// drain window in vita/src/audio_queue.c (tickets #416, #413). `./tools/build.sh test` only
+// cross-compiles, so run it on the host:
 //   cc -std=c99 -Wall -Wextra -fsanitize=address,undefined -I vita/include \
 //      test/audio_queue_tests.c vita/src/audio_queue.c -o /tmp/audio_queue_tests \
 //      && /tmp/audio_queue_tests
@@ -122,11 +122,93 @@ static void test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer
   assert(audio_queue_may_pop(&f.queue, DEVICE_FRAMES)); /* primed: no cushion needed any more */
 }
 
+/* catches: the standing-delay drain removing the NEWEST frame (the sound would jump to older audio
+ * or the freshest audio would be lost) instead of the oldest, frames reordered, or a head advance
+ * that does not wrap at the ring end (the head is anywhere in real play). */
+static void test_drop_oldest_removes_oldest_in_order_across_wrap(void) {
+  Fixture f;
+  fixture_init(&f);
+  uint8_t scratch[FRAME_BYTES];
+  for (int i = 0; i < 9; i++) { /* head at slot 9 of 11: the queued frames wrap past the end */
+    push_id(&f, 0xAA);
+    assert(audio_queue_pop(&f.queue, scratch, 1));
+  }
+  for (uint8_t id = 1; id <= 5; id++)
+    assert(push_id(&f, id) == 0);
+  assert(audio_queue_drop_oldest(&f.queue, 1) == 1);
+  assert(audio_queue_count(&f.queue) == 4);
+  uint8_t out[4 * FRAME_BYTES];
+  assert(audio_queue_pop(&f.queue, out, 4));
+  for (size_t i = 0; i < 4; i++) /* 2, 3, 4, 5: frame 1 (the oldest) is gone */
+    assert(out[i * FRAME_BYTES] == i + 2);
+}
+
+#define WINDOW_US 1000000u
+#define CUSHION 3u
+
+/* Feeds one sample per 10 ms for `ms` milliseconds starting at *clock_us, every sample at `level`
+ * except that, if touch_at_ms >= 0, the sample at that time is `touch_level`. Returns how many
+ * windows asked for a drop. */
+static int run_samples(AudioDrainWindow *w, uint64_t *clock_us, int ms, size_t level,
+                       int touch_at_ms, size_t touch_level) {
+  int drops = 0;
+  for (int t = 0; t < ms; t += 10) {
+    *clock_us += 10000;
+    size_t l = (t == touch_at_ms) ? touch_level : level;
+    if (audio_drain_sample(w, l, *clock_us, WINDOW_US, CUSHION))
+      drops++;
+  }
+  return drops;
+}
+
+/* catches: sound staying late for the whole session after a hiccup (a queue standing above the
+ * cushion for a full window never being drained), and the drain firing more than once per window
+ * (a burst of skips instead of one 10 ms step per second). */
+static void test_drain_asks_once_per_window_while_level_stays_above_cushion(void) {
+  AudioDrainWindow w;
+  memset(&w, 0, sizeof(w));
+  uint64_t clock_us = 5000000;
+  assert(run_samples(&w, &clock_us, 1000, 8, -1, 0) == 0); /* 990 ms in: window still open */
+  assert(run_samples(&w, &clock_us, 10, 8, -1, 0) == 1);  /* closes: one drop asked */
+  assert(w.closed_min == 8 && w.closed_n == 101);
+  assert(run_samples(&w, &clock_us, 1000, 8, -1, 0) == 1); /* the next window: exactly one more */
+}
+
+/* catches: the drain eating the cushion in a healthy run (a single sample down at the cushion
+ * means the queue was needed there, so nothing may be dropped), including the boundary of exactly
+ * the cushion value. */
+static void test_drain_does_nothing_when_one_sample_touched_the_cushion(void) {
+  for (size_t touch = CUSHION; touch <= CUSHION + 1; touch++) {
+    AudioDrainWindow w;
+    memset(&w, 0, sizeof(w));
+    uint64_t clock_us = 5000000;
+    assert(run_samples(&w, &clock_us, 1000, 8, 400, touch) == 0); /* window still open */
+    /* the first sample after the window ran its second: it closes the window under test */
+    assert(run_samples(&w, &clock_us, 10, 8, -1, 0) == (touch > CUSHION ? 1 : 0));
+  }
+}
+
+/* catches: a stream stall (no samples for longer than a window) followed by one big post-stall
+ * level being mistaken for a standing level and costing a frame. */
+static void test_drain_ignores_a_window_that_was_a_stall(void) {
+  AudioDrainWindow w;
+  memset(&w, 0, sizeof(w));
+  uint64_t clock_us = 5000000;
+  assert(run_samples(&w, &clock_us, 300, 8, -1, 0) == 0);
+  clock_us += 2000000; /* nothing arrives for 2 s */
+  assert(!audio_drain_sample(&w, 9, clock_us, WINDOW_US, CUSHION));
+  assert(run_samples(&w, &clock_us, 990, 8, -1, 0) == 0); /* a fresh window starts after the stall */
+}
+
 int main(void) {
   test_burst_over_bound_keeps_newest_and_counts_drops();
   test_below_bound_drops_nothing_and_keeps_order_across_wrap();
   test_pop_refused_when_too_few_queued_and_queue_unchanged();
   test_new_queue_waits_for_start_level_then_pops_down_to_device_buffer();
+  test_drop_oldest_removes_oldest_in_order_across_wrap();
+  test_drain_asks_once_per_window_while_level_stays_above_cushion();
+  test_drain_does_nothing_when_one_sample_touched_the_cushion();
+  test_drain_ignores_a_window_that_was_a_stall();
   printf("audio_queue_tests: all passed\n");
   return 0;
 }

@@ -14,8 +14,9 @@
  * sceAudioOutOutput, so that call can no longer hold the receive thread back.
  *
  * Threads and what they write:
- *   receive thread: the queue (push, under audio_mtx), audio_frames_received/audio_catchup_*,
- *                   the occupancy window, the receive-thread probe accumulator
+ *   receive thread: the queue (push and drain drop, under audio_mtx), the audio_frames_received,
+ *                   audio_catchup_ and audio_drain_ counters, the drain window, the occupancy
+ *                   window, the receive-thread probe accumulator
  *   audio thread:   the queue (pop, under audio_mtx), the PIPE/AUDIOOUT counters and window
  *   cleanup caller: everything, but only after the audio thread was joined */
 
@@ -61,6 +62,7 @@ static uint8_t *play_buffers = NULL;
 static uint32_t audio_frames_received = 0;
 static uint32_t audio_catchup_events = 0;
 static uint32_t audio_catchup_dropped = 0;
+static uint32_t audio_drain_events = 0;
 
 /* Occupancy window of the hand-off queue, published into context.stream.audio_q_occ_avg/max about
  * once a second (receive thread only), mirroring video.c's decode queue window convention. */
@@ -68,6 +70,11 @@ static uint64_t audio_occ_window_start_us = 0;
 static uint32_t audio_occ_window_sum = 0;
 static uint32_t audio_occ_window_count = 0;
 static uint32_t audio_occ_window_max = 0;
+
+/* Standing-sound-delay rule (#413). The window is touched under audio_mtx on the receive thread
+ * only; the cushion (frames) is set once by audio_start. */
+static AudioDrainWindow audio_drain_window;
+static size_t audio_drain_cushion_frames = 0;
 
 /* PIPE/AUDIOOUT counters of the window being filled. Audio thread only. */
 typedef struct {
@@ -324,6 +331,7 @@ static bool audio_start(size_t samples_count) {
   if (cushion_frames < 1)
     cushion_frames = 1;
   size_t start_level = device_buffer_frames + cushion_frames;
+  audio_drain_cushion_frames = cushion_frames;
   size_t bound = audio_catchup_bound_frames(start_level);
   size_t capacity = bound + 1;
   queue_storage = malloc(capacity * frame_bytes);
@@ -367,12 +375,32 @@ fail:
   return false;
 }
 
+/* Standing-sound-delay rule: feeds the queue level just taken after a push into the drain window
+ * and, when the window closes above the cushion, drops AUDIO_DRAIN_FRAMES of the oldest frames.
+ * Returns the number dropped and sets *level_after to the queue level then. Receive thread, with
+ * audio_mtx held by the caller: the level was read under that same hold, so the audio thread
+ * cannot have popped since and the drop leaves at least the window minimum minus one, which is
+ * still at or above the cushion. */
+static size_t audio_drain_standing_delay(size_t level, uint64_t now_us, size_t *level_after) {
+  *level_after = level;
+  uint64_t window_us = AUDIO_DRAIN_WINDOW_MS * AUDIO_US_PER_SECOND / AUDIO_MS_PER_SECOND;
+  if (!audio_drain_sample(&audio_drain_window, level, now_us, window_us,
+                          audio_drain_cushion_frames))
+    return 0;
+  size_t dropped = audio_queue_drop_oldest(&audio_queue, AUDIO_DRAIN_FRAMES);
+  *level_after = audio_queue_count(&audio_queue);
+  return dropped;
+}
+
 static void log_audio_session_stats(void) {
   if (audio_frames_received == 0)
     return;
   float catchup_rate = (float)audio_catchup_events / (float)audio_frames_received * 100.0f;
-  LOGD("VITA AUDIO :: Session stats - Frames: %u, Catchups: %u (%.2f%%), frames dropped: %u",
-       audio_frames_received, audio_catchup_events, catchup_rate, audio_catchup_dropped);
+  LOGD(
+      "VITA AUDIO :: Session stats - Frames: %u, Catchups: %u (%.2f%%), frames dropped: %u, "
+      "drains: %u",
+      audio_frames_received, audio_catchup_events, catchup_rate, audio_catchup_dropped,
+      audio_drain_events);
 }
 
 void vita_audio_cleanup() {
@@ -398,6 +426,9 @@ void vita_audio_cleanup() {
   audio_frames_received = 0;
   audio_catchup_events = 0;
   audio_catchup_dropped = 0;
+  audio_drain_events = 0;
+  memset(&audio_drain_window, 0, sizeof(audio_drain_window));
+  audio_drain_cushion_frames = 0;
   audio_occ_window_start_us = 0;
   audio_occ_window_sum = 0;
   audio_occ_window_count = 0;
@@ -429,6 +460,8 @@ static void audio_hand_off(const int16_t *buf_in, size_t samples_count,
   chiaki_mutex_lock(&audio_mtx);
   size_t dropped = audio_queue_push(&audio_queue, buf_in);
   size_t occ = audio_queue_count(&audio_queue);
+  size_t drain_level = occ;
+  size_t drained = audio_drain_standing_delay(occ, start_us, &drain_level);
   if (occ >= device_buffer_frames)
     chiaki_cond_signal(&audio_cond);
   chiaki_mutex_unlock(&audio_mtx);
@@ -441,6 +474,12 @@ static void audio_hand_off(const int16_t *buf_in, size_t samples_count,
     audio_catchup_events++;
     audio_catchup_dropped += (uint32_t)dropped;
     LOGD("VITA AUDIO :: audio catchup: dropped %d frames, %d queued", (int)dropped, (int)occ);
+  }
+  if (drained > 0) {
+    audio_drain_events++;
+    LOGD("VITA AUDIO :: drain: dropped %d frame, window q_min=%u q_n=%u, queued %d", (int)drained,
+         (unsigned)audio_drain_window.closed_min, (unsigned)audio_drain_window.closed_n,
+         (int)drain_level);
   }
 }
 

@@ -60,3 +60,30 @@ bool audio_queue_may_pop(AudioQueue *queue, size_t n) {
 size_t audio_queue_count(const AudioQueue *queue) {
   return queue->count;
 }
+
+size_t audio_queue_drop_oldest(AudioQueue *queue, size_t n) {
+  if (n > queue->count)
+    n = queue->count;
+  queue->head = (queue->head + n) % queue->capacity;
+  queue->count -= n;
+  return n;
+}
+
+bool audio_drain_sample(AudioDrainWindow *window, size_t level, uint64_t now_us, uint64_t window_us,
+                        size_t cushion) {
+  if (window->start_us == 0)
+    window->start_us = now_us;
+  if (window->n == 0 || level < window->min)
+    window->min = level;
+  window->n++;
+  bool stalled = now_us - window->last_us >= window_us && window->last_us != 0;
+  window->last_us = now_us;
+  if (now_us - window->start_us < window_us)
+    return false;
+
+  window->closed_min = window->min;
+  window->closed_n = window->n;
+  window->start_us = now_us;
+  window->n = 0;
+  return !stalled && window->closed_min > cushion;
+}
