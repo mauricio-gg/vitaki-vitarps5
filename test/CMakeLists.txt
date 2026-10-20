@@ -137,10 +137,12 @@ add_executable(pairing_result_tests
     ../vita/src/host_registration_result.c
     ../vita/src/ui/ui_result_copy.c
     ../vita/src/psn_account_id.c
+    ../lib/src/base64.c
 )
 
 target_include_directories(pairing_result_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
 )
 
 add_test(NAME vitarps5_pairing_result_tests COMMAND pairing_result_tests)

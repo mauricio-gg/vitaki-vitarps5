@@ -5,7 +5,7 @@
 // `./tools/build.sh test` only cross-compiles, so run these on the host:
 //   cc -std=c99 -Wall -Wextra -I vita/include test/pairing_result_tests.c \
 //      vita/src/host_registration_result.c vita/src/ui/ui_result_copy.c \
-//      vita/src/psn_account_id.c -o /tmp/pairing_result_tests && /tmp/pairing_result_tests
+//      vita/src/psn_account_id.c lib/src/base64.c -I lib/include -o /tmp/pairing_result_tests && /tmp/pairing_result_tests
 
 #include <assert.h>
 #include <stdio.h>
@@ -141,16 +141,23 @@ static void test_account_id_validity(void) {
   assert(!psn_account_id_is_valid(NULL, PSN_ACCOUNT_ID_BYTES));
 }
 
-/** catches: startup overwriting a hand-entered ID (#201) with an empty registry, or ignoring a
- * newly signed-in account so a stale config.toml ID keeps failing. */
+/** catches: startup overwriting a hand-entered ID (#201) with an empty registry, ignoring a
+ * newly signed-in account so a stale config.toml ID keeps failing, and a stored all-zero ID
+ * (saved by older versions) being chosen as if it were valid. */
 static void test_startup_choice(void) {
-  assert(psn_account_id_startup_choice("NEWID", "OLDID") == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
-  assert(psn_account_id_startup_choice("NEWID", NULL) == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
-  assert(psn_account_id_startup_choice("NEWID", "") == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
-  assert(psn_account_id_startup_choice("SAME", "SAME") == PSN_ACCOUNT_ID_USE_REGISTRY_SAME);
-  assert(psn_account_id_startup_choice(NULL, "HAND") == PSN_ACCOUNT_ID_USE_STORED);
+  // "EjRWeJq83vA=" is 12 34 56 78 9a bc de f0; "AAAAAAAAAAA=" is eight zero bytes.
+  assert(psn_account_id_startup_choice("EjRWeJq83vA=", "AAAAAAAAAAA=") ==
+         PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
+  assert(psn_account_id_startup_choice("EjRWeJq83vA=", NULL) == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
+  assert(psn_account_id_startup_choice("EjRWeJq83vA=", "EjRWeJq83vA=") ==
+         PSN_ACCOUNT_ID_USE_REGISTRY_SAME);
+  assert(psn_account_id_startup_choice(NULL, "EjRWeJq83vA=") == PSN_ACCOUNT_ID_USE_STORED);
   assert(psn_account_id_startup_choice(NULL, NULL) == PSN_ACCOUNT_ID_USE_NONE);
   assert(psn_account_id_startup_choice(NULL, "") == PSN_ACCOUNT_ID_USE_NONE);
+  // Stored values that are not a usable ID must not be reported as "from stored config".
+  assert(psn_account_id_startup_choice(NULL, "AAAAAAAAAAA=") == PSN_ACCOUNT_ID_USE_NONE);
+  assert(psn_account_id_startup_choice(NULL, "not base64!") == PSN_ACCOUNT_ID_USE_NONE);
+  assert(psn_account_id_startup_choice(NULL, "EjRWeA==") == PSN_ACCOUNT_ID_USE_NONE);
 }
 
 /** catches: the missing-account result showing the generic "did not accept the PIN" text, which

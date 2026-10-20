@@ -309,7 +309,9 @@ static void load_psn_id_at_launch(void) {
       break;
     case PSN_ACCOUNT_ID_USE_NONE:
     default:
-      LOGW("PSN account ID: none (registry empty and nothing stored); pairing will be blocked");
+      LOGW(
+          "PSN account ID: none - Vita not signed in to PSN and no valid ID in config; "
+          "pairing will be blocked");
       break;
   }
   free(registry_b64);

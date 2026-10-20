@@ -40,12 +40,22 @@ typedef enum psn_account_id_choice_t {
 bool psn_account_id_is_valid(const uint8_t *id, size_t len);
 
 /**
+ * psn_account_id_b64_is_valid() - Whether a base64 string decodes to a usable account ID.
+ * @id_b64: The ID as stored in config.toml; may be NULL.
+ *
+ * Same rule as psn_account_id_is_valid(), applied after decoding. Undecodable, wrong-length
+ * and all-zero values are not valid.
+ */
+bool psn_account_id_b64_is_valid(const char *id_b64);
+
+/**
  * psn_account_id_startup_choice() - Decide which account ID a launch uses.
  * @registry_b64: Base64 of the registry ID, or NULL when it was all zero or unreadable.
- * @stored_b64:   The ID in config.toml; NULL or empty when there is none.
+ * @stored_b64:   The ID in config.toml; NULL, empty or not a valid ID counts as none.
  *
- * A valid registry ID always wins. Without one, the stored ID is kept untouched so a
- * hand-entered ID is never overwritten by zeros (#201).
+ * A valid registry ID always wins. Without one, a valid stored ID is kept untouched so a
+ * hand-entered ID is never overwritten by zeros (#201); an invalid stored ID (for example zeros
+ * saved by older versions) is ignored, not cleared.
  */
 PsnAccountIdChoice psn_account_id_startup_choice(const char *registry_b64, const char *stored_b64);
 
