@@ -165,19 +165,13 @@ static const ProfileRowDef CONNECTION_ROWS[] = {
 static const ProfileArm CLEAR_ARM = {
     .head = "Press", .tail = "again to confirm clearing", .hint = "Confirm clear"};
 
-/** Index of the Manual Account ID row in ACCOUNT_ROWS (keep in step with the table below): where
- * the focus goes after Clear. */
-#define ACCOUNT_ROW_MANUAL 2
-#define NO_FOCUS_REQUEST (-1)
-
-/** The Account row the next refresh_items() focuses, or NO_FOCUS_REQUEST to keep the focused one.
- */
-static int s_focus_request = NO_FOCUS_REQUEST;
+/** True when the next refresh_items() must focus the Manual Account ID row, not keep the focus. */
+static bool s_focus_manual_request = false;
 
 /** Clear the typed ID; its row goes away, so the focus moves to the Manual Account ID row. */
 static void clear_manual_account_id(void) {
   ui_profile_account_clear_manual();
-  s_focus_request = ACCOUNT_ROW_MANUAL;
+  s_focus_manual_request = true;
 }
 
 static const ProfileRowDef ACCOUNT_ROWS[] = {
@@ -514,9 +508,14 @@ static void load_group(int index) {
  */
 static void refresh_items(void) {
   const ProfileRowDef *focused = s_pane.count > 0 ? s_defs[s_pane.focus] : NULL;
-  if (s_focus_request != NO_FOCUS_REQUEST) {
-    focused = &GROUPS[UI_PROFILE_GROUP_ACCOUNT].rows[s_focus_request];
-    s_focus_request = NO_FOCUS_REQUEST;
+  if (s_focus_manual_request) {
+    /* The row that opens the typed-ID editor, found by its action so a reorder cannot break this */
+    const ProfileGroup *account = &GROUPS[UI_PROFILE_GROUP_ACCOUNT];
+    for (int i = 0; i < account->count; i++) {
+      if (account->rows[i].run == ui_profile_account_edit_manual)
+        focused = &account->rows[i];
+    }
+    s_focus_manual_request = false;
   }
   const int count = fill_items();
   if (count != s_pane.count) {

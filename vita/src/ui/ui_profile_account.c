@@ -91,9 +91,10 @@ static bool has_manual(void) {
   return psn_account_id_b64_is_valid(context.config.psn_account_id_manual);
 }
 
-/** True when @id holds characters. */
+/** True when @id is a usable account ID. A stored all-zero Vita ID (older versions saved one) is
+ * not: pairing refuses it (#270), so this page treats it as no ID. */
 static bool is_set(const char *id) {
-  return id && id[0];
+  return psn_account_id_b64_is_valid(id);
 }
 
 /** True when @source is the one in use and there is an ID to use: a fallback shows truthfully. */
@@ -142,8 +143,8 @@ const char *ui_profile_account_source_text(void) {
                                                                               : SOURCE_VITA_WORD;
 }
 
-/** True when the Vita has an ID stored. A stored ID stays when the registry is empty (#270) and is
- * what pairing uses, so it is shown whatever the last registry read said. */
+/** True when the Vita has a usable ID stored. A stored ID stays when the registry is empty (#270)
+ * and is what pairing uses, so it is shown whatever the last registry read said. */
 static bool has_vita_id(void) {
   return is_set(context.config.psn_account_id);
 }

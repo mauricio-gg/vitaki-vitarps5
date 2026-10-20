@@ -19,7 +19,7 @@ Internet play needs all of these:
 
 - **PSN login** on the Vita (tokens present and refreshable). Checked in `host_stream`: `host.c:325-343`.
 - **A console registered on the LAN first (the "seed host").** Internet play does not register consoles itself. See below.
-- **A PSN account id on the Vita**, read from the Vita system registry (`read_psn_id_from_registry()` in `vita/src/ui.c`, valid only if 8 bytes and not all zero, rule in `psn_account_id.c`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
+- **A PSN account id**, the one in use (see "Account ids" below): by default the Vita's own, read from the Vita system registry (`read_psn_id_from_registry()` in `vita/src/ui.c`, valid only if 8 bytes and not all zero, rule in `psn_account_id.c`), or a typed one. It is taken from `config_psn_account_id_in_use()` and decoded at connect time (`host_stream()` in `host.c`). Without it the connect aborts.
 - **The console must have Remote Play enabled** in its settings; devices without it are skipped (`psn_remote.c:181`).
 - **A holepunch build.** The default build has it. If it is compiled out, `psn_remote_prepare_connect_host` fails with "stack is unavailable" (`psn_remote.c`, `#else` branch).
 - **A network that allows UDP hole punching** (see Known limits).
@@ -120,7 +120,7 @@ libcurl's `getaddrinfo` path is broken on Vita, so Sony hosts and STUN hosts are
 - **NAT.** Hole punching can fail on networks that do not allow it (phone hotspots are a known case): the log shows `Failed to find reachable candidate for control connection` and the user sees "Failed to establish PSN control channel" (`psn_remote.c`, punch ctrl step). Sony's own app fails the same way there. UPnP helps on home routers. Failure classification and hints are issue #89.
 - **No message when a console has no seed host**; it just does not appear (issue #85).
 - **PS5 only** in the device list; the PS4 list has a parity bug (issue #93).
-- **Account id mismatch.** Registration fails with PS5 error CE-110032-7 when the id sent is not the account signed in on the PS5. Startup now refreshes the id from the registry, and pairing is blocked on the Vita (no request sent) when the id is missing or all zero (issue #270). Manual account id entry is requested in #201.
+- **Account id mismatch.** Registration fails with PS5 error CE-110032-7 when the id sent is not the account signed in on the PS5. Startup now refreshes the id from the registry, and pairing is blocked on the Vita (no request sent) when the id is missing or all zero (issue #270). The user can also type an account id instead of using the Vita's (#201, see "Account ids").
 - **Refresh runs in the background.** Since PRs #377 and #392 (issue #163), token refresh and the device-list fetch run on a background worker (`vita/src/psn_background_refresh.c`) instead of the UI thread. The one exception is the Log in button's own token refresh, which is still synchronous. The host list is still not refreshed periodically while idle: the idle timer only renews the token, so the list refreshes only as a side effect of that renewal (issue #162, open).
 - **Dead-link detection** on the push WebSocket can take up to about 10 s (issue #164).
 - **Display:** the Connection card shows the console name, not the IP, for PSN hosts (issue #94).
@@ -133,3 +133,21 @@ libcurl's `getaddrinfo` path is broken on Vita, so Sony hosts and STUN hosts are
 2. At home on the LAN: register the console, enable the PSN toggle, sign in.
 3. Leave the home network (a second Wi-Fi, not a hotspot that blocks UDP, is the best first test). Open the app and check the console card shows the internet badge.
 4. Connect. Healthy log lines: WebSocket `101`, `CONSOLE_JOINED`, "Punched hole for data connection", then the stream starts. A 403 points at invariant 1; CURL error 60 at invariant 3; "Select timed out" candidate failures at the network.
+
+## Account ids (#201)
+
+config.toml `[settings]` holds two account ids and a choice between them:
+
+- `psn_account_id`: the Vita's own id (base64 of 8 bytes). It comes from the registry key `/CONFIG/NP/account_id` and is refreshed at every launch and by Profile > Account > Refresh Account ID, by the #270 rule (`psn_account_id_startup_choice()` in `vita/src/psn_account_id.c`): a valid registry id replaces it; an unreadable or all-zero registry leaves a valid stored id alone; a stored id that is not valid counts as none and is left in the file.
+- `psn_account_id_manual`: the id the user typed, stored as base64. Only the Profile page writes it.
+- `psn_account_id_source`: `"vita"` (default) or `"manual"`; anything else reads as `"vita"`. Only the Profile page writes it.
+
+The registry read never writes the manual id or the choice (`load_psn_id_at_launch()` and `ui_reload_psn_account_id()` in `ui.c` touch `psn_account_id` only).
+
+**Which id is in use.** One rule, `psn_account_id_in_use()` in `psn_account_id.c`, reached through `config_psn_account_id_in_use()` in `config.c`. Vita chosen: the stored Vita string exactly as it is, so a bad one is still refused by the callers' own checks (the #270 pairing refusal is unchanged). Manual chosen and the typed id valid: the typed id. Manual chosen without a valid typed id (for example a hand-edited file): the Vita id, and the config load logs a warning at startup. Three places use the rule: pairing (`host_register()` in `host_registration.c`, which also logs whether the id was Vita or manual), the internet connect path (`host_stream()` in `host.c`) and the Account ID row of the Home detail pane (`build_profile_rows()` in `ui_home_detail.c`).
+
+**Typed input** (`psn_account_id_parse()` in `psn_account_id.c`). Whitespace around the text is trimmed. It is accepted as either base64 of 8 bytes (12 characters ending in `=`) or a decimal number below 2^64. A decimal number becomes 8 bytes **little-endian**, the same as Chiaki-NG (`scripts/psn-account-id.py` line 116, `user_id.to_bytes(8, "little")`, and `gui/src/psnaccountid.cpp`, `to_bytes_little_endian(...)`). Either way the result is stored as base64. Text that is neither form is refused as a bad format; an id that decodes to eight zero bytes is refused as all zero. Nothing is stored on a refusal.
+
+**Profile > Account** (`vita/src/ui/ui_profile_account.c`; the full layout and copy are in `docs/design/ui-mocks/SPEC.md` 3.7). Rows: Use Account ID from (Vita or Manual), Vita Account ID, Manual Account ID, Refresh Account ID, Clear Manual Account ID. The Vita row shows the stored Vita id, or "Not signed in" / "Not found" when there is none, worded from how the last registry read went (`ui_psn_registry_read()`); a stored all-zero Vita id counts as none here too. Manual Account ID opens the system keyboard (`sceImeDialog`); the first typed id is put in use at once, a later one keeps the choice. Choosing Manual with no typed id opens the keyboard instead. A check mark sits on the row whose id is actually in use, so a fallback shows truthfully. Clear Manual Account ID needs a second press to confirm, removes the typed id and sets the choice back to Vita. The identity block under the group list shows the id in use masked to its last four characters, and "Not Set" / "No Account ID" when there is none.
+
+**Logs.** An account id is never logged in full: only the last 4 base64 characters (`psn_account_id_fingerprint()`).
