@@ -71,15 +71,15 @@ static int find_discovered_host_index_by_mac(MacAddr *host_mac) {
   return -1;
 }
 
-static int find_target_slot_for_discovered_host(MacAddr *host_mac) {
+/* A discovered console always gets its own freshly allocated record in an empty slot. It must
+ * never reuse a MANUALLY_ADDED record: that struct is the one stored in
+ * context.config.manual_hosts, so writing the discovered address into it (or freeing it when
+ * the console goes quiet) would overwrite or wipe the address the user typed (#234).
+ * update_context_hosts() hides the manual card while the discovered one is present. */
+static int find_empty_slot_for_discovered_host(void) {
   for (int host_idx = 0; host_idx < MAX_CONTEXT_HOSTS; host_idx++) {
-    VitaChiakiHost *host_entry = context.hosts[host_idx];
-    if (host_entry == NULL)
+    if (context.hosts[host_idx] == NULL)
       return host_idx;
-    if ((host_entry->type & MANUALLY_ADDED) &&
-        mac_addrs_match(&(host_entry->server_mac), host_mac)) {
-      return host_idx;
-    }
   }
   return -1;
 }
@@ -132,7 +132,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
     return existing_idx;
   }
 
-  int target_idx = find_target_slot_for_discovered_host(&host_mac);
+  int target_idx = find_empty_slot_for_discovered_host();
   if (target_idx < 0) {
     CHIAKI_LOGE(&(context.log), "Max # of hosts reached; could not save newly discovered host.");
     return -1;
@@ -141,17 +141,10 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
   // print some info about the host
   log_discovered_host_details(host);
 
-  VitaChiakiHost *h = context.hosts[target_idx];
-  bool reuse_existing = h != NULL;
+  VitaChiakiHost *h = (VitaChiakiHost *)calloc(1, sizeof(VitaChiakiHost));
   if (!h) {
-    h = (VitaChiakiHost *)calloc(1, sizeof(VitaChiakiHost));
-    if (!h) {
-      CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
-      return -1;
-    }
-    h->status_hint[0] = '\0';
-    h->status_hint_expire_us = 0;
-    h->status_hint_is_error = false;
+    CHIAKI_LOGE(&(context.log), "Failed to allocate host entry");
+    return -1;
   }
   h->type |= DISCOVERED;
   h->source = VITA_HOST_SOURCE_LOCAL_DISCOVERY;
@@ -164,8 +157,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
   h->target = target;
   memcpy(&(h->server_mac), &host_mac, 6);
   if (!set_host_discovery_snapshot(h, host, now_us)) {
-    if (!reuse_existing)
-      free(h);
+    free(h);
     return -1;
   }
 
@@ -215,8 +207,7 @@ int save_discovered_host(ChiakiDiscoveryHost *host) {
   }
 
   // Add to context
-  if (!context.hosts[target_idx])
-    context.num_hosts++;
+  context.num_hosts++;
   context.hosts[target_idx] = h;
 
   update_context_hosts();  // to remove any extra manual host copies

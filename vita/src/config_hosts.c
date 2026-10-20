@@ -262,7 +262,9 @@ void config_serialize_manual_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
       }
     }
     if (!mac || !host->hostname[0]) {
-      LOGD("config_serialize: manual host slot %zu missing data, skipping", i);
+      LOGE("config_serialize: manual host slot %zu NOT saved: %s%s%s", i, mac ? "" : "MAC is zero",
+           (!mac && !host->hostname[0]) ? " and " : "",
+           host->hostname[0] ? "" : "hostname is empty");
       continue;
     }
 

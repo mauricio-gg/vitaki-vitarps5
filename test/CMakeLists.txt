@@ -392,3 +392,26 @@ target_include_directories(psn_account_id_tests PRIVATE
 )
 
 add_test(NAME vitarps5_psn_account_id_tests COMMAND psn_account_id_tests)
+
+# manual_host_discovery_tests.c checks that discovery never overwrites or wipes a manual host
+# (issue #234). Standalone binary with its own main(); run natively (see the file header). It
+# builds against test/stubs/manual_hosts, a trimmed context.h, not the Vita one.
+add_executable(manual_host_discovery_tests
+    manual_host_discovery_tests.c
+    ../vita/src/discovery.c
+    ../vita/src/discovery_host.c
+    ../vita/src/host_storage.c
+    ../vita/src/config_hosts.c
+    ../vita/third_party/tomlc99/toml.c
+    ../lib/src/base64.c
+)
+
+target_include_directories(manual_host_discovery_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs/manual_hosts
+    ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
+    ${CMAKE_SOURCE_DIR}/lib/src
+    ${CMAKE_SOURCE_DIR}/vita/third_party
+)
+
+add_test(NAME vitarps5_manual_host_discovery_tests COMMAND manual_host_discovery_tests)

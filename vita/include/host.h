@@ -47,10 +47,14 @@ typedef struct vita_chiaki_host_t {
    * any thread as long as callers follow the struct-leak + NULL-check discipline documented
    * on host_free() (host.c) -- e.g. host_stream()/host_wakeup() legitimately dereference it. */
   char hostname[VITA_HOST_HOSTNAME_LEN];
+  /* The address to connect to. On a DISCOVERED record the discovery thread writes it from the
+   * console's reply. On a MANUALLY_ADDED record (the same struct as the one saved in
+   * config.manual_hosts) only save_manual_host() and config load write it; discovery never
+   * touches a manual record (#234). */
   /** Best-known console name for UI display. Precedence: discovery host_name >
    * registered_state->server_nickname > hostname/IP. Set at host-creation time by whichever
    * code builds the entry (manual add, PSN refresh, config load); refreshed thereafter only by
-   * the discovery thread for hosts that are actively DISCOVERED. */
+   * the discovery thread, and only on the host's own DISCOVERED record. */
   char display_name[VITA_HOST_DISPLAY_NAME_LEN];
   /** Snapshot of discovery_state->state, safe to read from any thread. */
   ChiakiDiscoveryHostState discovery_state_snapshot;

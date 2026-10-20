@@ -242,18 +242,19 @@ void update_context_hosts() {
       VitaChiakiHost *h = context.hosts[host_idx];
       if (!h)
         continue;
-      if (!h->hostname[0])
+      if (!mac_addrs_match(&(h->server_mac), &(mhost->server_mac)))
         continue;
-      if (mac_addrs_match(&(h->server_mac), &(mhost->server_mac))) {
-        if ((h->type & DISCOVERED) && hide_remote_if_discovered) {
-          already_in_context = true;
-          break;
-        }
+      /* Same rule as the hide pass above: a discovered record hides the manual card even when
+       * it has no address, otherwise the card would be re-added right after being hidden. */
+      if ((h->type & DISCOVERED) && hide_remote_if_discovered) {
+        already_in_context = true;
+        break;
+      }
 
-        if ((h->type & MANUALLY_ADDED) && (strcmp(h->hostname, mhost->hostname) == 0)) {
-          already_in_context = true;
-          break;
-        }
+      if ((h->type & MANUALLY_ADDED) && h->hostname[0] &&
+          (strcmp(h->hostname, mhost->hostname) == 0)) {
+        already_in_context = true;
+        break;
       }
     }
 
