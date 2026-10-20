@@ -750,6 +750,11 @@ typedef enum ui_face_t {
 #define UI_SETTING_ERR_ICON 20
 #define UI_SETTING_ERR_ICON_GAP UI_S1
 #define UI_SETTING_ERR_RULE_W UI_LW2
+/* A row's in-use check (SPEC 3.7, Account ID): UI_OK, a warning icon's size, UI_SETTING_CHECK_GAP
+ * before the value. An action's value ends UI_SETTING_ACTION_VALUE_GAP before its chevron. */
+#define UI_SETTING_CHECK_ICON UI_SETTING_ERR_ICON
+#define UI_SETTING_CHECK_GAP UI_S1
+#define UI_SETTING_ACTION_VALUE_GAP UI_S2
 /* A glyph inside a row label (the armed log out): this far from the words on either side. */
 #define UI_SETTING_GLYPH_GAP UI_S1
 /** A disabled row is drawn at this opacity. */

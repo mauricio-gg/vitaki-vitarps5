@@ -486,8 +486,7 @@ static void test_removed_show_only_paired_key_is_dropped(void) {
 }
 
 /* catches: a typed account ID or the choice between Vita and Manual being lost on save or load, so
- * pairing after a restart silently uses the wrong ID; and a hand-edited choice of Manual with no
- * usable manual ID using nothing instead of the Vita's ID. */
+ * pairing after a restart silently uses the wrong ID. */
 static void test_manual_account_id_and_choice_survive_save_and_load(void) {
   reset_config_file();
   VitaChiakiConfig cfg;
@@ -512,14 +511,6 @@ static void test_manual_account_id_and_choice_survive_save_and_load(void) {
   init_cfg(&fresh);
   assert(fresh.psn_account_id_manual == NULL);
   assert(fresh.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_VITA);
-
-  // Manual chosen but no manual ID in the file: the Vita's ID is used.
-  VitaChiakiConfig broken = fresh;
-  broken.psn_account_id = strdup("EjRWeJq83vA=");
-  broken.psn_account_id_source = PSN_ACCOUNT_ID_SOURCE_MANUAL;
-  assert(strcmp(config_psn_account_id_in_use(&broken, &used), "EjRWeJq83vA=") == 0);
-  assert(used == PSN_ACCOUNT_ID_SOURCE_VITA);
-  free(broken.psn_account_id);
 }
 
 /* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the

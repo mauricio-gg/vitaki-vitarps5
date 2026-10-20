@@ -5,7 +5,7 @@
  * Rows are data: ProfileRowDef says what a row is called, what kind it is, its description, how to
  * read its value and what it does. A group is a table of rows. The PlayStation Network group lists
  * every row it can ever show and each row says when it is visible, so the PSN state alone decides
- * which ones are on the page.
+ * which ones are on the page. The Account group's words and actions are in ui_profile_account.c.
  */
 
 #include "ui/ui_profile.h"
@@ -33,6 +33,7 @@
 #include "ui/ui_home_detail.h"
 #include "ui/ui_input.h"
 #include "ui/ui_page_frame.h"
+#include "ui/ui_profile_account.h"
 #include "ui/ui_profile_login.h"
 #include "ui/ui_scroll_indicator.h"
 #include "ui/ui_setting_list.h"
@@ -59,16 +60,23 @@ typedef struct profile_arm_t {
 
 /**
  * One row. An info row fills @value_text; an action runs @run and names itself in the hint row
- * with @hint.
+ * with @hint; a choice calls @change with the step it was asked for and shows @value_text. A row
+ * whose words change with the state takes them from @description_text and @hint_text instead of
+ * the fixed @description and @hint. An action may also show a value.
  */
 typedef struct profile_row_def_t {
   const char *label;
   UiSettingKind kind;
   const char *description;
-  const char *hint;  ///< action: the Confirm hint's verb
-  bool small_value;  ///< info: the value is drawn in T16
+  const char *(*description_text)(void);  ///< NULL: @description
+  const char *hint;                       ///< action: the Confirm hint's verb
+  const char *(*hint_text)(void);         ///< NULL: @hint
+  bool small_value;                       ///< info and action: the value is drawn in T16
   const char *(*value_text)(void);
-  uint32_t (*value_color)(void);  ///< info: NULL or 0 for the row's own; UI_ERR styles an error
+  uint32_t (*value_color)(void);  ///< info and action: NULL or 0 for the row's own; UI_ERR styles
+                                  ///< an info row as an error
+  bool (*checked)(void);          ///< info and action: NULL, or true draws the in-use check
+  void (*change)(int step);       ///< choice: the value was stepped
   const char *disabled_toast;     ///< action: set when it cannot run; pressing it toasts this
   const ProfileArm *arm;          ///< action: NULL, or runs only on a second press in the window
   bool (*visible)(void);          ///< NULL: always shown
@@ -83,11 +91,12 @@ typedef struct profile_group_t {
 /* Copy */
 static const char TITLE[] = "Profile";
 static const char PSN_NAME[] = "PlayStation Network";
-static const char ACCOUNT_ID_UNSET[] = "Not Set";
 static const char TOAST_REFRESHED[] = "Account ID refreshed from system profile";
 static const char TOAST_REFRESH_FAILED[] = "Could not refresh Account ID";
 static const char HINT_OPEN[] = "Open";
 static const char HINT_REFRESH[] = "Refresh";
+static const char HINT_NEXT[] = "Next";
+static const char HINT_CHANGE[] = "Change";
 static const char HINT_GROUP[] = "Group";
 static const char HINT_BACK[] = "Back";
 static const char PSN_LOGIN_FAILED[] = "PSN login could not start";
@@ -103,12 +112,6 @@ static const char PSN_DISABLED_TOAST[] = "PSN internet mode is disabled in Setti
 #define PSN_ARM_WINDOW_MS 3000.0f
 
 /* Account */
-
-/** The PSN Account ID, or "Not Set" when there is none. */
-static const char *account_id_text(void) {
-  const char *id = context.config.psn_account_id;
-  return id && id[0] ? id : ACCOUNT_ID_UNSET;
-}
 
 /** Read the Account ID again from the system profile, save it and say how it went. */
 static void refresh_account_id(void) {
@@ -160,13 +163,30 @@ static const ProfileRowDef CONNECTION_ROWS[] = {
 };
 
 static const ProfileRowDef ACCOUNT_ROWS[] = {
-    {.label = "Account ID",
+    {.label = "Use Account ID from",
+     .kind = UI_SETTING_CHOICE,
+     .description_text = ui_profile_account_source_description,
+     .value_text = ui_profile_account_source_text,
+     .change = ui_profile_account_change_source},
+    {.label = "Vita Account ID",
      .kind = UI_SETTING_INFO,
+     .description = "The Account ID of the PSN account signed in on this Vita.",
      .small_value = true,
-     .value_text = account_id_text},
+     .value_text = ui_profile_account_vita_text,
+     .value_color = ui_profile_account_vita_color,
+     .checked = ui_profile_account_vita_in_use},
+    {.label = "Manual Account ID",
+     .kind = UI_SETTING_ACTION,
+     .description_text = ui_profile_account_manual_description,
+     .hint_text = ui_profile_account_manual_hint,
+     .small_value = true,
+     .value_text = ui_profile_account_manual_text,
+     .value_color = ui_profile_account_manual_color,
+     .checked = ui_profile_account_manual_in_use,
+     .run = ui_profile_account_edit_manual},
     {.label = "Refresh Account ID",
      .kind = UI_SETTING_ACTION,
-     .description = "Read the Account ID again from the system profile.",
+     .description = "Read the Vita Account ID again from the system profile.",
      .hint = HINT_REFRESH,
      .run = refresh_account_id},
 };
@@ -318,6 +338,7 @@ static bool s_pane_focus = false;
 /** Description of the focused row, wrapped once when the row shown there changes. */
 static UiWrapped s_desc;
 static const ProfileRowDef *s_desc_def = NULL;
+static const char *s_desc_source = NULL;
 static bool s_desc_stale = true;
 /** The action armed by its first press, and when; NULL when none is. */
 static const ProfileRowDef *s_armed_def = NULL;
@@ -358,7 +379,7 @@ static int measure_ident(const char *text, void *ctx) {
 
 /** Re-measure the shortened Account ID when it changed since the last frame. */
 static void update_identity(void) {
-  const char *text = account_id_text();
+  const char *text = ui_profile_account_in_use_text();
   if (strncmp(s_ident_raw, text, sizeof(s_ident_raw) - 1) == 0)
     return;
   snprintf(s_ident_raw, sizeof(s_ident_raw), "%s", text);
@@ -430,9 +451,15 @@ static int fill_items(void) {
         .value_text = def->value_text ? def->value_text() : NULL,
         .small_value = def->small_value,
         .disabled = def->disabled_toast != NULL,
-        .color = def->value_color ? def->value_color() : 0,
+        .checked = def->checked && def->checked(),
     };
-    s_items[shown].error = s_items[shown].color == UI_ERR;
+    const uint32_t value_color = def->value_color ? def->value_color() : 0;
+    if (def->kind == UI_SETTING_ACTION) {
+      s_items[shown].value_color = value_color;
+    } else {
+      s_items[shown].color = value_color;
+      s_items[shown].error = value_color == UI_ERR;
+    }
     if (row_is_armed(def)) {
       s_items[shown].label = def->arm->head;
       s_items[shown].label_glyph = UI_BTN_CONFIRM;
@@ -476,14 +503,23 @@ static int measure_description(const char *text, void *ctx) {
   return ui_text_face_width(UI_FACE_T16, text);
 }
 
-/** Wrap the description of the row now in the focus when it is not the one wrapped last. */
+/** The description of @def, which may be NULL, as it reads now; NULL when it has none. */
+static const char *row_description(const ProfileRowDef *def) {
+  if (!def)
+    return NULL;
+  return def->description_text ? def->description_text() : def->description;
+}
+
+/** Wrap the description of the row now in the focus when it is not the one wrapped last. The text
+ * is compared by address: every description is a static string. */
 static void update_description(void) {
   const ProfileRowDef *def = s_pane.count > 0 ? s_defs[s_pane.focus] : NULL;
-  if (!s_desc_stale && def == s_desc_def)
+  const char *text = row_description(def);
+  if (!s_desc_stale && def == s_desc_def && text == s_desc_source)
     return;
   s_desc_stale = false;
   s_desc_def = def;
-  const char *text = def ? def->description : NULL;
+  s_desc_source = text;
   ui_text_wrap(text ? text : "", UI_PAGE_PANE_W, measure_description, NULL, &s_desc);
 }
 
@@ -512,11 +548,16 @@ void ui_profile_open(int group) {
  * ============================================================================ */
 
 /**
- * run_focused_row() - Act on the focused action row. A disabled one says why it cannot run; one
- * that needs a second press arms on the first and runs on the next inside its window.
+ * run_focused_row() - Act on the focused row: a choice changes, an action runs. A disabled one
+ * says why it cannot run; one that needs a second press arms on the first and runs on the next
+ * inside its window.
  */
 static void run_focused_row(void) {
   const ProfileRowDef *def = s_defs[s_pane.focus];
+  if (def->kind == UI_SETTING_CHOICE) {
+    def->change(s_pane.step);
+    return;
+  }
   if (def->disabled_toast) {
     ui_toast_show(def->disabled_toast, UI_TOAST_ERR);
     return;
@@ -595,9 +636,13 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   } else {
     const ProfileRowDef *def = s_defs[s_pane.focus];
     if (def->kind == UI_SETTING_ACTION) {
+      const char *verb = def->hint_text ? def->hint_text() : def->hint;
       out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM,
-                              .label = row_is_armed(def) ? def->arm->hint : def->hint,
+                              .label = row_is_armed(def) ? def->arm->hint : verb,
                               .dim = def->disabled_toast != NULL};
+    } else if (def->kind == UI_SETTING_CHOICE) {
+      out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_NEXT};
+      out[n++] = (UiHintItem){.action = UI_BTN_LEFT | UI_BTN_RIGHT, .label = HINT_CHANGE};
     }
     out[n++] = (UiHintItem){.action = UI_BTN_L | UI_BTN_R, .label = HINT_GROUP};
   }
@@ -618,9 +663,11 @@ static void draw_description(void) {
  * ============================================================================ */
 
 UIScreenType ui_profile_frame(void) {
-  /* While the system keyboard is open, and in the frame it closes, the page does not act. */
-  const bool keyboard_was_open = ui_profile_login_busy();
+  /* While a system keyboard is open, and in the frame it closes, the page does not act. Both are
+   * read before either is polled, so the frame one closes in still counts. */
+  const bool keyboard_was_open = ui_profile_login_busy() || ui_profile_account_busy();
   ui_profile_login_poll();
+  ui_profile_account_poll();
   ui_profile_login_update();
 
   /* A tapped hint acts as that button pressed in one frame; the D-pad hint has no action. */

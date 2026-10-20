@@ -110,6 +110,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_settings_actions.c
     src/ui/ui_settings.c
     src/ui/ui_profile.c
+    src/ui/ui_profile_account.c
     src/ui/ui_profile_login.c
     src/ui/ui_qr_panel.c
     src/ui/ui_utf16.c

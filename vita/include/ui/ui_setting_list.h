@@ -22,8 +22,8 @@
  * Paper cost, per row: label 1; unfocused rows (all rows while the pane is not active) add a
  * divider 1; the focused row of an active pane adds a bar 3 and a glow 1. A toggle adds track 1 (2
  * when on), knob 1, text 1; a choice adds 2 chevrons and the value text; an info row adds its value
- * text (an error row 2 more: icon and rule); an enabled action adds 1 chevron; a label glyph and
- * its tail add 2.
+ * text (an error row 2 more: icon and rule); an enabled action adds 1 chevron, and a value text
+ * when it has one; a check (info or action value) adds 1; a label glyph and its tail add 2.
  */
 
 #pragma once
@@ -54,6 +54,9 @@ typedef struct ui_setting_item_t {
                    ///< value (the value's @color should be UI_ERR)
   uint32_t label_glyph;    ///< action: a UiButton action whose glyph follows @label ...
   const char *label_tail;  ///< ... and then these words ("Press [X] again"); both or neither
+  bool checked;            ///< info and action value: a UI_OK check before the value (marks the one
+                           ///< in use)
+  uint32_t value_color;    ///< action value: its colour; 0 for the row's own
 } UiSettingItem;
 
 typedef struct ui_setting_list_t {
