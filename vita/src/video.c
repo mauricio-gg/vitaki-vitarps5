@@ -417,11 +417,14 @@ static uint32_t dechold_fed_total = 0;
 static uint32_t dechold_handed_total = 0;
 /* Pull state, decode thread only, reset per session. A pull is tried only while the hold is above
  * the floor; a pull that returns no picture raises the floor to the current hold; after
- * DECHOLD_PULL_FLOOR_DECAY_US without a floor change the floor steps down by one (never below its
- * start); a pull that errors turns pulling off for the rest of the session. Pulling is armed once
- * the decoder has handed back its first picture (dechold_handed_total > 0), so there is no separate
- * flag. */
+ * DECHOLD_PULL_FLOOR_DECAY_US without a floor change the floor steps down by one, never below the
+ * session's starting floor (the floor the first empty pull set; DECHOLD_PULL_FLOOR_START until
+ * then), because every probe below it costs a skipped picture; a pull that errors turns pulling off
+ * for the rest of the session. Pulling is armed once the decoder has handed back its first picture
+ * (dechold_handed_total > 0), so there is no separate flag. */
 static uint32_t dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
+static uint32_t dechold_pull_base = DECHOLD_PULL_FLOOR_START; /* the session's starting floor */
+static bool dechold_pull_base_set = false;                    /* first empty pull has set it */
 static bool dechold_pull_disabled = false;
 static uint64_t dechold_pull_floor_change_us = 0; /* process time of the last floor raise or drop */
 static uint32_t dechold_feed_seq[DECHOLD_FEED_RING];
@@ -445,6 +448,8 @@ static void dechold_reset_session(void) {
   dechold_fed_total = 0;
   dechold_handed_total = 0;
   dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
+  dechold_pull_base = DECHOLD_PULL_FLOOR_START;
+  dechold_pull_base_set = false;
   dechold_pull_disabled = false;
   dechold_pull_floor_change_us = 0;
   memset(dechold_feed_seq, 0, sizeof(dechold_feed_seq));
@@ -1168,18 +1173,20 @@ typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } 
  * not written; the floor rises to the current hold so no pull is retried at this level), or an
  * error (the caller applies the #418 rule and pulling is turned off for the session).
  * The floor decays: when DECHOLD_PULL_FLOOR_DECAY_US has passed since the last floor change it
- * drops by one step toward DECHOLD_PULL_FLOOR_START, so a floor raised by a small hiccup does not
- * hold the delay up for the rest of the session. now_us is the caller's process-time reading. */
+ * drops by one step toward the session's starting floor and stops there (no probing below it in
+ * calm play), so a floor raised by a hiccup does not hold the delay up for the rest of the session.
+ * now_us is the caller's process-time reading. */
 static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint32_t *readback_seq,
                                        bool *readback_valid) {
   if (dechold_pull_disabled || dechold_handed_total == 0)
     return PULL_NOT_TRIED;
 
-  if (dechold_pull_floor > DECHOLD_PULL_FLOOR_START &&
+  if (dechold_pull_floor > dechold_pull_base &&
       now_us - dechold_pull_floor_change_us >= DECHOLD_PULL_FLOOR_DECAY_US) {
     dechold_pull_floor--;
     dechold_pull_floor_change_us = now_us;
-    LOGD("PIPE/DECPULL floor=%u dir=down frame=%u", dechold_pull_floor, frame_seq);
+    LOGD("PIPE/DECPULL floor=%u base=%u dir=down frame=%u", dechold_pull_floor, dechold_pull_base,
+         frame_seq);
   }
   if (dechold_current_hold() <= dechold_pull_floor)
     return PULL_NOT_TRIED;
@@ -1220,7 +1227,12 @@ static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint
 
   dechold_pull_floor = dechold_current_hold();
   dechold_pull_floor_change_us = pull_end_us;
-  LOGD("PIPE/DECPULL floor=%u dir=up frame=%u", dechold_pull_floor, frame_seq);
+  if (!dechold_pull_base_set) {
+    dechold_pull_base = dechold_pull_floor;
+    dechold_pull_base_set = true;
+  }
+  LOGD("PIPE/DECPULL floor=%u base=%u dir=up frame=%u", dechold_pull_floor, dechold_pull_base,
+       frame_seq);
   return PULL_NO_PICTURE;
 }
 
