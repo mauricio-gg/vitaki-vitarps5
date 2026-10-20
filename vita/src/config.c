@@ -29,6 +29,8 @@ typedef struct bool_serialize_spec_t {
 
 static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_default) {
   cfg->psn_account_id = NULL;
+  cfg->psn_account_id_manual = NULL;
+  cfg->psn_account_id_source = PSN_ACCOUNT_ID_SOURCE_VITA;
   cfg->psn_oauth_access_token = NULL;
   cfg->psn_oauth_refresh_token = NULL;
   cfg->psn_oauth_expires_at_unix = 0;
@@ -288,6 +290,22 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
   datum = toml_string_in(settings, "psn_account_id");
   if (datum.ok)
     cfg->psn_account_id = datum.u.s;
+
+  datum = toml_string_in(settings, "psn_account_id_manual");
+  if (datum.ok)
+    cfg->psn_account_id_manual = datum.u.s;
+
+  datum = toml_string_in(settings, "psn_account_id_source");
+  if (datum.ok) {
+    if (strcmp(datum.u.s, PSN_ACCOUNT_ID_SOURCE_MANUAL_KEY) == 0)
+      cfg->psn_account_id_source = PSN_ACCOUNT_ID_SOURCE_MANUAL;
+    free(datum.u.s);
+  }
+  PsnAccountIdSource used;
+  config_psn_account_id_in_use(cfg, &used);
+  if (cfg->psn_account_id_source != used)
+    CHIAKI_LOGW(&(context.log),
+                "Manual PSN account ID is chosen but missing or invalid; using the Vita's ID");
 
   /*
    * Token loading strategy (per design in #81):
@@ -677,11 +695,22 @@ config_done:
       cfg->submit_on_missing_ref ? "true" : "false");
 }
 
+const char *config_psn_account_id_in_use(const VitaChiakiConfig *cfg, PsnAccountIdSource *used) {
+  if (!cfg) {
+    if (used)
+      *used = PSN_ACCOUNT_ID_SOURCE_VITA;
+    return NULL;
+  }
+  return psn_account_id_in_use(cfg->psn_account_id_source, cfg->psn_account_id,
+                               cfg->psn_account_id_manual, used);
+}
+
 void config_free(VitaChiakiConfig *cfg) {
   if (cfg == NULL) {
     return;
   }
   free(cfg->psn_account_id);
+  free(cfg->psn_account_id_manual);
   free(cfg->psn_oauth_access_token);
   free(cfg->psn_oauth_refresh_token);
   free(cfg->psn_oauth_device_code_url);
@@ -734,6 +763,13 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
   if (cfg->psn_account_id) {
     fprintf(fp, "psn_account_id = \"%s\"\n", cfg->psn_account_id);
   }
+  if (cfg->psn_account_id_manual) {
+    fprintf(fp, "psn_account_id_manual = \"%s\"\n", cfg->psn_account_id_manual);
+  }
+  fprintf(fp, "psn_account_id_source = \"%s\"\n",
+          cfg->psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_MANUAL
+              ? PSN_ACCOUNT_ID_SOURCE_MANUAL_KEY
+              : PSN_ACCOUNT_ID_SOURCE_VITA_KEY);
 
 #ifdef VITARPS5_PLAINTEXT_TOKEN_STORAGE
   /*

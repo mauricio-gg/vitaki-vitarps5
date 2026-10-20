@@ -7,6 +7,7 @@
 #include "logging.h"
 #include "controller.h"
 #include "latency_mode.h"
+#include "psn_account_id.h"
 #include "room_icons.h"
 
 #ifndef CFG_VERSION
@@ -57,6 +58,10 @@ typedef struct vita_chiaki_config_t {
   int cfg_version;
   // We use a global PSN Account ID so users only have to enter it once
   char *psn_account_id;
+  // ID the user typed in (base64), or NULL. Never written by the registry refresh (#201).
+  char *psn_account_id_manual;
+  // Which of the two IDs pairing and internet connect use.
+  PsnAccountIdSource psn_account_id_source;
   // PSN OAuth tokens used for internet remote play.
   char *psn_oauth_access_token;
   char *psn_oauth_refresh_token;
@@ -123,6 +128,16 @@ VitaChiakiBackgroundBlur config_background_blur(const VitaChiakiConfig *cfg);
  * @param blur  New blur level; a value outside the enum is ignored.
  */
 void config_set_background_blur(VitaChiakiConfig *cfg, VitaChiakiBackgroundBlur blur);
+
+/**
+ * config_psn_account_id_in_use() - The account ID pairing and internet connect must use.
+ * @cfg:  The config; may be NULL.
+ * @used: Out, may be NULL: whether the Vita's or the manual ID is returned.
+ *
+ * Returns a borrowed base64 string, or NULL when there is none. See psn_account_id_in_use().
+ */
+const char *config_psn_account_id_in_use(const VitaChiakiConfig *cfg, PsnAccountIdSource *used);
+
 void config_free(VitaChiakiConfig *cfg);
 
 /**

@@ -53,11 +53,65 @@ bool psn_account_id_b64_is_valid(const char *id_b64);
  * @registry_b64: Base64 of the registry ID, or NULL when it was all zero or unreadable.
  * @stored_b64:   The ID in config.toml; NULL, empty or not a valid ID counts as none.
  *
- * A valid registry ID always wins. Without one, a valid stored ID is kept untouched so a
- * hand-entered ID is never overwritten by zeros (#201); an invalid stored ID (for example zeros
- * saved by older versions) is ignored, not cleared.
+ * Concerns the Vita's own ID only (config.toml psn_account_id); the manual ID (#201) lives in
+ * its own field and is never passed here. A valid registry ID always wins. Without one, a valid
+ * stored ID is kept untouched so a Vita that is signed out does not lose it to zeros; an invalid
+ * stored ID (for example zeros saved by older versions) is ignored, not cleared.
  */
 PsnAccountIdChoice psn_account_id_startup_choice(const char *registry_b64, const char *stored_b64);
 
 /** psn_account_id_fingerprint() - The last few base64 characters, safe to log ("" if too short). */
 const char *psn_account_id_fingerprint(const char *id_b64);
+
+/** Which account ID the user chose to use (config.toml psn_account_id_source). */
+typedef enum psn_account_id_source_t {
+  PSN_ACCOUNT_ID_SOURCE_VITA = 0,  ///< the ID read from the Vita's system profile (default)
+  PSN_ACCOUNT_ID_SOURCE_MANUAL,    ///< the ID the user typed in
+} PsnAccountIdSource;
+
+/** config.toml spellings of PsnAccountIdSource; anything else reads as Vita. */
+#define PSN_ACCOUNT_ID_SOURCE_VITA_KEY "vita"
+#define PSN_ACCOUNT_ID_SOURCE_MANUAL_KEY "manual"
+
+/**
+ * psn_account_id_in_use() - Which account ID pairing and internet connect must use.
+ * @chosen:     What the user chose.
+ * @vita_b64:   The Vita's own ID (config.toml psn_account_id); may be NULL.
+ * @manual_b64: The typed ID (config.toml psn_account_id_manual); may be NULL.
+ * @used:       Out, may be NULL: the source actually returned (differs from @chosen when the
+ *              manual choice falls back).
+ *
+ * Vita chosen: @vita_b64 exactly as stored (callers validate it, as before #201). Manual chosen
+ * and @manual_b64 valid: @manual_b64. Manual chosen without a valid manual ID (a hand-edited
+ * file): @vita_b64. Returns NULL when that is NULL. The string is borrowed, not copied.
+ */
+const char *psn_account_id_in_use(PsnAccountIdSource chosen, const char *vita_b64,
+                                  const char *manual_b64, PsnAccountIdSource *used);
+
+/** Result of psn_account_id_parse(); the UI shows a different message for each failure. */
+typedef enum psn_account_id_parse_t {
+  PSN_ACCOUNT_ID_PARSE_OK,
+  PSN_ACCOUNT_ID_PARSE_BAD_FORMAT,  ///< neither 12-character base64 ending in '=' nor a number
+  PSN_ACCOUNT_ID_PARSE_ALL_ZERO,    ///< well formed but decodes to eight zero bytes
+} PsnAccountIdParse;
+
+/** Characters in the base64 form of an account ID (8 bytes, one '=' pad). Not get_base64_size():
+ * util.c pulls in the SDK and this file must build natively. */
+#define PSN_ACCOUNT_ID_B64_CHARS 12
+
+/** Buffer size psn_account_id_parse() needs for its output: the base64 characters plus NUL. */
+#define PSN_ACCOUNT_ID_B64_BUF_SIZE (PSN_ACCOUNT_ID_B64_CHARS + 1)
+
+/**
+ * psn_account_id_parse() - Turn the text a user typed into the base64 ID to store.
+ * @text:    The typed text; may be NULL.
+ * @out_b64: Out: the base64 form, NUL terminated. Only written on PSN_ACCOUNT_ID_PARSE_OK.
+ * @out_size: Size of @out_b64; must be at least PSN_ACCOUNT_ID_B64_BUF_SIZE.
+ *
+ * Leading and trailing whitespace (space, tab, CR, LF) is ignored. What remains must be either
+ *  - base64 of exactly 8 bytes: 12 characters ending in '=', or
+ *  - a decimal number: digits only, no sign, no inner spaces, at most 2^64 - 1.
+ * A decimal number is the PSN numeric account ID; its 8 bytes are little-endian, the same as
+ * Chiaki-NG and psn-account-id.py. The 8 bytes must not be all zero.
+ */
+PsnAccountIdParse psn_account_id_parse(const char *text, char *out_b64, size_t out_size);

@@ -320,11 +320,12 @@ static void build_psn_rows(void) {
 /** Fill the rows of a Profile group (SPEC 3.7). */
 static void build_profile_rows(int group) {
   switch (group) {
-    case UI_PROFILE_GROUP_ACCOUNT:
-      add_row("Account ID", context.config.psn_account_id ? context.config.psn_account_id : NOT_SET,
-              0);
+    case UI_PROFILE_GROUP_ACCOUNT: {
+      const char *account_id = config_psn_account_id_in_use(&context.config, NULL);
+      add_row("Account ID", account_id ? account_id : NOT_SET, 0);
       add_row("Refresh Account ID", NULL, 0);
       break;
+    }
     case UI_PROFILE_GROUP_CONNECTION:
       build_connection_rows();
       break;

@@ -485,6 +485,43 @@ static void test_removed_show_only_paired_key_is_dropped(void) {
   free(rewritten);
 }
 
+/* catches: a typed account ID or the choice between Vita and Manual being lost on save or load, so
+ * pairing after a restart silently uses the wrong ID; and a hand-edited choice of Manual with no
+ * usable manual ID using nothing instead of the Vita's ID. */
+static void test_manual_account_id_and_choice_survive_save_and_load(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.psn_account_id = strdup("EjRWeJq83vA=");
+  cfg.psn_account_id_manual = strdup("782rkHhWNBI=");
+  cfg.psn_account_id_source = PSN_ACCOUNT_ID_SOURCE_MANUAL;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(strcmp(loaded.psn_account_id, "EjRWeJq83vA=") == 0);
+  assert(strcmp(loaded.psn_account_id_manual, "782rkHhWNBI=") == 0);
+  assert(loaded.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_MANUAL);
+  PsnAccountIdSource used;
+  assert(strcmp(config_psn_account_id_in_use(&loaded, &used), "782rkHhWNBI=") == 0);
+  assert(used == PSN_ACCOUNT_ID_SOURCE_MANUAL);
+
+  // An older config without the new keys defaults to the Vita's ID.
+  reset_config_file();
+  VitaChiakiConfig fresh;
+  init_cfg(&fresh);
+  assert(fresh.psn_account_id_manual == NULL);
+  assert(fresh.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_VITA);
+
+  // Manual chosen but no manual ID in the file: the Vita's ID is used.
+  VitaChiakiConfig broken = fresh;
+  broken.psn_account_id = strdup("EjRWeJq83vA=");
+  broken.psn_account_id_source = PSN_ACCOUNT_ID_SOURCE_MANUAL;
+  assert(strcmp(config_psn_account_id_in_use(&broken, &used), "EjRWeJq83vA=") == 0);
+  assert(used == PSN_ACCOUNT_ID_SOURCE_VITA);
+  free(broken.psn_account_id);
+}
+
 /* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the
  * setting reverts after a restart. */
 static void test_new_fields_survive_save_and_load(void) {
@@ -677,6 +714,7 @@ int main(void) {
   test_old_config_gets_new_field_defaults();
   test_removed_show_only_paired_key_is_dropped();
   test_new_fields_survive_save_and_load();
+  test_manual_account_id_and_choice_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
   test_out_of_range_theme_is_rejected();
   test_out_of_range_background_keys_are_rejected();

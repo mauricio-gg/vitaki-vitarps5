@@ -288,7 +288,8 @@ static void replace_stored_psn_id(char *b64) {
  * load_psn_id_at_launch() - Pick the PSN account ID for this launch (issue #270 decision).
  *
  * Always reads the registry. A valid registry ID wins and is saved to config.toml when it
- * differs; otherwise the stored ID is kept unchanged so a hand-entered ID survives (#201).
+ * differs; otherwise the stored ID is kept unchanged. The manual ID and the user's choice are not
+ * touched.
  */
 static void load_psn_id_at_launch(void) {
   char *registry_b64 = read_psn_id_from_registry();

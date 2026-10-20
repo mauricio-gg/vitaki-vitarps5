@@ -10,6 +10,7 @@ add_executable(vitarps5_tests
     ../vita/src/latency_policy.c
     ../vita/src/config_hosts.c
     ../vita/src/room_icons.c
+    ../vita/src/psn_account_id.c
     ../vita/src/token_crypto.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
@@ -376,3 +377,18 @@ target_include_directories(sps_probe_tests PRIVATE
 )
 
 add_test(NAME vitarps5_sps_probe_tests COMMAND sps_probe_tests)
+
+# psn_account_id_tests.c checks the typed-in account ID parser and the "which ID is in use" rule
+# (issue #201). Standalone binary with its own main(); run natively (see the file header).
+add_executable(psn_account_id_tests
+    psn_account_id_tests.c
+    ../vita/src/psn_account_id.c
+    ../lib/src/base64.c
+)
+
+target_include_directories(psn_account_id_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+    ${CMAKE_SOURCE_DIR}/lib/include
+)
+
+add_test(NAME vitarps5_psn_account_id_tests COMMAND psn_account_id_tests)

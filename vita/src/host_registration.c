@@ -257,7 +257,8 @@ int host_register(VitaChiakiHost *host, int pin) {
   if (!host->hostname[0] || !host->discovery_state)
     return fail_before_start(HOST_REGISTRATION_UNREACHABLE,
                              "console has no hostname or is not on the network");
-  const char *account_id_b64 = context.config.psn_account_id;
+  PsnAccountIdSource account_id_source;
+  const char *account_id_b64 = config_psn_account_id_in_use(&context.config, &account_id_source);
   if (!account_id_b64 || !account_id_b64[0])
     return fail_before_start(HOST_REGISTRATION_NO_ACCOUNT_ID, "missing PSN account id");
 
@@ -273,7 +274,9 @@ int host_register(VitaChiakiHost *host, int pin) {
   if (!psn_account_id_is_valid(regist_info.psn_account_id, account_id_size))
     return fail_before_start(HOST_REGISTRATION_NO_ACCOUNT_ID,
                              "PSN account id is the wrong length or all zero (not signed in)");
-  LOGD("Pairing with PSN account id ending ...%s", psn_account_id_fingerprint(account_id_b64));
+  LOGD("Pairing with the %s PSN account id ending ...%s",
+       account_id_source == PSN_ACCOUNT_ID_SOURCE_MANUAL ? "manual" : "Vita",
+       psn_account_id_fingerprint(account_id_b64));
   regist_info.psn_online_id = NULL;
   regist_info.pin = pin;
   regist_info.host = host->hostname;

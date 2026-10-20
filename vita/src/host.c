@@ -388,7 +388,8 @@ int host_stream(VitaChiakiHost *host) {
   chiaki_connect_info.ps5 = chiaki_target_is_ps5(host->target);
 #if CHIAKI_CAN_USE_HOLEPUNCH
   if (psn_remote) {
-    if (!context.config.psn_account_id || !context.config.psn_account_id[0]) {
+    const char *account_id_b64 = config_psn_account_id_in_use(&context.config, NULL);
+    if (!account_id_b64 || !account_id_b64[0]) {
       LOGE("Missing PSN account id for internet remote play");
       if (holepunch_session)
         chiaki_holepunch_session_fini(holepunch_session);
@@ -397,7 +398,7 @@ int host_stream(VitaChiakiHost *host) {
 
     size_t account_id_size = CHIAKI_PSN_ACCOUNT_ID_SIZE;
     ChiakiErrorCode decode_err =
-        chiaki_base64_decode(context.config.psn_account_id, strlen(context.config.psn_account_id),
+        chiaki_base64_decode(account_id_b64, strlen(account_id_b64),
                              chiaki_connect_info.psn_account_id, &account_id_size);
     if (decode_err != CHIAKI_ERR_SUCCESS || account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
       LOGE("Failed to decode PSN account id for internet remote play: %s",
