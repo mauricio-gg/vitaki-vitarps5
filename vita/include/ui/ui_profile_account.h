@@ -26,8 +26,12 @@ bool ui_profile_account_busy(void);
  */
 void ui_profile_account_poll(void);
 
-/** ui_profile_account_in_use_text() - The Account ID in use, or "Not Set"; borrowed. */
-const char *ui_profile_account_in_use_text(void);
+/** True when an Account ID is in use (the identity block shows "Not Set" otherwise). */
+bool ui_profile_account_in_use_set(void);
+/** The identity block's ID: 8 bullets and the last 4 characters of the one in use, or "Not Set". */
+const char *ui_profile_account_identity_text(void);
+/** The identity block's second line: "Vita account", "Manual ID" or "No Account ID". */
+const char *ui_profile_account_identity_source(void);
 
 /* Row values and descriptions. The returned strings are borrowed and stay valid until the config
  * changes; the descriptions are static and change only with the state of the IDs. */
@@ -36,10 +40,15 @@ const char *ui_profile_account_in_use_text(void);
 const char *ui_profile_account_source_text(void);
 /** The choice row's description. */
 const char *ui_profile_account_source_description(void);
-/** The Vita Account ID row's value: the full ID, or the placeholder when there is none. */
+/** The Vita Account ID row's value: the full ID stored, else "Not signed in" (the registry read
+ * fine and was empty) or "Not found" (it could not be read). */
 const char *ui_profile_account_vita_text(void);
-/** The Vita Account ID row's value colour: dim for the placeholder, 0 for the row's own. */
+/** The Vita Account ID row's value colour: UI_WARN for the placeholders, 0 for the row's own. */
 uint32_t ui_profile_account_vita_color(void);
+/** The Vita Account ID row's description, worded for a stored ID, signed out or unreadable. */
+const char *ui_profile_account_vita_description(void);
+/** The Refresh Account ID row's description, worded the same three ways. */
+const char *ui_profile_account_refresh_description(void);
 /** The Manual Account ID row's value: the full typed ID, or "Not set". */
 const char *ui_profile_account_manual_text(void);
 /** The Manual Account ID row's value colour: dim for "Not set", 0 for the row's own. */
@@ -50,6 +59,8 @@ const char *ui_profile_account_manual_description(void);
 /** The Manual Account ID row's hint verb: "Enter ID" or "Edit ID". */
 const char *ui_profile_account_manual_hint(void);
 
+/** True when a valid typed ID is saved. */
+bool ui_profile_account_has_manual(void);
 /** True when the Vita's ID is the one in use, so its row carries the check. */
 bool ui_profile_account_vita_in_use(void);
 /** True when the typed ID is the one in use, so its row carries the check. */
@@ -65,3 +76,9 @@ void ui_profile_account_change_source(int step);
 
 /** ui_profile_account_edit_manual() - Open the system keyboard on the typed ID. */
 void ui_profile_account_edit_manual(void);
+
+/**
+ * ui_profile_account_clear_manual() - Free the typed ID, choose the Vita's ID if the typed one was
+ * the choice, save the config and toast what now applies. Logs the ID's last 4 characters only.
+ */
+void ui_profile_account_clear_manual(void);

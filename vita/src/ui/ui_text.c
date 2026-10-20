@@ -51,6 +51,7 @@ static const FaceSpec UI_FACE_TABLE[UI_FACE_COUNT] = {
  *
  *   U+00B7  MIDDLE DOT  (controller page and mapping labels, Home route and filter text)
  *   U+2248  ALMOST EQUAL TO  (ui_value_labels.c bitrate labels)
+ *   U+2022  BULLET  (the masked Account ID on the Profile page)
  *
  * The string literal uses UTF-8 encoding directly.
  */
@@ -61,6 +62,7 @@ static const char UI_FONT_PREWARM_CHARSET[] =
     /* Extended glyphs (UTF-8): */
     "\xC2\xB7"     /* U+00B7  · */
     "\xE2\x89\x88" /* U+2248  ≈ */
+    "\xE2\x80\xA2" /* U+2022  • */
     ;
 
 /*

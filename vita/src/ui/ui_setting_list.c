@@ -142,7 +142,7 @@ static int value_max_width(const UiSettingList *list, int index) {
   if (item->kind == UI_SETTING_CHOICE)
     return UI_CHOICE_VALUE_W;
   int room = UI_PAGE_PANE_W - 2 * UI_ROW_PAD - list->label_w[index] - UI_INFO_VALUE_GAP;
-  if (item->error)
+  if (item->error || item->warn)
     room -= UI_SETTING_ERR_ICON + UI_SETTING_ERR_ICON_GAP;
   if (item->checked)
     room -= UI_SETTING_CHECK_ICON + UI_SETTING_CHECK_GAP;
@@ -297,15 +297,17 @@ static void draw_check(const UiSettingItem *item, int value_x, UiRect row) {
 }
 
 /** Draw the value of info row @index right-aligned at the row padding; an error row adds its
- * warning icon before the value and its rule at the row's left edge. */
+ * warning icon before the value and its rule at the row's left edge, a warn row only the icon. */
 static void draw_info(const UiSettingList *list, int index, UiRect row, uint32_t text_color) {
   const UiSettingItem *item = &list->items[index];
   const uint32_t color = item->color ? item->color : text_color;
   const int x = row.x + row.w - UI_ROW_PAD - list->value_w[index];
   draw_check(item, x, row);
-  if (item->error) {
+  if (item->error || item->warn) {
     ui_toast_draw_icon(UI_TOAST_ERR, x - UI_SETTING_ERR_ICON_GAP - UI_SETTING_ERR_ICON,
                        row.y + (row.h - UI_SETTING_ERR_ICON) / 2, UI_SETTING_ERR_ICON, color);
+  }
+  if (item->error) {
     vita2d_draw_rectangle((float)row.x, (float)row.y, (float)UI_SETTING_ERR_RULE_W, (float)row.h,
                           color);
   }
@@ -367,8 +369,9 @@ void ui_setting_list_draw(const UiSettingList *list) {
     const bool focused = list->active && i == list->focus;
     const bool disabled = item->kind == UI_SETTING_ACTION && item->disabled;
     uint32_t text_color = focused ? UI_TEXT : UI_TEXT_2;
+    /* An action's colour is its label's; a warn row's colour tints label and value alike. */
     uint32_t label_color =
-        item->kind == UI_SETTING_ACTION && item->color ? item->color : text_color;
+        (item->kind == UI_SETTING_ACTION || item->warn) && item->color ? item->color : text_color;
     if (disabled) {
       text_color = ui_color_scale_alpha(text_color, (float)UI_ROW_DISABLED_PCT / 100.0f);
       label_color = ui_color_scale_alpha(label_color, (float)UI_ROW_DISABLED_PCT / 100.0f);

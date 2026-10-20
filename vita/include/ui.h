@@ -20,6 +20,16 @@ void draw_ui();
 void ui_clear_waking_wait(void);
 bool ui_reload_psn_account_id(void);
 
+/** How the last read of the Vita's PSN account ID from the system registry went. */
+typedef enum psn_registry_read_t {
+  PSN_REGISTRY_READ_OK = 0,         ///< a valid ID was read
+  PSN_REGISTRY_READ_NOT_SIGNED_IN,  ///< read fine, all zero: no PSN account on this Vita
+  PSN_REGISTRY_READ_UNREADABLE,     ///< the read failed
+} PsnRegistryRead;
+
+/** ui_psn_registry_read() - The outcome of the last registry read (at launch or on refresh). */
+PsnRegistryRead ui_psn_registry_read(void);
+
 #include "ui/ui_connection_stage.h"
 
 void ui_connection_begin(UIConnectionStage stage);

@@ -162,6 +162,24 @@ static const ProfileRowDef CONNECTION_ROWS[] = {
     {.label = "Quality", .kind = UI_SETTING_INFO, .value_text = quality_text},
 };
 
+static const ProfileArm CLEAR_ARM = {
+    .head = "Press", .tail = "again to confirm clearing", .hint = "Confirm clear"};
+
+/** Index of the Manual Account ID row in ACCOUNT_ROWS (keep in step with the table below): where
+ * the focus goes after Clear. */
+#define ACCOUNT_ROW_MANUAL 2
+#define NO_FOCUS_REQUEST (-1)
+
+/** The Account row the next refresh_items() focuses, or NO_FOCUS_REQUEST to keep the focused one.
+ */
+static int s_focus_request = NO_FOCUS_REQUEST;
+
+/** Clear the typed ID; its row goes away, so the focus moves to the Manual Account ID row. */
+static void clear_manual_account_id(void) {
+  ui_profile_account_clear_manual();
+  s_focus_request = ACCOUNT_ROW_MANUAL;
+}
+
 static const ProfileRowDef ACCOUNT_ROWS[] = {
     {.label = "Use Account ID from",
      .kind = UI_SETTING_CHOICE,
@@ -170,7 +188,7 @@ static const ProfileRowDef ACCOUNT_ROWS[] = {
      .change = ui_profile_account_change_source},
     {.label = "Vita Account ID",
      .kind = UI_SETTING_INFO,
-     .description = "The Account ID of the PSN account signed in on this Vita.",
+     .description_text = ui_profile_account_vita_description,
      .small_value = true,
      .value_text = ui_profile_account_vita_text,
      .value_color = ui_profile_account_vita_color,
@@ -186,9 +204,17 @@ static const ProfileRowDef ACCOUNT_ROWS[] = {
      .run = ui_profile_account_edit_manual},
     {.label = "Refresh Account ID",
      .kind = UI_SETTING_ACTION,
-     .description = "Read the Vita Account ID again from the system profile.",
+     .description_text = ui_profile_account_refresh_description,
      .hint = HINT_REFRESH,
      .run = refresh_account_id},
+    {.label = "Clear Manual Account ID",
+     .kind = UI_SETTING_ACTION,
+     .description =
+         "Remove the typed Account ID from this Vita. The Vita Account ID is not affected.",
+     .hint = "Clear",
+     .arm = &CLEAR_ARM,
+     .visible = ui_profile_account_has_manual,
+     .run = clear_manual_account_id},
 };
 
 /* PlayStation Network (SPEC 3.7). The state is read once per frame by fill_items(), so every
@@ -348,7 +374,7 @@ static UiHintLayout s_hints;
 
 /** The avatar's ring, baked once and tinted at draw time. */
 static vita2d_texture *s_ring = NULL;
-/** The Account ID the identity block shows, as last seen, and shortened to its column. */
+/** The masked Account ID the identity block shows, as last seen, and shortened to its column. */
 static char s_ident_raw[UI_IDENT_ID_MAX];
 static char s_ident_fit[UI_IDENT_ID_MAX];
 
@@ -379,7 +405,7 @@ static int measure_ident(const char *text, void *ctx) {
 
 /** Re-measure the shortened Account ID when it changed since the last frame. */
 static void update_identity(void) {
-  const char *text = ui_profile_account_in_use_text();
+  const char *text = ui_profile_account_identity_text();
   if (strncmp(s_ident_raw, text, sizeof(s_ident_raw) - 1) == 0)
     return;
   snprintf(s_ident_raw, sizeof(s_ident_raw), "%s", text);
@@ -387,8 +413,8 @@ static void update_identity(void) {
                       sizeof(s_ident_fit));
 }
 
-/** Draw the identity block: avatar ring, the person icon, the Account ID and "PlayStation Network".
- * Paper cost 4. */
+/** Draw the identity block: avatar ring, the person icon, the masked Account ID in use ("Not Set"
+ * in ERR when none) and where it comes from. Paper cost 4. */
 static void draw_identity(void) {
   const int x = UI_PAGE_GROUP_X + UI_IDENT_PAD;
   const int avatar_y = UI_IDENT_Y + (UI_IDENT_H - UI_IDENT_AVATAR) / 2;
@@ -405,9 +431,10 @@ static void draw_identity(void) {
   }
 
   const int text_x = x + UI_IDENT_AVATAR + UI_IDENT_GAP;
-  ui_text_draw_face_centered_v(UI_FACE_T16, text_x, UI_IDENT_Y, UI_T16_LINE, UI_TEXT, s_ident_fit);
+  ui_text_draw_face_centered_v(UI_FACE_T16, text_x, UI_IDENT_Y, UI_T16_LINE,
+                               ui_profile_account_in_use_set() ? UI_TEXT : UI_ERR, s_ident_fit);
   ui_text_draw_face_centered_v(UI_FACE_T16, text_x, UI_IDENT_Y + UI_T16_LINE, UI_T16_LINE,
-                               UI_TEXT_3, PSN_NAME);
+                               UI_TEXT_3, ui_profile_account_identity_source());
 }
 
 /* ============================================================================
@@ -459,6 +486,7 @@ static int fill_items(void) {
     } else {
       s_items[shown].color = value_color;
       s_items[shown].error = value_color == UI_ERR;
+      s_items[shown].warn = value_color == UI_WARN;
     }
     if (row_is_armed(def)) {
       s_items[shown].label = def->arm->head;
@@ -486,6 +514,10 @@ static void load_group(int index) {
  */
 static void refresh_items(void) {
   const ProfileRowDef *focused = s_pane.count > 0 ? s_defs[s_pane.focus] : NULL;
+  if (s_focus_request != NO_FOCUS_REQUEST) {
+    focused = &GROUPS[UI_PROFILE_GROUP_ACCOUNT].rows[s_focus_request];
+    s_focus_request = NO_FOCUS_REQUEST;
+  }
   const int count = fill_items();
   if (count != s_pane.count) {
     ui_setting_list_load(&s_pane, s_items, count);

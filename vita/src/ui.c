@@ -246,8 +246,17 @@ bool is_touched(int x, int y, int width, int height) {
 // PSN ACCOUNT INITIALIZATION
 // ============================================================================
 
+/** How the last registry read went; the Profile page words its Account ID rows from it. Nothing is
+ * claimed before the first read. */
+static PsnRegistryRead s_psn_registry_read = PSN_REGISTRY_READ_OK;
+
+PsnRegistryRead ui_psn_registry_read(void) {
+  return s_psn_registry_read;
+}
+
 /**
- * read_psn_id_from_registry() - Read the signed-in PSN account ID as base64.
+ * read_psn_id_from_registry() - Read the signed-in PSN account ID as base64 and record how the
+ * read went in s_psn_registry_read.
  *
  * Returns a malloc'd string the caller frees, or NULL when the read failed or the Vita is not
  * signed in to PSN (all-zero ID); both are logged. The stored ID is never touched here.
@@ -260,10 +269,12 @@ static char *read_psn_id_from_registry(void) {
                                       acc_id_buf, sizeof(acc_id_buf));
   if (reg_result < 0) {
     LOGE("Failed to read PSN account_id from registry: 0x%08X", reg_result);
+    s_psn_registry_read = PSN_REGISTRY_READ_UNREADABLE;
     return NULL;
   }
   if (!psn_account_id_is_valid(acc_id_buf, sizeof(acc_id_buf))) {
     LOGW("PSN account_id in registry is empty: this Vita is not signed in to PSN");
+    s_psn_registry_read = PSN_REGISTRY_READ_NOT_SIGNED_IN;
     return NULL;
   }
 
@@ -271,10 +282,12 @@ static char *read_psn_id_from_registry(void) {
   char *b64 = (char *)malloc((size_t)b64_strlen + 1);
   if (!b64) {
     LOGE("Failed to allocate memory for PSN account ID");
+    s_psn_registry_read = PSN_REGISTRY_READ_UNREADABLE;
     return NULL;
   }
   b64[b64_strlen] = '\0';
   chiaki_base64_encode(acc_id_buf, sizeof(acc_id_buf), b64, b64_strlen);
+  s_psn_registry_read = PSN_REGISTRY_READ_OK;
   return b64;
 }
 
