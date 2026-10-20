@@ -166,6 +166,10 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # vita/third_party/tomlc99 is a submodule; the test builds config_hosts.c against it.
+      - name: Fetch tomlc99 submodule
+        run: git submodule update --init vita/third_party/tomlc99
+
       - name: Build and run manual host discovery tests
         run: |
           cc -std=gnu11 -Wall -Wextra -I test/stubs/manual_hosts -I vita/include -I lib/include \
