@@ -46,11 +46,11 @@ typedef struct vita_chiaki_host_t {
    * these snapshot fields instead. `registered_state` is different: it is safe to read from
    * any thread as long as callers follow the struct-leak + NULL-check discipline documented
    * on host_free() (host.c) -- e.g. host_stream()/host_wakeup() legitimately dereference it. */
-  char hostname[VITA_HOST_HOSTNAME_LEN];
   /* The address to connect to. On a DISCOVERED record the discovery thread writes it from the
    * console's reply. On a MANUALLY_ADDED record (the same struct as the one saved in
    * config.manual_hosts) only save_manual_host() and config load write it; discovery never
    * touches a manual record (#234). */
+  char hostname[VITA_HOST_HOSTNAME_LEN];
   /** Best-known console name for UI display. Precedence: discovery host_name >
    * registered_state->server_nickname > hostname/IP. Set at host-creation time by whichever
    * code builds the entry (manual add, PSN refresh, config load); refreshed thereafter only by
