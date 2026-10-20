@@ -3,6 +3,7 @@
 # Runs on every PR (any branch) and every push to main.
 # Lint/format scope: vita/src/ and vita/include/ only.  lib/ and third-party/ are upstream Chiaki — excluded.
 # The redaction job compiles and runs test/redact_tests.c natively (build.sh test never runs tests, #222).
+# The latency policy job does the same for test/latency_policy_tests.c (#420).
 #
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
@@ -128,3 +129,24 @@ jobs:
           cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c lib/src/log.c \
             -o "$RUNNER_TEMP/redact_tests"
           "$RUNNER_TEMP/redact_tests"
+
+  # ---------------------------------------------------------------------------
+  # Job 4: latency policy tests (#420)
+  # Same reasoning as the redaction job: build.sh test never runs anything, so
+  # build test/latency_policy_tests.c with the runner's cc and run it.
+  # Flags and sources match the build comment at the top of the test file.
+  # ---------------------------------------------------------------------------
+  latency-policy-tests:
+    name: latency policy tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and run latency policy tests
+        run: |
+          cc -std=c99 -Wall -Wextra -I vita/include \
+            test/latency_policy_tests.c vita/src/latency_policy.c \
+            -o "$RUNNER_TEMP/latency_policy_tests"
+          "$RUNNER_TEMP/latency_policy_tests"

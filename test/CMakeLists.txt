@@ -7,6 +7,7 @@ add_executable(vitarps5_tests
     ../vita/src/config_writer.c
     ../vita/src/config_migration.c
     ../vita/src/config_values.c
+    ../vita/src/latency_policy.c
     ../vita/src/config_hosts.c
     ../vita/src/room_icons.c
     ../vita/src/token_crypto.c
