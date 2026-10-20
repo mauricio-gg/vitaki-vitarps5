@@ -593,27 +593,57 @@ Touch: tap the preset chevrons or the label; tap a callout; tap the diagram to e
 
 ---
 
-### 3.9 Splash (`splash.html`, issue #366) - approved by the CEO 2026-10-09
-Built in #366 (`ui_splash.c`); awaiting the CEO's check on hardware.
+### 3.9 Splash (`splash.html`, issues #366 and #398)
+**Proposed for #398, awaiting CEO approval.** Nothing in this section is built yet. What is on `main` today is the #366 splash (black screen, particles assemble into the logo; CEO-approved 2026-10-09), described under "As built (#366)" below. Once the CEO approves this mock and #398 lands, that block is replaced.
 
-Black screen, the VitaRPS5 logo big and centred, rebuilt from particles that fly in from around the screen, dim at first and brighter as they arrive. Fills the about 2.4 s of load before Home. Preview: `splash.html` (replay on click, scrub, Home fade toggle).
+**What the CEO asked for (2026-10-10).** Reverse the animation (logo first, then it breaks into particles), no black screen (the app's own animated background from the first frame, in the user's theme), and the UI appears with a quick fade-in.
 
-| Item | Spec |
+**The one idea.** The #366 particle motion is played backwards. The splash clock of #366 runs 0 to 1.0 s (assembled); the dissolve runs that same clock from 1.0 s down to 0, so particles lift off the logo and fly to the screen edges using the same 980 particles, seed 366, starts, delays, flights and bows. Reversing time turns the old soft landing (ease-out cubic) into a soft take-off (the particle leaves slowly, then speeds away), and the old "arrival flash, one px larger" into a lift-off flash. No new particle system, no new arrays.
+
+Preview: `splash.html` (replay, scrub, Loading takes 2.4 s or 6 s, Waves or Glyphs, five themes, four blur levels). Home in the mock is a capture of the real XMB mock with its background removed (`assets/splash/ui-<theme>.png`). Key frames: `screens/splash/`.
+
+**Timeline.** `L` is the moment loading is done. `D = max(L, 1.0 s)` is when the dissolve starts. Typical `L` is about 2.4 s (log 19445058006).
+
+| Time | What the person sees |
 |---|---|
-| Logo art | `Vita_RPS5_Logo.png` (688x297, the same file the app ships at `vita/assets/Vita_RPS5_Logo.png` and draws in the TopBar C23), drawn at 640x276, centred (x 160, y 134). Background pure black (#000000), no wave, no top bar, no hints. |
-| Particles | **980** in the build, sampled from the shipped logo with nearest-neighbour sampling (the mock gives 973 with the browser's smoothing; budget 800 to 1500). Sampled once at splash start from the logo rendered at display size: one random pick per 9x9 px cell, among pixels with alpha > 200 and red > 200 (so the thin dark outline is skipped), and only for cells where more than 35% of the pixels qualify. Fixed seed 366 (the mock's LCG) so every launch is identical. Each particle is a solid white square, 2 px (55%) or 3 px (45%), whole-pixel positions. |
-| Start points | A random side of the four, from 10 px inside to 60 px beyond the screen border. |
-| Motion | Time-based. Stagger delay 0 to 0.30 s (random), then a 0.60 s flight with `easeOutCubic`, so the last particle lands at 0.90 s. A sideways bow of up to 70 px either way that dies to 0 on arrival (`4k(1-k)*curve`, curve in -70..70). |
-| Brightness | Alpha rises from 0.12 to 1.0 with the particle's eased progress. |
-| Arrival | Each particle flashes 1 px larger and fades out over 0.12 s. |
-| Logo | The crisp logo is drawn under the particles from the start. Its alpha is smoothstep(mean linear flight progress of all particles) raised to the power 1.3, and 1 from 1.0 s on. A bare stipple never shows. |
-| Glow | None (removed from the first version). |
-| Assembled | At 1.0 s. |
-| Hold | The logo stays until loading is done. **About 2.4 s today** (log 19445058006). If loading ends sooner, the animation still plays to 1.0 s and never cuts off. |
-| Exit | 0.3 s fade: splash opacity 1 to 0 over Home. |
-| Skip | Any button or a tap jumps to the 1.0 s state. It never skips loading. |
-| Draws | 3 per frame: black rectangle, logo, and all particles batched in one triangle list. |
-| Frames during load | The splash is drawn from right after graphics init, with one frame between loading steps. Time-based, so a slow step only drops frames. Particle arrays are allocated once at splash start and freed at the end. |
+| 0 (first frame) | The app's own background, already moving, in the saved theme, **unblurred**. No logo yet, no black. |
+| 0 to 0.45 s | The logo fades in (ease-out cubic) and settles from 97% to 100% size, centred (640x276 at x 160, y 134, as in #366). |
+| 0.45 s to `D` | **Hold.** Only the background moves (Waves or Glyphs keep animating), the logo is still and crisp. This is what makes a slow start look deliberate: a calm logo over a living background, not a frozen frame. Nothing else is added: no spinner, no progress, no breathing pulse (a pulse would make the dissolve start from a dimmed logo, a visible jump). |
+| `D` | Loading is done and the logo has been on screen for at least 0.55 s. The dissolve starts. |
+| `D` + 0 to 1.02 s | **Dissolve.** The particles lift off (one px larger and bright for 0.12 s, then fly out with alpha falling from 1 to 0.12) while the crisp logo thins out. The logo stays whole for the first 0.3 s (the particles are white on white there), is half gone at about 0.5 s and gone at about 0.7 s. The last particle leaves the screen at 1.02 s. |
+| `D` + 0.40 to 0.70 s | **Home fades in** over the background (0.30 s, ease-out cubic), on top of which the last particles and the thinning logo are still drawn. The Background Blur level comes in on the same curve (see Blur). |
+| `D` + 0.70 s | Home is fully opaque and takes input. Particles are still drifting out until 1.02 s, drawn over Home at 12% or less alpha at the end. |
+| `D` + 1.02 s | Splash gone: particle array freed, `ui_splash_active()` false. |
+
+A fast load (say `L` = 1.2 s) changes nothing: the dissolve waits for `D` = 1.2 s. If loading finishes before 1.0 s, the logo is still shown to 1.0 s (it must be seen, never a flash). It never cuts off the logo fade-in.
+
+**Slow loading (the "loading takes longer" case, mock toggle 6 s).** The logo and the live background simply hold longer; the dissolve starts the moment loading ends. There is no time limit and no timer-driven dissolve. If loading takes very long the background keeps animating, so the screen never looks hung. (Failure screens are not part of the splash; unchanged.)
+
+**Background and theme from the first frame.**
+- The config is parsed before the splash draws, so the saved `background` (0 Waves, 1 Glyphs), theme and `background_blur` are known. Defaults if the config is missing or unreadable: Waves, Ocean, blur None, with a LOGE line.
+- Waves is procedural (5 ribbons, 36 dust points); Glyphs is the themed gradient plus 8 outlined symbols (both CPU-built, #375). Neither needs an asset, so both can draw in frame 1.
+- The background keeps running across the whole splash and into Home: one continuous animation, never restarted, so there is no jump when the UI appears.
+- Logo legibility: the logo is white with a thin dark outline. The theme colours are capped so white keeps at least 4.5:1 (section 1.1); checked by eye on the key frames for Ocean, Ember, Moss and Graphite. No extra plate or shadow behind it.
+
+**Blur decision.**
+- Frame 1 until `D`: always the **sharp** background (same full-resolution path as Background Blur None). No render target is needed during loading, so nothing about the first frames depends on a target being ready.
+- From `D` + 0.40 s to `D` + 0.70 s: the user's blur level crossfades in on the same 0.30 s curve as Home. The blurred render target is drawn over the sharp background at alpha 0 to 1, and the veil (`GLASS_VEIL`, `GLASS_FROST`, `GLASS_VEIL_DARK`) is drawn at its own alpha times that same 0 to 1. Blur None draws nothing extra.
+- Why this works: the dissolve only starts once loading is done, so the small blur targets (480x272 down to 60x34) have been created by then. Blur is needed only for UI legibility, and the UI is not there until the fade-in.
+- If the target still is not ready at `D` (a bug, not a normal case), skip the crossfade, keep the sharp background and log a LOGE line. Never block the dissolve.
+
+**Particles (unchanged from #366).** 980 in the build (mock 973), sampled once at splash start (seed 366, 9x9 cells, bright pixels only), whole-pixel squares of 2 px (55%) or 3 px (45%), delay 0 to 0.30 s, flight 0.60 s, bow up to 70 px that dies to 0 at the logo, start points from 10 px inside to 60 px beyond the screen edge. Splash clock for particles and logo during the dissolve: `clock = 1.02 s - (now - D)`, fed to the existing `ui_splash_particle_quad` and the existing logo-alpha function. One change: the logo-alpha exponent is **3.0 on the way out** (new constant, #366 used 1.3 on the way in), so the logo thins while the particles are visibly leaving it instead of lingering as a ghost.
+
+**Home fade-in: how.** A single alpha for the whole of Home (everything except the background). vita2d has no layers, so the engineer chooses between two ways, both within #366's rules: (a) one global "UI alpha" multiplier that the existing theme colour helpers apply to every Home draw during the fade (no new buffers), or (b) draw Home once into a render target and blit it at the alpha. (a) is preferred, (b) is the fallback; the fade must not add a per-frame allocation. Home's input is enabled at `D` + 0.70 s, not before.
+
+**Skip.** Any button or a tap during the hold jumps to `D` only when loading is already done; while loading is not done a press does nothing visible (it never skips loading and never cuts the logo fade-in short). A press during the dissolve does nothing (it is already short).
+
+**Cost and #366 rules.** Particle array allocated once at splash start, freed at the end; no per-frame allocation; the particles stay one triangle list in vita2d's per-frame pool (at most 980 x 6 x 16 bytes). Draws per frame: the background (as in Home, one gradient plus ribbons or glyphs), the logo (1), the particles (1) and, during the fade only, Home. The background now draws during loading, so the frames between loading steps cost a little more than the black rectangle did; that cost is the point to measure on hardware. The testing log keeps `PIPE/SPLASH_STEP` (per step timings) and `PIPE/SPLASH_INIT` unchanged and adds `PIPE/SPLASH_DISSOLVE` with `loaded_ms` (L), `dissolve_start_ms` (D), `ui_full_ms` and `end_ms`, so the fade can be checked against these numbers.
+
+**Draw order, back to front.** Background (sharp), blurred background and veil at the blur mix, Home at the UI alpha, crisp logo, particles.
+
+**Reduce motion / accessibility.** The app has no reduce-motion setting, so none is added here. The logo is on screen for at least 1.0 s and the splash has no text, so there is nothing to read. Contrast of the logo on every theme and background is covered above.
+
+**As built (#366), replaced when #398 lands.** Black (#000000) screen; 980 particles assemble into the logo from 0 to 1.0 s (stagger 0 to 0.30 s, 0.60 s flight, ease-out cubic, bow up to 70 px, alpha 0.12 to 1, arrival flash 1 px larger fading over 0.12 s; the crisp logo fades in as smoothstep(mean progress) to the power 1.3); holds until loading is done (about 2.4 s); then a 0.3 s fade of the black layer to Home. Any button or tap jumps to 1.0 s and never skips loading. Draws: black rectangle, logo, one particle list.
 
 ## 4. Input model
 
