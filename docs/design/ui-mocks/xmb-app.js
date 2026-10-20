@@ -280,7 +280,8 @@ const PG={settings:{title:'Settings',icon:'assets/icon_settings.png',groups:GROU
 const AC={src:'vita',vita:'q83vEjRWeJA=',manual:null,unreadable:false,arm:false};let acTimer=null;
 const acReset=(src,vita,manual,unreadable=false)=>{AC.src=src;AC.vita=vita;AC.manual=manual;AC.unreadable=unreadable;AC.arm=false;clearTimeout(acTimer);};
 const AC_SAMPLE_VITA='q83vEjRWeJA=',AC_SAMPLE_MANUAL='ASNFZ4mrze8=',AC_SAMPLE_NUM='1311768467294899695';
-const acActive=()=>AC.src==='manual'?AC.manual:AC.vita;
+const acEff=()=>AC.src==='manual'&&AC.manual?'manual':'vita';
+const acActive=()=>acEff()==='manual'?AC.manual:AC.vita;
 const acMask=id=>id?'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'+id.slice(-4):'Not Set';
 /* Same rule as the app: base64 of 8 bytes (12 chars ending in =) or a decimal number; never all zero. Returns {id} (normalised to base64) or {err}. */
 function acParse(t){
@@ -302,8 +303,7 @@ function acOpenKeyboard(text){
 }
 function acPick(v){
  const want=v?'manual':'vita';
- if(want==='manual'&&!AC.manual){paintPage(false);acOpenKeyboard('');return;}
- AC.src=want;paintPage(true);toast(want==='manual'?'Using the Manual Account ID':'Using the Vita Account ID','ok','check');
+ AC.src=want;paintPage(true);toast(want==='manual'?(AC.manual?'Using the Manual Account ID':'Manual chosen. Enter a Manual Account ID to use it'):'Using the Vita Account ID','ok','check');
 }
 /* Profile > Connection by situation. Network Type, Console, Console IP (when an address is known) and Quality follow today's code; Status uses the Home list wording */
 const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready'},standby:{net:'Local Wi-Fi',con:'Den',ip:'192.168.1.31',st:'Standby'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'Unavailable'},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Unpaired'},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None'}};
@@ -311,11 +311,11 @@ function pageRows(kind,g){
  if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>({label:s.label,type:s.type,s,desc:s.desc,plain:setVal(s)}));
  if(g===0){
   const ck=on=>on?`<span class="on" style="display:inline-flex">${ico('check',20)}</span>`:'';
-  const vitaVal=AC.vita?`${ck(AC.src==='vita')}<span class="mono">${AC.vita}</span>`:`<span class="mid" style="display:inline-flex;align-items:center;gap:8px">${ico('warn',20)}${AC.unreadable?'Not found':'Not signed in'}</span>`;
-  const manVal=AC.manual?`${ck(AC.src==='manual')}<span class="mono">${AC.manual}</span>${ico('next',20)}`:`<span style="color:var(--text-3)">Not set</span>${ico('next',20)}`;
+  const vitaVal=AC.vita?`${ck(acEff()==='vita')}<span class="mono">${AC.vita}</span>`:`<span class="mid" style="display:inline-flex;align-items:center;gap:8px">${ico('warn',20)}${AC.unreadable?'Not found':'Not signed in'}</span>`;
+  const manVal=AC.manual?`${ck(acEff()==='manual')}<span class="mono">${AC.manual}</span>${ico('next',20)}`:`<span style="color:var(--text-3)">Not set</span>${ico('next',20)}`;
   const noActive=!acActive();
   return [
-   {label:'Use Account ID from',type:'choice',s:{id:'acsrc',opts:['Vita','Manual'],v:AC.src==='manual'?1:0},desc:AC.src==='vita'&&!AC.vita?(AC.unreadable?'The Vita Account ID could not be read. Try Refresh, or switch to Manual.':'No PSN account is signed in on this Vita. Sign in to PSN, or switch to Manual.'):AC.manual?'Which Account ID the app uses. The other one stays saved.':'Choose Manual to type an Account ID, for example for a different PS5 account.',plain:''},
+   {label:'Use Account ID from',type:'choice',s:{id:'acsrc',opts:['Vita','Manual'],v:AC.src==='manual'?1:0},desc:AC.src==='manual'&&!AC.manual?'Enter a Manual Account ID to use it.':AC.src==='vita'&&!AC.vita?(AC.unreadable?'The Vita Account ID could not be read. Try Refresh, or switch to Manual.':'No PSN account is signed in on this Vita. Sign in to PSN, or switch to Manual.'):AC.manual?'Which Account ID the app uses. The other one stays saved.':'Choose Manual to type an Account ID, for example for a different PS5 account.',plain:''},
    {label:'Vita Account ID',type:'info',val:vitaVal,desc:'',plain:''},
    {label:'Manual Account ID',type:'action',act:'acman',val:manVal,desc:AC.manual?'Type a different Account ID. Base64 (ends in =) or a number.':'Type an Account ID: base64 (12 characters ending in =) or a number.',plain:''},
    {label:'Refresh Account ID',type:'action',desc:AC.vita?'Read the Vita Account ID again from the system profile.':AC.unreadable?'Could not read the Account ID from this Vita. Try again.':'No PSN account is signed in on this Vita. Sign in to PSN in System Settings, then refresh.',act:'acct',plain:''}

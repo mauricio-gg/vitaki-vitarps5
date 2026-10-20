@@ -31,6 +31,7 @@ static const char SOURCE_DESCRIPTION_SIGNED_OUT[] =
     "No PSN account is signed in on this Vita. Sign in to PSN, or switch to Manual.";
 static const char SOURCE_DESCRIPTION_UNREADABLE[] =
     "The Vita Account ID could not be read. Try Refresh, or switch to Manual.";
+static const char SOURCE_DESCRIPTION_ENTER_MANUAL[] = "Enter a Manual Account ID to use it.";
 static const char SOURCE_DESCRIPTION_NO_MANUAL[] =
     "Choose Manual to type an Account ID, for example for a different PS5 account.";
 static const char MANUAL_DESCRIPTION_NONE[] =
@@ -55,6 +56,7 @@ static const char HINT_EDIT_ID[] = "Edit ID";
 static const char KEYBOARD_TITLE[] = "Enter Account ID";
 static const char TOAST_USING_VITA[] = "Using the Vita Account ID";
 static const char TOAST_USING_MANUAL[] = "Using the Manual Account ID";
+static const char TOAST_MANUAL_CHOSEN_NONE[] = "Manual chosen. Enter a Manual Account ID to use it";
 static const char TOAST_SAVED[] = "Manual Account ID saved";
 static const char TOAST_SAVED_IN_USE[] = "Manual Account ID saved. Now in use";
 static const char TOAST_BAD_FORMAT[] =
@@ -156,8 +158,12 @@ static bool vita_unreadable(void) {
 }
 
 /* The Vita ID's missing-ID wording follows the mock (xmb-app.js, pageRows): the choice row's
- * variants show only while Vita is the chosen source; the Vita and Refresh rows' always. */
+ * variants show only while Vita is the chosen source; the Vita and Refresh rows' always. Manual
+ * chosen with no typed ID comes first: entering one is the useful instruction even when the Vita
+ * has no ID either. */
 const char *ui_profile_account_source_description(void) {
+  if (context.config.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_MANUAL && !has_manual())
+    return SOURCE_DESCRIPTION_ENTER_MANUAL;
   if (context.config.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_VITA && !has_vita_id())
     return vita_unreadable() ? SOURCE_DESCRIPTION_UNREADABLE : SOURCE_DESCRIPTION_SIGNED_OUT;
   return has_manual() ? SOURCE_DESCRIPTION : SOURCE_DESCRIPTION_NO_MANUAL;
@@ -321,15 +327,17 @@ void ui_profile_account_poll(void) {
 void ui_profile_account_change_source(int step) {
   (void)step; /* two values: one step either way leads to the other */
   const bool to_manual = context.config.psn_account_id_source != PSN_ACCOUNT_ID_SOURCE_MANUAL;
-  if (to_manual && !has_manual()) {
-    ui_profile_account_edit_manual();
-    return;
-  }
   context.config.psn_account_id_source =
       to_manual ? PSN_ACCOUNT_ID_SOURCE_MANUAL : PSN_ACCOUNT_ID_SOURCE_VITA;
   ui_settings_persist_config();
-  LOGD("Account ID: now using the %s ID", to_manual ? "typed" : "Vita's");
-  ui_toast_show(to_manual ? TOAST_USING_MANUAL : TOAST_USING_VITA, UI_TOAST_OK);
+  /* Manual chosen with no typed ID is a normal state: the Vita's ID stays in use until one is
+   * entered (psn_account_id_in_use()), and the page shows that. */
+  const char *toast = TOAST_USING_VITA;
+  if (to_manual)
+    toast = has_manual() ? TOAST_USING_MANUAL : TOAST_MANUAL_CHOSEN_NONE;
+  LOGD("Account ID: %s chosen%s", to_manual ? "typed ID" : "Vita's ID",
+       to_manual && !has_manual() ? " (none typed yet, Vita's stays in use)" : "");
+  ui_toast_show(toast, UI_TOAST_OK);
 }
 
 /* ============================================================================

@@ -304,8 +304,9 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
   PsnAccountIdSource used;
   config_psn_account_id_in_use(cfg, &used);
   if (cfg->psn_account_id_source != used)
-    CHIAKI_LOGW(&(context.log),
-                "Manual PSN account ID is chosen but missing or invalid; using the Vita's ID");
+    CHIAKI_LOGI(&(context.log),
+                "Manual PSN account ID is chosen but none is saved; using the Vita's ID until one "
+                "is entered");
 
   /*
    * Token loading strategy (per design in #81):
