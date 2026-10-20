@@ -592,7 +592,7 @@ Examples (made-up numbers, not from hardware; field order is the format strings 
 - The catch-up rule runs only when it should: `catchups` and `catchup_frames` above 0 once at a hiccup and 0 otherwise.
 - Sound is not sitting late in the queue: `q_min` stays low. A `q_min` that stays high for many windows means audio is queued late without ever crossing the bound; the drain rule (section 6) lowers it by one frame per second, so `q_min` should walk down to about 3 within seconds, with one `VITA AUDIO :: drain` line per step. If `q_min` stays high and no drain lines appear, the rule is not running.
 - The output keeps pace: `out_late` and `out_gap_max_us` no worse than in the baseline logs.
-- The cushion holds: after the first second `out_dry` and `waits` near 0 except right after a stream gap, and `q_avg` around 4 to 5 (the start level is 5 frames).
+- The cushion holds: after the first second `out_dry` and `waits` near 0 except right after a stream gap, and `q_avg` around 3 in steady running, and back to about 3 within a few seconds after a hiccup. 3 frames is the drain's target (section 6): it walks the after-push level down until a sample touches the 3-frame cushion. The pre-hiccup `q_avg` was already about 2.7 (log 30991388577).
 - The burst after a hiccup does not cost video: `decode_q_drops` on `PIPE/FPS` stays 0 during it.
 - The recv thread stays on `USER_0` (9.8).
 
