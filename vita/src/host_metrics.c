@@ -1161,10 +1161,12 @@ void host_metrics_update_latency(void) {
       LOGD(
           "PIPE/DECHOLD fed=%u handed=%u hold=%u hold_min=%u hold_max=%u lag_min=%u "
           "lag_avg=%u.%02u lag_max=%u hold_us_avg=%u hold_us_max=%u rb_good=%u rb_bad=%u "
-          "rb_stale=%u",
+          "rb_stale=%u avail_min=%u pull_try=%u pull_got=%u pull_err=%u pull_us_max=%u "
+          "pull_floor=%u",
           d->fed, d->handed, d->hold, d->hold_min, d->hold_max, d->lag_min,
           d->lag_avg_x100 / OCC_AVG_FIXED_POINT_SCALE, d->lag_avg_x100 % OCC_AVG_FIXED_POINT_SCALE,
-          d->lag_max, d->hold_us_avg, d->hold_us_max, d->good, d->bad, d->stale);
+          d->lag_max, d->hold_us_avg, d->hold_us_max, d->good, d->bad, d->stale, d->avail_min,
+          d->pull_try, d->pull_got, d->pull_err, d->pull_us_max, d->pull_floor);
     }
     // PIPE/RECVBUF: packets and bytes drained per receive wake-up and the receive buffer size,
     // from the Takion receive thread's last closed window (seqlock copy as above). The queue-length

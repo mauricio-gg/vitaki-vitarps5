@@ -398,11 +398,27 @@ typedef struct {
   uint32_t hold_us_n; /* good, non-stale read-backs */
   uint64_t hold_us_sum;
   uint32_t hold_us_max;
+  uint32_t avail_min;   /* smallest sceAvcdecDecodeAvailableSize read before a decode */
+  uint32_t pull_try;    /* extra empty-unit decode calls made (see decoder_pull_picture) */
+  uint32_t pull_got;    /* of those, calls that returned a picture */
+  uint32_t pull_err;    /* of those, calls that returned an error */
+  uint32_t pull_us_max; /* longest such call, microseconds */
 } DecHoldAcc;
+
+/* avail_min value meaning "no decode saw the available size yet this window". */
+#define DECHOLD_AVAIL_NONE 0xFFFFFFFFu
+/* The pull floor a session starts with: any hold above it is worth one pull attempt. */
+#define DECHOLD_PULL_FLOOR_START 0u
 
 static DecHoldAcc dechold_acc;
 static uint32_t dechold_fed_total = 0;
 static uint32_t dechold_handed_total = 0;
+/* Pull state, decode thread only, reset per session. A pull is tried only while the hold is above
+ * the floor; a pull that returns no picture raises the floor to the current hold; a pull that
+ * errors turns pulling off for the rest of the session. Pulling is armed once the decoder has
+ * handed back its first picture (dechold_handed_total > 0), so there is no separate flag. */
+static uint32_t dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
+static bool dechold_pull_disabled = false;
 static uint32_t dechold_feed_seq[DECHOLD_FEED_RING];
 static uint64_t dechold_feed_us[DECHOLD_FEED_RING];
 
@@ -416,12 +432,15 @@ static void dechold_reset_window(void) {
   memset(&dechold_acc, 0, sizeof(dechold_acc));
   dechold_acc.hold_min = dechold_current_hold();
   dechold_acc.hold_max = dechold_acc.hold_min;
+  dechold_acc.avail_min = DECHOLD_AVAIL_NONE;
 }
 
 /* Clears all PIPE/DECHOLD decode-thread state; called from vita_h264_start(). */
 static void dechold_reset_session(void) {
   dechold_fed_total = 0;
   dechold_handed_total = 0;
+  dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
+  dechold_pull_disabled = false;
   memset(dechold_feed_seq, 0, sizeof(dechold_feed_seq));
   memset(dechold_feed_us, 0, sizeof(dechold_feed_us));
   dechold_reset_window();
@@ -447,6 +466,12 @@ static void dechold_close_window(void) {
   out.good = a->good;
   out.bad = a->bad;
   out.stale = a->stale;
+  out.avail_min = a->avail_min == DECHOLD_AVAIL_NONE ? 0 : a->avail_min;
+  out.pull_try = a->pull_try;
+  out.pull_got = a->pull_got;
+  out.pull_err = a->pull_err;
+  out.pull_us_max = a->pull_us_max;
+  out.pull_floor = dechold_pull_floor;
 
   context.stream.dechold_lock++;
   __sync_synchronize();
@@ -457,24 +482,31 @@ static void dechold_close_window(void) {
   dechold_reset_window();
 }
 
-/* Accounts for one decode that sceAvcdecDecode accepted (return value >= 0). frame_seq is the
- * number that was fed as the access unit's pts, fed_us/done_us the clock reads taken before and
- * after the call (both already existed), readback_pts the output picture's info.pts. Returns
- * true and the read-back frame number in *readback_seq when this decode produced a picture whose
- * pts echoes a number we could have fed; false otherwise (no picture, or a read-back that fails
- * validation). */
-static bool dechold_record_decode(uint32_t frame_seq, uint64_t fed_us, uint64_t done_us,
-                                  uint32_t num_output, const SceVideodecTimeStamp *readback_pts,
-                                  uint32_t *readback_seq) {
-  DecHoldAcc *a = &dechold_acc;
-
+/* Accounts for one frame handed to the decoder in a decode it accepted (return value >= 0).
+ * frame_seq is the number fed as the access unit's pts, fed_us the clock read taken before the
+ * call. Output accounting is separate (dechold_record_output) so an extra pull call can record a
+ * picture without counting as a feed. */
+static void dechold_record_feed(uint32_t frame_seq, uint64_t fed_us) {
   uint32_t slot = frame_seq % DECHOLD_FEED_RING;
   dechold_feed_seq[slot] = frame_seq;
   dechold_feed_us[slot] = fed_us;
 
   dechold_fed_total++;
+  dechold_acc.fed++;
+}
+
+/* Accounts for the output of one accepted decode call, normal or pull: num_output pictures were
+ * handed back, done_us is the clock read after the call, readback_pts the output picture's
+ * info.pts. frame_seq is the frame number fed by the decode that this call belongs to. Returns
+ * true and the read-back frame number in *readback_seq when the call produced a picture whose pts
+ * echoes a number we could have fed; false otherwise (no picture, or a read-back that fails
+ * validation). */
+static bool dechold_record_output(uint32_t frame_seq, uint64_t done_us, uint32_t num_output,
+                                  const SceVideodecTimeStamp *readback_pts,
+                                  uint32_t *readback_seq) {
+  DecHoldAcc *a = &dechold_acc;
+
   dechold_handed_total += num_output;
-  a->fed++;
   a->handed += num_output;
   uint32_t hold = dechold_current_hold();
   if (hold < a->hold_min)
@@ -630,6 +662,22 @@ static uint32_t decode_ready_dropped_count = 0;
 static uint32_t decode_neg_ret_logged = 0;
 static uint32_t decode_no_output_logged = 0;
 static uint32_t decode_ready_dropped_logged = 0;
+
+/* #413 probes, same threading and reset as the counters above. buf_small: frames dropped because
+ * the decoder's input buffer had less room than the frame (logged with the same
+ * first-N-then-suppress guard). miss_*: PIPE/DECMISS lines (decodes that returned no picture),
+ * capped per session at DECODE_MISS_LOG_MAX with the rest counted. pull_*: session totals of the
+ * empty-unit pull calls. */
+#define DECODE_MISS_LOG_MAX 64u
+static uint32_t decode_buf_small_count = 0;
+static uint32_t decode_buf_small_logged = 0;
+static uint32_t decode_miss_logged = 0;
+static uint32_t decode_miss_suppressed = 0;
+static uint32_t decode_pull_try_total = 0;
+static uint32_t decode_pull_got_total = 0;
+static uint32_t decode_pull_err_total = 0;
+/* Process-time start of the previous normal decode call; 0 before the first of a session. */
+static uint64_t decode_prev_start_us = 0;
 
 /* Decode queue occupancy (latency investigation, item 2) — TIME-WEIGHTED, not a naive
  * average of samples taken only at push/pop. Code review (2026-08) caught the original
@@ -1080,6 +1128,84 @@ cleanup:
   return ret;
 }
 
+/* #418 rule: a decode pointed at frame_texture may have partly written it, so a picture from an
+ * earlier decode that is still unclaimed there can no longer be trusted. Withdraws it, so the UI
+ * keeps showing what it showed until the next good decode, and counts it. Called with `mtx` held
+ * on the decode thread. */
+static void withdraw_unclaimed_picture(uint32_t frame_seq) {
+  if (!frame_ready_for_display)
+    return;
+  frame_ready_for_display = false;
+  decode_ready_dropped_count++;
+  if (decode_ready_dropped_logged < DECODE_ANOM_LOG_MAX) {
+    decode_ready_dropped_logged++;
+    LOGE(
+        "DECODE/ANOM ready_dropped count=%u frame=%u%s", decode_ready_dropped_count, frame_seq,
+        decode_ready_dropped_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
+  }
+}
+
+typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
+
+/* #413 decoder pull. The hardware decoder gives back at most one picture per sceAvcdecDecode call,
+ * so every call that returns none leaves one more picture inside for good. After a normal decode
+ * that left the hold above the pull floor, this makes one extra call with an empty access unit
+ * (null buffer, size 0, the same timestamps) which feeds nothing and only lets the decoder hand a
+ * picture back. This is the form wiliwili uses when the decoder's input buffer is full: the
+ * "au.es.pBuf = NULL; au.es.size = 0; sceAvcdecDecode(...)" branch of vita_decode() in
+ * https://github.com/xfangfang/wiliwili/blob/master/scripts/psv/ffmpeg/ffmpeg.patch (read at
+ * blob/commit b713f72534468b98da9aeb5a3a43b972cf4f6eb2). Not yet measured on hardware.
+ *
+ * Runs under `mtx` and writes into the same frame_texture the normal decode used. The pull is not a
+ * feed and does not count as a no-output decode. Outcomes: a picture (hold drops by one, its
+ * read-back number is returned in *readback_seq when it validates), no picture (the texture was
+ * not written; the floor rises to the current hold so no pull is retried at this level), or an
+ * error (the caller applies the #418 rule and pulling is turned off for the session). */
+static PullResult decoder_pull_picture(uint32_t frame_seq, uint32_t *readback_seq,
+                                       bool *readback_valid) {
+  if (dechold_pull_disabled || dechold_handed_total == 0 ||
+      dechold_current_hold() <= dechold_pull_floor)
+    return PULL_NOT_TRIED;
+
+  SceAvcdecAu pull_au = au;
+  pull_au.es.pBuf = NULL;
+  pull_au.es.size = 0;
+  array_picture.numOfOutput = 0;
+  picture.info.pts.upper = DECHOLD_PTS_SENTINEL;
+  picture.info.pts.lower = DECHOLD_PTS_SENTINEL;
+
+  uint64_t pull_start_us = sceKernelGetProcessTimeWide();
+  int ret = sceAvcdecDecode(decoder, &pull_au, &array_picture);
+  uint64_t pull_end_us = sceKernelGetProcessTimeWide();
+  uint32_t pull_us = (uint32_t)(pull_end_us - pull_start_us);
+
+  dechold_acc.pull_try++;
+  decode_pull_try_total++;
+  if (pull_us > dechold_acc.pull_us_max)
+    dechold_acc.pull_us_max = pull_us;
+
+  if (ret < 0) {
+    dechold_acc.pull_err++;
+    decode_pull_err_total++;
+    dechold_pull_disabled = true;
+    LOGE("PIPE/DECPULL error=0x%08X frame=%u pulling off for this session", (unsigned int)ret,
+         frame_seq);
+    return PULL_FAILED;
+  }
+
+  *readback_valid = dechold_record_output(frame_seq, pull_end_us, array_picture.numOfOutput,
+                                          &picture.info.pts, readback_seq);
+  if (array_picture.numOfOutput == 1) {
+    dechold_acc.pull_got++;
+    decode_pull_got_total++;
+    return PULL_GOT_PICTURE;
+  }
+
+  dechold_pull_floor = dechold_current_hold();
+  LOGD("PIPE/DECPULL floor=%u frame=%u", dechold_pull_floor, frame_seq);
+  return PULL_NO_PICTURE;
+}
+
 /* Performs the actual sceAvcdecDecode synchronously. Called only on the
  * dedicated decode thread (GH #188). buf must be a stable DECODE_SLOT_CAPACITY
  * allocation (not the borrowed frame_buf pointer from videoreceiver). */
@@ -1087,8 +1213,18 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                             uint64_t frame_first_packet_ms, uint32_t frame_seq) {
   chiaki_mutex_lock(&mtx);
 
-  if (buf_size > (size_t)sceAvcdecDecodeAvailableSize(decoder)) {
-    sceClibPrintf("Video decode buffer too small\n");
+  int avail_size = sceAvcdecDecodeAvailableSize(decoder);
+  uint32_t avail_now = avail_size > 0 ? (uint32_t)avail_size : 0;
+  if (avail_now < dechold_acc.avail_min)
+    dechold_acc.avail_min = avail_now;
+  if (buf_size > (size_t)avail_size) {
+    decode_buf_small_count++;
+    if (decode_buf_small_logged < DECODE_ANOM_LOG_MAX) {
+      decode_buf_small_logged++;
+      LOGE("DECODE/ANOM buf_too_small count=%u frame=%u size=%u avail=%d%s", decode_buf_small_count,
+           frame_seq, (unsigned int)buf_size, avail_size,
+           decode_buf_small_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
+    }
     chiaki_mutex_unlock(&mtx);
     return 1;
   }
@@ -1118,6 +1254,9 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   ret = sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
+  uint32_t since_prev_us =
+      decode_prev_start_us != 0 ? (uint32_t)(decode_start_us - decode_prev_start_us) : 0;
+  decode_prev_start_us = decode_start_us;
   record_decode_timing_sample(decode_elapsed_us);
   if (context.stream.first_decode_frame_count < 30) {
     context.stream.first_decode_frame_count++;
@@ -1132,19 +1271,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
       LOGE("DECODE/ANOM neg_ret=0x%08X count=%u%s", (unsigned int)ret, decode_neg_ret_count,
            decode_neg_ret_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
     }
-    /* #418: this decode was pointed at frame_texture and may have partly written it. If an
-     * earlier picture was still unclaimed there, it can no longer be trusted: withdraw it, so
-     * the UI keeps showing what it showed until the next good decode. */
-    if (frame_ready_for_display) {
-      frame_ready_for_display = false;
-      decode_ready_dropped_count++;
-      if (decode_ready_dropped_logged < DECODE_ANOM_LOG_MAX) {
-        decode_ready_dropped_logged++;
-        LOGE("DECODE/ANOM ready_dropped count=%u frame=%u%s", decode_ready_dropped_count, frame_seq,
-             decode_ready_dropped_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)"
-                                                                : "");
-      }
-    }
+    withdraw_unclaimed_picture(frame_seq);
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -1154,11 +1281,13 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * picture is exactly a held frame. */
   uint32_t published_seq = frame_seq;
   uint32_t readback_seq = 0;
-  if (dechold_record_decode(frame_seq, decode_start_us, decode_end_us, array_picture.numOfOutput,
-                            &picture.info.pts, &readback_seq))
+  dechold_record_feed(frame_seq, decode_start_us);
+  bool have_picture = array_picture.numOfOutput == 1;
+  if (dechold_record_output(frame_seq, decode_end_us, array_picture.numOfOutput, &picture.info.pts,
+                            &readback_seq))
     published_seq = readback_seq;
 
-  if (array_picture.numOfOutput != 1) {
+  if (!have_picture) {
     LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
     decode_no_output_count++;
     if (decode_no_output_logged < DECODE_ANOM_LOG_MAX) {
@@ -1167,6 +1296,32 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
            (unsigned int)buf_size,
            decode_no_output_logged == DECODE_ANOM_LOG_MAX ? " (suppressing further reports)" : "");
     }
+    if (decode_miss_logged < DECODE_MISS_LOG_MAX) {
+      decode_miss_logged++;
+      LOGD("PIPE/DECMISS frame=%u since_prev_us=%u dur_us=%u hold=%u", frame_seq, since_prev_us,
+           decode_elapsed_us, dechold_current_hold());
+    } else {
+      decode_miss_suppressed++;
+    }
+  }
+
+  /* #413 pull: take one extra picture out of the decoder when it holds more than the floor. A
+   * pulled picture replaces the one this decode produced (skipping that one on screen is the
+   * catch-up). An empty pull wrote nothing, so this decode's own result stands. */
+  uint32_t pull_seq = 0;
+  bool pull_seq_valid = false;
+  PullResult pull = decoder_pull_picture(frame_seq, &pull_seq, &pull_seq_valid);
+  if (pull == PULL_FAILED) {
+    /* The texture may be partly written: nothing from this decode can be trusted (#418 rule). */
+    withdraw_unclaimed_picture(frame_seq);
+    chiaki_mutex_unlock(&mtx);
+    return 0;
+  }
+  if (pull == PULL_GOT_PICTURE) {
+    have_picture = true;
+    published_seq = pull_seq_valid ? pull_seq : frame_seq;
+  }
+  if (!have_picture) {
     chiaki_mutex_unlock(&mtx);
     return 0;
   }
@@ -1942,16 +2097,28 @@ void vita_h264_stop() {
    * session/stop thread even though they are written without locking on the
    * decode thread (see their declaration comment). This runs exactly once per
    * stream end regardless of whether the decode thread ever started, so the
-   * reset below always leaves all six counters -- magnitude and log-suppression
+   * reset below always leaves all the counters -- magnitude and log-suppression
    * alike -- at 0 for the next stream. */
-  LOGD("DECODE/ANOM totals neg_ret=%u no_output=%u ready_dropped=%u", decode_neg_ret_count,
-       decode_no_output_count, decode_ready_dropped_count);
+  LOGD(
+      "DECODE/ANOM totals neg_ret=%u no_output=%u ready_dropped=%u buf_too_small=%u "
+      "miss_suppressed=%u pull_try=%u pull_got=%u pull_err=%u pull_disabled=%u",
+      decode_neg_ret_count, decode_no_output_count, decode_ready_dropped_count,
+      decode_buf_small_count, decode_miss_suppressed, decode_pull_try_total, decode_pull_got_total,
+      decode_pull_err_total, dechold_pull_disabled ? 1u : 0u);
   decode_neg_ret_count = 0;
   decode_no_output_count = 0;
   decode_ready_dropped_count = 0;
   decode_neg_ret_logged = 0;
   decode_no_output_logged = 0;
   decode_ready_dropped_logged = 0;
+  decode_buf_small_count = 0;
+  decode_buf_small_logged = 0;
+  decode_miss_logged = 0;
+  decode_miss_suppressed = 0;
+  decode_pull_try_total = 0;
+  decode_pull_got_total = 0;
+  decode_pull_err_total = 0;
+  decode_prev_start_us = 0;
 
   /* Free slot buffers. Non-NULL slots were allocated in vita_h264_start();
    * failed/skipped slots are already NULL so free() is a safe no-op. */

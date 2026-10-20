@@ -56,9 +56,15 @@ typedef struct {
   uint32_t lag_max;
   uint32_t hold_us_avg; /* fed-to-handed-back microseconds (good, non-stale read-backs) */
   uint32_t hold_us_max;
-  uint32_t good;  /* read-backs that passed validation */
-  uint32_t bad;   /* pictures whose read-back failed validation */
-  uint32_t stale; /* good read-backs whose feed time was no longer remembered */
+  uint32_t good;        /* read-backs that passed validation */
+  uint32_t bad;         /* pictures whose read-back failed validation */
+  uint32_t stale;       /* good read-backs whose feed time was no longer remembered */
+  uint32_t avail_min;   /* smallest sceAvcdecDecodeAvailableSize read before a decode (0 if none) */
+  uint32_t pull_try;    /* extra empty-unit decode calls made this window */
+  uint32_t pull_got;    /* of those, calls that returned a picture */
+  uint32_t pull_err;    /* of those, calls that returned an error */
+  uint32_t pull_us_max; /* longest such call, microseconds */
+  uint32_t pull_floor;  /* hold level at or below which no pull is tried, at window close */
 } DecHoldWindow;
 
 /* PIPE/AUDIOOUT (#416): one window of what the audio output thread did (docs/design/streaming.md
