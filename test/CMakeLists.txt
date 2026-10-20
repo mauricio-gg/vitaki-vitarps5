@@ -136,6 +136,7 @@ add_executable(pairing_result_tests
     pairing_result_tests.c
     ../vita/src/host_registration_result.c
     ../vita/src/ui/ui_result_copy.c
+    ../vita/src/psn_account_id.c
 )
 
 target_include_directories(pairing_result_tests PRIVATE

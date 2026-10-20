@@ -13,6 +13,9 @@
   "%s is paired, but this Vita could not save everything. If it does not appear or connect, " \
   "pair it again."
 #define UI_RESULT_TITLE_PAIR_FAILED "Pairing failed"
+#define UI_RESULT_BODY_NO_ACCOUNT_ID                                                         \
+  "Sign in to PSN on this Vita with the same account used on your PS5, then press X on the " \
+  "Profile card to refresh."
 #define UI_RESULT_FALLBACK_REASON "Connection failed"
 #define UI_RESULT_TITLE_CONNECT_FAILED "Could not connect"
 #define UI_RESULT_TITLE_NOT_AN_ADDRESS "Not an IP address"
@@ -47,6 +50,9 @@ bool ui_result_copy_pairing(HostRegistrationResult result, const char *name, cha
       fmt =
           "%s did not accept the PIN or could not be reached. Check the code and that the "
           "console is on the same network.";
+      break;
+    case HOST_REGISTRATION_NO_ACCOUNT_ID:
+      fmt = UI_RESULT_BODY_NO_ACCOUNT_ID;
       break;
     case HOST_REGISTRATION_CANCELLED:
     default:

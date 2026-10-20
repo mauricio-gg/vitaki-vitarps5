@@ -19,7 +19,7 @@ Internet play needs all of these:
 
 - **PSN login** on the Vita (tokens present and refreshable). Checked in `host_stream`: `host.c:325-343`.
 - **A console registered on the LAN first (the "seed host").** Internet play does not register consoles itself. See below.
-- **A PSN account id on the Vita**, read from the Vita system registry (`load_psn_id_from_registry`, `vita/src/ui.c:339`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
+- **A PSN account id on the Vita**, read from the Vita system registry (`read_psn_id_from_registry()` in `vita/src/ui.c`, valid only if 8 bytes and not all zero, rule in `psn_account_id.c`) and decoded at connect time (`host.c:390-405`). Without it the connect aborts.
 - **The console must have Remote Play enabled** in its settings; devices without it are skipped (`psn_remote.c:181`).
 - **A holepunch build.** The default build has it. If it is compiled out, `psn_remote_prepare_connect_host` fails with "stack is unavailable" (`psn_remote.c`, `#else` branch).
 - **A network that allows UDP hole punching** (see Known limits).
@@ -120,7 +120,7 @@ libcurl's `getaddrinfo` path is broken on Vita, so Sony hosts and STUN hosts are
 - **NAT.** Hole punching can fail on networks that do not allow it (phone hotspots are a known case): the log shows `Failed to find reachable candidate for control connection` and the user sees "Failed to establish PSN control channel" (`psn_remote.c`, punch ctrl step). Sony's own app fails the same way there. UPnP helps on home routers. Failure classification and hints are issue #89.
 - **No message when a console has no seed host**; it just does not appear (issue #85).
 - **PS5 only** in the device list; the PS4 list has a parity bug (issue #93).
-- **Account id mismatch.** Registration can fail with PS5 error CE-110032-7 when the Vita's stored PSN id is stale or signed out (issue #270). Manual account id entry is requested in #201.
+- **Account id mismatch.** Registration fails with PS5 error CE-110032-7 when the id sent is not the account signed in on the PS5. Startup now refreshes the id from the registry, and pairing is blocked on the Vita (no request sent) when the id is missing or all zero (issue #270). Manual account id entry is requested in #201.
 - **Refresh runs in the background.** Since PRs #377 and #392 (issue #163), token refresh and the device-list fetch run on a background worker (`vita/src/psn_background_refresh.c`) instead of the UI thread. The one exception is the Log in button's own token refresh, which is still synchronous. The host list is still not refreshed periodically while idle: the idle timer only renews the token, so the list refreshes only as a side effect of that renewal (issue #162, open).
 - **Dead-link detection** on the push WebSocket can take up to about 10 s (issue #164).
 - **Display:** the Connection card shows the console name, not the IP, for PSN hosts (issue #94).

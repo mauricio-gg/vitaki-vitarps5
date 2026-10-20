@@ -17,11 +17,12 @@
 
 /** The one result reported per pairing attempt. */
 typedef enum host_registration_result_t {
-  HOST_REGISTRATION_PAIRED = 0,   ///< registered state stored and persisted
-  HOST_REGISTRATION_FAILED,       ///< PIN not accepted or console unreachable (lib cannot tell)
-  HOST_REGISTRATION_UNREACHABLE,  ///< console not on the network; lib was never called
-  HOST_REGISTRATION_TIMEOUT,      ///< no answer within HOST_REGISTRATION_TIMEOUT_MS
-  HOST_REGISTRATION_CANCELLED,    ///< the user cancelled; no popup
+  HOST_REGISTRATION_PAIRED = 0,     ///< registered state stored and persisted
+  HOST_REGISTRATION_FAILED,         ///< PIN not accepted or console unreachable (lib cannot tell)
+  HOST_REGISTRATION_UNREACHABLE,    ///< console not on the network; lib was never called
+  HOST_REGISTRATION_TIMEOUT,        ///< no answer within HOST_REGISTRATION_TIMEOUT_MS
+  HOST_REGISTRATION_CANCELLED,      ///< the user cancelled; no popup
+  HOST_REGISTRATION_NO_ACCOUNT_ID,  ///< no valid PSN account ID; no request was sent (#270)
 } HostRegistrationResult;
 
 /** What lib reported when it finished (mirrors ChiakiRegistEventType without including lib). */

@@ -36,6 +36,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_quit.c
     src/host_registration.c
     src/host_registration_result.c
+    src/psn_account_id.c
     src/host_recovery.c
     src/host_storage.c
     src/psn_auth.c

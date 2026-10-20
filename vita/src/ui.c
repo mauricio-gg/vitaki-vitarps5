@@ -52,6 +52,7 @@
 #include "host_metrics.h"
 #include "host_quit.h"
 #include "psn_auth.h"
+#include "psn_account_id.h"
 #include "psn_remote.h"
 #include "psn_background_refresh.h"
 #include "ui/ui_graphics.h"
@@ -245,51 +246,89 @@ bool is_touched(int x, int y, int width, int height) {
 // PSN ACCOUNT INITIALIZATION
 // ============================================================================
 
-static bool load_psn_id_from_registry(bool force_reload) {
-  if (!force_reload && context.config.psn_account_id && strlen(context.config.psn_account_id) > 0) {
-    return true;
-  }
-
-  char acc_id_buf[8];
+/**
+ * read_psn_id_from_registry() - Read the signed-in PSN account ID as base64.
+ *
+ * Returns a malloc'd string the caller frees, or NULL when the read failed or the Vita is not
+ * signed in to PSN (all-zero ID); both are logged. The stored ID is never touched here.
+ */
+static char *read_psn_id_from_registry(void) {
+  uint8_t acc_id_buf[PSN_ACCOUNT_ID_BYTES];
   memset(acc_id_buf, 0, sizeof(acc_id_buf));
 
-  int reg_result = sceRegMgrGetKeyBin("/CONFIG/NP/", "account_id", acc_id_buf, sizeof(acc_id_buf));
+  int reg_result = sceRegMgrGetKeyBin(PSN_ACCOUNT_ID_REGISTRY_PATH, PSN_ACCOUNT_ID_REGISTRY_KEY,
+                                      acc_id_buf, sizeof(acc_id_buf));
   if (reg_result < 0) {
     LOGE("Failed to read PSN account_id from registry: 0x%08X", reg_result);
-    return false;
+    return NULL;
+  }
+  if (!psn_account_id_is_valid(acc_id_buf, sizeof(acc_id_buf))) {
+    LOGW("PSN account_id in registry is empty: this Vita is not signed in to PSN");
+    return NULL;
   }
 
   int b64_strlen = get_base64_size(sizeof(acc_id_buf));
-  char *new_psn_id = (char *)malloc((size_t)b64_strlen + 1);
-  if (!new_psn_id) {
+  char *b64 = (char *)malloc((size_t)b64_strlen + 1);
+  if (!b64) {
     LOGE("Failed to allocate memory for PSN account ID");
-    return false;
+    return NULL;
   }
+  b64[b64_strlen] = '\0';
+  chiaki_base64_encode(acc_id_buf, sizeof(acc_id_buf), b64, b64_strlen);
+  return b64;
+}
 
-  new_psn_id[b64_strlen] = '\0';
-  chiaki_base64_encode(acc_id_buf, sizeof(acc_id_buf), new_psn_id,
-                       get_base64_size(sizeof(acc_id_buf)));
-
-  if (context.config.psn_account_id) {
-    free(context.config.psn_account_id);
-  }
-  context.config.psn_account_id = new_psn_id;
-  LOGD("Loaded PSN account ID (base64, len=%d)", (int)strlen(new_psn_id));
-  return true;
+/** replace_stored_psn_id() - Make @b64 (malloc'd, ownership taken) the config's account ID. */
+static void replace_stored_psn_id(char *b64) {
+  free(context.config.psn_account_id);
+  context.config.psn_account_id = b64;
 }
 
 /**
- * load_psn_id_if_needed() - Load PSN account ID from Vita registry if missing.
+ * load_psn_id_at_launch() - Pick the PSN account ID for this launch (issue #270 decision).
+ *
+ * Always reads the registry. A valid registry ID wins and is saved to config.toml when it
+ * differs; otherwise the stored ID is kept unchanged so a hand-entered ID survives (#201).
  */
-void load_psn_id_if_needed() {
-  load_psn_id_from_registry(false);
+static void load_psn_id_at_launch(void) {
+  char *registry_b64 = read_psn_id_from_registry();
+  switch (psn_account_id_startup_choice(registry_b64, context.config.psn_account_id)) {
+    case PSN_ACCOUNT_ID_USE_REGISTRY_NEW:
+      replace_stored_psn_id(registry_b64);
+      ui_settings_persist_config();
+      LOGD("PSN account ID: from registry (config updated), ending ...%s",
+           psn_account_id_fingerprint(context.config.psn_account_id));
+      return;
+    case PSN_ACCOUNT_ID_USE_REGISTRY_SAME:
+      LOGD("PSN account ID: from registry (matches config), ending ...%s",
+           psn_account_id_fingerprint(registry_b64));
+      break;
+    case PSN_ACCOUNT_ID_USE_STORED:
+      LOGD("PSN account ID: from stored config (registry has none), ending ...%s",
+           psn_account_id_fingerprint(context.config.psn_account_id));
+      break;
+    case PSN_ACCOUNT_ID_USE_NONE:
+    default:
+      LOGW("PSN account ID: none (registry empty and nothing stored); pairing will be blocked");
+      break;
+  }
+  free(registry_b64);
 }
 
 /**
- * ui_reload_psn_account_id() - Force refresh PSN account ID from Vita registry.
+ * ui_reload_psn_account_id() - Refresh the PSN account ID from the Vita registry.
+ *
+ * Returns true only when a valid ID was read and stored. An empty or unreadable registry
+ * returns false and leaves the stored ID alone.
  */
 bool ui_reload_psn_account_id(void) {
-  return load_psn_id_from_registry(true);
+  char *registry_b64 = read_psn_id_from_registry();
+  if (!registry_b64)
+    return false;
+  replace_stored_psn_id(registry_b64);
+  LOGD("Reloaded PSN account ID, ending ...%s",
+       psn_account_id_fingerprint(context.config.psn_account_id));
+  return true;
 }
 
 // ============================================================================
@@ -464,9 +503,9 @@ static void step_input(void) {
   button_block_mask = ui_input_get_button_block_mask_ptr();
 }
 
-/** step_psn_id() - Load the PSN account id from the registry if the config has none. */
+/** step_psn_id() - Pick the PSN account id for this launch (registry first, then config). */
 static void step_psn_id(void) {
-  load_psn_id_if_needed();
+  load_psn_id_at_launch();
 }
 
 /**

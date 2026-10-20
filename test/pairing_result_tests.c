@@ -5,13 +5,14 @@
 // `./tools/build.sh test` only cross-compiles, so run these on the host:
 //   cc -std=c99 -Wall -Wextra -I vita/include test/pairing_result_tests.c \
 //      vita/src/host_registration_result.c vita/src/ui/ui_result_copy.c \
-//      -o /tmp/pairing_result_tests && /tmp/pairing_result_tests
+//      vita/src/psn_account_id.c -o /tmp/pairing_result_tests && /tmp/pairing_result_tests
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "host_registration_result.h"
+#include "psn_account_id.h"
 #include "ui/ui_result_copy.h"
 
 #define BODY_SIZE 256
@@ -126,7 +127,51 @@ static void test_connect_failed_copy(void) {
   assert(copy.primary_button == 0);
 }
 
+/** catches: a Vita that is not signed in to PSN (all-zero ID) or a truncated ID being sent to the
+ * console, which answers CE-110032-7. */
+static void test_account_id_validity(void) {
+  const uint8_t real[PSN_ACCOUNT_ID_BYTES] = {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0};
+  const uint8_t zeros[PSN_ACCOUNT_ID_BYTES] = {0};
+  const uint8_t last_byte_only[PSN_ACCOUNT_ID_BYTES] = {0, 0, 0, 0, 0, 0, 0, 1};
+  assert(psn_account_id_is_valid(real, sizeof(real)));
+  assert(psn_account_id_is_valid(last_byte_only, sizeof(last_byte_only)));
+  assert(!psn_account_id_is_valid(zeros, sizeof(zeros)));
+  assert(!psn_account_id_is_valid(real, PSN_ACCOUNT_ID_BYTES - 1));
+  assert(!psn_account_id_is_valid(real, PSN_ACCOUNT_ID_BYTES + 1));
+  assert(!psn_account_id_is_valid(NULL, PSN_ACCOUNT_ID_BYTES));
+}
+
+/** catches: startup overwriting a hand-entered ID (#201) with an empty registry, or ignoring a
+ * newly signed-in account so a stale config.toml ID keeps failing. */
+static void test_startup_choice(void) {
+  assert(psn_account_id_startup_choice("NEWID", "OLDID") == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
+  assert(psn_account_id_startup_choice("NEWID", NULL) == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
+  assert(psn_account_id_startup_choice("NEWID", "") == PSN_ACCOUNT_ID_USE_REGISTRY_NEW);
+  assert(psn_account_id_startup_choice("SAME", "SAME") == PSN_ACCOUNT_ID_USE_REGISTRY_SAME);
+  assert(psn_account_id_startup_choice(NULL, "HAND") == PSN_ACCOUNT_ID_USE_STORED);
+  assert(psn_account_id_startup_choice(NULL, NULL) == PSN_ACCOUNT_ID_USE_NONE);
+  assert(psn_account_id_startup_choice(NULL, "") == PSN_ACCOUNT_ID_USE_NONE);
+}
+
+/** catches: the missing-account result showing the generic "did not accept the PIN" text, which
+ * sends the user to check a code that was never the problem. */
+static void test_no_account_id_popup(void) {
+  char body[BODY_SIZE];
+  UiResultCopy copy;
+  assert(ui_result_copy_pairing(HOST_REGISTRATION_NO_ACCOUNT_ID, "PS5-Living", body, BODY_SIZE,
+                                &copy));
+  assert(strstr(body, "Sign in to PSN on this Vita") != NULL);
+  assert(strstr(body, "PIN") == NULL);
+  assert(copy.tone == UI_RESULT_TONE_ERR);
+  assert(copy.button_count == 2 && strcmp(copy.buttons[1], "Try again") == 0);
+  assert(strcmp(host_registration_result_name(HOST_REGISTRATION_NO_ACCOUNT_ID), "NO_ACCOUNT_ID") ==
+         0);
+}
+
 int main(void) {
+  test_account_id_validity();
+  test_startup_choice();
+  test_no_account_id_popup();
   test_lib_canceled_is_decided_by_why_it_was_stopped();
   test_success_needs_storing_and_real_outcomes_win();
   test_failure_popups();

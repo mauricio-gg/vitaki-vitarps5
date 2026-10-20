@@ -2,12 +2,16 @@
 #include "config.h"
 #include "host.h"
 #include "host_registration.h"
+#include "psn_account_id.h"
 
 #include <chiaki/base64.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+_Static_assert(PSN_ACCOUNT_ID_BYTES == CHIAKI_PSN_ACCOUNT_ID_SIZE,
+               "PSN_ACCOUNT_ID_BYTES must match lib's account ID size");
 
 static ChiakiRegist regist = {};
 
@@ -253,19 +257,23 @@ int host_register(VitaChiakiHost *host, int pin) {
   if (!host->hostname[0] || !host->discovery_state)
     return fail_before_start(HOST_REGISTRATION_UNREACHABLE,
                              "console has no hostname or is not on the network");
-  if (!context.config.psn_account_id[0])
-    return fail_before_start(HOST_REGISTRATION_FAILED, "missing PSN account id");
+  const char *account_id_b64 = context.config.psn_account_id;
+  if (!account_id_b64 || !account_id_b64[0])
+    return fail_before_start(HOST_REGISTRATION_NO_ACCOUNT_ID, "missing PSN account id");
 
   ChiakiRegistInfo regist_info = {};
   regist_info.target = host->target;
   size_t account_id_size = sizeof(uint8_t[CHIAKI_PSN_ACCOUNT_ID_SIZE]);
-  ChiakiErrorCode decode_err =
-      chiaki_base64_decode(context.config.psn_account_id, strlen(context.config.psn_account_id),
-                           regist_info.psn_account_id, &(account_id_size));
-  if (decode_err != CHIAKI_ERR_SUCCESS || account_id_size != CHIAKI_PSN_ACCOUNT_ID_SIZE) {
+  ChiakiErrorCode decode_err = chiaki_base64_decode(account_id_b64, strlen(account_id_b64),
+                                                    regist_info.psn_account_id, &(account_id_size));
+  if (decode_err != CHIAKI_ERR_SUCCESS) {
     LOGE("Failed to decode PSN account id for registration: %s", chiaki_error_string(decode_err));
-    return fail_before_start(HOST_REGISTRATION_FAILED, "undecodable PSN account id");
+    return fail_before_start(HOST_REGISTRATION_NO_ACCOUNT_ID, "undecodable PSN account id");
   }
+  if (!psn_account_id_is_valid(regist_info.psn_account_id, account_id_size))
+    return fail_before_start(HOST_REGISTRATION_NO_ACCOUNT_ID,
+                             "PSN account id is the wrong length or all zero (not signed in)");
+  LOGD("Pairing with PSN account id ending ...%s", psn_account_id_fingerprint(account_id_b64));
   regist_info.psn_online_id = NULL;
   regist_info.pin = pin;
   regist_info.host = host->hostname;

@@ -92,6 +92,7 @@ How-to guides are in the [wiki](https://github.com/mauricio-gg/vitaki-vitarps5/w
 Quick tips:
 
 - To reset all settings, delete `ux0:data/vita-chiaki/chiaki.toml`.
+- Pairing fails with PS5 error CE-110032-7: the account signed in on the PS5 is not the one this Vita sent. Sign in to PSN on the Vita with the same account as the PS5, open Profile, select the Account ID card and press X to refresh it, then pair again.
 - Testing builds write a log to `ux0:data/vita-chiaki/<number>_vitarps5-testing.log` (the number is a timestamp, so each run gets its own file). Release builds write `<number>_vitarps5.log` in the same folder.
 
 Questions and ideas go to [Discussions](https://github.com/mauricio-gg/vitaki-vitarps5/discussions). Bugs go to [Issues](https://github.com/mauricio-gg/vitaki-vitarps5/issues).

@@ -34,6 +34,8 @@ const char *host_registration_result_name(HostRegistrationResult result) {
       return "TIMEOUT";
     case HOST_REGISTRATION_CANCELLED:
       return "CANCELLED";
+    case HOST_REGISTRATION_NO_ACCOUNT_ID:
+      return "NO_ACCOUNT_ID";
     default:
       return "UNKNOWN";
   }
