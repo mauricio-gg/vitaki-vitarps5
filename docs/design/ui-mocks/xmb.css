@@ -394,3 +394,8 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 /* revision 3: 2-line instructions, 4-row viewport (Filter row + 3 consoles) */
 .popup .pbody{height:48px}
 .phead{margin-top:var(--s1)}
+/* Account ID (#201) */
+.kbd .ksub{font-size:var(--t16);font-weight:var(--w-reg);color:var(--text-3)}
+.kbd .tries{display:flex;gap:var(--s1);align-items:center;font-size:var(--t14);color:var(--text-3);margin-top:var(--s1)}
+.kbd .tries button{font:inherit;color:var(--text-2);background:none;border:var(--lw1) dashed var(--line);border-radius:var(--r-pill);padding:4px 12px;cursor:pointer}
+.srow .val .ico{flex:none}

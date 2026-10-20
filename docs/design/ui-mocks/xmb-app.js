@@ -99,10 +99,10 @@ function popPress(i){
 function keyboard(o){S.kb=o;paintKb();}
 function paintKb(){
  const k=S.kb;
- $('#kbLayer').innerHTML=k?`<div class="kbd" data-do="kbok"><div class="cap">System keyboard</div><h3>${k.title}</h3><div class="fld">${k.text||''}<span class="cursor" style="height:16px;margin-left:2px"></span></div><div class="keys">The Vita system keyboard opens here</div></div>`:'';
+ $('#kbLayer').innerHTML=k?`<div class="kbd" data-do="kbok"><div class="cap">System keyboard</div><h3>${k.title}</h3><div class="fld">${k.text||''}<span class="cursor" style="height:16px;margin-left:2px"></span></div>${k.sub?`<div class="ksub">${k.sub}</div>`:''}<div class="keys">The Vita system keyboard opens here</div>${k.tries?`<div class="tries"><span>Mock only, type for me:</span>${k.tries.map((t,i)=>`<button data-do="kbtry" data-arg="${i}">${t[0]}</button>`).join('')}</div>`:''}</div>`:'';
  if(k)paintHints([['confirm','Done',{key:'ok'}],['cancel','Cancel',{key:'back'}]]);else refreshHints();
 }
-function kbKey(k){const o=S.kb;if(k==='ok'){S.kb=null;paintKb();o.done&&o.done();}else if(k==='back'){S.kb=null;paintKb();}}
+function kbKey(k){const o=S.kb;if(k==='ok'){S.kb=null;paintKb();o.done&&o.done(o.text);}else if(k==='back'){S.kb=null;paintKb();}}
 
 /* ---------------- HOME (C01 CategoryBar, C02 XmbList, C04 DetailPanel, C05 OptionsColumn) ---------------- */
 const CATS=[['Consoles','assets/icon_play.png'],['Settings','assets/icon_settings.png'],['Controller','icons/controller.svg'],['Profile','icons/profile.svg']];
@@ -276,12 +276,51 @@ const connFail=(c,why)=>resultPop({tone:'err',icon:'warn',title:'Could not conne
 
 /* ---------------- PAGES: Settings and Profile (C07 PageShell, C08 SettingRow) ---------------- */
 const PG={settings:{title:'Settings',icon:'assets/icon_settings.png',groups:GROUPS},profile:{title:'Profile',icon:'icons/profile.svg',groups:['Account','Connection','PlayStation Network']}};
-const ACCT='dGhlX3BsYXllcl9vbmU=';
+/* Account ID (#201). Two stored IDs: the Vita's own (read from the system profile; null = no PSN account on this Vita) and an optional typed one. src = which one is in use. */
+const AC={src:'vita',vita:'q83vEjRWeJA=',manual:null,unreadable:false,arm:false};let acTimer=null;
+const acReset=(src,vita,manual,unreadable=false)=>{AC.src=src;AC.vita=vita;AC.manual=manual;AC.unreadable=unreadable;AC.arm=false;clearTimeout(acTimer);};
+const AC_SAMPLE_VITA='q83vEjRWeJA=',AC_SAMPLE_MANUAL='ASNFZ4mrze8=',AC_SAMPLE_NUM='1311768467294899695';
+const acActive=()=>AC.src==='manual'?AC.manual:AC.vita;
+const acMask=id=>id?'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'+id.slice(-4):'Not Set';
+/* Same rule as the app: base64 of 8 bytes (12 chars ending in =) or a decimal number; never all zero. Returns {id} (normalised to base64) or {err}. */
+function acParse(t){
+ t=(t||'').trim();let b=null;
+ if(/^[A-Za-z0-9+\/]{11}=$/.test(t)){const bin=atob(t);if(bin.length===8)b=[...bin].map(c=>c.charCodeAt(0));}
+ else if(/^\d{1,20}$/.test(t)){let n=BigInt(t);if(n<2n**64n){b=[];for(let i=0;i<8;i++){b.push(Number(n&255n));n>>=8n;}}}
+ if(!b)return {err:'Invalid Account ID. Use 12 characters ending in =, or a number'};
+ if(b.every(x=>x===0))return {err:'Invalid Account ID. It cannot be all zeros'};
+ return {id:btoa(String.fromCharCode(...b))};
+}
+const ACT_TRIES=[['Valid base64',AC_SAMPLE_MANUAL],['Valid number',AC_SAMPLE_NUM],['Wrong length','abc123'],['All zeros','AAAAAAAAAAA=']];
+function acOpenKeyboard(text){
+ keyboard({title:'Enter Account ID',sub:'12 characters ending in =, or a number',text:text||'',tries:ACT_TRIES,done:t=>{
+  const r=acParse(t);
+  if(r.err){toast(r.err,'err','warn');return;}
+  const first=!AC.manual;AC.manual=r.id;if(first)AC.src='manual';
+  paintPage(true);toast(first?'Manual Account ID saved. Now in use':'Manual Account ID saved','ok','check');
+ }});
+}
+function acPick(v){
+ const want=v?'manual':'vita';
+ if(want==='manual'&&!AC.manual){paintPage(false);acOpenKeyboard('');return;}
+ AC.src=want;paintPage(true);toast(want==='manual'?'Using the Manual Account ID':'Using the Vita Account ID','ok','check');
+}
 /* Profile > Connection by situation. Network Type, Console, Console IP (when an address is known) and Quality follow today's code; Status uses the Home list wording */
 const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready'},standby:{net:'Local Wi-Fi',con:'Den',ip:'192.168.1.31',st:'Standby'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'Unavailable'},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Unpaired'},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None'}};
 function pageRows(kind,g){
  if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>({label:s.label,type:s.type,s,desc:s.desc,plain:setVal(s)}));
- if(g===0)return [{label:'Account ID',type:'info',val:`<span class="mono">${ACCT}</span>`,plain:ACCT.slice(0,10)+'...'},{label:'Refresh Account ID',type:'action',desc:'Read the Account ID again from the system profile.',act:'acct',plain:''}];
+ if(g===0){
+  const ck=on=>on?`<span class="on" style="display:inline-flex">${ico('check',20)}</span>`:'';
+  const vitaVal=AC.vita?`${ck(AC.src==='vita')}<span class="mono">${AC.vita}</span>`:`<span class="mid" style="display:inline-flex;align-items:center;gap:8px">${ico('warn',20)}${AC.unreadable?'Not found':'Not signed in'}</span>`;
+  const manVal=AC.manual?`${ck(AC.src==='manual')}<span class="mono">${AC.manual}</span>${ico('next',20)}`:`<span style="color:var(--text-3)">Not set</span>${ico('next',20)}`;
+  const noActive=!acActive();
+  return [
+   {label:'Use Account ID from',type:'choice',s:{id:'acsrc',opts:['Vita','Manual'],v:AC.src==='manual'?1:0},desc:AC.src==='vita'&&!AC.vita?(AC.unreadable?'The Vita Account ID could not be read. Try Refresh, or switch to Manual.':'No PSN account is signed in on this Vita. Sign in to PSN, or switch to Manual.'):AC.manual?'Which Account ID the app uses. The other one stays saved.':'Choose Manual to type an Account ID, for example for a different PS5 account.',plain:''},
+   {label:'Vita Account ID',type:'info',val:vitaVal,desc:'',plain:''},
+   {label:'Manual Account ID',type:'action',act:'acman',val:manVal,desc:AC.manual?'Type a different Account ID. Base64 (ends in =) or a number.':'Type an Account ID: base64 (12 characters ending in =) or a number.',plain:''},
+   {label:'Refresh Account ID',type:'action',desc:AC.vita?'Read the Vita Account ID again from the system profile.':AC.unreadable?'Could not read the Account ID from this Vita. Try again.':'No PSN account is signed in on this Vita. Sign in to PSN in System Settings, then refresh.',act:'acct',plain:''}
+  ].concat(AC.manual?[{label:AC.arm?`Press ${inl('confirm')} again to confirm clearing`:'Clear Manual Account ID',type:'action',act:'acclr',tone:AC.arm?'warn':'',desc:'Remove the typed Account ID from this Vita. The Vita Account ID is not affected.',plain:''}]:[]).map(r=>r.label==='Vita Account ID'?Object.assign(r,{desc:AC.vita?'The Account ID of the PSN account signed in on this Vita.':AC.unreadable?'Could not read the Account ID from this Vita. Try Refresh Account ID.':'No PSN account is signed in on this Vita. Sign in to PSN in System Settings, then refresh.',tone:AC.vita?'':'warn'}):r);
+ }
  if(g===1){
   const c=PCONN[S.pconn],r=[{label:'Network Type',type:'info',val:c.net,plain:c.net},{label:'Console',type:'info',val:c.con,plain:c.con}];
   if(c.ip)r.push({label:'Console IP',type:'info',val:`<span class="mono">${c.ip}</span>`,plain:c.ip});
@@ -303,12 +342,12 @@ function rowVal(r,i){
  if(r.type==='toggle')return toggle(r.s.v);
  if(r.type==='choice')return choice(r.s.opts[r.s.v],i);
  if(r.type==='info')return r.val||'';
- return r.dis?'':ico('next',20);
+ return r.dis?'':(r.val!==undefined?r.val:ico('next',20));
 }
 function paintPage(full){
- const P=S.pg,cfg=PG[P.kind],{rs,i:s,k}=curRow();P.row[k]=s;
+ const P=S.pg,cfg=PG[P.kind],{rs,i:s,k}=curRow();P.row[k]=s;if(AC.arm&&(!rs[s]||rs[s].act!=='acclr')){AC.arm=false;clearTimeout(acTimer);return paintPage(full);}
  const login=P.kind==='profile'&&P.g===2&&psnState()==='await';
- $('#ly-page').innerHTML=`<span class="bk" data-do="pgback">${ico('back',24)}</span><div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>${P.kind==='profile'?`<div class="ident"><span class="av"><img src="icons/profile.svg" alt=""></span><span class="it"><b>${ACCT}</b><i>PlayStation Network</i></span></div>`:''}
+ $('#ly-page').innerHTML=`<span class="bk" data-do="pgback">${ico('back',24)}</span><div class="ptitle"><img src="${cfg.icon}" alt=""><h1>${cfg.title}</h1></div><div class="prule"></div>${P.kind==='profile'?`<div class="ident"><span class="av"><img src="icons/profile.svg" alt=""></span><span class="it"><b style="${acActive()?'':'color:var(--err)'}">${acMask(acActive())}</b><i>${acActive()?(AC.src==='manual'?'Manual ID':'Vita account'):'No Account ID'}</i></span></div>`:''}
  <div id="groups">${cfg.groups.map((n,i)=>`<div class="grp ${i===P.g?'on':''} ${i===P.g&&P.focus==='g'?'act':''}" data-do="pgg" data-arg="${i}">${n}</div>`).join('')}</div>
  ${login?loginHTML():`<div id="pane"><div id="rows" ${full?'':'style="animation:none"'}>${rs.map((r,i)=>srow({i,label:r.label,val:rowVal(r,i),sel:i===s,act:i===s&&P.focus==='r',dis:r.dis,tone:r.tone})).join('')}</div></div>
  <div id="pdesc">${rs[s].desc||''}</div>`}
@@ -323,7 +362,7 @@ function pageHints(){
  const L=[];
  if(r.type==='toggle')L.push(['confirm','Toggle',{key:'ok'}]);
  else if(r.type==='choice')L.push(['confirm','Next',{key:'ok'}],['dpadh','Change']);
- else if(r.type==='action')L.push(['confirm',r.act==='login'?'Log in':r.act==='logout'?(S.logout?'Confirm log out':'Log out'):'Refresh',{key:'ok',dim:r.dis}]);
+ else if(r.type==='action')L.push(['confirm',r.act==='acman'?(AC.manual?'Edit ID':'Enter ID'):r.act==='acclr'?(AC.arm?'Confirm clear':'Clear'):r.act==='login'?'Log in':r.act==='logout'?(S.logout?'Confirm log out':'Log out'):'Refresh',{key:'ok',dim:r.dis}]);
  L.push(['LR','Group'],['cancel','Back',{key:'back'}]);
  return L;
 }
@@ -341,7 +380,15 @@ function openPage(kind,g,focus='r'){
 function pageAct(r){
  if(r.type==='toggle'||r.type==='choice')return pageChange(1);
  if(r.type!=='action'||r.dis){if(r.dis)toast('PSN internet mode is disabled in Settings','err','warn');return;}
- if(r.act==='acct')return toast('Account ID refreshed from system profile','ok','check');
+ if(r.act==='acclr'){
+  if(!AC.arm){AC.arm=true;clearTimeout(acTimer);acTimer=setTimeout(()=>{AC.arm=false;if(S.screen==='page')paintPage(false);},3000);return paintPage(false);}
+  AC.arm=false;clearTimeout(acTimer);const was=AC.src==='manual';AC.manual=null;AC.src='vita';
+  S.pg.row.profile0=2;paintPage(true);
+  if(!was)return toast('Manual Account ID cleared','ok','check');
+  return AC.vita?toast('Manual Account ID cleared. Using the Vita Account ID','ok','check'):toast('Manual Account ID cleared. The Vita has no Account ID','err','warn');
+ }
+ if(r.act==='acman')return acOpenKeyboard(AC.manual||'');
+ if(r.act==='acct'){if(!AC.vita)return toast('Could not refresh Account ID','err','warn');return toast('Account ID refreshed from system profile','ok','check');}
  if(r.act==='hosts')return toast('PSN internet host list refreshed','ok','check');
  if(r.act==='login'){S.psn='await';S.qr=true;paintPage(true);return toast(`Scan QR on phone, then press ${inl('confirm')} to paste the full redirect URL`);}
  if(r.act==='logout'){
@@ -350,7 +397,7 @@ function pageAct(r){
  }
 }
 function pageChange(d){
- const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur'){BLUR[SET('bg').v]=s.v;applyGlass();}else if(s.id==='bg'){SET('blur').v=BLUR[s.v];applyGlass();}else if(s.id==='theme')applyTheme();}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
+ const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur'){BLUR[SET('bg').v]=s.v;applyGlass();}else if(s.id==='bg'){SET('blur').v=BLUR[s.v];applyGlass();}else if(s.id==='theme')applyTheme();else if(s.id==='acsrc')return acPick(s.v);}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
  paintPage(false);
 }
 
@@ -652,6 +699,7 @@ function act(a,arg,el){
  else if(a==='pop'){S.pop.sel=i;popPress(i);}
  else if(a==='scrim')key('back');
  else if(a==='kbok')key('ok');
+ else if(a==='kbtry'){S.kb.text=S.kb.tries[i][1];paintKb();}
 }
 /* touch swipe: vertical on the list, page pane and list popups; horizontal on the category row. One step per 64 px (list, the row pitch), 56 px (categories) or 48 px (rows); focus follows the finger like the D-pad. */
 let sw=null,suppressUntil=0;
@@ -710,7 +758,7 @@ const JUMPS=[
  ['Connecting','waking','Waking Console'],['Connecting','connecting','Starting Remote Play'],['Connecting','connecting-internet','Starting Internet Remote Play'],['Connecting','waking-all','All 8 stages (reference)'],['Connecting','reconnecting','Reconnecting'],
  ['Stream','stream','Stream overlay'],['Stream','stream-stats','Stream with stats'],['Stream','unstable','Network unstable'],['Stream','stream-quiet','Overlay after hint faded'],
  ['Settings','settings','Video'],['Settings','settings-network','Network'],['Settings','settings-display','Display'],['Settings','settings-appearance','Appearance (Background, Theme, Blur)'],['Settings','settings-controls','Controls'],['Settings','settings-advanced','Advanced'],['Settings','settings-circle','Circle confirm on (glyphs swap)'],
- ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
+ ['Profile','profile','Account'],['Profile','profile-connection','Connection: Local Wi-Fi'],['Profile','profile-connection-standby','Connection: console on standby'],['Profile','profile-connection-psn','Connection: PSN Internet'],['Profile','profile-connection-unavailable','Connection: Unavailable'],['Profile','profile-connection-none','Connection: no console'],['Profile','profile-psn','PlayStation Network (signed in)'],['Profile','profile-psn-disabled','PSN: Disabled'],['Profile','profile-psn-none','PSN: Not authenticated'],['Profile','profile-psn-expired','PSN: Token expired'],['Profile','profile-psn-refresh','PSN: Refreshing token'],['Profile','profile-psn-error','PSN: error text'],['Profile','profile-login','Phone login assist'],['Profile','profile-login-hidden','Phone login, QR hidden'],['Profile','profile-logout','Log out, second press'],['Profile','profile-account','Account: Vita ID in use'],['Profile','profile-account-manual','Account: Manual ID in use'],['Profile','profile-account-empty','Account: no Manual ID yet'],['Profile','keyboard-account','Account: keyboard, new ID'],['Profile','keyboard-account-number','Account: keyboard, number typed'],['Profile','toast-account-saved','Account: first Manual ID saved'],['Profile','toast-account-invalid','Account: invalid ID refused'],['Profile','toast-account-switched','Account: switched back to Vita'],['Profile','profile-account-clear-arm','Account: Clear, armed'],['Profile','toast-account-cleared-fallback','Account: Manual cleared, back to Vita'],['Profile','toast-account-cleared','Account: Manual cleared (not in use)'],['Profile','profile-account-notfound','Account: Vita profile unreadable'],['Profile','profile-account-signedout','Account: Vita signed out'],['Profile','profile-account-signedout-manual','Account: Vita signed out, Manual in use'],['Profile','toast-account-refresh-failed','Account: refresh failed (signed out)'],['Profile','toast-account','Toast: Account ID refreshed'],['Profile','toast-login-complete','Toast: PSN login complete'],['Profile','keyboard-paste','System keyboard (paste URL)'],
  ['Controller','controller','Summary page 1'],['Controller','controller-back','Summary page 2'],['Controller','controller-front','Front touch zones'],['Controller','controller-rear','Rear touch zones'],['Controller','controller-multi','Multi-select zones'],['Controller','controller-full','Whole front surface'],['Controller','mapping-popup','Mapping popup, one zone'],['Controller','mapping-multi','Mapping popup, several zones'],['Controller','mapping-shoulder','Mapping popup, L1']
 ];
 const DL={};
@@ -798,7 +846,22 @@ Object.assign(DL,{
  'profile-login':()=>{SET('psnmode').v=true;S.psn='await';S.qr=true;openPage('profile',2,'r');},
  'profile-login-hidden':()=>{SET('psnmode').v=true;S.psn='await';S.qr=false;openPage('profile',2,'r');},
  'profile-logout':()=>{SET('psnmode').v=true;S.psn='auth';S.logout=true;openPage('profile',2,'r');S.pg.row['profile2']=2;paintPage(false);},
- 'toast-account':()=>{S.psn='auth';openPage('profile',0,'r');S.pg.row['profile0']=1;paintPage(false);toast('Account ID refreshed from system profile','ok','check');},
+ 'profile-account':()=>{acReset('vita',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');},
+ 'profile-account-manual':()=>{acReset('manual',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');},
+ 'profile-account-empty':()=>{acReset('vita',AC_SAMPLE_VITA,null);openPage('profile',0,'r');S.pg.row.profile0=2;paintPage(false);},
+ 'keyboard-account':()=>{acReset('vita',AC_SAMPLE_VITA,null);openPage('profile',0,'r');S.pg.row.profile0=2;paintPage(false);acOpenKeyboard('');},
+ 'keyboard-account-number':()=>{acReset('vita',AC_SAMPLE_VITA,null);openPage('profile',0,'r');S.pg.row.profile0=2;paintPage(false);acOpenKeyboard(AC_SAMPLE_NUM);},
+ 'toast-account-saved':()=>{acReset('manual',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');S.pg.row.profile0=2;paintPage(false);toast('Manual Account ID saved. Now in use','ok','check');},
+ 'toast-account-invalid':()=>{acReset('vita',AC_SAMPLE_VITA,null);openPage('profile',0,'r');S.pg.row.profile0=2;paintPage(false);toast(acParse('abc123').err,'err','warn');},
+ 'toast-account-switched':()=>{acReset('vita',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');paintPage(false);toast('Using the Vita Account ID','ok','check');},
+ 'profile-account-clear-arm':()=>{acReset('vita',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');S.pg.row.profile0=4;paintPage(false);pageAct(curRow().rs[4]);},
+ 'toast-account-cleared-fallback':()=>{acReset('manual',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');S.pg.row.profile0=4;paintPage(false);pageAct(curRow().rs[4]);pageAct(curRow().rs[4]);},
+ 'toast-account-cleared':()=>{acReset('vita',AC_SAMPLE_VITA,AC_SAMPLE_MANUAL);openPage('profile',0,'r');S.pg.row.profile0=4;paintPage(false);pageAct(curRow().rs[4]);pageAct(curRow().rs[4]);},
+ 'profile-account-notfound':()=>{acReset('vita',null,null,true);openPage('profile',0,'r');S.pg.row.profile0=1;paintPage(false);},
+ 'profile-account-signedout':()=>{acReset('vita',null,null);openPage('profile',0,'r');S.pg.row.profile0=1;paintPage(false);},
+ 'profile-account-signedout-manual':()=>{acReset('manual',null,AC_SAMPLE_MANUAL);openPage('profile',0,'r');S.pg.row.profile0=1;paintPage(false);},
+ 'toast-account-refresh-failed':()=>{acReset('vita',null,null);openPage('profile',0,'r');S.pg.row.profile0=3;paintPage(false);toast('Could not refresh Account ID','err','warn');},
+ 'toast-account':()=>{S.psn='auth';acReset('vita',AC_SAMPLE_VITA,null);openPage('profile',0,'r');S.pg.row['profile0']=3;paintPage(false);toast('Account ID refreshed from system profile','ok','check');},
  'toast-login-complete':()=>{SET('psnmode').v=true;S.psn='auth';openPage('profile',2,'r');toast('PSN login complete','ok','check');},
  'keyboard-paste':()=>{SET('psnmode').v=true;S.psn='await';openPage('profile',2,'r');keyboard({title:'Paste full redirect URL',text:'https://remoteplay.dl.playstation.net/remoteplay/redirect?code=v3.AbC123',done:()=>{S.psn='auth';paintPage(true);toast('PSN login complete','ok','check');}});},
  controller:()=>{S.ct.slot=0;S.ct.sh=0;openCtrl();},
