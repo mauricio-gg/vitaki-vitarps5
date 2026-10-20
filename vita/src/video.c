@@ -409,16 +409,21 @@ typedef struct {
 #define DECHOLD_AVAIL_NONE 0xFFFFFFFFu
 /* The pull floor a session starts with: any hold above it is worth one pull attempt. */
 #define DECHOLD_PULL_FLOOR_START 0u
+/* With no empty pull for this long since the last floor change, the floor steps down by one. */
+#define DECHOLD_PULL_FLOOR_DECAY_US 3000000u
 
 static DecHoldAcc dechold_acc;
 static uint32_t dechold_fed_total = 0;
 static uint32_t dechold_handed_total = 0;
 /* Pull state, decode thread only, reset per session. A pull is tried only while the hold is above
- * the floor; a pull that returns no picture raises the floor to the current hold; a pull that
- * errors turns pulling off for the rest of the session. Pulling is armed once the decoder has
- * handed back its first picture (dechold_handed_total > 0), so there is no separate flag. */
+ * the floor; a pull that returns no picture raises the floor to the current hold; after
+ * DECHOLD_PULL_FLOOR_DECAY_US without a floor change the floor steps down by one (never below its
+ * start); a pull that errors turns pulling off for the rest of the session. Pulling is armed once
+ * the decoder has handed back its first picture (dechold_handed_total > 0), so there is no separate
+ * flag. */
 static uint32_t dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
 static bool dechold_pull_disabled = false;
+static uint64_t dechold_pull_floor_change_us = 0; /* process time of the last floor raise or drop */
 static uint32_t dechold_feed_seq[DECHOLD_FEED_RING];
 static uint64_t dechold_feed_us[DECHOLD_FEED_RING];
 
@@ -441,6 +446,7 @@ static void dechold_reset_session(void) {
   dechold_handed_total = 0;
   dechold_pull_floor = DECHOLD_PULL_FLOOR_START;
   dechold_pull_disabled = false;
+  dechold_pull_floor_change_us = 0;
   memset(dechold_feed_seq, 0, sizeof(dechold_feed_seq));
   memset(dechold_feed_us, 0, sizeof(dechold_feed_us));
   dechold_reset_window();
@@ -1160,11 +1166,22 @@ typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } 
  * feed and does not count as a no-output decode. Outcomes: a picture (hold drops by one, its
  * read-back number is returned in *readback_seq when it validates), no picture (the texture was
  * not written; the floor rises to the current hold so no pull is retried at this level), or an
- * error (the caller applies the #418 rule and pulling is turned off for the session). */
-static PullResult decoder_pull_picture(uint32_t frame_seq, uint32_t *readback_seq,
+ * error (the caller applies the #418 rule and pulling is turned off for the session).
+ * The floor decays: when DECHOLD_PULL_FLOOR_DECAY_US has passed since the last floor change it
+ * drops by one step toward DECHOLD_PULL_FLOOR_START, so a floor raised by a small hiccup does not
+ * hold the delay up for the rest of the session. now_us is the caller's process-time reading. */
+static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint32_t *readback_seq,
                                        bool *readback_valid) {
-  if (dechold_pull_disabled || dechold_handed_total == 0 ||
-      dechold_current_hold() <= dechold_pull_floor)
+  if (dechold_pull_disabled || dechold_handed_total == 0)
+    return PULL_NOT_TRIED;
+
+  if (dechold_pull_floor > DECHOLD_PULL_FLOOR_START &&
+      now_us - dechold_pull_floor_change_us >= DECHOLD_PULL_FLOOR_DECAY_US) {
+    dechold_pull_floor--;
+    dechold_pull_floor_change_us = now_us;
+    LOGD("PIPE/DECPULL floor=%u dir=down frame=%u", dechold_pull_floor, frame_seq);
+  }
+  if (dechold_current_hold() <= dechold_pull_floor)
     return PULL_NOT_TRIED;
 
   SceAvcdecAu pull_au = au;
@@ -1202,7 +1219,8 @@ static PullResult decoder_pull_picture(uint32_t frame_seq, uint32_t *readback_se
   }
 
   dechold_pull_floor = dechold_current_hold();
-  LOGD("PIPE/DECPULL floor=%u frame=%u", dechold_pull_floor, frame_seq);
+  dechold_pull_floor_change_us = pull_end_us;
+  LOGD("PIPE/DECPULL floor=%u dir=up frame=%u", dechold_pull_floor, frame_seq);
   return PULL_NO_PICTURE;
 }
 
@@ -1310,7 +1328,7 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * catch-up). An empty pull wrote nothing, so this decode's own result stands. */
   uint32_t pull_seq = 0;
   bool pull_seq_valid = false;
-  PullResult pull = decoder_pull_picture(frame_seq, &pull_seq, &pull_seq_valid);
+  PullResult pull = decoder_pull_picture(frame_seq, decode_end_us, &pull_seq, &pull_seq_valid);
   if (pull == PULL_FAILED) {
     /* The texture may be partly written: nothing from this decode can be trusted (#418 rule). */
     withdraw_unclaimed_picture(frame_seq);
