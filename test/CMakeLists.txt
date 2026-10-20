@@ -259,6 +259,17 @@ target_include_directories(psn_auth_rules_tests PRIVATE
 
 add_test(NAME vitarps5_psn_auth_rules_tests COMMAND psn_auth_rules_tests)
 
+# latency_policy_tests.c has its own main() and tests the Latency Mode start-bitrate ladder, the PSN
+# cap and the one-time Max migration (GH #420). Cross-compiled but never run by
+# ./tools/build.sh test; the native command is at the top of the file.
+add_executable(latency_policy_tests latency_policy_tests.c ../vita/src/latency_policy.c)
+
+target_include_directories(latency_policy_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_latency_policy_tests COMMAND latency_policy_tests)
+
 # redact_tests.c has its own main() and tests lib/src/redact.c and the redacted hexdump (credentials in log output keep
 # only their first 4 characters, GH #361). ./tools/build.sh test neither builds nor runs it; the
 # native cc command at the top of redact_tests.c is how it is run.

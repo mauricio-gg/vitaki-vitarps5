@@ -1,5 +1,6 @@
 #include "context.h"
 #include "host_loss_profile.h"
+#include "latency_policy.h"
 
 #include <limits.h>
 
@@ -20,22 +21,6 @@ static uint32_t host_saturating_add_u32(uint32_t lhs, uint32_t rhs) {
   if (lhs > UINT32_MAX - rhs)
     return UINT32_MAX;
   return lhs + rhs;
-}
-
-unsigned int host_latency_mode_target_kbps(VitaChiakiLatencyMode mode) {
-  switch (mode) {
-    case VITA_LATENCY_MODE_ULTRA_LOW:
-      return 1200;
-    case VITA_LATENCY_MODE_LOW:
-      return 1800;
-    case VITA_LATENCY_MODE_HIGH:
-      return 3200;
-    case VITA_LATENCY_MODE_MAX:
-      return 3800;
-    case VITA_LATENCY_MODE_BALANCED:
-    default:
-      return 2600;
-  }
 }
 
 uint32_t host_clamp_u32(uint32_t value, uint32_t min_value, uint32_t max_value) {
@@ -122,7 +107,12 @@ void host_adjust_loss_profile_with_metrics(LossDetectionProfile *profile) {
     profile->event_threshold--;
   }
 
-  float target_mbps = (float)host_latency_mode_target_kbps(context.config.latency_mode) / 1000.0f;
+  // The bitrate the stream actually started at: on the Internet/PSN path that is the capped value,
+  // so a Max setting capped to 3.5 Mbps is not read as a 40% shortfall.
+  float target_mbps =
+      (float)latency_policy_start_kbps(context.config.latency_mode,
+                                       context.stream.last_connect_used_psn_holepunch, NULL) /
+      1000.0f;
   float measured_mbps = context.stream.measured_bitrate_mbps;
   bool bitrate_known = measured_mbps > 0.01f && target_mbps > 0.0f;
   const uint64_t window_step = 2 * 1000 * 1000ULL;

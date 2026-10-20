@@ -6,6 +6,7 @@
 #include "host.h"
 #include "logging.h"
 #include "controller.h"
+#include "latency_mode.h"
 #include "room_icons.h"
 
 #ifndef CFG_VERSION
@@ -20,15 +21,6 @@
  * Configs at a lower provenance value predate the duid fix and have their
  * PSN OAuth tokens invalidated by migrate_auth_provenance() in config.c. */
 #define PSN_AUTH_PROVENANCE_CURRENT 1
-
-typedef enum vita_chiaki_latency_mode_t {
-  VITA_LATENCY_MODE_ULTRA_LOW = 0,  // Minimum bandwidth (≈1.2 Mbps)
-  VITA_LATENCY_MODE_LOW,            // Low bandwidth (≈1.8 Mbps)
-  VITA_LATENCY_MODE_BALANCED,       // Balanced default (≈2.6 Mbps)
-  VITA_LATENCY_MODE_HIGH,           // High quality (≈3.2 Mbps)
-  VITA_LATENCY_MODE_MAX,            // Near-max Vita Wi-Fi (≈3.8 Mbps)
-  VITA_LATENCY_MODE_COUNT
-} VitaChiakiLatencyMode;
 
 /// Strength of the blur / darkening drawn behind menus (SPEC C27). Stored as an int in the config.
 typedef enum vita_chiaki_background_blur_t {
@@ -78,6 +70,8 @@ typedef struct vita_chiaki_config_t {
   char *psn_oauth_redirect_uri;
   char *psn_client_duid;
   int psn_auth_provenance;
+  /// Marker of the one-time latency_mode -> Max migration (GH #420), see latency_policy.h
+  int latency_mode_migration;
   bool psn_remoteplay_enabled;
   /// Whether discovery is enabled by default
   bool auto_discovery;

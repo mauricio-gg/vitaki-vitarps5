@@ -40,6 +40,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_storage.c
     src/psn_auth.c
     src/psn_auth_rules.c
+    src/latency_policy.c
     src/vita_dns.c
     src/psn_remote.c
     src/psn_background_refresh.c

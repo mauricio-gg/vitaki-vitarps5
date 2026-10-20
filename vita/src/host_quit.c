@@ -89,10 +89,10 @@ void host_handle_quit_event(ChiakiEvent *event) {
   // successful recovery starts a fresh episode with the full budget.
   uint32_t retry_attempts = recovery_was_active ? context.stream.loss_retry_attempts : 0;
   uint32_t release_polls = recovery_was_active ? context.stream.recovery_release_polls : 0;
-  // The reconnect always starts at the normal connect bitrate (host_default_video_profile), never
-  // the dying session's: after a vita-initiated soft restart that session carries the lowered
-  // restart profile, and a lowered renegotiation preceded a console wedging into repeated
-  // "Remote Play crashed" refusals on hardware.
+  // The reconnect always starts at the user's latency-mode bitrate (host_default_video_profile),
+  // never the dying session's: after a vita-initiated soft restart that session carries the
+  // lowered restart profile, and a lowered renegotiation preceded a console wedging into
+  // repeated "Remote Play crashed" refusals on hardware.
   uint32_t retry_holdoff_ms = context.stream.retry_holdoff_ms;
   uint64_t retry_holdoff_until = context.stream.retry_holdoff_until_us;
   bool retry_holdoff_active = context.stream.retry_holdoff_active;

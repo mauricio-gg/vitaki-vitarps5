@@ -18,7 +18,7 @@ const char *ui_label_resolution(ChiakiVideoResolutionPreset preset);
 /** ui_label_fps() - "30 FPS" or "60 FPS". */
 const char *ui_label_fps(ChiakiVideoFPSPreset preset);
 
-/** ui_label_latency_mode() - The mode name with its bitrate, e.g. "Balanced (≈2.6 Mbps)". */
+/** ui_label_latency_mode() - The mode name with its bitrate, e.g. "Balanced (≈3.5 Mbps)". */
 const char *ui_label_latency_mode(VitaChiakiLatencyMode mode);
 
 /** ui_label_on_off() - "On" or "Off". */

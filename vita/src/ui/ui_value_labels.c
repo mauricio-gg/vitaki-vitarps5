@@ -38,16 +38,16 @@ const char *ui_label_fps(ChiakiVideoFPSPreset preset) {
 const char *ui_label_latency_mode(VitaChiakiLatencyMode mode) {
   switch (mode) {
     case VITA_LATENCY_MODE_ULTRA_LOW:
-      return "Ultra Low (≈1.2 Mbps)";
+      return "Ultra Low (≈1.5 Mbps)";
     case VITA_LATENCY_MODE_LOW:
-      return "Low (≈1.8 Mbps)";
+      return "Low (≈2.5 Mbps)";
     case VITA_LATENCY_MODE_HIGH:
-      return "High (≈3.2 Mbps)";
+      return "High (≈4.5 Mbps)";
     case VITA_LATENCY_MODE_MAX:
-      return "Max (≈3.8 Mbps)";
+      return "Max (≈6 Mbps)";
     case VITA_LATENCY_MODE_BALANCED:
     default:
-      return "Balanced (≈2.6 Mbps)";
+      return "Balanced (≈3.5 Mbps)";
   }
 }
 

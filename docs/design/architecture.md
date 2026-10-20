@@ -30,7 +30,8 @@ Layering rule: `vita/` calls into `lib/`, never the other way round. Where `vita
 - `host_input.c`: the input thread (controller, touch, motion sampling) and its priority constant.
 - `host_feedback.c`: on-screen hints and the loss/overflow/resync reactions.
 - `host_metrics.c`: per-stream counters and latency/FPS windows.
-- `host_loss_profile.c`: latency-mode bitrate targets and loss-detection thresholds.
+- `host_loss_profile.c`: loss-detection thresholds per latency mode.
+- `latency_policy.c`: the latency-mode start-bitrate ladder, the PSN cap and the one-time Max migration (pure, no app state; native test in `test/latency_policy_tests.c`).
 - `host_disconnect.c`: quit-reason labels, which reasons allow retry, the disconnect banner.
 - `host_registration.c`: `host_register()` (PIN registration), the pairing attempt state and its UI API (`host_registration_poll()`, `host_registration_cancel()`, `host_registration_in_progress()`, `host_registration_take_result()`, declared in `host_registration.h`), and `host_wakeup()`.
 - `host_registration_result.c`: pure. `HostRegistrationResult` (PAIRED, FAILED, UNREACHABLE, TIMEOUT, CANCELLED), the 30 s timeout constant, and `host_registration_resolve()`, which turns the lib event plus timeout, user cancel and stored-ok into the result. Tested natively in `test/pairing_result_tests.c`.

@@ -286,6 +286,6 @@ void parse_latency_mode_with_migration(VitaChiakiConfig *cfg, toml_table_t *sett
     free(str_value);
     apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
   } else {
-    cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+    cfg->latency_mode = VITA_LATENCY_MODE_MAX;
   }
 }

@@ -30,7 +30,7 @@ ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionP
 
 VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
   if (!mode)
-    return VITA_LATENCY_MODE_BALANCED;
+    return VITA_LATENCY_MODE_MAX;
   if (strcmp(mode, "ultra_low") == 0)
     return VITA_LATENCY_MODE_ULTRA_LOW;
   if (strcmp(mode, "low") == 0)
@@ -39,7 +39,9 @@ VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
     return VITA_LATENCY_MODE_HIGH;
   if (strcmp(mode, "max") == 0)
     return VITA_LATENCY_MODE_MAX;
-  return VITA_LATENCY_MODE_BALANCED;
+  if (strcmp(mode, "balanced") == 0)
+    return VITA_LATENCY_MODE_BALANCED;
+  return VITA_LATENCY_MODE_MAX;
 }
 
 const char *serialize_latency_mode(VitaChiakiLatencyMode mode) {

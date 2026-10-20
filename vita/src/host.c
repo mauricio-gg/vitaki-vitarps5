@@ -9,6 +9,8 @@
 #include "host_callbacks.h"
 #include "host_quit.h"
 #include "host_constants.h"
+#include "latency_policy.h"
+#include "config_internal.h"
 #include "discovery.h"
 #include "audio.h"
 #include "psn_auth.h"
@@ -198,16 +200,13 @@ uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn
       resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
     resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   chiaki_connect_video_profile_preset(profile, resolution, context.config.fps);
-  /* PSN/internet path: cap the start bitrate at PSN_REMOTE_BITRATE_CAP_KBPS
-   * (3.5 Mbps). The 540p preset default of 6 Mbps saturates Vita 802.11g
-   * Wi-Fi combined with a typical home upstream, and PS5 does not support
+  /* The start bitrate is the user's Latency Mode (GH #420), not the preset's. On the PSN/internet
+   * path it is capped at PSN_REMOTE_BITRATE_CAP_KBPS (3.5 Mbps), lower of the two wins: 6 Mbps
+   * saturates Vita 802.11g Wi-Fi combined with a typical home upstream, and PS5 does not support
    * mid-session bitrate renegotiation, so the start value is final. */
-  if (psn_remote && profile->bitrate > PSN_REMOTE_BITRATE_CAP_KBPS) {
-    uint32_t uncapped = profile->bitrate;
-    profile->bitrate = PSN_REMOTE_BITRATE_CAP_KBPS;
-    return uncapped;
-  }
-  return 0;
+  uint32_t uncapped = 0;
+  profile->bitrate = latency_policy_start_kbps(context.config.latency_mode, psn_remote, &uncapped);
+  return uncapped;
 }
 
 int host_stream(VitaChiakiHost *host) {
@@ -308,12 +307,13 @@ int host_stream(VitaChiakiHost *host) {
 
   ChiakiConnectVideoProfile profile = {};
   uint32_t uncapped_kbps = host_default_video_profile(&profile, psn_remote);
-  LOGD("Bitrate policy: preset_default (%u kbps @ %ux%u)",
+  LOGD("Bitrate policy: latency_mode=%s (%u kbps @ %ux%u)",
+       serialize_latency_mode(context.config.latency_mode),
        uncapped_kbps ? uncapped_kbps : profile.bitrate, profile.width, profile.height);
   if (uncapped_kbps)
     LOGD("PSN path: clamped bitrate %u -> %u kbps", uncapped_kbps, profile.bitrate);
   if (context.stream.recovery_active) {
-    LOGD("Recovery reconnect attempt %u/%u (cause: %s): preset bitrate, no recovery override",
+    LOGD("Recovery reconnect attempt %u/%u (cause: %s): latency-mode bitrate, no recovery override",
          context.stream.loss_retry_attempts, LOSS_RETRY_MAX_ATTEMPTS,
          context.stream.recovery_cause ? context.stream.recovery_cause : "unknown");
   }

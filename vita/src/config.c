@@ -10,6 +10,7 @@
 #include "config_writer.h"
 #include "context.h"
 #include "host.h"
+#include "latency_policy.h"
 #include "room_icons.h"
 #include "ui/ui_draw_stats.h"
 #include "token_crypto.h"
@@ -40,6 +41,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->psn_oauth_redirect_uri = NULL;
   cfg->psn_client_duid = NULL;
   cfg->psn_auth_provenance = 0;
+  cfg->latency_mode_migration = 0;
   cfg->psn_remoteplay_enabled = false;
   cfg->auto_discovery = true;
   cfg->resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
@@ -52,7 +54,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->show_latency = false;
   cfg->show_network_indicator = true;
   cfg->show_stream_exit_hint = true;
-  cfg->latency_mode = VITA_LATENCY_MODE_BALANCED;
+  cfg->latency_mode = VITA_LATENCY_MODE_MAX;
   cfg->stretch_video = false;
   cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
@@ -377,6 +379,10 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
   if (datum.ok)
     cfg->psn_auth_provenance = (int)datum.u.i;
 
+  datum = toml_int_in(settings, "latency_mode_migration");
+  if (datum.ok)
+    cfg->latency_mode_migration = (int)datum.u.i;
+
   datum = toml_int_in(settings, "controller_map_id");
   if (datum.ok)
     cfg->controller_map_id = datum.u.i;
@@ -540,16 +546,34 @@ static void migrate_auth_provenance(VitaChiakiConfig *cfg, bool *migrated) {
   *migrated = true;
 }
 
+/*
+ * migrate_latency_mode — One-time migration for GH #420.
+ *
+ * Latency Mode never changed the start bitrate before #420 (every session asked for 6 Mbps), so
+ * the value a user saved carries no intent. Move every existing config to Max once, so current
+ * users keep the picture they have today; the marker then stops it from overriding a later
+ * choice. Must run after parse_latency_mode_with_migration() so it overrides the loaded value.
+ */
+static void migrate_latency_mode(VitaChiakiConfig *cfg, bool *migrated) {
+  if (!latency_policy_migrate(&cfg->latency_mode, &cfg->latency_mode_migration))
+    return;
+  LOGD("Latency mode migration: set to max, start bitrate now follows the setting (GH #420)");
+  *migrated = true;
+}
+
 static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
                                               bool migrated_root_settings,
                                               bool migrated_resolution_policy,
                                               bool migrated_plaintext_tokens,
-                                              bool migrated_auth_provenance) {
+                                              bool migrated_auth_provenance,
+                                              bool migrated_latency_mode) {
   if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy ||
-        migrated_plaintext_tokens || migrated_auth_provenance))
+        migrated_plaintext_tokens || migrated_auth_provenance || migrated_latency_mode))
     return;
 
-  if (migrated_auth_provenance) {
+  if (migrated_latency_mode) {
+    LOGD("Migrating latency mode (GH #420); rewriting %s", CFG_FILENAME);
+  } else if (migrated_auth_provenance) {
     LOGD("Migrating PSN auth provenance (GH #204); rewriting %s", CFG_FILENAME);
   } else if (migrated_plaintext_tokens) {
     LOGD("Migrating legacy plaintext PSN tokens to encrypted storage; rewriting %s", CFG_FILENAME);
@@ -580,6 +604,7 @@ void config_parse(VitaChiakiConfig *cfg) {
      * placeholder of 0 -- otherwise the next boot's migrate_auth_provenance()
      * would see 0 and wipe the freshly-minted GOOD tokens (GH #204). */
     cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
+    cfg->latency_mode_migration = LATENCY_MODE_MIGRATION_CURRENT;
     goto config_done;
   }
 
@@ -589,6 +614,7 @@ void config_parse(VitaChiakiConfig *cfg) {
      * tokens were read), so there is nothing pre-fix to migrate. Mark as
      * current for the same reason as the fresh-install branch above. */
     cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
+    cfg->latency_mode_migration = LATENCY_MODE_MIGRATION_CURRENT;
     return;
   }
 
@@ -596,6 +622,7 @@ void config_parse(VitaChiakiConfig *cfg) {
     /* Invalid [general] table: bail before any PSN token fields are parsed.
      * Same rationale as the two early-outs above. */
     cfg->psn_auth_provenance = PSN_AUTH_PROVENANCE_CURRENT;
+    cfg->latency_mode_migration = LATENCY_MODE_MIGRATION_CURRENT;
     toml_free(parsed);
     return;
   }
@@ -605,6 +632,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool migrated_resolution_policy = false;
   bool migrated_plaintext_tokens = false;
   bool migrated_auth_provenance = false;
+  bool migrated_latency_mode = false;
   toml_table_t *settings = toml_table_in(parsed, "settings");
 
   parse_basic_settings(cfg, settings, &migrated_plaintext_tokens);
@@ -622,6 +650,7 @@ void config_parse(VitaChiakiConfig *cfg) {
                                      &migrated_legacy_settings, &migrated_root_settings);
   parse_latency_mode_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                                     &migrated_root_settings);
+  migrate_latency_mode(cfg, &migrated_latency_mode);
   parse_background(cfg, settings);
   parse_background_blur(cfg, settings);
   parse_theme(cfg, settings);
@@ -635,7 +664,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
                                     migrated_resolution_policy, migrated_plaintext_tokens,
-                                    migrated_auth_provenance);
+                                    migrated_auth_provenance, migrated_latency_mode);
 
 config_done:
   LOGD(
@@ -799,6 +828,9 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
    * with no PSN tokens/DUID yet, so a fresh install never re-runs the
    * pre-duid token invalidation on a later boot (GH #204). */
   fprintf(fp, "psn_auth_provenance = %d\n", cfg->psn_auth_provenance);
+  /* Unconditional for the same reason: without the marker the latency-mode migration (GH #420)
+   * would reset the user's choice to Max on every boot. */
+  fprintf(fp, "latency_mode_migration = %d\n", cfg->latency_mode_migration);
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
   BoolSerializeSpec bool_settings[] = {
       {"circle_btn_confirm", cfg->circle_btn_confirm},
