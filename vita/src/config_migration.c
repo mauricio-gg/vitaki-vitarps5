@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "config_internal.h"
+#include "config_writer.h"
 #include "context.h"
 #include "logging.h"
 
@@ -72,18 +73,11 @@ bool config_fix_legacy_queue_depth(void) {
   memcpy(patched + head_len, replacement, (size_t)replacement_len);
   memcpy(patched + head_len + (size_t)replacement_len, line_end, tail_len);
 
-  fp = fopen(CFG_FILENAME, "w");
-  if (!fp) {
-    free(data);
-    free(patched);
-    return false;
-  }
-  size_t written = fwrite(patched, 1, new_size, fp);
-  fclose(fp);
+  const bool saved = config_writer_replace_file(CFG_FILENAME, patched, new_size);
 
   free(data);
   free(patched);
-  return written == new_size;
+  return saved;
 }
 
 static bool parse_legacy_bool_setting(toml_table_t *parsed, const char *key, bool *out) {

@@ -176,6 +176,7 @@ static bool config_parse_file_with_queue_fix(toml_table_t **parsed_out) {
   char errbuf[200];
   bool attempted_queue_fix = false;
 
+  config_writer_recover_backup(CFG_FILENAME);
   while (true) {
     FILE *fp = fopen(CFG_FILENAME, "r");
     if (!fp) {

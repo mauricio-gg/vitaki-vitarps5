@@ -27,3 +27,4 @@ void hexdump(const uint8_t *data, size_t len);
 
 #define LOGD(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__)
 #define LOGE(fmt, ...) fprintf(stderr, "[ERROR] " fmt "\n", ##__VA_ARGS__)
+#define LOGW(fmt, ...) fprintf(stderr, "[WARN] " fmt "\n", ##__VA_ARGS__)

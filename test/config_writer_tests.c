@@ -65,25 +65,84 @@ static void test_latest_save_wins_and_sync_save_waits(void) {
   assert(strcmp(saved, "after\n") == 0);
 }
 
-/* catches: a synchronous save reporting success when the file could not be written, which would
- * let a pairing be reported as stored when it was lost; and a failed write wedging the writer so
- * later saves never land. */
-static void test_sync_save_reports_a_failed_write(void) {
-  remove(CFG_FILENAME);
-  assert(mkdir(CFG_FILENAME, 0700) == 0); /* fopen("w") on a directory fails */
-  assert(!submit_text("lost\n", true));
-  assert(rmdir(CFG_FILENAME) == 0);
+#define CFG_TMP CFG_FILENAME CONFIG_TMP_SUFFIX
+#define CFG_BAK CFG_FILENAME CONFIG_BACKUP_SUFFIX
 
-  assert(submit_text("kept\n", true));
+/** Writes @p text to @p path, replacing it. */
+static void put_file(const char *path, const char *text) {
+  FILE *fp = fopen(path, "w");
+  assert(fp != NULL);
+  assert(fputs(text, fp) >= 0);
+  assert(fclose(fp) == 0);
+}
+
+static bool exists(const char *path) {
+  struct stat st;
+  return stat(path, &st) == 0;
+}
+
+/* catches: a save that fails (here the temp file cannot be created) emptying or damaging the
+ * existing config, which is the pairing loss in #395; a synchronous save reporting success when
+ * the file could not be written; and a failed write wedging the writer so later saves never land. */
+static void test_failed_save_keeps_the_old_config(void) {
+  remove(CFG_FILENAME);
+  remove(CFG_BAK);
+  put_file(CFG_FILENAME, "old-config\n");
+  assert(mkdir(CFG_TMP, 0700) == 0); /* fopen on the temp path now fails */
+  assert(!submit_text("lost\n", true));
+
   char saved[FILE_TEXT_MAX];
   read_file(saved, sizeof(saved));
+  assert(strcmp(saved, "old-config\n") == 0);
+  assert(!exists(CFG_BAK));
+  rmdir(CFG_TMP); /* the failed save may already have removed the empty directory */
+
+  assert(submit_text("kept\n", true));
+  read_file(saved, sizeof(saved));
   assert(strcmp(saved, "kept\n") == 0);
+}
+
+/* catches: a save over an existing config leaving the backup behind, which a later startup
+ * could wrongly restore over newer settings, or leaving the old contents in place. */
+static void test_save_over_existing_config_leaves_no_backup(void) {
+  put_file(CFG_FILENAME, "old-config\n");
+  put_file(CFG_BAK, "stale-backup\n"); /* left by a save that died after the rename */
+  assert(submit_text("new-config\n", true));
+
+  char saved[FILE_TEXT_MAX];
+  read_file(saved, sizeof(saved));
+  assert(strcmp(saved, "new-config\n") == 0);
+  assert(!exists(CFG_BAK));
+  assert(!exists(CFG_TMP));
+}
+
+/* catches: a power cut between "old file moved aside" and "new file renamed in" leaving the user
+ * with no config at all on the next start; and recovery clobbering a config that is there. */
+static void test_startup_restores_backup_only_when_config_is_missing(void) {
+  remove(CFG_FILENAME);
+  put_file(CFG_BAK, "backup-config\n");
+  put_file(CFG_TMP, "half-written"); /* must never be promoted */
+  assert(config_writer_recover_backup(CFG_FILENAME));
+
+  char saved[FILE_TEXT_MAX];
+  read_file(saved, sizeof(saved));
+  assert(strcmp(saved, "backup-config\n") == 0);
+  assert(!exists(CFG_BAK));
+
+  put_file(CFG_BAK, "older-backup\n");
+  assert(!config_writer_recover_backup(CFG_FILENAME));
+  read_file(saved, sizeof(saved));
+  assert(strcmp(saved, "backup-config\n") == 0);
+  remove(CFG_BAK);
+  remove(CFG_TMP);
 }
 
 int main(void) {
   config_writer_init(CFG_FILENAME);
   test_latest_save_wins_and_sync_save_waits();
-  test_sync_save_reports_a_failed_write();
+  test_failed_save_keeps_the_old_config();
+  test_save_over_existing_config_leaves_no_backup();
+  test_startup_restores_backup_only_when_config_is_missing();
   remove(CFG_FILENAME);
   puts("config writer tests passed");
   return 0;
