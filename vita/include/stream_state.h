@@ -145,9 +145,7 @@ typedef struct vita_chiaki_stream_t {
   volatile bool input_thread_should_exit;  // Signal for clean thread exit (volatile prevents CPU
                                            // caching on ARM)
   float measured_bitrate_mbps;             // Last measured downstream bitrate
-  uint32_t measured_rtt_ms;                // Last measured round-trip time (ms)
   uint64_t last_rtt_refresh_us;            // Timestamp of latest latency refresh
-  uint64_t metrics_last_update_us;         // Timestamp for latest metrics sample
   uint64_t suspend_tick_last_us;           // GH #258: previous UI-loop tick timestamp; a gap beyond
                                            // SUSPEND_GAP_THRESHOLD_US means the app was suspended
   uint64_t suspend_resync_next_us;  // GH #258: deadline for the next scheduled post-resume resync
