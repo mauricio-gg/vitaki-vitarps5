@@ -236,9 +236,12 @@ static PsnHostAddResult add_psn_host_from_device(const ChiakiHolepunchDeviceInfo
   host->type &= ~(DISCOVERED | MANUALLY_ADDED);
   if (device->type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5)
     host->target = CHIAKI_TARGET_PS5_1;
-  /* The seed's real home address is what the user sees; hostname (below) stays as-is for routing.
-   */
-  snprintf(host->display_address, sizeof(host->display_address), "%s", src->hostname);
+  /* The matching seed's real home address is what the user sees; hostname (below) stays as-is
+   * for routing. A fallback seed is just "some registered PS5", possibly a different console,
+   * so its address is not shown (the slots then say Unknown / hide). */
+  if (exact_match) {
+    snprintf(host->display_address, sizeof(host->display_address), "%s", src->hostname);
+  }
   if (!host->hostname[0]) {
     snprintf(host->hostname, sizeof(host->hostname), "%s", device->device_name);
   }

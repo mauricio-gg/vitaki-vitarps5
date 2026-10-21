@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
-// Native (non-Vita) test for issue #94: the Profile > Connection Console IP row (and the Home
-// detail panel's Address row, which reads the same function) must never show a PSN console's
-// name as its address. `./tools/build.sh test` only cross-compiles, so run this on the host
+// Native (non-Vita) test for issue #94: ui_connection_console_ip(), which feeds the Profile
+// Connection Console IP row (ui_profile.c and build_connection_rows in ui_home_detail.c), must
+// never return a PSN console's name as its address. `./tools/build.sh test` only cross-compiles, so run this on the host
 // (from the repo root):
 //   cc -std=gnu11 -Wall -Wextra -I test/stubs/manual_hosts -I vita/include -I lib/include \
 //      -I lib/src -I vita/third_party test/ui_connection_ip_tests.c \
