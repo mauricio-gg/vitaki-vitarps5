@@ -21,6 +21,7 @@ add_executable(vitarps5_tests
     ../vita/src/config_hosts.c
     ../vita/src/room_icons.c
     ../vita/src/psn_account_id.c
+    ../vita/src/json_string.c
     ../vita/src/token_crypto.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
