@@ -23,6 +23,7 @@
 #include "sps_probe.h"
 #include "context.h"
 #include "ui.h"
+#include "ui/ui_draw_stats.h"
 
 #include <chiaki/thread.h>
 
@@ -1834,6 +1835,7 @@ bool vita_video_render_latest_frame(void) {
 
   vita2d_wait_rendering_done();
   vita2d_swap_buffers();
+  UI_DRAW_STATS_SWAP("stream");
 
   // D7: Track actual frames rendered to screen per second
   uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -2001,7 +2003,7 @@ static void *decode_thread_func(void *user) {
 void vita_h264_start() {
   active_video_thread = true;
   chiaki_mutex_init(&mtx, false);
-  vita2d_set_vblank_wait(false);
+  ui_set_vblank_wait(false);
   frame_ready_for_display = false;
   incoming_frame_corrupt = false;
   incoming_frame_first_packet_ms = 0;
@@ -2098,7 +2100,7 @@ void vita_h264_start() {
 #define UI_RENDER_QUIESCENCE_POLL_US 1000
 
 void vita_h264_stop() {
-  vita2d_set_vblank_wait(true);
+  ui_set_vblank_wait(true);
   active_video_thread = false;
   __sync_synchronize(); /* pairs with the barrier in vita_video_render_latest_frame() */
   frame_ready_for_display = false;

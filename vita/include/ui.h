@@ -17,6 +17,17 @@ typedef struct vita_chiaki_ui_state_t {
 } VitaChiakiUIState;
 
 void draw_ui();
+
+/**
+ * ui_set_vblank_wait() - Switches vita2d's wait for the display refresh on or off and remembers
+ * the choice. The only place that calls vita2d_set_vblank_wait(), because vita2d has no getter.
+ * Callable from any thread (the stream's start and stop run on the session thread).
+ * @param wait true to make a buffer swap wait for vblank, false to swap at once
+ */
+void ui_set_vblank_wait(bool wait);
+
+/** ui_vblank_wait_is_on() - The state last passed to ui_set_vblank_wait() (true at start-up). */
+bool ui_vblank_wait_is_on(void);
 void ui_clear_waking_wait(void);
 bool ui_reload_psn_account_id(void);
 

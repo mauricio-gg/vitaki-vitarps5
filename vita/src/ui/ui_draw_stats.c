@@ -2,14 +2,21 @@
 
 #if VITARPS5_DEBUG_TOOLS
 
+#include <string.h>
+
+#include <psp2/display.h>
 #include <psp2/gxm.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
 #include "context.h"
+#include "ui.h"
 
 /* Log one line per second, in microseconds. */
 #define DRAW_STATS_LOG_INTERVAL_US 1000000ULL
+
+/* Name of a swap whose screen is not counted by UI/DRAWS. */
+#define SWAP_STATS_OTHER_NAME "other"
 
 /* Provided by the linker for -Wl,--wrap=sceGxmDraw (vita/CMakeLists.txt). */
 int __real_sceGxmDraw(SceGxmContext *context, SceGxmPrimitiveType primType,
@@ -36,6 +43,21 @@ static uint64_t s_last_frame_end_us = 0;
 static uint64_t s_worst_interval_us = 0;
 static const char *s_work_name = NULL;
 static uint64_t s_work_us = 0;
+
+/* Tear probe (ticket #442). Only the UI thread swaps. The window belongs to one screen name; the
+ * last vcount carries over from window to window of the same screen. */
+typedef struct {
+  const char *screen;
+  uint32_t swaps;
+  uint32_t nowait;
+  uint32_t same_vcount;
+  uint32_t vcount_delta_max;
+  uint64_t start_us;
+} SwapWindow;
+
+static SwapWindow s_swap_window;
+static uint32_t s_swap_last_vcount = 0;
+static bool s_swap_have_vcount = false;
 
 int __wrap_sceGxmDraw(SceGxmContext *context, SceGxmPrimitiveType primType,
                       SceGxmIndexFormat indexType, const void *indexData, unsigned int indexCount) {
@@ -101,6 +123,50 @@ static void track_frame_interval(const char *screen) {
   s_last_frame_end_us = now_us;
   s_work_name = NULL;
   s_work_us = 0;
+}
+
+/** Logs the open swap window as one UI/SWAPS line and empties it. Does nothing for an empty one. */
+static void swap_window_flush(void) {
+  if (s_swap_window.swaps == 0)
+    return;
+  LOGD("UI/SWAPS screen=%s swaps=%u nowait=%u same_vcount=%u vcount_delta_max=%u",
+       s_swap_window.screen, s_swap_window.swaps, s_swap_window.nowait, s_swap_window.same_vcount,
+       s_swap_window.vcount_delta_max);
+  s_swap_window = (SwapWindow){0};
+}
+
+void ui_draw_stats_swap(const char *screen) {
+  const uint64_t now_us = sceKernelGetProcessTimeWide();
+  const uint32_t vcount = sceDisplayGetVcount();
+  if (!screen)
+    screen = SWAP_STATS_OTHER_NAME;
+
+  if (s_swap_window.swaps > 0 && strcmp(screen, s_swap_window.screen) != 0) {
+    swap_window_flush();
+    /* The vcount step across a screen change is not a swap-to-swap step of either screen. */
+    s_swap_have_vcount = false;
+  }
+  if (s_swap_window.swaps == 0) {
+    s_swap_window.screen = screen;
+    s_swap_window.start_us = now_us;
+  }
+
+  if (s_swap_have_vcount) {
+    const uint32_t step = vcount - s_swap_last_vcount;
+    if (step == 0)
+      s_swap_window.same_vcount++;
+    if (step > s_swap_window.vcount_delta_max)
+      s_swap_window.vcount_delta_max = step;
+  }
+  s_swap_last_vcount = vcount;
+  s_swap_have_vcount = true;
+
+  s_swap_window.swaps++;
+  if (!ui_vblank_wait_is_on())
+    s_swap_window.nowait++;
+
+  if (now_us - s_swap_window.start_us >= DRAW_STATS_LOG_INTERVAL_US)
+    swap_window_flush();
 }
 
 void ui_draw_stats_frame_end(const char *screen) {
