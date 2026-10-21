@@ -96,6 +96,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_spinner.c
     src/ui/ui_splash.c
     src/ui/ui_splash_particles.c
+    src/ui/ui_splash_timeline.c
     src/ui/ui_connecting_ring.c
     src/ui/ui_steps.c
     src/ui/ui_text_button.c

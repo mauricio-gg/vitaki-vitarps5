@@ -5,7 +5,9 @@
  * A port of build() and render() in docs/design/ui-mocks/splash.html. Pure: no SDK dependency, so
  * the sampling can be checked natively. Every tunable number arrives in UiSplashParams (the splash
  * module fills it from the UI_SPLASH_* constants in ui_theme.h, which pulls in vita2d.h). Times are
- * milliseconds since the splash clock started.
+ * milliseconds on the splash clock. The clock of #366 ran forwards (the logo assembled); the
+ * dissolve of #398 feeds the same functions a clock that runs backwards from the assembly time
+ * plus the last particle's absorb time down to 0, so the particles lift off the logo.
  */
 
 #pragma once
@@ -28,7 +30,7 @@ typedef struct {
   float bow_px;                       /**< Largest sideways bow, in pixels. */
   float stagger_ms, flight_ms, absorb_ms;
   float alpha_start; /**< Alpha at the start of the flight. */
-  float logo_gamma;  /**< Exponent of the crisp logo's fade-in. */
+  float logo_gamma;  /**< Exponent of the crisp logo's opacity curve (3.0 on the dissolve). */
   float assembly_ms; /**< From here on the crisp logo is whole. */
 } UiSplashParams;
 
@@ -63,6 +65,9 @@ typedef struct {
  */
 int ui_splash_sample(const uint8_t *rgba, int src_w, int src_h, int stride_px,
                      const UiSplashParams *params, UiSplashParticle *out, int capacity);
+
+/** ui_splash_ease_out_cubic() - 1 - (1 - u)^3, with @u clamped to 0..1: fast start, soft finish. */
+float ui_splash_ease_out_cubic(float u);
 
 /**
  * ui_splash_particle_quad() - Where a particle is, how big and how opaque, at time @t_ms.

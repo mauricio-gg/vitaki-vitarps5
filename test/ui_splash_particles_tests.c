@@ -46,7 +46,7 @@ static UiSplashParams test_params(void) {
   p.flight_ms = 600.0f;
   p.absorb_ms = 120.0f;
   p.alpha_start = 0.12f;
-  p.logo_gamma = 1.3f;
+  p.logo_gamma = 3.0f;
   p.assembly_ms = 1000.0f;
   return p;
 }

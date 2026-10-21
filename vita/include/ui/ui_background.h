@@ -53,6 +53,17 @@ void ui_background_prepare(bool slow);
 void ui_background_draw(bool slow);
 
 /**
+ * ui_background_draw_sharp() - Draw the selected scene at full resolution whatever the blur level.
+ * @slow: same meaning as for ui_background_draw().
+ *
+ * For the splash (#398): the same draws and the same time-based animation as ui_background_draw()
+ * at level None, so the picture continues unbroken into Home, but it neither reads the blur
+ * setting nor creates or renders a blur target, and needs no ui_background_prepare(): the caller
+ * resets the pool (vita2d_start_drawing() or vita2d_pool_reset()). Performs no heap allocation.
+ */
+void ui_background_draw_sharp(bool slow);
+
+/**
  * ui_background_draw_home_vignette() - Draw the Home vignette over the scene.
  *
  * Three gradient layers (right edge, left edge, top and bottom). Home calls it before drawing

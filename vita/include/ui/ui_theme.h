@@ -1083,27 +1083,40 @@ typedef enum ui_face_t {
 #define UI_SPLASH_SMALL_CHANCE 0.55f
 #define UI_SPLASH_BOW_PX 70.0f
 
-/* Timing: a particle waits 0..UI_SPLASH_STAGGER_MS, flies for UI_SPLASH_FLIGHT_MS (alpha rising
- * from UI_SPLASH_ALPHA_START to 1), then is absorbed over UI_SPLASH_ABSORB_MS. The crisp logo fades
- * in as the mean flight progress to the power UI_SPLASH_LOGO_GAMMA, and is whole from
- * UI_SPLASH_ASSEMBLY_MS on. Once loading is done the splash fades out over UI_SPLASH_FADE_MS. */
+/* Particle motion, on the #366 clock (which ran forwards; the dissolve of #398 runs it backwards
+ * from UI_SPLASH_DISSOLVE_MS down to 0): a particle waits 0..UI_SPLASH_STAGGER_MS, flies for
+ * UI_SPLASH_FLIGHT_MS (alpha rising from UI_SPLASH_ALPHA_START to 1), then is absorbed over
+ * UI_SPLASH_ABSORB_MS. The crisp logo's opacity is the mean flight progress to the power
+ * UI_SPLASH_LOGO_GAMMA_OUT (3.0, so it thins while the particles are visibly leaving it), and is
+ * whole from UI_SPLASH_ASSEMBLY_MS on. */
 #define UI_SPLASH_STAGGER_MS 300.0f
 #define UI_SPLASH_FLIGHT_MS 600.0f
 #define UI_SPLASH_ABSORB_MS 120.0f
 #define UI_SPLASH_ALPHA_START 0.12f
-#define UI_SPLASH_LOGO_GAMMA 1.3f
+#define UI_SPLASH_LOGO_GAMMA_OUT 3.0f
 #define UI_SPLASH_ASSEMBLY_MS 1000.0f
-#define UI_SPLASH_FADE_MS 300.0f
+
+/* Timeline (ui_splash_timeline.c), milliseconds from the start of the splash unless said
+ * otherwise. The logo fades in over UI_SPLASH_LOGO_IN_MS (ease-out cubic) while growing from
+ * UI_SPLASH_LOGO_SCALE_START to 1. The dissolve starts at D = max(loading done,
+ * UI_SPLASH_MIN_HOLD_MS) and lasts UI_SPLASH_DISSOLVE_MS (stagger + flight + absorb). Measured
+ * from D: Home starts to show UI_SPLASH_UI_START_MS later, reaches full opacity after another
+ * UI_SPLASH_UI_FADE_MS, and only then takes input. */
+#define UI_SPLASH_LOGO_IN_MS 450.0f
+#define UI_SPLASH_LOGO_SCALE_START 0.97f
+#define UI_SPLASH_MIN_HOLD_MS 1000.0f
+#define UI_SPLASH_DISSOLVE_MS 1020.0f
+#define UI_SPLASH_UI_START_MS 400.0f
+#define UI_SPLASH_UI_FADE_MS 300.0f
 
 /** Depth of the splash's vertices (vita2d draws 2D shapes at z = 0.5). */
 #define UI_SPLASH_Z 0.5f
 
 /* Start-up (ui.c): while the app loads, a splash frame is drawn only if this many microseconds
  * (one display frame at 60 Hz) have passed since the last one was presented, so a run of fast
- * loading steps is not throttled to the display rate. The scene is cleared black for the splash
- * and grey (the colour every other screen starts from) once loading is finished. */
+ * loading steps is not throttled to the display rate. The scene is cleared grey, the colour every
+ * screen starts from; the background covers it from the first splash frame. */
 #define UI_SPLASH_FRAME_INTERVAL_US 16667
-#define UI_SPLASH_CLEAR_COLOR RGBA8(0x00, 0x00, 0x00, 0xFF)
 #define UI_SCENE_CLEAR_COLOR RGBA8(0x40, 0x40, 0x40, 0xFF)
 
 /* Start-up asset preload (ui_asset_preload.c): a worker thread reads and decodes the start-up PNGs

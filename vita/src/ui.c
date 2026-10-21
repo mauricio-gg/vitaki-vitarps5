@@ -380,8 +380,6 @@ static const char *s_interval_longest_name = "none";
 static bool s_in_splash_frame = false;
 /** Process time at which the last loading step finished. */
 static uint64_t s_load_done_us = 0;
-/** Set when loading ends; the main loop then blocks held inputs once (see draw_ui()). */
-static bool s_splash_block_pending = false;
 
 /** startup_note_step() - Remember @name if it is the longest step since the last splash frame. */
 static void startup_note_step(const char *name, uint64_t duration_us) {
@@ -412,8 +410,9 @@ static void startup_note_presented(void) {
  *             only one scene may be open at a time) and *@more_work is set to whether any glyph
  *             remains to bake.
  *
- * A frame is: poll skip, open the scene, clear, [bake glyphs], draw the splash (3 draws), close,
- * swap. The draw counters start after the bake, so the glyph quads are not counted.
+ * A frame is: poll skip, open the scene, clear, [bake glyphs], draw the sharp background (the
+ * saved theme and scene, never blurred, no render target) and the splash's logo, close, swap. The
+ * draw counters start after the bake, so the glyph quads are not counted.
  */
 static void splash_frame(bool *more_work) {
   s_in_splash_frame = true;
@@ -434,6 +433,7 @@ static void splash_frame(bool *more_work) {
       LOGD("PIPE/UI_PREWARM_DONE us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
   }
   UI_DRAW_STATS_FRAME_BEGIN();
+  ui_background_draw_sharp(false);
   ui_splash_draw();
   UI_DRAW_STATS_FRAME_END("splash");
   vita2d_end_drawing();
@@ -543,8 +543,7 @@ static void step_psn_refresh(void) {
 /** Loading steps after the splash is up, in the order init_ui() and draw_ui() always did them. */
 static const StartupStep STARTUP_STEPS[] = {
     {"textures", load_textures},
-    {"background", ui_background_init},  // Build the wave background geometry
-    {"cards", ui_cards_init},            // Initialize console card system
+    {"cards", ui_cards_init},  // Initialize console card system
     /* Text helper: needs the fonts loaded; metrics are measured later, in the glyph steps. */
     {"fonts", step_fonts},
     {"glow", ui_glow_init},
@@ -570,15 +569,18 @@ static const StartupStep STARTUP_STEPS[] = {
  *
  * 1. Starts the asset preload worker (it reads and decodes the start-up PNGs in RAM from here on),
  *    then initializes vita2d.
- * 2. Makes the logo texture from the decoded logo, picks the particles from its RAM pixels and
- *    draws the first splash frame.
+ * 2. Makes the logo texture from the decoded logo, picks the particles from its RAM pixels, builds
+ *    the background (the config is already loaded, so the saved theme and scene are known) and
+ *    draws the first splash frame: the app's own background, sharp, with the logo fading in.
  * 3. Runs STARTUP_STEPS one after another on the main thread. Their PNG loads are served from the
  *    worker, and the splash draws a frame between textures (startup_frame_hook()) and after each
  *    step, only when one display frame interval has passed since the last.
  * 4. Joins the worker, bakes the glyph atlas a time budget per splash frame (it needs an open
  * scene).
- * 5. Marks loading done and keeps drawing splash frames until the logo has assembled; the fade
- *    over Home is then drawn by the main loop in draw_ui().
+ * 5. Marks loading done and keeps drawing splash frames (the logo holds over the moving
+ *    background) until the dissolve is due, D = max(loading done, 1.0 s). From there the main loop
+ *    in draw_ui() draws the dissolve over Home, which fades in and takes input later (see
+ *    ui_splash.h).
  *
  * Must be called before draw_ui() main loop.
  */
@@ -592,9 +594,9 @@ void init_ui() {
                   vita2d_init_ret);
     vita2d_init();
   }
-  /* The splash needs a black screen and nothing else may show first. Nothing blocks on the
-   * display while loading: the splash frames are time gated and animation is time based. */
-  vita2d_set_clear_color(UI_SPLASH_CLEAR_COLOR);
+  /* Nothing blocks on the display while loading: the splash frames are time gated and animation
+   * is time based. */
+  vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
   vita2d_set_vblank_wait(false);
   const uint64_t logo_wait_start_us = sceKernelGetProcessTimeWide();
   UiAssetPixels logo_pixels;
@@ -613,6 +615,13 @@ void init_ui() {
        (unsigned long long)(logo_upload_start_us - logo_wait_start_us),
        (unsigned long long)(logo_done_us - logo_upload_start_us),
        (unsigned long long)ui_splash_sample_us());
+  /* The app's own background is drawn from the first splash frame, so it is built first. The
+   * config is already loaded (main.c), so the saved theme and background are known. */
+  const uint64_t background_start_us = sceKernelGetProcessTimeWide();
+  ui_background_init();
+  const uint64_t background_us = sceKernelGetProcessTimeWide() - background_start_us;
+  LOGD("PIPE/SPLASH_STEP name=background us=%llu", (unsigned long long)background_us);
+  startup_note_step("background", background_us);
   splash_frame(NULL);
   ui_asset_preload_set_frame_hook(startup_frame_hook);
 
@@ -627,12 +636,10 @@ void init_ui() {
     splash_frame(&more_work);
 
   s_load_done_us = sceKernelGetProcessTimeWide();
-  vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
   vita2d_set_vblank_wait(true);
   ui_splash_loading_done();
   while (!ui_splash_ready_to_exit())
     splash_frame(NULL);
-  s_splash_block_pending = true;
 }
 
 // ============================================================================
@@ -776,12 +783,11 @@ void draw_ui() {
     context.ui_state.old_button_state = context.ui_state.button_state;
     context.ui_state.button_state = ctrl.buttons;
     *button_block_mask &= context.ui_state.button_state;
-    /* The fade over Home starts now. A button or finger the user is still holding from skipping
-     * the splash must not act on Home, so it is blocked until it is released. */
-    if (s_splash_block_pending) {
+    /* Home takes no input until the splash says so (D + 0.70 s). Blocking on every frame until
+     * then means a button or finger still held at that moment, for example from skipping the
+     * splash, stays blocked until it is released. */
+    if (!ui_splash_home_input_enabled())
       block_inputs_for_transition();
-      s_splash_block_pending = false;
-    }
 
     // Get current touch state
     sceTouchPeek(SCE_TOUCH_PORT_FRONT, &(context.ui_state.touch_state_front), 1);
@@ -809,10 +815,13 @@ void draw_ui() {
        * The background resets vita2d's pool and renders its blur target (a scene of its own)
        * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
        * which would reset the pool again. While a popup is open the screen behind it is a frozen
-       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset.
+       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset. While
+       * the splash dissolves the background stays sharp, as during loading: no blur target is
+       * rendered, only the pool is reset.
        */
       const bool frozen = ui_freeze_is_ready();
-      if (frozen) {
+      const bool splash_live = ui_splash_active();
+      if (frozen || splash_live) {
         vita2d_pool_reset();
       } else {
         ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
@@ -827,6 +836,8 @@ void draw_ui() {
       // popup the frozen copy of the screen stands in for the wave and everything on it.
       if (frozen) {
         ui_freeze_draw();
+      } else if (splash_live) {
+        ui_background_draw_sharp(false);
       } else {
         ui_background_draw(screen == UI_SCREEN_TYPE_WAKING ||
                            screen == UI_SCREEN_TYPE_RECONNECTING);
@@ -835,31 +846,37 @@ void draw_ui() {
       UIScreenType prev_screen = screen;
       UIScreenType next_screen = screen;
 
+      /* Until Home starts to show (D + 0.40 s of the splash) only the background and the splash
+       * draw. Home is then entered as on any first frame. */
+      const bool screen_visible = !splash_live || ui_splash_home_opacity() > 0.0f;
       // Render the current screen
-      if (screen == UI_SCREEN_TYPE_MAIN) {
-        if (drawn_screen != UI_SCREEN_TYPE_MAIN)
-          ui_home_on_enter();
-        next_screen = ui_screen_draw_main();
-      } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
-        if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
-          ui_pin_on_enter();
-        next_screen = ui_pin_frame();
-      } else if (screen == UI_SCREEN_TYPE_WAKING) {
-        next_screen = ui_screen_draw_waking();
-      } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
-        next_screen = ui_screen_draw_reconnecting();
-      } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
-        next_screen = ui_settings_frame();
-      } else if (screen == UI_SCREEN_TYPE_PROFILE) {
-        next_screen = ui_profile_frame();
-      } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
-        next_screen = ui_controller_page_frame();
+      if (screen_visible) {
+        if (screen == UI_SCREEN_TYPE_MAIN) {
+          if (drawn_screen != UI_SCREEN_TYPE_MAIN)
+            ui_home_on_enter();
+          next_screen = ui_screen_draw_main();
+        } else if (screen == UI_SCREEN_TYPE_REGISTER_HOST) {
+          if (drawn_screen != UI_SCREEN_TYPE_REGISTER_HOST)
+            ui_pin_on_enter();
+          next_screen = ui_pin_frame();
+        } else if (screen == UI_SCREEN_TYPE_WAKING) {
+          next_screen = ui_screen_draw_waking();
+        } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
+          next_screen = ui_screen_draw_reconnecting();
+        } else if (screen == UI_SCREEN_TYPE_SETTINGS) {
+          next_screen = ui_settings_frame();
+        } else if (screen == UI_SCREEN_TYPE_PROFILE) {
+          next_screen = ui_profile_frame();
+        } else if (screen == UI_SCREEN_TYPE_CONTROLLER) {
+          next_screen = ui_controller_page_frame();
+        }
       }
 
       if (next_screen != prev_screen) {
         block_inputs_for_transition();
       }
-      drawn_screen = prev_screen;
+      if (screen_visible)
+        drawn_screen = prev_screen;
       screen = next_screen;
 
       render_debug_menu();
@@ -867,7 +884,7 @@ void draw_ui() {
       if (next_screen != prev_screen)
         ui_freeze_release();
       UI_DRAW_STATS_FRAME_END(frozen ? DRAW_STATS_POPUP_NAME : draw_stats_screen_name(prev_screen));
-      /* The splash fades out over Home as the last draw of the frame, after the Home and debug
+      /* The splash dissolves over Home as the last draw of the frame, after the Home and debug
        * menu draws it covers (and after the draw counters, so they stay Home's own). */
       const bool splash_was_active = ui_splash_active();
       if (splash_was_active && ui_splash_draw_exit()) {
@@ -884,7 +901,7 @@ void draw_ui() {
       vita2d_swap_buffers();
       if (splash_was_active)
         startup_note_presented();
-      if (!first_home_frame_logged && prev_screen == UI_SCREEN_TYPE_MAIN) {
+      if (!first_home_frame_logged && screen_visible && prev_screen == UI_SCREEN_TYPE_MAIN) {
         LOGD("PIPE/UI_FIRST_HOME_FRAME us=%llu", (unsigned long long)sceKernelGetProcessTimeWide());
         first_home_frame_logged = true;
       }

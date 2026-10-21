@@ -722,6 +722,14 @@ void ui_background_draw(bool slow) {
   draw_veil(UI_GLASS_VEIL);
 }
 
+void ui_background_draw_sharp(bool slow) {
+  if (!s_ready)
+    return;
+  sync_theme();
+  refresh_geometry(slow);
+  draw_scene();
+}
+
 void ui_background_draw_home_vignette(void) {
   if (!s_ready)
     return;

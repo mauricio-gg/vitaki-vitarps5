@@ -133,8 +133,7 @@ int ui_splash_sample(const uint8_t *rgba, int src_w, int src_h, int stride_px,
   return count;
 }
 
-/** Flight progress eased out (fast in, soft landing); @u is clamped to 0..1. */
-static float ease_out_cubic(float u) {
+float ui_splash_ease_out_cubic(float u) {
   return 1.0f - powf(1.0f - clamp01(u), EASE_EXPONENT);
 }
 
@@ -144,7 +143,7 @@ bool ui_splash_particle_quad(const UiSplashParticle *p, const UiSplashParams *pa
     return false;
 
   const float u = (t_ms - p->delay_ms) / params->flight_ms;
-  const float k = ease_out_cubic(u);
+  const float k = ui_splash_ease_out_cubic(u);
   float alpha;
   int grow = 0;
   if (u < 1.0f) {

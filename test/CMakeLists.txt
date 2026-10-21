@@ -302,6 +302,22 @@ target_link_libraries(ui_splash_particles_tests m)
 
 add_test(NAME vitarps5_ui_splash_particles_tests COMMAND ui_splash_particles_tests)
 
+# ui_splash_timeline_tests.c checks the splash timeline maths: when the dissolve starts, when Home
+# may take input, what a skip may do. Standalone binary with its own main(); run natively.
+add_executable(ui_splash_timeline_tests
+    ui_splash_timeline_tests.c
+    ../vita/src/ui/ui_splash_timeline.c
+    ../vita/src/ui/ui_splash_particles.c
+)
+
+target_include_directories(ui_splash_timeline_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+target_link_libraries(ui_splash_timeline_tests m)
+
+add_test(NAME vitarps5_ui_splash_timeline_tests COMMAND ui_splash_timeline_tests)
+
 # config_writer_tests.c checks the config writer's ordering and its failure reporting. Standalone
 # binary with its own main(); run natively (see the file header).
 add_executable(config_writer_tests
