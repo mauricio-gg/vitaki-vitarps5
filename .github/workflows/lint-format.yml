@@ -5,6 +5,7 @@
 # The redaction job compiles and runs test/redact_tests.c natively (build.sh test never runs tests, #222).
 # The latency policy job does the same for test/latency_policy_tests.c (#420).
 # The manual host discovery job does the same for test/manual_host_discovery_tests.c (#234).
+# The Wi-Fi level job does the same for test/ui_wifi_level_tests.c (#428).
 #
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
@@ -178,3 +179,24 @@ jobs:
             vita/third_party/tomlc99/toml.c lib/src/base64.c \
             -o "$RUNNER_TEMP/manual_host_discovery_tests"
           "$RUNNER_TEMP/manual_host_discovery_tests"
+
+  # ---------------------------------------------------------------------------
+  # Job 6: Wi-Fi level tests (#428)
+  # Same reasoning as the jobs above: build.sh test never runs anything, so build
+  # test/ui_wifi_level_tests.c with the runner's cc and run it.
+  # Flags and sources match the build comment at the top of the test file.
+  # ---------------------------------------------------------------------------
+  ui-wifi-level-tests:
+    name: Wi-Fi level tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and run Wi-Fi level tests
+        run: |
+          cc -std=c99 -Wall -Wextra -I vita/include \
+            test/ui_wifi_level_tests.c vita/src/ui/ui_wifi_level.c \
+            -o "$RUNNER_TEMP/ui_wifi_level_tests"
+          "$RUNNER_TEMP/ui_wifi_level_tests"
