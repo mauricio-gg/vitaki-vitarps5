@@ -331,6 +331,12 @@ typedef enum ui_face_t {
 #define UI_GLYPH_X RGBA8(0xB2, 0xDE, 0xFA, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
 #define UI_GLYPH_SQUARE RGBA8(0xFF, 0xDC, 0x7B, UI_ALPHA_PCT(UI_GLYPH_ALPHA_PCT))
 #define UI_GLYPH_STROKE_W 2.5f
+/* The blur base target (480 x 272) takes one sample per 2 px texel, so the 2.5 px stroke is drawn
+ * there as a tent: alpha 0 this far (one texel) either side of the centre line, so neighbouring
+ * texels always add up to the same brightness (#400). The peak gain keeps the area under the
+ * tent equal to the hard stroke's, so the blurred symbols are as bright as before. */
+#define UI_GLYPH_BLUR_FEATHER_W 2.0f
+#define UI_GLYPH_BLUR_PEAK_GAIN (UI_GLYPH_STROKE_W / UI_GLYPH_BLUR_FEATHER_W)
 #define UI_GLYPH_SIZE_MUL 3.5f
 #define UI_GLYPH_RADIUS_BASE 8.0f
 #define UI_GLYPH_CIRCLE_SEGMENTS 24

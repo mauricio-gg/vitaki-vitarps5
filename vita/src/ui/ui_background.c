@@ -13,7 +13,10 @@
  *
  * Glyphs: a port of paintGlyphs, built in ui_background_glyphs.c. Draw calls: the corner-to-corner
  * gradient (1, 6 vertices) and the 8 falling outlined symbols (1, one triangle list, 396
- * vertices) = 2. Only the active scene's moving vertices are computed.
+ * vertices) = 2. Only the active scene's moving vertices are computed. The blur base target draws
+ * the same two calls, but the symbols are a second, feathered set (792 vertices, built only
+ * while a blur level is on or fading in) because the stroke is thinner than a base texel; see
+ * ui_background_glyphs.c.
  *
  * The Home vignette is 3 more draw calls over either scene.
  *
@@ -27,7 +30,10 @@
  * with bilinear filtering, under a veil. The halvings matter: a target pass without MSAA takes
  * ONE sample per texel, so drawing the scene straight into 240x136 or 60x34 point-samples it
  * (dotted highlight lines, stair-stepped edges) and the upscale turns that into blocks. Drawing
- * big and averaging is what the mock's canvas does. Five vita2d/GXM facts shape the code:
+ * big and averaging is what the mock's canvas does. The same one-sample rule is why Glyphs draws
+ * feathered symbols into the base target (#400): a hard 2.5 px stroke is 1.25 texels wide, lands
+ * on one or two texels depending on where it sits, and the halvings keep that unevenness. Waves
+ * draws its wide soft fills unchanged. Five vita2d/GXM facts shape the code:
  *  - A render target needs a scene of its own, so ui_background_prepare() renders them before the
  *    main scene opens. It also does the pool reset, because vita2d_start_drawing() would reset
  *    the pool after the target scenes recorded their vertices, and the main scene would overwrite
@@ -161,6 +167,8 @@ static int s_built_background = BACKGROUND_UNSET;
 
 static bool s_ready = false;
 static bool s_geometry_valid = false;
+/* True when the built geometry includes the soft Glyphs symbols the blur base target draws. */
+static bool s_geometry_has_soft = false;
 static bool s_pool_warned = false;
 static bool s_crossfade_warned = false;
 static uint64_t s_last_update_us = 0;
@@ -391,11 +399,16 @@ static bool glyphs_selected(void) {
   return context.config.background == VITA_BACKGROUND_GLYPHS;
 }
 
-/** Recomputes every moving vertex of the selected scene for the process time @p now_us. */
-static void update_geometry(uint64_t now_us) {
+/**
+ * Recomputes every moving vertex of the selected scene for the process time @p now_us. Glyphs
+ * also builds its soft symbols when @p need_soft (the blur base target uses them); Waves has no
+ * second set, so it reports the set as present to avoid a pointless rebuild.
+ */
+static void update_geometry(uint64_t now_us, bool need_soft) {
   const double now_ms = (double)now_us * UI_BG_MS_PER_US;
+  s_geometry_has_soft = need_soft || !glyphs_selected();
   if (glyphs_selected()) {
-    ui_glyphs_update(now_ms);
+    ui_glyphs_update(now_ms, need_soft);
   } else {
     const float t = (float)now_ms;
     for (int i = 0; i < UI_BG_RIBBON_COUNT; i++)
@@ -406,16 +419,19 @@ static void update_geometry(uint64_t now_us) {
 }
 
 /**
- * Recomputes the vertices when the update interval has passed. Returns true when it did, which
- * also makes every blur target stale.
+ * Recomputes the vertices when the update interval has passed, or at once when @p need_soft and
+ * the built geometry has no soft Glyphs symbols (the blur was just switched on). @p need_soft is
+ * true when the blur base target is, or may be, drawn this frame. Returns true when it
+ * recomputed, which also makes every blur target stale.
  */
-static bool refresh_geometry(bool slow) {
+static bool refresh_geometry(bool slow, bool need_soft) {
   uint64_t now_us = sceKernelGetProcessTimeWide();
   uint64_t interval_us = (slow ? UI_BG_UPDATE_SLOW_US : UI_BG_UPDATE_US) - UI_BG_UPDATE_SLACK_US;
-  if (s_geometry_valid && now_us - s_last_update_us < interval_us)
+  const bool soft_missing = need_soft && !s_geometry_has_soft;
+  if (s_geometry_valid && !soft_missing && now_us - s_last_update_us < interval_us)
     return false;
 
-  update_geometry(now_us);
+  update_geometry(now_us, need_soft);
   s_last_update_us = now_us;
   for (int i = 0; i < TARGET_COUNT; i++)
     s_targets[i].valid = false;
@@ -432,19 +448,31 @@ static void draw_wave(void) {
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, s_dust_verts, DUST_VERTS);
 }
 
-/** Issues the Glyphs draws: the gradient, then all symbols in one triangle list. */
-static void draw_glyphs(void) {
+/**
+ * Issues the Glyphs draws: the gradient, then all symbols in one triangle list. @p soft picks
+ * the feathered symbols that suit the one-sample-per-texel blur base target (#400); the screen
+ * always draws the hard ones.
+ */
+static void draw_glyphs(bool soft) {
   unsigned int count;
   const vita2d_color_vertex *verts = ui_glyphs_gradient(&count);
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, verts, count);
-  verts = ui_glyphs_symbols(&count);
+  verts = soft ? ui_glyphs_symbols_soft(&count) : ui_glyphs_symbols(&count);
   draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLES, verts, count);
 }
 
-/** Issues the selected scene's draws. Used for the screen and for the base target. */
+/** Issues the selected scene's draws for the screen. */
 static void draw_scene(void) {
   if (glyphs_selected())
-    draw_glyphs();
+    draw_glyphs(false);
+  else
+    draw_wave();
+}
+
+/** Issues the selected scene's draws for the blur base target (Waves is drawn as on screen). */
+static void draw_scene_for_base(void) {
+  if (glyphs_selected())
+    draw_glyphs(true);
   else
     draw_wave();
 }
@@ -610,7 +638,7 @@ static void render_base(void) {
   SceGxmFragmentProgram *saved_program = _vita2d_colorFragmentProgram;
   vita2d_start_drawing_advanced(base->tex, 0);
   _vita2d_colorFragmentProgram = s_target_colour_program;
-  draw_scene();
+  draw_scene_for_base();
   _vita2d_colorFragmentProgram = saved_program;
   vita2d_end_drawing();
   base->valid = true;
@@ -706,7 +734,7 @@ void ui_background_prepare(bool slow) {
   if (blur == VITA_BACKGROUND_BLUR_NONE)
     return;
 
-  refresh_geometry(slow);
+  refresh_geometry(slow, true);
   render_chain(blur == VITA_BACKGROUND_BLUR_SOFT ? TARGET_SOFT : TARGET_SMALL);
 }
 
@@ -718,7 +746,7 @@ void ui_background_draw(bool slow) {
   VitaChiakiBackgroundBlur blur = active_blur();
   BlurTarget *target = blur == VITA_BACKGROUND_BLUR_NONE ? NULL : target_for(blur);
   if (!target || !target->tex) {
-    refresh_geometry(slow);
+    refresh_geometry(slow, false);
     draw_scene();
     return;
   }
@@ -738,7 +766,7 @@ void ui_background_draw_sharp(bool slow) {
   if (!s_ready)
     return;
   sync_theme();
-  refresh_geometry(slow);
+  refresh_geometry(slow, false);
   draw_scene();
 }
 
@@ -750,12 +778,12 @@ void ui_background_draw_crossfade(float blur_k) {
     ui_background_draw(false);
     return;
   }
-  refresh_geometry(false);
+  const VitaChiakiBackgroundBlur blur = blur_k > 0.0f ? active_blur() : VITA_BACKGROUND_BLUR_NONE;
+  refresh_geometry(false, blur != VITA_BACKGROUND_BLUR_NONE);
   draw_scene();
   if (blur_k <= 0.0f)
     return;
 
-  const VitaChiakiBackgroundBlur blur = active_blur();
   if (blur == VITA_BACKGROUND_BLUR_NONE) {
     const VitaChiakiBackgroundBlur wanted = config_background_blur(&context.config);
     if (wanted > VITA_BACKGROUND_BLUR_NONE && wanted < VITA_BACKGROUND_BLUR_COUNT &&
