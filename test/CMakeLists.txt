@@ -218,7 +218,7 @@ target_include_directories(ui_downsample_tests PRIVATE
 
 add_test(NAME vitarps5_ui_downsample_tests COMMAND ui_downsample_tests)
 
-# ui_stream_stats_tests.c checks the Latency and FPS value rules of the stream stats panel.
+# ui_stream_stats_tests.c checks the FPS value rule of the stream stats panel.
 # Standalone binary with its own main(); run natively (see the file header).
 add_executable(ui_stream_stats_tests
     ui_stream_stats_tests.c

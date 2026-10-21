@@ -152,9 +152,7 @@ static void reduce_display_stage_ring(uint32_t *samples, uint32_t *count, uint32
 
 void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.measured_bitrate_mbps = 0.0f;
-  context.stream.measured_rtt_ms = 0;
   context.stream.last_rtt_refresh_us = 0;
-  context.stream.metrics_last_update_us = 0;
   // GH #258: always clear the suspend-detection anchor, even when preserve_recovery_state
   // is set (fast restart) -- a stale anchor surviving a fast restart would read as a bogus
   // multi-second gap on the next tick and fire a spurious resync.
@@ -811,18 +809,7 @@ void host_metrics_update_latency(void) {
   bool refresh_rtt = context.stream.last_rtt_refresh_us == 0 ||
                      (now_us - context.stream.last_rtt_refresh_us) >= RTT_REFRESH_INTERVAL_US;
   if (refresh_rtt) {
-    uint64_t base_rtt_ms64 = context.stream.session.rtt_us / 1000ULL;
-    uint64_t jitter_us = stream_connection->takion.jitter_stats.jitter_us;
-    uint64_t jitter_ms64 = jitter_us / 1000ULL;
-    uint64_t effective_rtt_ms64 = base_rtt_ms64 + jitter_ms64;
-    if (effective_rtt_ms64 > UINT32_MAX)
-      effective_rtt_ms64 = UINT32_MAX;
-    if (effective_rtt_ms64 == 0)
-      effective_rtt_ms64 = base_rtt_ms64 > UINT32_MAX ? UINT32_MAX : base_rtt_ms64;
-
-    context.stream.measured_rtt_ms = (uint32_t)effective_rtt_ms64;
     context.stream.last_rtt_refresh_us = now_us;
-    context.stream.metrics_last_update_us = now_us;
 
     // D6: Probe Wi-Fi RSSI once per second
     {
@@ -1031,9 +1018,8 @@ void host_metrics_update_latency(void) {
     // which is neither a real RTT (base is a one-shot Senkusha handshake value, never
     // updated mid-stream -- lib/src/senkusha.c, lib/src/session.c:685) nor real jitter
     // (the EWMA is control-channel packet cadence -- lib/src/takion.c:~2020-2050 -- which
-    // video/audio AV traffic never touches). Relabeled honestly below; the UI-facing
-    // "Latency" overlay value (context.stream.measured_rtt_ms, video_overlay.c) is left
-    // untouched -- out of scope for this pure-instrumentation change. See the new
+    // video/audio AV traffic never touches). Relabeled honestly below; the stream
+    // stats overlay no longer shows a Latency value (removed in #293). See the new
     // PIPE/LATENCY line for the genuine measured end-to-end latency and video-packet
     // jitter this investigation added.
     LOGD(

@@ -32,7 +32,7 @@ The PSN device list from Sony only tells us that a console exists and gives its 
 - If no seed exists, the console is **skipped silently** (`PSN_HOST_ADD_RESULT_SKIPPED_NO_REGISTERED_SOURCE`, `psn_remote.c:188-192`). There is no on-screen message yet (issue #85).
 - The PSN card is a copy of the seed (`copy_host(host, src, ...)`, `psn_remote.c:~220`) with the Sony device id added. It keeps the seed's `registered_state`.
 - At connect time `host_stream` re-checks that registration keys exist (`host_try_hydrate_registered_state_from_config`, `host.c:53`, used at `host.c:234`). If not: "Missing console credentials. Re-pair may be required." The keys are then copied into the connect info (`host.c:413-415`).
-- Only PS5 is supported for the device list (`chiaki_holepunch_list_devices(..., CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, ...)`, `psn_remote.c:~470`).
+- Only PS5 is supported for the device list (`chiaki_holepunch_list_devices(..., CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, ...)`, `psn_remote.c:454`). The library itself refuses any other console type with an error log and `CHIAKI_ERR_INVALID_DATA` before it starts a request (`holepunch.c:596`).
 
 Practical consequence: register the console at home on the LAN once, sign in to PSN, then internet play works from anywhere.
 
