@@ -96,8 +96,8 @@ Testing builds log these lines (`LOGD`). Times are absolute process time in micr
 `UI/SWAPS screen= swaps= nowait= same_vcount= vcount_delta_max=`
 - `swaps`: buffer swaps in the window.
 - `nowait`: swaps made while the vblank wait was off (the state `ui_set_vblank_wait()` last set, so it is true to what vita2d was told).
-- `same_vcount`: swaps where `sceDisplayGetVcount()` had not advanced since the previous swap, so two swaps were submitted within one refresh. With the wait off this can tear. The first swap after a screen change is not compared.
-- `vcount_delta_max`: the largest vcount advance between two consecutive swaps; 1 is every refresh, 2 or more is a dropped refresh.
+- `same_vcount`: swaps where `sceDisplayGetVcount()` had not advanced since the previous swap, so two swaps were submitted within one refresh. With the wait off this can tear. The first swap after a screen change is compared with the previous swap, whatever its screen, and counts for the new screen.
+- `vcount_delta_max`: the largest vcount advance between two consecutive swaps; 1 is every refresh, 2 or more is a dropped refresh. The step of the first swap after a screen change is left out, because a gap between screens (stream to menu) is not a dropped refresh.
 The vcount is read on the app thread right after `vita2d_swap_buffers()` returns, not at the actual flip: vita2d queues the flip to its display callback. So `same_vcount` means two swaps were submitted within one refresh, not that the panel showed a tear. Example (made-up numbers): `UI/SWAPS screen=home swaps=60 nowait=0 same_vcount=0 vcount_delta_max=1`.
 
 ## Menu frame setup

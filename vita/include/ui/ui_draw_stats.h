@@ -67,7 +67,8 @@ void ui_draw_stats_work_note(const char *name, uint64_t us);
  * vita2d_swap_buffers(), with the name of the screen the swap presented. The vblank counter is
  * read here, when vita2d has queued the flip, not when the display takes it. A window is logged
  * as UI/SWAPS after one second or when @p screen changes (the partial window is
- * logged first under the old name); the first swap after a change has no vcount step to count.
+ * logged first under the old name); the first swap after a change is still compared with the
+ * previous swap for same_vcount, but its step is left out of vcount_delta_max.
  * @p screen must be a string literal (compared with strcmp, kept by pointer); NULL logs "other".
  */
 void ui_draw_stats_swap(const char *screen);

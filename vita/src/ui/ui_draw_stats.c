@@ -58,6 +58,8 @@ typedef struct {
 static SwapWindow s_swap_window;
 static uint32_t s_swap_last_vcount = 0;
 static bool s_swap_have_vcount = false;
+/* True for the first swap after a screen change. */
+static bool s_swap_after_screen_change = false;
 
 int __wrap_sceGxmDraw(SceGxmContext *context, SceGxmPrimitiveType primType,
                       SceGxmIndexFormat indexType, const void *indexData, unsigned int indexCount) {
@@ -143,8 +145,7 @@ void ui_draw_stats_swap(const char *screen) {
 
   if (s_swap_window.swaps > 0 && strcmp(screen, s_swap_window.screen) != 0) {
     swap_window_flush();
-    /* The vcount step across a screen change is not a swap-to-swap step of either screen. */
-    s_swap_have_vcount = false;
+    s_swap_after_screen_change = true;
   }
   if (s_swap_window.swaps == 0) {
     s_swap_window.screen = screen;
@@ -153,11 +154,15 @@ void ui_draw_stats_swap(const char *screen) {
 
   if (s_swap_have_vcount) {
     const uint32_t step = vcount - s_swap_last_vcount;
+    /* A zero step is two swaps in one refresh whatever screen the previous one belonged to, so
+     * it counts for the new screen. The step itself is left out of vcount_delta_max after a
+     * screen change: a gap between screens (stream to menu) is not a dropped refresh. */
     if (step == 0)
       s_swap_window.same_vcount++;
-    if (step > s_swap_window.vcount_delta_max)
+    if (!s_swap_after_screen_change && step > s_swap_window.vcount_delta_max)
       s_swap_window.vcount_delta_max = step;
   }
+  s_swap_after_screen_change = false;
   s_swap_last_vcount = vcount;
   s_swap_have_vcount = true;
 
