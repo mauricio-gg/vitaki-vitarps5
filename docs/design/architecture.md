@@ -51,7 +51,7 @@ Layering rule: `vita/` calls into `lib/`, never the other way round. Where `vita
 - `controller.c`, `controller_metadata.c`: controller mapping presets and storage.
 
 **PSN**
-- `psn_auth.c`: device login and OAuth tokens. `token_crypto.c`: AES-256-GCM encryption of persisted tokens. `psn_remote.c`: remote host list and per-connect preparation. `psn_auth_rules.c`: pure auth decision rules. `psn_background_refresh.c`: the token refresh and device-list fetch on a worker thread (startup, idle timer, Profile, after a login), committed by the UI thread (see psn.md). `vita_dns.c`: DNS resolution for curl and sockets.
+- `psn_auth.c`: device login and OAuth tokens. `token_crypto.c`: AES-256-GCM encryption of persisted tokens. `psn_remote.c`: remote host list and per-connect preparation. `psn_auth_rules.c`: pure auth decision rules. `json_string.c`: pure JSON string-value helpers (key lookup, \uXXXX and surrogate decoding to UTF-8, len+1 buffer sizing) used by `psn_auth.c`, tested natively in `test/json_escape_tests.c`. `psn_background_refresh.c`: the token refresh and device-list fetch on a worker thread (startup, idle timer, Profile, after a login), committed by the UI thread (see psn.md). `vita_dns.c`: DNS resolution for curl and sockets.
 
 **Other**
 - `logging.c`: asynchronous file logger (a queue drained by its own thread). `message_log.c`: in-app message log. `debug_tools.c`: debug-only tools, compiled when `VITARPS5_DEBUG_TOOLS` is set. `util.c`: small helpers.
