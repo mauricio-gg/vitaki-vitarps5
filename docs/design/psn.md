@@ -119,7 +119,7 @@ libcurl's `getaddrinfo` path is broken on Vita, so Sony hosts and STUN hosts are
 
 - **NAT.** Hole punching can fail on networks that do not allow it (phone hotspots are a known case): the log shows `Failed to find reachable candidate for control connection` and the user sees "Failed to establish PSN control channel" (`psn_remote.c`, punch ctrl step). Sony's own app fails the same way there. UPnP helps on home routers. Failure classification and hints are issue #89.
 - **No message when a console has no seed host**; it just does not appear (issue #85).
-- **PS5 only** in the device list; the PS4 list has a parity bug (issue #93).
+- **PS5 only** in the device list; the library rejects non-PS5 device-list requests with CHIAKI_ERR_INVALID_DATA (issue #93, fixed in PR #430).
 - **Account id mismatch.** Registration fails with PS5 error CE-110032-7 when the id sent is not the account signed in on the PS5. Startup now refreshes the id from the registry, and pairing is blocked on the Vita (no request sent) when the id is missing or all zero (issue #270). The user can also type an account id instead of using the Vita's (#201, see "Account ids").
 - **Refresh runs in the background.** Since PRs #377 and #392 (issue #163), token refresh and the device-list fetch run on a background worker (`vita/src/psn_background_refresh.c`) instead of the UI thread. The one exception is the Log in button's own token refresh, which is still synchronous. The host list is still not refreshed periodically while idle: the idle timer only renews the token, so the list refreshes only as a side effect of that renewal (issue #162, open).
 - **Dead-link detection** on the push WebSocket can take up to about 10 s (issue #164).
