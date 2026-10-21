@@ -21,6 +21,7 @@
 #include "ui/ui_pill.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
+#include "ui/ui_wifi_level.h"
 
 #define GLYPH_DIR "app0:/assets/icons/"
 #define CLOCK_TEXT_MAX 8
@@ -34,13 +35,16 @@ static const char BANNER_SUFFIX[] = " - Please wait a few moments";
  */
 static const char CLOCK_WIDEST[] = "00:00";
 
-static vita2d_texture *s_wifi = NULL;
+/** Wi-Fi icons: one per bar level (index = level), plus the slashed one for a down link. */
+static vita2d_texture *s_wifi_level[UI_WIFI_LEVEL_MAX + 1];
+static vita2d_texture *s_wifi_off = NULL;
 static vita2d_texture *s_battery = NULL;
 
 /** Cached system state, refreshed every UI_TOPBAR_POLL_MS. */
 static struct {
   uint64_t next_poll_us;
   bool wifi_up;
+  int wifi_level; /**< Bars shown while up; UI_WIFI_LEVEL_NONE while the link is down. */
   bool battery_known;
   char clock_text[CLOCK_TEXT_MAX];
   char percent_text[PERCENT_TEXT_MAX];
@@ -58,9 +62,14 @@ static struct {
 } s_banner;
 
 void ui_top_bar_init(void) {
-  s_wifi = ui_load_png_linear(GLYPH_DIR "wifi.png");
+  s_wifi_level[0] = ui_load_png_linear(GLYPH_DIR "wifi_0.png");
+  s_wifi_level[1] = ui_load_png_linear(GLYPH_DIR "wifi_1.png");
+  s_wifi_level[2] = ui_load_png_linear(GLYPH_DIR "wifi_2.png");
+  s_wifi_level[3] = ui_load_png_linear(GLYPH_DIR "wifi.png");
+  s_wifi_off = ui_load_png_linear(GLYPH_DIR "wifi_off.png");
   s_battery = ui_load_png_linear(GLYPH_DIR "battery.png");
   s_sys.next_poll_us = 0;
+  s_sys.wifi_level = UI_WIFI_LEVEL_NONE;
   s_banner.valid = false;
 }
 
@@ -73,6 +82,14 @@ static void poll_system(void) {
 
   int net_state = SCE_NETCTL_STATE_DISCONNECTED;
   s_sys.wifi_up = sceNetCtlInetGetState(&net_state) >= 0 && net_state == SCE_NETCTL_STATE_CONNECTED;
+  if (!s_sys.wifi_up) {
+    s_sys.wifi_level = UI_WIFI_LEVEL_NONE;
+  } else {
+    SceNetCtlInfo rssi_info;
+    s_sys.wifi_level = sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_RSSI_PERCENTAGE, &rssi_info) >= 0
+                           ? ui_wifi_level((int)rssi_info.rssi_percentage, s_sys.wifi_level)
+                           : UI_WIFI_LEVEL_MAX; /* No reading: show full, as before #428. */
+  }
 
   const int percent = scePowerGetBatteryLifePercent();
   s_sys.battery_known = percent >= 0;
@@ -133,9 +150,10 @@ static void draw_status_group(int right) {
     x -= UI_TOPBAR_GAP;
   }
   x -= UI_TOPBAR_ICON;
-  if (s_wifi) {
+  vita2d_texture *wifi = s_sys.wifi_up ? s_wifi_level[s_sys.wifi_level] : s_wifi_off;
+  if (wifi) {
     vita2d_draw_texture_tint(
-        s_wifi, (float)x, (float)icon_y,
+        wifi, (float)x, (float)icon_y,
         ui_layer_color(s_sys.wifi_up ? UI_TEXT_2
                                      : ui_color_scale_alpha(
                                            UI_TEXT_2, (float)UI_TOPBAR_OFFLINE_PCT / 100.0f)));

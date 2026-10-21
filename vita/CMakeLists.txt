@@ -40,6 +40,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_recovery.c
     src/host_storage.c
     src/psn_auth.c
+    src/json_string.c
     src/psn_auth_rules.c
     src/latency_policy.c
     src/vita_dns.c
@@ -88,6 +89,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_pill.c
     src/ui/ui_stream_stats.c
     src/ui/ui_top_bar.c
+    src/ui/ui_wifi_level.c
     src/ui/ui_hint_row.c
     src/ui/ui_chrome_layout.c
     src/ui/ui_bake.c
@@ -350,6 +352,10 @@ if(CHIAKI_IS_VITA)
         FILE assets/icons/search.png assets/icons/search.png
         FILE assets/icons/plus.png assets/icons/plus.png
         FILE assets/icons/wifi.png assets/icons/wifi.png
+        FILE assets/icons/wifi_0.png assets/icons/wifi_0.png
+        FILE assets/icons/wifi_1.png assets/icons/wifi_1.png
+        FILE assets/icons/wifi_2.png assets/icons/wifi_2.png
+        FILE assets/icons/wifi_off.png assets/icons/wifi_off.png
         FILE assets/icons/battery.png assets/icons/battery.png
         # Connecting screen: 32 px page-title icons. Room icons (list rows 38, picker 48, ring 64)
         FILE assets/icons/page_lan.png assets/icons/page_lan.png

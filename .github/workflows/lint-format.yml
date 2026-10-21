@@ -2,10 +2,7 @@
 #
 # Runs on every PR (any branch) and every push to main.
 # Lint/format scope: vita/src/ and vita/include/ only.  lib/ and third-party/ are upstream Chiaki — excluded.
-# The redaction job compiles and runs test/redact_tests.c natively (build.sh test never runs tests, #222).
-# The latency policy job does the same for test/latency_policy_tests.c (#420).
-# The manual host discovery job does the same for test/manual_host_discovery_tests.c (#234).
-# The splash job does the same for test/ui_splash_particles_tests.c and test/ui_splash_timeline_tests.c (#366, #398).
+# The native tests job builds and runs every test in test/ with ./tools/native_tests.sh (build.sh test never runs tests, #222).
 #
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
@@ -112,99 +109,26 @@ jobs:
             vita/include/
 
   # ---------------------------------------------------------------------------
-  # Job 3: redaction tests
+  # Job 3: native tests
   # `./tools/build.sh test` only cross-compiles for the Vita and never runs the
-  # result (#222), so this job builds test/redact_tests.c with the runner's cc
-  # and runs it.  A failed assert aborts the binary and fails the job.
-  # Flags and sources match the build comment at the top of the test file.
+  # result (#222), so this job builds every test in test/ with the runner's
+  # compiler and runs them all through ctest.  It is the same command people run
+  # locally; test/CMakeLists.txt is the single list of test targets.  A failed
+  # assert aborts that test binary and fails the job.
   # ---------------------------------------------------------------------------
-  redact-tests:
-    name: redaction tests
+  native-tests:
+    name: native tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Build and run redaction tests
+      - name: Install OpenSSL development files
         run: |
-          cc -std=c99 -I lib/include test/redact_tests.c lib/src/redact.c lib/src/log.c \
-            -o "$RUNNER_TEMP/redact_tests"
-          "$RUNNER_TEMP/redact_tests"
+          sudo apt-get update -qq
+          sudo apt-get install -y libssl-dev
 
-  # ---------------------------------------------------------------------------
-  # Job 4: latency policy tests (#420)
-  # Same reasoning as the redaction job: build.sh test never runs anything, so
-  # build test/latency_policy_tests.c with the runner's cc and run it.
-  # Flags and sources match the build comment at the top of the test file.
-  # ---------------------------------------------------------------------------
-  latency-policy-tests:
-    name: latency policy tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Build and run latency policy tests
-        run: |
-          cc -std=c99 -Wall -Wextra -I vita/include \
-            test/latency_policy_tests.c vita/src/latency_policy.c \
-            -o "$RUNNER_TEMP/latency_policy_tests"
-          "$RUNNER_TEMP/latency_policy_tests"
-
-  # ---------------------------------------------------------------------------
-  # Job 5: manual host discovery tests (#234)
-  # Same reasoning as the jobs above: build.sh test never runs anything, so build
-  # test/manual_host_discovery_tests.c with the runner's cc and run it.
-  # Flags and sources match the build comment at the top of the test file.
-  # ---------------------------------------------------------------------------
-  manual-host-discovery-tests:
-    name: manual host discovery tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      # vita/third_party/tomlc99 is a submodule; the test builds config_hosts.c against it.
-      - name: Fetch tomlc99 submodule
-        run: git submodule update --init vita/third_party/tomlc99
-
-      - name: Build and run manual host discovery tests
-        run: |
-          cc -std=gnu11 -Wall -Wextra -I test/stubs/manual_hosts -I vita/include -I lib/include \
-            -I lib/src -I vita/third_party test/manual_host_discovery_tests.c vita/src/discovery.c \
-            vita/src/host_storage.c vita/src/config_hosts.c vita/src/discovery_host.c \
-            vita/third_party/tomlc99/toml.c lib/src/base64.c \
-            -o "$RUNNER_TEMP/manual_host_discovery_tests"
-          "$RUNNER_TEMP/manual_host_discovery_tests"
-
-  # ---------------------------------------------------------------------------
-  # Job 6: splash tests (#366, #398)
-  # Same reasoning as the jobs above: build.sh test never runs anything, so build
-  # the two splash tests with the runner's cc and run them.
-  # Flags and sources match the build comment at the top of each test file.
-  # ---------------------------------------------------------------------------
-  splash-tests:
-    name: splash tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Build and run splash particle tests
-        run: |
-          cc -std=c99 -Wall -Wextra -I vita/include \
-            test/ui_splash_particles_tests.c vita/src/ui/ui_splash_particles.c \
-            -lm -o "$RUNNER_TEMP/ui_splash_particles_tests"
-          "$RUNNER_TEMP/ui_splash_particles_tests"
-
-      - name: Build and run splash timeline tests
-        run: |
-          cc -std=c99 -Wall -Wextra -I vita/include \
-            test/ui_splash_timeline_tests.c vita/src/ui/ui_splash_timeline.c \
-            vita/src/ui/ui_splash_particles.c \
-            -lm -o "$RUNNER_TEMP/ui_splash_timeline_tests"
-          "$RUNNER_TEMP/ui_splash_timeline_tests"
+      # tools/native_tests.sh fetches the tomlc99 submodule itself.
+      - name: Build and run native tests
+        run: ./tools/native_tests.sh

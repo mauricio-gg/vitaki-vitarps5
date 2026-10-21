@@ -1,3 +1,13 @@
+# This file works two ways: included from the root CMakeLists.txt (the Vita cross-compile run by
+# ./tools/build.sh test) and configured on its own (the native run, ./tools/native_tests.sh).
+# Repo-root paths therefore go through VITARPS5_ROOT, never CMAKE_SOURCE_DIR.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    cmake_minimum_required(VERSION 3.13)
+    project(vitarps5_native_tests C)
+    enable_testing()
+endif()
+set(VITARPS5_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
 add_executable(vitarps5_tests
     config_vita_tests.c
     token_crypto_tests.c
@@ -11,6 +21,7 @@ add_executable(vitarps5_tests
     ../vita/src/config_hosts.c
     ../vita/src/room_icons.c
     ../vita/src/psn_account_id.c
+    ../vita/src/json_string.c
     ../vita/src/token_crypto.c
     ../vita/third_party/tomlc99/toml.c
     ../lib/src/reorderqueue.c
@@ -23,11 +34,20 @@ add_executable(vitarps5_tests
 
 target_include_directories(vitarps5_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/vita/third_party
-    ${CMAKE_SOURCE_DIR}/lib/include
-    ${CMAKE_SOURCE_DIR}/lib/src
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/vita/third_party
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
 )
+
+# config_values.c includes the VitaSDK header <psp2/registrymgr.h>. A native build has no VitaSDK,
+# so it gets a stand-in. The Vita cross-compile must keep using the real header, so the stand-in
+# directory is added only when not cross-compiling.
+if(NOT CMAKE_CROSSCOMPILING)
+    target_include_directories(vitarps5_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/native
+    )
+endif()
 
 target_compile_definitions(vitarps5_tests PRIVATE
     CFG_FILENAME="${CMAKE_CURRENT_BINARY_DIR}/config_test.toml"
@@ -53,17 +73,15 @@ add_test(NAME vitarps5_config_tests COMMAND vitarps5_tests)
 #
 # NOTE: this project's Vita test harness (./tools/build.sh test) configures
 # with the arm-vita-eabi toolchain but only ever runs `make vitarps5_tests`,
-# so it cross-compiles this target (verifying it stays buildable) without
-# executing it -- arm-vita-eabi ELFs can't run on the host. The authoritative
-# run of these assertions is the native rerun documented at the top of
-# bitstream_sps_tests.c: `cc -std=c99 -I lib/include -I lib/src -I
-# test/stubs test/bitstream_sps_tests.c -o /tmp/bitstream_sps_tests`.
+# so it cross-compiles that target (verifying it stays buildable) without
+# executing it -- arm-vita-eabi ELFs can't run on the host. Every test in this
+# file is built and run natively by ./tools/native_tests.sh.
 add_executable(bitstream_sps_tests bitstream_sps_tests.c)
 
 target_include_directories(bitstream_sps_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs
-    ${CMAKE_SOURCE_DIR}/lib/include
-    ${CMAKE_SOURCE_DIR}/lib/src
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
 )
 
 add_test(NAME vitarps5_bitstream_sps_tests COMMAND bitstream_sps_tests)
@@ -76,7 +94,7 @@ add_executable(ui_chrome_layout_tests
 )
 
 target_include_directories(ui_chrome_layout_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_chrome_layout_tests COMMAND ui_chrome_layout_tests)
@@ -87,7 +105,7 @@ add_test(NAME vitarps5_ui_chrome_layout_tests COMMAND ui_chrome_layout_tests)
 add_executable(ui_detail_tests ui_detail_tests.c ../vita/src/ui/ui_text_wrap.c)
 
 target_include_directories(ui_detail_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_detail_tests COMMAND ui_detail_tests)
@@ -98,7 +116,7 @@ add_test(NAME vitarps5_ui_detail_tests COMMAND ui_detail_tests)
 add_executable(ui_zone_select_tests ui_zone_select_tests.c ../vita/src/ui/ui_zone_select.c)
 
 target_include_directories(ui_zone_select_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_zone_select_tests COMMAND ui_zone_select_tests)
@@ -112,7 +130,7 @@ add_executable(ui_connecting_flow_tests
 )
 
 target_include_directories(ui_connecting_flow_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_connecting_flow_tests COMMAND ui_connecting_flow_tests)
@@ -126,7 +144,7 @@ add_executable(ui_console_status_tests
 )
 
 target_include_directories(ui_console_status_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_console_status_tests COMMAND ui_console_status_tests)
@@ -142,8 +160,8 @@ add_executable(pairing_result_tests
 )
 
 target_include_directories(pairing_result_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
 )
 
 add_test(NAME vitarps5_pairing_result_tests COMMAND pairing_result_tests)
@@ -156,7 +174,7 @@ add_executable(pin_digits_tests
 )
 
 target_include_directories(pin_digits_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_pin_digits_tests COMMAND pin_digits_tests)
@@ -170,7 +188,7 @@ add_executable(ui_console_rows_tests
 )
 
 target_include_directories(ui_console_rows_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_console_rows_tests COMMAND ui_console_rows_tests)
@@ -183,7 +201,7 @@ add_executable(ip_address_tests
 )
 
 target_include_directories(ip_address_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ip_address_tests COMMAND ip_address_tests)
@@ -199,8 +217,8 @@ add_executable(ui_controller_rules_tests
 
 target_include_directories(ui_controller_rules_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
 )
 
 add_test(NAME vitarps5_ui_controller_rules_tests COMMAND ui_controller_rules_tests)
@@ -213,7 +231,7 @@ add_executable(ui_downsample_tests
 )
 
 target_include_directories(ui_downsample_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_downsample_tests COMMAND ui_downsample_tests)
@@ -226,10 +244,23 @@ add_executable(ui_stream_stats_tests
 )
 
 target_include_directories(ui_stream_stats_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_stream_stats_tests COMMAND ui_stream_stats_tests)
+
+# ui_wifi_level_tests.c checks the top bar Wi-Fi bar level rule (thresholds and hysteresis, GH #428).
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_wifi_level_tests
+    ui_wifi_level_tests.c
+    ../vita/src/ui/ui_wifi_level.c
+)
+
+target_include_directories(ui_wifi_level_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_ui_wifi_level_tests COMMAND ui_wifi_level_tests)
 
 # ui_login_tests.c has its own main() and tests the phone login helpers (QR module size, keyboard
 # text conversion). Cross-compiled but never run by ./tools/build.sh test; the native command is at
@@ -237,7 +268,7 @@ add_test(NAME vitarps5_ui_stream_stats_tests COMMAND ui_stream_stats_tests)
 add_executable(ui_login_tests ui_login_tests.c ../vita/src/ui/ui_utf16.c)
 
 target_include_directories(ui_login_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_login_tests COMMAND ui_login_tests)
@@ -247,7 +278,7 @@ add_test(NAME vitarps5_ui_login_tests COMMAND ui_login_tests)
 add_executable(ui_gesture_tests ui_gesture_tests.c ../vita/src/ui/ui_gesture.c)
 
 target_include_directories(ui_gesture_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_gesture_tests COMMAND ui_gesture_tests)
@@ -259,7 +290,7 @@ add_test(NAME vitarps5_ui_gesture_tests COMMAND ui_gesture_tests)
 add_executable(psn_auth_rules_tests psn_auth_rules_tests.c ../vita/src/psn_auth_rules.c)
 
 target_include_directories(psn_auth_rules_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_psn_auth_rules_tests COMMAND psn_auth_rules_tests)
@@ -270,7 +301,7 @@ add_test(NAME vitarps5_psn_auth_rules_tests COMMAND psn_auth_rules_tests)
 add_executable(latency_policy_tests latency_policy_tests.c ../vita/src/latency_policy.c)
 
 target_include_directories(latency_policy_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_latency_policy_tests COMMAND latency_policy_tests)
@@ -281,7 +312,7 @@ add_test(NAME vitarps5_latency_policy_tests COMMAND latency_policy_tests)
 add_executable(redact_tests redact_tests.c ../lib/src/redact.c ../lib/src/log.c)
 
 target_include_directories(redact_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/lib/include
+    ${VITARPS5_ROOT}/lib/include
 )
 
 add_test(NAME vitarps5_redact_tests COMMAND redact_tests)
@@ -295,7 +326,7 @@ add_executable(ui_splash_particles_tests
 )
 
 target_include_directories(ui_splash_particles_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 target_link_libraries(ui_splash_particles_tests m)
@@ -329,9 +360,9 @@ add_executable(config_writer_tests
 
 target_include_directories(config_writer_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
-    ${CMAKE_SOURCE_DIR}/lib/src
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
 )
 
 target_compile_definitions(config_writer_tests PRIVATE
@@ -350,7 +381,7 @@ add_executable(press_meter_tests
 )
 
 target_include_directories(press_meter_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_press_meter_tests COMMAND press_meter_tests)
@@ -363,7 +394,7 @@ add_executable(audio_queue_tests
 )
 
 target_include_directories(audio_queue_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_audio_queue_tests COMMAND audio_queue_tests)
@@ -376,7 +407,7 @@ add_executable(takion_probe_tests
 )
 
 target_include_directories(takion_probe_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/lib/include
+    ${VITARPS5_ROOT}/lib/include
 )
 
 add_test(NAME vitarps5_takion_probe_tests COMMAND takion_probe_tests)
@@ -389,7 +420,7 @@ add_executable(sps_probe_tests
 )
 
 target_include_directories(sps_probe_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_sps_probe_tests COMMAND sps_probe_tests)
@@ -403,8 +434,8 @@ add_executable(psn_account_id_tests
 )
 
 target_include_directories(psn_account_id_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
 )
 
 add_test(NAME vitarps5_psn_account_id_tests COMMAND psn_account_id_tests)
@@ -424,10 +455,29 @@ add_executable(manual_host_discovery_tests
 
 target_include_directories(manual_host_discovery_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/manual_hosts
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
-    ${CMAKE_SOURCE_DIR}/lib/src
-    ${CMAKE_SOURCE_DIR}/vita/third_party
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
+    ${VITARPS5_ROOT}/vita/third_party
 )
 
 add_test(NAME vitarps5_manual_host_discovery_tests COMMAND manual_host_discovery_tests)
+
+# ui_connection_ip_tests.c checks that a PSN console's Console IP is its display address, never
+# its name (issue #94). Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_connection_ip_tests
+    ui_connection_ip_tests.c
+    ../vita/src/ui/ui_value_labels.c
+    ../vita/src/ui/ui_console_status.c
+    ../vita/src/ip_address.c
+)
+
+target_include_directories(ui_connection_ip_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs/manual_hosts
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
+    ${VITARPS5_ROOT}/vita/third_party
+)
+
+add_test(NAME vitarps5_ui_connection_ip_tests COMMAND ui_connection_ip_tests)

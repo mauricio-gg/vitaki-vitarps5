@@ -18,11 +18,13 @@ void chiaki_log(ChiakiLog *log, ChiakiLogLevel level, const char *fmt, ...) {
   (void)fmt;
 }
 
+/* Stand-in for the real host_free (host.c). The real one frees registered_state and leaves a zeroed
+ * husk because of stale pointers elsewhere in the app; no test here holds such pointers, so this one
+ * frees the struct. hostname is an inline array in VitaChiakiHost, not a heap pointer. */
 void host_free(VitaChiakiHost *host) {
   if (!host)
     return;
   free(host->registered_state);
-  free(host->hostname);
   free(host);
 }
 
@@ -330,14 +332,16 @@ static void test_legacy_bool_and_latency_migration(void) {
   free(rewritten);
 }
 
+/* catches: pre-[settings] configs whose bools sit at the file's root losing those settings on load
+ * (the keys must be before any table header, otherwise TOML puts them in [general]). */
 static void test_root_level_bool_migration(void) {
   reset_config_file();
   write_config_text(
-      "[general]\n"
-      "version = 1\n"
-      "\n"
       "stretch_video = true\n"
-      "clamp_soft_restart_bitrate = false\n");
+      "clamp_soft_restart_bitrate = false\n"
+      "\n"
+      "[general]\n"
+      "version = 1\n");
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
