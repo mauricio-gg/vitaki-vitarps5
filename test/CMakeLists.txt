@@ -445,10 +445,10 @@ add_executable(ui_connection_ip_tests
 
 target_include_directories(ui_connection_ip_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/manual_hosts
-    ${CMAKE_SOURCE_DIR}/vita/include
-    ${CMAKE_SOURCE_DIR}/lib/include
-    ${CMAKE_SOURCE_DIR}/lib/src
-    ${CMAKE_SOURCE_DIR}/vita/third_party
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
+    ${VITARPS5_ROOT}/vita/third_party
 )
 
 add_test(NAME vitarps5_ui_connection_ip_tests COMMAND ui_connection_ip_tests)
