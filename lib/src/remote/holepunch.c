@@ -610,15 +610,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
 
     snprintf(url, sizeof(url), device_list_url_fmt, "PS5");
 
+    // Declared before the first possible jump to "cleanup", which frees both
     char* oauth_header = NULL;
-    ChiakiErrorCode err = make_oauth2_header(&oauth_header, psn_oauth2_token);
-    if(err != CHIAKI_ERR_SUCCESS)
-        return err;
-
     HttpResponseData response_data = {
         .data = malloc(0),
         .size = 0,
     };
+
+    ChiakiErrorCode err = make_oauth2_header(&oauth_header, psn_oauth2_token);
+    if(err != CHIAKI_ERR_SUCCESS)
+        goto cleanup;
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Accept-Language: jp");
@@ -671,6 +672,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     if(!tok)
     {
         CHIAKI_LOGE(log, "Couldn't create new json tokener");
+        err = CHIAKI_ERR_MEMORY;
         goto cleanup;
     }
     json_object *json = json_tokener_parse_ex(tok, response_data.data, response_data.size);
@@ -700,7 +702,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     if(!(*devices))
     {
         CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Memory could not be allocated for %d devices", num_clients);
-        return CHIAKI_ERR_MEMORY;
+        err = CHIAKI_ERR_MEMORY;
+        goto cleanup_json;
     }
     *device_count = num_clients;
     for (size_t i = 0; i < num_clients; i++)
@@ -802,7 +805,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
             err = CHIAKI_ERR_UNKNOWN;
             goto cleanup_devices;
         }
-        strncpy(device->device_name, json_object_get_string(device_name), sizeof(device->device_name));
+        // calloc zeroed the struct, so leaving the last byte untouched keeps the name NUL-terminated
+        strncpy(device->device_name, json_object_get_string(device_name), sizeof(device->device_name) - 1);
     }
 
 cleanup_devices:
