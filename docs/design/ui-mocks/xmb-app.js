@@ -9,7 +9,7 @@ const S={
  conn:{ci:0,flow:[0,4,7],cur:0,play:false,all:false},
  rec:{attempt:2},
  scan:'searching',glass:'none',pop:null,toast:null,kb:null,unst:false,
- psn:'auth',pconn:'wifi',qr:true,logout:false,exitStart:0,zoom:1
+ psn:'auth',pconn:'wifi',wifi:'3',qr:true,logout:false,exitStart:0,zoom:1
 };
 let stageTimer=null,toastTimer=null,logoutTimer=null;
 const STAGES=[['Waking console','Sending wake signal'],['Authenticating with PSN','Validating account tokens'],['Fetching internet consoles','Loading remote-play capable devices'],['Creating PSN session','Creating cloud-assisted session'],['Preparing Remote Play','Negotiating session'],['Punching control channel','Establishing control tunnel'],['Punching data channel','Finalizing media tunnel'],['Starting stream','Launching video pipeline']];
@@ -44,9 +44,12 @@ function applyGlass(){applyBg();
  if(reduce)paintWave(0);
 }
 /* deep-link params ?glass=none|soft|strong|dark &bg=waves|glyphs &theme=ocean|ember|orchid|moss|graphite (old names off and strongdark still work) */
-function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexOf(m);if(i<0)return;SET('blur').v=i;BLUR[SET('bg').v]=i;applyGlass();}function paintTop(){
+function setGlass(m){m={off:'none',strongdark:'dark'}[m]||m;const i=GLASS.indexOf(m);if(i<0)return;SET('blur').v=i;BLUR[SET('bg').v]=i;applyGlass();}/* #428: top-bar Wi-Fi level 0..3 (bars) or 'off' (disconnected, whole icon at 45%). Click the icon or use ?wifi=0|1|2|3|off to switch. Same PNGs the app loads, tinted like vita2d does. */
+const WIFI_LV=['3','2','1','0','off'];
+const wifiIcon=(s)=>`<span id="wifi" class="wifi" role="img" aria-label="Wi-Fi ${S.wifi==='off'?'disconnected':S.wifi+' of 3 bars'}" title="#428: click to cycle Wi-Fi level" style="width:${s}px;height:${s}px;-webkit-mask:url(icons/wifi_${S.wifi==='off'?3:S.wifi}.png) center/contain no-repeat;mask:url(icons/wifi_${S.wifi==='off'?3:S.wifi}.png) center/contain no-repeat;opacity:${S.wifi==='off'?.45:1}"></span>`;
+function paintTop(){
  const ban=S.screen==='home'&&S.cat===0&&CONSOLES.some(c=>c.cool);
- $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${ico('wifi',24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
+ $('#top').innerHTML=`<img src="assets/Vita_RPS5_Logo.png" alt="VitaRPS5"><span class="slot">${ban?bannerPill('Console entered sleep mode'):''}</span><span class="r">${ban?'':`<span style="display:flex;gap:8px;align-items:center">${wifiIcon(24)}</span><span style="display:flex;gap:8px;align-items:center">${ico('battery',24)}86%</span>`}<span class="clk">${hhmm()}</span></span>`;
 }
 const unstExtra=()=>S.unst&&SET('net').v?unstPill():'';
 function paintHints(items){ $('#hintbar').innerHTML=hintRow(SET('hints').v?items:[],unstExtra()); fitHints(); }
@@ -904,7 +907,9 @@ function init(){
 }
 function fit(){const dev=$('#wrap').classList.contains('dev'),w=dev?1260:960,f=Math.min(1,(innerWidth-32)/w);$('#wrap').style.setProperty('--z',+(S.zoom*f).toFixed(3));}
 init();applyGlass();
-function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),qs=q&&new URLSearchParams(q),gm=qs&&qs.get('glass');if(qs&&qs.get('bg')){SET('bg').v=qs.get('bg')==='glyphs'?1:0;SET('blur').v=BLUR[SET('bg').v];applyGlass();}if(qs&&qs.get('theme')){const ti=SET('theme').opts.map(x=>x.toLowerCase()).indexOf(qs.get('theme'));if(ti>=0){SET('theme').v=ti;applyTheme();}}if(gm)setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
+function route(){const raw=(location.hash||'#home').slice(1),[h,q]=raw.split('?'),qs=q&&new URLSearchParams(q),gm=qs&&qs.get('glass');if(qs&&qs.get('bg')){SET('bg').v=qs.get('bg')==='glyphs'?1:0;SET('blur').v=BLUR[SET('bg').v];applyGlass();}if(qs&&qs.get('theme')){const ti=SET('theme').opts.map(x=>x.toLowerCase()).indexOf(qs.get('theme'));if(ti>=0){SET('theme').v=ti;applyTheme();}}if(qs&&WIFI_LV.includes(qs.get('wifi'))){S.wifi=qs.get('wifi');}if(gm)setGlass(gm);jump(h);['#stage','#screen','.devScale','#wrap'].forEach(s=>{const e=$(s);if(e){e.scrollTop=0;e.scrollLeft=0;}});scrollTo(0,0);}
 addEventListener('hashchange',route);
 if(location.hash)setTimeout(route,60);else jump('home');
 document.addEventListener('dragstart',e=>e.preventDefault());
+
+addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#wifi')){S.wifi=WIFI_LV[(WIFI_LV.indexOf(S.wifi)+1)%WIFI_LV.length];paintTop();}});

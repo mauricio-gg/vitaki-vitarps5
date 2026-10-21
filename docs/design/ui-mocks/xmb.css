@@ -399,3 +399,6 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 .kbd .tries{display:flex;gap:var(--s1);align-items:center;font-size:var(--t14);color:var(--text-3);margin-top:var(--s1)}
 .kbd .tries button{font:inherit;color:var(--text-2);background:none;border:var(--lw1) dashed var(--line);border-radius:var(--r-pill);padding:4px 12px;cursor:pointer}
 .srow .val .ico{flex:none}
+
+/* #428 top-bar Wi-Fi: PNG used as a mask so currentColor tints it, like the app's tinted draw */
+#top .wifi{display:inline-block;background:currentColor;cursor:pointer}
