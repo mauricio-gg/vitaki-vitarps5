@@ -109,7 +109,10 @@ void ui_cards_map_host(VitaChiakiHost *host, ConsoleCardInfo *card) {
   if (host->display_name[0] || host->hostname[0]) {
     snprintf(card->name, sizeof(card->name), "%s",
              host->display_name[0] ? host->display_name : host->hostname);
-    snprintf(card->ip_address, sizeof(card->ip_address), "%s", host->hostname);
+    /* A PSN host's hostname is its console name, not an address: show the seed's last known
+     * address, or nothing (the detail panel then says "Unknown"). */
+    snprintf(card->ip_address, sizeof(card->ip_address), "%s",
+             psn_remote ? host->display_address : host->hostname);
   } else {
     snprintf(card->name, sizeof(card->name), "%s", "Unknown");
     card->ip_address[0] = '\0';

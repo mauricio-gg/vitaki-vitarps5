@@ -51,6 +51,12 @@ typedef struct vita_chiaki_host_t {
    * config.manual_hosts) only save_manual_host() and config load write it; discovery never
    * touches a manual record (#234). */
   char hostname[VITA_HOST_HOSTNAME_LEN];
+  /** The address shown to the user for a PSN_REMOTE host (Home detail Address row, Profile
+   * Console IP row): the seed host's last known home address. Written once by
+   * add_psn_host_from_device() and empty when the seed has no address. Display-only: never used
+   * for connecting (PSN connects route by psn_device_uid) and never the punched NAT/relay peer
+   * address. Empty on every other host source. */
+  char display_address[VITA_HOST_HOSTNAME_LEN];
   /** Best-known console name for UI display. Precedence: discovery host_name >
    * registered_state->server_nickname > hostname/IP. Set at host-creation time by whichever
    * code builds the entry (manual add, PSN refresh, config load); refreshed thereafter only by

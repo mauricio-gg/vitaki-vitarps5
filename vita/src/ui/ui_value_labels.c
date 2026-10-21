@@ -148,5 +148,11 @@ const char *ui_connection_console_name(const VitaChiakiHost *host) {
 }
 
 const char *ui_connection_console_ip(const VitaChiakiHost *host) {
-  return (host && host->hostname[0]) ? host->hostname : NULL;
+  if (!host) {
+    return NULL;
+  }
+  /* A PSN host's hostname is its console name, not an address. */
+  const char *address =
+      host->source == VITA_HOST_SOURCE_PSN_REMOTE ? host->display_address : host->hostname;
+  return address[0] ? address : NULL;
 }

@@ -333,6 +333,7 @@ void copy_host(VitaChiakiHost *h_dest, VitaChiakiHost *h_src, bool copy_hostname
   if (copy_hostname) {
     snprintf(h_dest->hostname, sizeof(h_dest->hostname), "%s", h_src->hostname);
   }
+  memset(h_dest->display_address, 0, sizeof(h_dest->display_address));
   memset(h_dest->display_name, 0, sizeof(h_dest->display_name));
   snprintf(h_dest->display_name, sizeof(h_dest->display_name), "%s", h_src->display_name);
   h_dest->discovery_state_snapshot = h_src->discovery_state_snapshot;
