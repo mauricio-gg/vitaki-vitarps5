@@ -231,6 +231,19 @@ target_include_directories(ui_stream_stats_tests PRIVATE
 
 add_test(NAME vitarps5_ui_stream_stats_tests COMMAND ui_stream_stats_tests)
 
+# ui_wifi_level_tests.c checks the top bar Wi-Fi bar level rule (thresholds and hysteresis, GH #428).
+# Standalone binary with its own main(); run natively (see the file header).
+add_executable(ui_wifi_level_tests
+    ui_wifi_level_tests.c
+    ../vita/src/ui/ui_wifi_level.c
+)
+
+target_include_directories(ui_wifi_level_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/vita/include
+)
+
+add_test(NAME vitarps5_ui_wifi_level_tests COMMAND ui_wifi_level_tests)
+
 # ui_login_tests.c has its own main() and tests the phone login helpers (QR module size, keyboard
 # text conversion). Cross-compiled but never run by ./tools/build.sh test; the native command is at
 # the top of the file.
