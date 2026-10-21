@@ -257,7 +257,7 @@ add_executable(ui_wifi_level_tests
 )
 
 target_include_directories(ui_wifi_level_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 add_test(NAME vitarps5_ui_wifi_level_tests COMMAND ui_wifi_level_tests)
