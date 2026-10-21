@@ -86,9 +86,10 @@ void recv_probe_report(const ChiakiTakionRecvbufWindow *w, const AudioOutWindow 
   uint32_t q_avg_x100 = chiaki_takion_probe_avg((uint64_t)a->q_sum * AUDIO_Q_AVG_SCALE, a->q_n);
   LOGD(
       "PIPE/AUDIO net_pkts=%u haptic_pkts=%u frames_new=%u frames_dup=%u frames_missing=%u "
-      "gap_events=%u decoded=%u catchups=%u catchup_frames=%u q_min=%u q_avg=%u.%02u q_max=%u",
+      "gap_events=%u concealed=%u decoded=%u catchups=%u catchup_frames=%u q_min=%u q_avg=%u.%02u "
+      "q_max=%u",
       a->net_pkts, a->haptic_pkts, a->frames_new, a->frames_dup, a->frames_missing, a->gap_events,
-      a->decoded, w->acatchup, a->catchup_frames, a->q_n ? a->q_min : 0,
+      a->frames_concealed, a->decoded, w->acatchup, a->catchup_frames, a->q_n ? a->q_min : 0,
       q_avg_x100 / AUDIO_Q_AVG_SCALE, q_avg_x100 % AUDIO_Q_AVG_SCALE, a->q_max);
   LOGD(
       "PIPE/AUDIOOUT win=%u out_calls=%u out_frames=%u aout_us=%u aout_max_us=%u rest_n=%u "

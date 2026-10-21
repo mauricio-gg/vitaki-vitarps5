@@ -13,6 +13,25 @@ static ChiakiTakionAudioStats *audio_receiver_probe_stats(ChiakiAudioReceiver *a
 	return &audio_receiver->session->stream_connection.takion.recvtime_acc.audio_stats;
 }
 
+/**
+ * Hands the audio sink one "lost frame" call (buf NULL, size 0) per missing frame, capped at
+ * CHIAKI_AUDIO_RECEIVER_CONCEAL_MAX_FRAMES, so the sink's queue keeps its level and the decoder
+ * continues from its own state. Called with the receiver mutex held, before the newly arrived
+ * frame is passed on, which keeps playback order.
+ */
+static void audio_receiver_conceal(ChiakiAudioReceiver *audio_receiver, uint32_t missing)
+{
+	ChiakiAudioSink *sink = &audio_receiver->session->audio_sink;
+	if(!sink->frame_cb)
+		return;
+	uint32_t count = missing < CHIAKI_AUDIO_RECEIVER_CONCEAL_MAX_FRAMES ? missing : CHIAKI_AUDIO_RECEIVER_CONCEAL_MAX_FRAMES;
+	for(uint32_t i = 0; i < count; i++)
+	{
+		sink->frame_cb(NULL, 0, sink->user);
+		audio_receiver_probe_stats(audio_receiver)->frames_concealed++;
+	}
+}
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, ChiakiSession *session, ChiakiPacketStats *packet_stats)
 {
 	audio_receiver->session = session;
@@ -21,7 +40,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 
 	audio_receiver->frame_index_prev = 0;
 	audio_receiver->frame_index_startup = true;
-	audio_receiver->probe_have_prev = false;
+	audio_receiver->have_prev = false;
 
 	ChiakiErrorCode err = chiaki_mutex_init(&audio_receiver->mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -137,12 +156,13 @@ static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, Chi
 		probe->frames_new++;
 		// 16-bit modular distance, so a wrap is not a gap; the first accepted frame has no baseline.
 		uint32_t missing = chiaki_takion_probe_seq16_missing(audio_receiver->frame_index_prev, frame_index);
-		if(audio_receiver->probe_have_prev && missing)
+		if(audio_receiver->have_prev && missing)
 		{
 			probe->frames_missing += missing;
 			probe->gap_events++;
+			audio_receiver_conceal(audio_receiver, missing);
 		}
-		audio_receiver->probe_have_prev = true;
+		audio_receiver->have_prev = true;
 	}
 	audio_receiver->frame_index_prev = frame_index;
 

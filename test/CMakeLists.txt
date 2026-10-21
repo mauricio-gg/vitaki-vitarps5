@@ -481,3 +481,23 @@ target_include_directories(ui_connection_ip_tests PRIVATE
 )
 
 add_test(NAME vitarps5_ui_connection_ip_tests COMMAND ui_connection_ip_tests)
+
+# audio_receiver_tests.c drives the lib audio receiver with recording sinks and checks the lost-frame
+# concealment (#440). Standalone binary with its own main(); run natively (see the file header).
+add_executable(audio_receiver_tests
+    audio_receiver_tests.c
+    ../lib/src/audioreceiver.c
+    ../lib/src/log.c
+    ../lib/src/packetstats.c
+    ../lib/src/redact.c
+    ../lib/src/thread.c
+    ../lib/src/time.c
+)
+
+target_include_directories(audio_receiver_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${VITARPS5_ROOT}/lib/include
+    ${VITARPS5_ROOT}/lib/src
+)
+
+add_test(NAME vitarps5_audio_receiver_tests COMMAND audio_receiver_tests)

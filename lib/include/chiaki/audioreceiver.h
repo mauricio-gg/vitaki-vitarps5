@@ -15,7 +15,22 @@ extern "C" {
 #endif
 
 typedef void (*ChiakiAudioSinkHeader)(ChiakiAudioHeader *header, void *user);
+
+/**
+ * Called once per audio frame, in playback order. buf == NULL with buf_size == 0 means the frame
+ * was lost on the network: the sink should conceal it (Opus packet-loss concealment, the same
+ * convention libopus uses) and produce one frame of filler. Never passed to the haptics sink.
+ */
 typedef void (*ChiakiAudioSinkFrame)(uint8_t *buf, size_t buf_size, void *user);
+
+/**
+ * Most lost frames concealed for one gap in the frame indexes. 5 frames is the Vita's start level
+ * (50 ms at 480 samples / 48 kHz), the cushion concealment exists to keep. A longer jump is a
+ * stall, not scattered loss: concealing more would only push the queue toward the 10-frame
+ * catch-up bound (AUDIO_CATCHUP_BOUND_MS) once the real burst arrives, where it is thrown away,
+ * and Opus concealment fades toward silence over long runs anyway.
+ */
+#define CHIAKI_AUDIO_RECEIVER_CONCEAL_MAX_FRAMES 5
 
 /**
  * Sink that receives Audio encoded as Opus
@@ -34,7 +49,7 @@ typedef struct chiaki_audio_receiver_t
 	ChiakiMutex mutex;
 	ChiakiSeqNum16 frame_index_prev;
 	bool frame_index_startup; // whether frame_index_prev has definitely not wrapped yet
-	bool probe_have_prev; // PIPE/AUDIO only: a frame was accepted, so frame_index_prev is a real baseline
+	bool have_prev; // a frame was accepted, so frame_index_prev is a real baseline for gap detection
 	ChiakiPacketStats *packet_stats;
 } ChiakiAudioReceiver;
 

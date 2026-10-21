@@ -46,7 +46,7 @@ typedef struct chiaki_takion_time_window_t
 
 /**
  * PIPE/AUDIO counts of one window (section 9.9). All 32-bit: a window is about a second. Written
- * only by the receive thread: the lib audio receiver (net_pkts .. gap_events), vita_audio_cb
+ * only by the receive thread: the lib audio receiver (net_pkts .. frames_concealed), vita_audio_cb
  * (the rest). What the audio output thread does is not here: it has its own record (PIPE/AUDIOOUT).
  */
 typedef struct chiaki_takion_audio_stats_t
@@ -54,7 +54,8 @@ typedef struct chiaki_takion_audio_stats_t
 	uint32_t net_pkts, haptic_pkts;              // audio / haptics AV packets that reached the audio receiver
 	uint32_t frames_new, frames_dup;             // audio frames accepted / discarded as old or repeated
 	uint32_t frames_missing, gap_events;         // frame indexes skipped between accepted frames, and the jumps
-	uint32_t decoded;                            // frames that reached vita_audio_cb
+	uint32_t frames_concealed;                   // lost-frame calls handed to the audio sink (capped per jump)
+	uint32_t decoded;                            // frames that reached vita_audio_cb (concealed ones included)
 	uint32_t catchup_frames;                     // queued frames thrown away by the catch-up rule
 	uint32_t q_n, q_sum;                         // hand-off queue occupancy samples (one per push) and their sum, in frames
 	uint32_t q_min, q_max;                       // smallest / largest sample (q_min is meaningless while q_n is 0)
