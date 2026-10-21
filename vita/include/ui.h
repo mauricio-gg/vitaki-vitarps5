@@ -21,7 +21,7 @@ void draw_ui();
 /**
  * ui_set_vblank_wait() - Switches vita2d's wait for the display refresh on or off and remembers
  * the choice. The only place that calls vita2d_set_vblank_wait(), because vita2d has no getter.
- * Callable from any thread (the stream's start and stop run on the session thread).
+ * Called only from the UI thread's draw_ui() loop.
  * @param wait true to make a buffer swap wait for vblank, false to swap at once
  */
 void ui_set_vblank_wait(bool wait);

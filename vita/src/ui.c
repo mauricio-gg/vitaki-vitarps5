@@ -124,9 +124,8 @@ static uint32_t *button_block_mask = NULL;
 
 // Error popup and debug menu functions moved to ui_components.c
 
-/* Mirrors vita2d's vblank wait, which vita2d cannot report. One writer at a time (the UI thread
- * while loading, the session thread around a stream), read by the UI thread: a volatile flag is
- * enough on the Vita's Cortex-A9. vita2d starts with the wait on. */
+/* Mirrors vita2d's vblank wait, which vita2d cannot report. Written only by the UI thread (the
+ * draw_ui() loop); read by it and by the swap probe. vita2d starts with the wait on. */
 static volatile bool s_vblank_wait_on = true;
 
 void ui_set_vblank_wait(bool wait) {
@@ -612,10 +611,7 @@ void init_ui() {
                   vita2d_init_ret);
     vita2d_init();
   }
-  /* Nothing blocks on the display while loading: the splash frames are time gated and animation
-   * is time based. */
   vita2d_set_clear_color(UI_SCENE_CLEAR_COLOR);
-  ui_set_vblank_wait(false);
   const uint64_t logo_wait_start_us = sceKernelGetProcessTimeWide();
   UiAssetPixels logo_pixels;
   const bool logo_listed = ui_asset_preload_wait(UI_ASSET_LOGO_PATH, &logo_pixels);
@@ -654,7 +650,6 @@ void init_ui() {
     splash_frame(&more_work);
 
   s_load_done_us = sceKernelGetProcessTimeWide();
-  ui_set_vblank_wait(true);
   ui_splash_loading_done();
   while (!ui_splash_ready_to_exit())
     splash_frame(NULL);
@@ -821,6 +816,9 @@ void draw_ui() {
 
     // Skip ALL rendering when streaming - match ywnico pattern
     if (!context.stream.is_streaming) {
+      // Every screen except the stream picture is drawn with the vblank wait on (no tearing).
+      if (!ui_vblank_wait_is_on())
+        ui_set_vblank_wait(true);
       if (context.stream.reconnect_overlay_active) {
         screen = UI_SCREEN_TYPE_RECONNECTING;
       } else if (screen == UI_SCREEN_TYPE_RECONNECTING) {
@@ -943,6 +941,9 @@ void draw_ui() {
       // Streaming active — render decoded frames from the UI thread.
       // This decouples GPU display from the Takion network receive thread,
       // freeing ~15-20ms per frame on the decode path.
+      // The stream picture is the only thing shown without the vblank wait (lowest latency).
+      if (ui_vblank_wait_is_on())
+        ui_set_vblank_wait(false);
       if (!vita_video_render_latest_frame()) {
         sceKernelDelayThread(1000);  // 1ms sleep to avoid busy-spin
       }
