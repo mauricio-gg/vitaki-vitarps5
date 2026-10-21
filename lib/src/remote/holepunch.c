@@ -593,6 +593,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     ChiakiHolepunchDeviceInfo **devices, size_t *device_count,
     ChiakiLog *log)
 {
+    if(console_type != CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5)
+    {
+        CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: only PS5 is supported by the list devices function");
+        return CHIAKI_ERR_INVALID_DATA;
+    }
+
     CURL *curl = curl_easy_init();
     if(!curl)
     {
@@ -602,13 +608,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     curl_apply_platform_tls_defaults(curl);
     char url[133];
 
-    char *platform;
-    if (console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS4) {
-        CHIAKI_LOGW(log, "PS4 is not supported by the list devices function!");
-    } else {
-        platform = "PS5";
-    }
-    snprintf(url, sizeof(url), device_list_url_fmt, platform);
+    snprintf(url, sizeof(url), device_list_url_fmt, "PS5");
 
     char* oauth_header = NULL;
     ChiakiErrorCode err = make_oauth2_header(&oauth_header, psn_oauth2_token);
