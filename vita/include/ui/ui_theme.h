@@ -604,7 +604,7 @@ typedef enum ui_face_t {
 #define UI_STATS_TITLE_GAP 4
 /** Smallest space between a row's label and its value. */
 #define UI_STATS_COL_GAP UI_S2
-#define UI_STATS_ROWS 2
+#define UI_STATS_ROWS 1
 /** The value text is rebuilt this often (microseconds), never per frame. */
 #define UI_STATS_REBUILD_US 1000000ULL
 

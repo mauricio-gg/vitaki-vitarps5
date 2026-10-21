@@ -235,7 +235,7 @@ static void background_blur_change(int step) {
 }
 
 static const SettingDef DISPLAY_ROWS[] = {
-    {"Show Latency", UI_SETTING_TOGGLE, "Show latency and frame rate in the stream overlay.",
+    {"Show Latency", UI_SETTING_TOGGLE, "Show the frame rate in the stream overlay.",
      show_latency_is_on, NULL, show_latency_change},
     {"Show Network Alerts", UI_SETTING_TOGGLE, "Show a badge when the connection becomes unstable.",
      network_alerts_is_on, NULL, network_alerts_change},

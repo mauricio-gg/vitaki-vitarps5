@@ -118,7 +118,7 @@ static void draw_stream_exit_hint(void) {
 
 /** Row labels of the stats panel, top to bottom; the value strings in StatsCache follow this order.
  */
-static const char *const stats_labels[UI_STATS_ROWS] = {"Latency", "FPS"};
+static const char *const stats_labels[UI_STATS_ROWS] = {"FPS"};
 static const char *const stats_title = "Stream Stats";
 
 /**
@@ -126,8 +126,7 @@ static const char *const stats_title = "Stream Stats";
  * numbers do not flicker and the draw path never formats or measures text.
  */
 typedef struct {
-  bool valid;      /**< False until the first build after a stream start. */
-  bool latency_na; /**< The latency row already reads N/A, so no stale check is needed. */
+  bool valid; /**< False until the first build after a stream start. */
   uint64_t built_us;
   char values[UI_STATS_ROWS][32];
   int value_w[UI_STATS_ROWS];
@@ -155,34 +154,22 @@ static void stats_cache_measure(void) {
 
 /**
  * Keep the stats cache current. Rebuilds from the live stream metrics on the first call after a
- * reset and then once per UI_STATS_REBUILD_US. Between rebuilds only the stale check runs: the
- * frame the latency crosses UI_STREAM_STATS_STALE_US it switches to N/A at once.
+ * reset and then once per UI_STATS_REBUILD_US; between rebuilds the cached text is reused.
  */
 static void stats_cache_update(uint64_t now_us) {
-  if (!stats_cache.valid || now_us - stats_cache.built_us >= UI_STATS_REBUILD_US) {
-    ui_stream_stats_format(now_us, context.stream.metrics_last_update_us,
-                           context.stream.measured_rtt_ms, context.stream.measured_incoming_fps,
-                           context.stream.target_fps, context.stream.negotiated_fps,
-                           stats_cache.values[0], sizeof(stats_cache.values[0]),
-                           stats_cache.values[1], sizeof(stats_cache.values[1]));
-    stats_cache.latency_na = strcmp(stats_cache.values[0], UI_STREAM_STATS_NA) == 0;
-    stats_cache.built_us = now_us;
-    stats_cache.valid = true;
-    stats_cache_measure();
+  if (stats_cache.valid && now_us - stats_cache.built_us < UI_STATS_REBUILD_US)
     return;
-  }
-
-  if (!stats_cache.latency_na &&
-      ui_stream_stats_metrics_stale(now_us, context.stream.metrics_last_update_us)) {
-    snprintf(stats_cache.values[0], sizeof(stats_cache.values[0]), "%s", UI_STREAM_STATS_NA);
-    stats_cache.latency_na = true;
-    stats_cache_measure();
-  }
+  ui_stream_stats_format(context.stream.measured_incoming_fps, context.stream.target_fps,
+                         context.stream.negotiated_fps, stats_cache.values[0],
+                         sizeof(stats_cache.values[0]));
+  stats_cache.built_us = now_us;
+  stats_cache.valid = true;
+  stats_cache_measure();
 }
 
 /**
  * Draw the stream stats panel (C25, SPEC 3.5) in its fixed slot. Paper cost: 9-slice 9, title 1,
- * one run per label and per value (14 in all).
+ * one run per label and per value (12 in all).
  */
 static void draw_stream_stats_panel(void) {
   if (!context.config.show_latency) {
