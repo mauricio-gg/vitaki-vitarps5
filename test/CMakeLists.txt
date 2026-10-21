@@ -342,7 +342,7 @@ add_executable(ui_splash_timeline_tests
 )
 
 target_include_directories(ui_splash_timeline_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/vita/include
+    ${VITARPS5_ROOT}/vita/include
 )
 
 target_link_libraries(ui_splash_timeline_tests m)
