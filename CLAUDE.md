@@ -20,6 +20,7 @@ Never call VitaSDK by hand. All commands run from the repo root.
 | `./tools/build.sh --env testing` | Loads `.env.testing`. Required for any on-device streaming validation, because it enables runtime logs. |
 | `./tools/build.sh debug` | Debug build with symbols. Also bumps the version. |
 | `./tools/build.sh test` | Cross-compiles the test suite in `build-test/`. See pitfalls: it does not run anything. |
+| `./tools/native_tests.sh` | Builds every host test in `test/` natively (no Docker, needs cmake and OpenSSL dev files) and runs them all with ctest. Build output goes to `build-native-tests/`. |
 | `./tools/build.sh format` | Runs clang-format over the sources. |
 | `./tools/build.sh shell` | Interactive shell inside the build container. |
 | `./tools/build.sh deploy <vita_ip>` | Uploads `build/vitarps5.vpk` to the Vita over FTP (port 1337). Build first. |
@@ -42,7 +43,7 @@ Never call VitaSDK by hand. All commands run from the repo root.
 
 ## Pitfalls
 
-- `./tools/build.sh test` only cross-compiles for the Vita (ARM). It never runs the tests (#222). Re-run pure-helper assertions natively with `cc` if you need real coverage.
+- `./tools/build.sh test` only cross-compiles for the Vita (ARM). It never runs the tests (#222). Run them with `./tools/native_tests.sh`; CI runs the same command.
 - Testing logs (`*_vitarps5-testing.log`) are seen as binary by BSD grep. Always use `grep -a`, or a missing match proves nothing.
 - Vita thread priority: a lower number is a higher priority. Threads in `lib/` default to about 160 and must be promoted explicitly.
 - Latency-sensitive code is `vita/src/host.c`, `vita/src/video.c` and `vita/src/audio.c`. Read `docs/design/streaming.md` before changing polling loops, priorities or buffer sizes.
