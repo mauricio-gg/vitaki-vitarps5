@@ -556,9 +556,9 @@ function paintHud(){
  const el=Date.now()-S.exitStart,show=SET('exit').v;
  e.innerHTML=show?pill(`Back to menu: Hold ${inl('L')}&nbsp;+&nbsp;${inl('R')}&nbsp;+&nbsp;${inl('start')}`):'';
  e.classList.toggle('gone',el>5000);
- const lat=S.unst?112:38,fps=S.unst?'41 / 60':(SET('fps').v?'59 / 60':'30 / 30');
+ const fps=S.unst?'41 / 60':(SET('fps').v?'59 / 60':'30 / 30');
  p.style.display=SET('lat').v?'block':'none';
- p.innerHTML=`<div class="t">Stream Stats</div><div class="r">Latency<b>${lat} ms</b></div><div class="r">FPS<b>${fps}</b></div>`;
+ p.innerHTML=`<div class="t">Stream Stats</div><div class="r">FPS<b>${fps}</b></div>`;
  u.innerHTML=S.unst&&SET('net').v?unstPill():'';
 }
 setInterval(()=>paintHud(),1000);
