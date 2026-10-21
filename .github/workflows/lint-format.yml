@@ -5,6 +5,7 @@
 # The redaction job compiles and runs test/redact_tests.c natively (build.sh test never runs tests, #222).
 # The latency policy job does the same for test/latency_policy_tests.c (#420).
 # The manual host discovery job does the same for test/manual_host_discovery_tests.c (#234).
+# The ui connection IP job does the same for test/ui_connection_ip_tests.c (#94).
 #
 # Tool versions:
 #   clang-format: installed via pip (PyPI package "clang-format" by ssciwr) at the exact
@@ -178,3 +179,29 @@ jobs:
             vita/third_party/tomlc99/toml.c lib/src/base64.c \
             -o "$RUNNER_TEMP/manual_host_discovery_tests"
           "$RUNNER_TEMP/manual_host_discovery_tests"
+
+  # ---------------------------------------------------------------------------
+  # Job: ui connection IP tests (#94)
+  # A PSN console's Console IP must be its display address, never its name. Compiles
+  # test/ui_connection_ip_tests.c with the runner's cc and runs it.
+  # Flags and sources match the build comment at the top of the test file.
+  # ---------------------------------------------------------------------------
+  ui-connection-ip-tests:
+    name: ui connection IP tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # vita/include/room_icons.h includes tomlc99/toml.h from the vita/third_party submodule.
+      - name: Fetch tomlc99 submodule
+        run: git submodule update --init vita/third_party/tomlc99
+
+      - name: Build and run ui connection IP tests
+        run: |
+          cc -std=gnu11 -Wall -Wextra -I test/stubs/manual_hosts -I vita/include -I lib/include \
+            -I lib/src -I vita/third_party test/ui_connection_ip_tests.c \
+            vita/src/ui/ui_value_labels.c vita/src/ui/ui_console_status.c vita/src/ip_address.c \
+            -o "$RUNNER_TEMP/ui_connection_ip_tests"
+          "$RUNNER_TEMP/ui_connection_ip_tests"
