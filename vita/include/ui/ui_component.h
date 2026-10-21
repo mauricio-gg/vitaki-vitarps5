@@ -78,11 +78,30 @@ static inline uint32_t ui_color_scale_alpha(uint32_t color, float k) {
  * A screen sets it before drawing the layers that must be dimmed or faded as one (the Home
  * layers behind the Options column, a popup while it rises) and back to 1 afterwards. It is a
  * tint on draws that happen anyway, never an extra draw. The text, shape, glow and logo helpers
- * and the dimmed layers' own texture draws apply it through ui_layer_color().
+ * and the dimmed layers' own texture draws apply it through ui_layer_color(), together with the
+ * global opacity of ui_global_set_alpha().
  */
 void ui_layer_set_alpha(float k);
 
-/** ui_layer_color() - @color with the current layer opacity multiplied into its alpha. */
+/**
+ * ui_global_set_alpha() - Set the opacity of the whole UI screen, a second factor next to the layer
+ * opacity.
+ * @k: 0 (invisible) to 1 (unchanged, the default).
+ *
+ * The effective alpha of a draw is the layer opacity times this one. Layers and popups set and
+ * reset the layer opacity as they like; this one is set only by the main loop, to fade the screen
+ * in over the splash (#398), and put back to 1 right after the screen's draws. While it is 1 every
+ * colour is exactly what it was without it.
+ */
+void ui_global_set_alpha(float k);
+
+/**
+ * ui_layer_factor() - The effective opacity right now: layer opacity times the global one.
+ * For draws that build their own vertex colours (ui_layer_color() is the same for one colour).
+ */
+float ui_layer_factor(void);
+
+/** ui_layer_color() - @color with the current effective opacity multiplied into its alpha. */
 uint32_t ui_layer_color(uint32_t color);
 
 /* ============================================================================

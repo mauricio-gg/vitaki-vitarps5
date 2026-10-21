@@ -15,12 +15,23 @@ static vita2d_texture *s_glow = NULL;
 /** Opacity multiplied into every layer colour; see ui_layer_set_alpha(). */
 static float s_layer_alpha = 1.0f;
 
+/** Opacity of the whole screen, multiplied in too; see ui_global_set_alpha(). */
+static float s_global_alpha = 1.0f;
+
 void ui_layer_set_alpha(float k) {
   s_layer_alpha = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
 }
 
+void ui_global_set_alpha(float k) {
+  s_global_alpha = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+}
+
+float ui_layer_factor(void) {
+  return s_layer_alpha * s_global_alpha;
+}
+
 uint32_t ui_layer_color(uint32_t color) {
-  return ui_color_scale_alpha(color, s_layer_alpha);
+  return ui_color_scale_alpha(color, ui_layer_factor());
 }
 
 /**

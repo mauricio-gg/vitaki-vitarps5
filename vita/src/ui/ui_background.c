@@ -58,6 +58,7 @@
 #include "context.h"
 #include "ui/ui_background.h"
 #include "ui/ui_background_glyphs.h"
+#include "ui/ui_component.h"
 #include "ui/ui_constants.h"
 #include "ui/ui_theme.h"
 
@@ -161,6 +162,7 @@ static int s_built_background = BACKGROUND_UNSET;
 static bool s_ready = false;
 static bool s_geometry_valid = false;
 static bool s_pool_warned = false;
+static bool s_crossfade_warned = false;
 static uint64_t s_last_update_us = 0;
 
 /* ============================================================================
@@ -183,11 +185,11 @@ static vita2d_color_vertex vertex(float x, float y, uint32_t colour) {
 }
 
 /**
- * Copies @p count vertices into the per-frame pool and draws them. Skips the draw, and says so
- * once, when the pool is out of space.
+ * Copies @p count vertices into the per-frame pool and draws them, their alpha scaled by @p k
+ * (0..1; 1 leaves them as built). Skips the draw, and says so once, when the pool is out of space.
  */
-static void draw_pooled(SceGxmPrimitiveType mode, const vita2d_color_vertex *src,
-                        unsigned int count) {
+static void draw_pooled_scaled(SceGxmPrimitiveType mode, const vita2d_color_vertex *src,
+                               unsigned int count, float k) {
   size_t bytes = count * sizeof(vita2d_color_vertex);
   vita2d_color_vertex *dst = vita2d_pool_memalign(bytes, sizeof(vita2d_color_vertex));
   if (!dst) {
@@ -198,7 +200,17 @@ static void draw_pooled(SceGxmPrimitiveType mode, const vita2d_color_vertex *src
     return;
   }
   memcpy(dst, src, bytes);
+  if (k < 1.0f) {
+    for (unsigned int i = 0; i < count; i++)
+      dst[i].color = ui_color_scale_alpha(dst[i].color, k);
+  }
   vita2d_draw_array(mode, dst, count);
+}
+
+/** Draws @p count vertices as built; see draw_pooled_scaled(). */
+static void draw_pooled(SceGxmPrimitiveType mode, const vita2d_color_vertex *src,
+                        unsigned int count) {
+  draw_pooled_scaled(mode, src, count, 1.0f);
 }
 
 /** Writes two triangles covering the full width between y0 and y1, shaded from c0 to c1. */
@@ -730,13 +742,55 @@ void ui_background_draw_sharp(bool slow) {
   draw_scene();
 }
 
+void ui_background_draw_crossfade(float blur_k) {
+  if (!s_ready)
+    return;
+  sync_theme();
+  if (blur_k >= 1.0f) {
+    ui_background_draw(false);
+    return;
+  }
+  refresh_geometry(false);
+  draw_scene();
+  if (blur_k <= 0.0f)
+    return;
+
+  const VitaChiakiBackgroundBlur blur = active_blur();
+  if (blur == VITA_BACKGROUND_BLUR_NONE) {
+    const VitaChiakiBackgroundBlur wanted = config_background_blur(&context.config);
+    if (wanted > VITA_BACKGROUND_BLUR_NONE && wanted < VITA_BACKGROUND_BLUR_COUNT &&
+        !s_crossfade_warned) {
+      LOGE("UI/BACKGROUND splash blur crossfade skipped, blur targets unavailable (level %d)",
+           (int)wanted);
+      s_crossfade_warned = true;
+    }
+    return;
+  }
+  const BlurTarget *target = target_for(blur);
+  if (!target->tex)
+    return;
+
+  vita2d_draw_texture_tint_scale(target->tex, 0.0f, 0.0f, (float)VITA_WIDTH / (float)target->width,
+                                 (float)VITA_HEIGHT / (float)target->height,
+                                 ui_color_scale_alpha(UI_WHITE_PCT(100), blur_k));
+  if (blur == VITA_BACKGROUND_BLUR_DARK) {
+    draw_veil(ui_color_scale_alpha(UI_GLASS_VEIL_DARK, blur_k));
+    return;
+  }
+  if (blur == VITA_BACKGROUND_BLUR_STRONG)
+    draw_veil(ui_color_scale_alpha(UI_GLASS_FROST, blur_k));
+  draw_veil(ui_color_scale_alpha(UI_GLASS_VEIL, blur_k));
+}
+
 void ui_background_draw_home_vignette(void) {
   if (!s_ready)
     return;
   sync_theme();
-  draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_vertical,
-              VIG_VERTICAL_STOPS * VERTS_PER_STRIP_STOP);
-  draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_left, VIG_LEFT_STOPS * VERTS_PER_STRIP_STOP);
-  draw_pooled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_right,
-              VIG_RIGHT_STOPS * VERTS_PER_STRIP_STOP);
+  const float k = ui_layer_factor();
+  draw_pooled_scaled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_vertical,
+                     VIG_VERTICAL_STOPS * VERTS_PER_STRIP_STOP, k);
+  draw_pooled_scaled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_left,
+                     VIG_LEFT_STOPS * VERTS_PER_STRIP_STOP, k);
+  draw_pooled_scaled(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, s_vig_right,
+                     VIG_RIGHT_STOPS * VERTS_PER_STRIP_STOP, k);
 }

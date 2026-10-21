@@ -3,10 +3,11 @@
  * @brief Splash screen: the logo over the app's own background, then it dissolves (SPEC.md 3.9)
  *
  * Main thread only. The caller owns the vita2d scene (start, end, swap) and draws the app's
- * background (sharp, ui_background_draw_sharp()) and, once it shows, Home; every draw function here
- * draws only the splash's own layers into the scene that is already open: the crisp logo (1 draw)
- * and the particles (1 draw, one triangle list from vita2d's per-frame pool; nothing is allocated
- * per frame).
+ * background (sharp, ui_background_draw_sharp(); from D the user's blur level fades in over it,
+ * ui_background_draw_crossfade()) and, once it shows, Home (faded with ui_global_set_alpha());
+ * every draw function here draws only the splash's own layers into the scene that is already open:
+ * the crisp logo (1 draw) and the particles (1 draw, one triangle list from vita2d's per-frame
+ * pool; nothing is allocated per frame).
  *
  * Timeline: the logo fades in over the first 0.45 s and holds. D = max(loading done, 1.0 s) is
  * when the dissolve starts; it runs 1.02 s, the #366 particle motion played backwards. Home starts

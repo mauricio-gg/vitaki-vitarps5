@@ -815,13 +815,19 @@ void draw_ui() {
        * The background resets vita2d's pool and renders its blur target (a scene of its own)
        * before the main scene opens, so the main scene must not call vita2d_start_drawing(),
        * which would reset the pool again. While a popup is open the screen behind it is a frozen
-       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset. While
-       * the splash dissolves the background stays sharp, as during loading: no blur target is
-       * rendered, only the pool is reset.
+       * copy (ui_freeze.h): the wave is neither prepared nor drawn, only the pool is reset. During
+       * the splash's loading and hold the background is sharp and no blur target is rendered, only
+       * the pool is reset.
        */
       const bool frozen = ui_freeze_is_ready();
       const bool splash_live = ui_splash_active();
-      if (frozen || splash_live) {
+      /* Read once, so the background, the fade and the visibility agree within the frame. */
+      const float home_k = splash_live ? ui_splash_home_opacity() : 1.0f;
+      /* The blur chain is prepared from the dissolve start (D) on, so its targets exist by D and
+       * the crossfade has a picture to fade in. Before D the background is sharp and nothing is
+       * rendered into a target. */
+      const bool splash_blur_due = splash_live && ui_splash_ready_to_exit();
+      if (frozen || (splash_live && !splash_blur_due)) {
         vita2d_pool_reset();
       } else {
         ui_background_prepare(screen == UI_SCREEN_TYPE_WAKING ||
@@ -837,7 +843,8 @@ void draw_ui() {
       if (frozen) {
         ui_freeze_draw();
       } else if (splash_live) {
-        ui_background_draw_sharp(false);
+        /* Sharp until Home starts to show, then the user's blur level fades in with it. */
+        ui_background_draw_crossfade(home_k);
       } else {
         ui_background_draw(screen == UI_SCREEN_TYPE_WAKING ||
                            screen == UI_SCREEN_TYPE_RECONNECTING);
@@ -848,7 +855,11 @@ void draw_ui() {
 
       /* Until Home starts to show (D + 0.40 s of the splash) only the background and the splash
        * draw. Home is then entered as on any first frame. */
-      const bool screen_visible = !splash_live || ui_splash_home_opacity() > 0.0f;
+      const bool screen_visible = !splash_live || home_k > 0.0f;
+      /* Home fades in as one: the factor multiplies into every colour the screen's draws build.
+       * It is 1 whenever the splash is not live. */
+      if (splash_live)
+        ui_global_set_alpha(home_k);
       // Render the current screen
       if (screen_visible) {
         if (screen == UI_SCREEN_TYPE_MAIN) {
@@ -878,6 +889,7 @@ void draw_ui() {
       if (screen_visible)
         drawn_screen = prev_screen;
       screen = next_screen;
+      ui_global_set_alpha(1.0f);
 
       render_debug_menu();
       /* A freeze belongs to the screen that opened the popup: leaving it releases the freeze. */

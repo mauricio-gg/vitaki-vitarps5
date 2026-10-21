@@ -64,9 +64,24 @@ void ui_background_draw(bool slow);
 void ui_background_draw_sharp(bool slow);
 
 /**
+ * ui_background_draw_crossfade() - Draw the sharp scene with the user's blur level faded in over
+ * it.
+ * @blur_k: 0 (the sharp scene only) to 1 (exactly what ui_background_draw() draws).
+ *
+ * For the splash dissolve (#398), with @blur_k = ui_splash_home_opacity(). In between it draws the
+ * sharp scene, then the blur level's target at alpha @blur_k and its veil colours at their own
+ * alpha times @blur_k; blur None draws nothing extra. At 0 it never touches the blur targets. If
+ * the targets could not be created it keeps the sharp scene and logs one error with the blur level.
+ * Needs the chain rendered this frame: from the dissolve start the caller uses
+ * ui_background_prepare() (not a bare pool reset), which also creates the targets on that first
+ * frame. Performs no heap allocation.
+ */
+void ui_background_draw_crossfade(float blur_k);
+
+/**
  * ui_background_draw_home_vignette() - Draw the Home vignette over the scene.
  *
  * Three gradient layers (right edge, left edge, top and bottom). Home calls it before drawing
- * its own content.
+ * its own content. Their alpha is scaled by ui_layer_factor(), so they fade with the rest of Home.
  */
 void ui_background_draw_home_vignette(void);

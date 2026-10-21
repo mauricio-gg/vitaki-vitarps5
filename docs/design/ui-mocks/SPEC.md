@@ -594,7 +594,7 @@ Touch: tap the preset chevrons or the label; tap a callout; tap the diagram to e
 ---
 
 ### 3.9 Splash (`splash.html`, issues #366 and #398)
-**Proposed for #398, awaiting CEO approval.** Nothing in this section is built yet. What is on `main` today is the #366 splash (black screen, particles assemble into the logo; CEO-approved 2026-10-09), described under "As built (#366)" below. Once the CEO approves this mock and #398 lands, that block is replaced.
+**Approved by the CEO on 2026-10-21 and built in #398.** It replaced the #366 splash (black screen, particles assemble into the logo).
 
 **What the CEO asked for (2026-10-10).** Reverse the animation (logo first, then it breaks into particles), no black screen (the app's own animated background from the first frame, in the user's theme), and the UI appears with a quick fade-in.
 
@@ -628,12 +628,13 @@ A fast load (say `L` = 1.2 s) changes nothing: the dissolve waits for `D` = 1.2 
 **Blur decision.**
 - Frame 1 until `D`: always the **sharp** background (same full-resolution path as Background Blur None). No render target is needed during loading, so nothing about the first frames depends on a target being ready.
 - From `D` + 0.40 s to `D` + 0.70 s: the user's blur level crossfades in on the same 0.30 s curve as Home. The blurred render target is drawn over the sharp background at alpha 0 to 1, and the veil (`GLASS_VEIL`, `GLASS_FROST`, `GLASS_VEIL_DARK`) is drawn at its own alpha times that same 0 to 1. Blur None draws nothing extra.
-- Why this works: the dissolve only starts once loading is done, so the small blur targets (480x272 down to 60x34) have been created by then. Blur is needed only for UI legibility, and the UI is not there until the fade-in.
-- If the target still is not ready at `D` (a bug, not a normal case), skip the crossfade, keep the sharp background and log a LOGE line. Never block the dissolve.
+- From `D` + 0.70 s to `D` + 1.02 s the background is fully the user's blur level, drawn by the normal path, so the switch at the end of the splash shows no jump.
+- Why this works: the dissolve only starts once loading is done. From the first frame of the dissolve (`D`) the blur chain is prepared as on any menu frame, so the small blur targets (480x272 down to 60x34) are created at `D` and are ready before the fade-in at `D` + 0.40 s. Before `D` no target is created or rendered. Blur is needed only for UI legibility, and the UI is not there until the fade-in.
+- If the targets could not be created (a bug, not a normal case), skip the crossfade, keep the sharp background and log one LOGE line with the blur level (`UI/BACKGROUND splash blur crossfade skipped ...`). Never block the dissolve.
 
 **Particles (unchanged from #366).** 980 in the build (mock 973), sampled once at splash start (seed 366, 9x9 cells, bright pixels only), whole-pixel squares of 2 px (55%) or 3 px (45%), delay 0 to 0.30 s, flight 0.60 s, bow up to 70 px that dies to 0 at the logo, start points from 10 px inside to 60 px beyond the screen edge. Splash clock for particles and logo during the dissolve: `clock = 1.02 s - (now - D)`, fed to the existing `ui_splash_particle_quad` and the existing logo-alpha function. One change: the logo-alpha exponent is **3.0 on the way out** (new constant, #366 used 1.3 on the way in), so the logo thins while the particles are visibly leaving it instead of lingering as a ghost.
 
-**Home fade-in: how.** A single alpha for the whole of Home (everything except the background). vita2d has no layers, so the engineer chooses between two ways, both within #366's rules: (a) one global "UI alpha" multiplier that the existing theme colour helpers apply to every Home draw during the fade (no new buffers), or (b) draw Home once into a render target and blit it at the alpha. (a) is preferred, (b) is the fallback; the fade must not add a per-frame allocation. Home's input is enabled at `D` + 0.70 s, not before.
+**Home fade-in: how.** A single alpha for the whole of Home (everything except the background, the logo and the particles). Chosen and built: (a), a global UI alpha. `ui_global_set_alpha()` (`ui_component.c`) sets a second opacity that `ui_layer_color()` multiplies into every colour next to the layer opacity (which popups and the Options column keep using on their own). `draw_ui()` sets it to `ui_splash_home_opacity()` before the screen's draws during the splash and back to 1 right after them; when the splash is not active it is never set and every colour is exactly what it was. The Home vignette builds its own vertices, so it multiplies `ui_layer_factor()` into their alpha when it copies them into the pool. No new buffers and no per-frame allocation. Home's input is enabled at `D` + 0.70 s, not before.
 
 **Skip.** Any button or a tap during the hold jumps to `D` only when loading is already done; while loading is not done a press does nothing visible (it never skips loading and never cuts the logo fade-in short). A press during the dissolve does nothing (it is already short).
 
@@ -642,8 +643,6 @@ A fast load (say `L` = 1.2 s) changes nothing: the dissolve waits for `D` = 1.2 
 **Draw order, back to front.** Background (sharp), blurred background and veil at the blur mix, Home at the UI alpha, crisp logo, particles.
 
 **Reduce motion / accessibility.** The app has no reduce-motion setting, so none is added here. The logo is on screen for at least 1.0 s and the splash has no text, so there is nothing to read. Contrast of the logo on every theme and background is covered above.
-
-**As built (#366), replaced when #398 lands.** Black (#000000) screen; 980 particles assemble into the logo from 0 to 1.0 s (stagger 0 to 0.30 s, 0.60 s flight, ease-out cubic, bow up to 70 px, alpha 0.12 to 1, arrival flash 1 px larger fading over 0.12 s; the crisp logo fades in as smoothstep(mean progress) to the power 1.3); holds until loading is done (about 2.4 s); then a 0.3 s fade of the black layer to Home. Any button or tap jumps to 1.0 s and never skips loading. Draws: black rectangle, logo, one particle list.
 
 ## 4. Input model
 
