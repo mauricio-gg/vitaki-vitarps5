@@ -51,19 +51,28 @@ static void fixture_init(Fixture *f, ChiakiSession *session) {
   assert(chiaki_audio_receiver_init(&f->receiver, session, NULL) == CHIAKI_ERR_SUCCESS);
 }
 
-/* One packet carrying one source unit whose first byte is the frame index's low byte. */
-static void send_frame(Fixture *f, uint16_t frame_index, bool is_haptics) {
-  uint8_t data[UNIT_SIZE] = {(uint8_t)frame_index};
+/* One packet carrying one source unit (the newest frame) plus `copies` fec units, which are copies of
+ * the frames before it, oldest first. Every unit's first byte is its frame index's low byte, so a
+ * copy of frame N is indistinguishable from frame N itself, as on the wire. */
+static void send_packet(Fixture *f, uint16_t frame_index, int copies, bool is_haptics) {
+  uint8_t data[UNIT_SIZE * (1 + 2)] = {(uint8_t)frame_index};
+  assert(copies >= 0 && copies <= 2);
+  for (int c = 0; c < copies; c++)
+    data[UNIT_SIZE * (1 + c)] = (uint8_t)(frame_index - copies + c);
   ChiakiTakionAVPacket packet;
   memset(&packet, 0, sizeof(packet));
   packet.codec = 5;
   packet.is_haptics = is_haptics;
   packet.frame_index = frame_index;
-  packet.units_in_frame_total = 1;
-  packet.units_in_frame_fec = (UNIT_SIZE << 8) | 1;
+  packet.units_in_frame_total = 1 + copies;
+  packet.units_in_frame_fec = (UNIT_SIZE << 8) | (copies << 4) | 1;
   packet.data = data;
-  packet.data_size = UNIT_SIZE;
+  packet.data_size = UNIT_SIZE * (1 + copies);
   chiaki_audio_receiver_av_packet(&f->receiver, &packet);
+}
+
+static void send_frame(Fixture *f, uint16_t frame_index, bool is_haptics) {
+  send_packet(f, frame_index, 0, is_haptics);
 }
 
 /* catches: concealment that fires on the very first frame (no baseline yet) and would play filler
@@ -130,11 +139,48 @@ static void test_haptics_are_never_concealed(void) {
   chiaki_audio_receiver_fini(&f.receiver);
 }
 
+/* catches: a single lost packet being concealed (filler heard as an echo or crackle) although the next
+ * packet carries a copy of it, because the copy was read after the newer frame and dropped as a duplicate. */
+static void test_one_lost_packet_is_repaired_from_the_next_packets_copy(void) {
+  ChiakiSession session;
+  Fixture f;
+  fixture_init(&f, &session);
+  for (int n = 100; n <= 103; n++)
+    send_packet(&f, n, 2, false);
+  int before = f.audio.events;
+  send_packet(&f, 105, 2, false); /* 104 lost; this packet holds 103, 104, then 105 */
+  assert(f.audio.events == before + 2);
+  assert(f.audio.order[before] == 104 && f.audio.order[before + 1] == 105);
+  assert(f.audio.lost_calls == 0);
+  assert(session.stream_connection.takion.recvtime_acc.audio_stats.frames_concealed == 0);
+  chiaki_audio_receiver_fini(&f.receiver);
+}
+
+/* catches: two packets arriving swapped (as over a reordering tunnel) being concealed and the late one's
+ * frame discarded, instead of every frame reaching the sink once, in order, with real bytes. */
+static void test_swapped_packets_are_not_concealed_and_stay_in_order(void) {
+  ChiakiSession session;
+  Fixture f;
+  fixture_init(&f, &session);
+  for (int n = 100; n <= 103; n++)
+    send_packet(&f, n, 2, false);
+  int before = f.audio.events;
+  send_packet(&f, 105, 2, false);
+  send_packet(&f, 104, 2, false);
+  assert(f.audio.events == before + 2);
+  assert(f.audio.order[before] == 104 && f.audio.order[before + 1] == 105);
+  assert(f.audio.lost_calls == 0);
+  assert(session.stream_connection.takion.recvtime_acc.audio_stats.frames_concealed == 0);
+  chiaki_audio_receiver_fini(&f.receiver);
+}
+
 int main(void) {
   test_gap_below_cap_conceals_each_lost_frame_before_the_real_one();
   test_gap_above_cap_conceals_only_the_cap();
   test_wrap_is_not_a_gap();
   test_haptics_are_never_concealed();
+  test_one_lost_packet_is_repaired_from_the_next_packets_copy();
+  test_swapped_packets_are_not_concealed_and_stay_in_order();
   printf("audio_receiver_tests: all passed\n");
   return 0;
 }

@@ -116,25 +116,22 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 	if(packet->frame_index > (1 << 15))
 		audio_receiver->frame_index_startup = false;
 
-	for(size_t i = 0; i < source_units_count + fec_units_count; i++)
+	// The fec units are copies of the frames before this packet, oldest first. They go in before the
+	// packet's own frames (#445): the in-order check drops anything not newer than the last accepted
+	// frame, so if the newest frame came first, a lost or reordered earlier packet would be concealed
+	// and its copy in this packet thrown away as a duplicate.
+	for(size_t fec_index = 0; fec_index < fec_units_count; fec_index++)
 	{
-		ChiakiSeqNum16 frame_index;
-		if(i < source_units_count)
-			frame_index = packet->frame_index + i;
-		else
-		{
-			// fec
-			size_t fec_index = i - source_units_count;
+		// first packets will contain the same frame multiple times, ignore those
+		if(audio_receiver->frame_index_startup && packet->frame_index + fec_index < fec_units_count + 1)
+			continue;
 
-			// first packets will contain the same frame multiple times, ignore those
-			if(audio_receiver->frame_index_startup && packet->frame_index + fec_index < fec_units_count + 1)
-				continue;
-
-			frame_index = packet->frame_index - fec_units_count + fec_index;
-		}
-
-		chiaki_audio_receiver_frame(audio_receiver, frame_index, packet->is_haptics, packet->data + unit_size * i, unit_size);
+		ChiakiSeqNum16 frame_index = packet->frame_index - fec_units_count + fec_index;
+		chiaki_audio_receiver_frame(audio_receiver, frame_index, packet->is_haptics, packet->data + unit_size * (source_units_count + fec_index), unit_size);
 	}
+
+	for(size_t i = 0; i < source_units_count; i++)
+		chiaki_audio_receiver_frame(audio_receiver, packet->frame_index + i, packet->is_haptics, packet->data + unit_size * i, unit_size);
 
 	if(audio_receiver->packet_stats)
 		chiaki_packet_stats_push_seq(audio_receiver->packet_stats, packet->frame_index);
