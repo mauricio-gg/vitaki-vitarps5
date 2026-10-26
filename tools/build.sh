@@ -242,8 +242,12 @@ configure_feature_cmake_args() {
     # Internal testing profile only: never for .env.prod or .env.beta, which ship
     # to users and store the tokens encrypted.
     # Use basename so absolute paths and trailing-slash variants still match.
+    # Always emit an explicit value (OFF included) so a stale CMakeCache.txt from
+    # a previous testing build can never leak plaintext storage into a release.
     if [ "$(basename "$ENV_PROFILE_PATH")" = ".env.testing" ]; then
         cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=ON")
+    else
+        cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=OFF")
     fi
 
     if [ ${#cmake_args[@]} -gt 0 ]; then
@@ -732,12 +736,13 @@ main() {
 
     local debug_menu_val
     debug_menu_val=$(normalize_bool "$VITARPS5_DEBUG_MENU")
-    if [ -n "$debug_menu_val" ]; then
-        if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
-            CMAKE_EXTRA_FLAGS+=" -DVITARPS5_DEBUG_MENU=${debug_menu_val}"
-        else
-            CMAKE_EXTRA_FLAGS="-DVITARPS5_DEBUG_MENU=${debug_menu_val}"
-        fi
+    # Always emit an explicit value (0 when unset) so a stale CMakeCache.txt from
+    # a previous testing build can never leak the debug menu into a release.
+    debug_menu_val="${debug_menu_val:-0}"
+    if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
+        CMAKE_EXTRA_FLAGS+=" -DVITARPS5_DEBUG_MENU=${debug_menu_val}"
+    else
+        CMAKE_EXTRA_FLAGS="-DVITARPS5_DEBUG_MENU=${debug_menu_val}"
     fi
 
     # Check Docker availability
