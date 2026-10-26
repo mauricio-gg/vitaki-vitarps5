@@ -36,7 +36,9 @@ bool vita_chiaki_init_context() {
   chiaki_log_init(&(context.log), log_mask, &log_cb_debugnet, NULL);
   context.mlog = message_log_create();
 
-  write_message_log(context.mlog, "----- Debug log start -----");  // debug
+  // message_log_create() returns NULL on allocation failure; run without the on-screen log.
+  if (context.mlog)
+    write_message_log(context.mlog, "----- Debug log start -----");  // debug
 
   // Initialize stream finalization mutex (prevents race condition in session cleanup)
   ChiakiErrorCode err = chiaki_mutex_init(&context.stream.finalization_mutex, false);

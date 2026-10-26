@@ -33,7 +33,7 @@ jobs:
   # ---------------------------------------------------------------------------
   format-check:
     name: clang-format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout source
@@ -74,7 +74,7 @@ jobs:
   # ---------------------------------------------------------------------------
   lint:
     name: cppcheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout source
@@ -118,7 +118,7 @@ jobs:
   # ---------------------------------------------------------------------------
   native-tests:
     name: native tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout source

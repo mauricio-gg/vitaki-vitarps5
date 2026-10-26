@@ -778,7 +778,8 @@ UIScreenType ui_profile_frame(void) {
   }
 
   UiHintItem hints[UI_HINT_MAX_ITEMS];
-  ui_hint_row_layout(&s_hints, hints, build_hints(hints));
+  const int hint_count = build_hints(hints);
+  ui_hint_row_layout(&s_hints, hints, hint_count);
   ui_hint_row_draw(&s_hints);
   ui_toast_draw();
 

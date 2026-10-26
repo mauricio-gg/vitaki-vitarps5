@@ -161,11 +161,11 @@ static void parse_logging_settings(VitaChiakiConfig *cfg, toml_table_t *parsed) 
       cfg->logging.queue_depth = datum.u.i;
   }
 
-  datum = toml_string_in(logging, "path");
-  if (datum.ok) {
-    strncpy(cfg->logging.path, datum.u.s, sizeof(cfg->logging.path) - 1);
+  const toml_datum_t path_datum = toml_string_in(logging, "path");
+  if (path_datum.ok) {
+    strncpy(cfg->logging.path, path_datum.u.s, sizeof(cfg->logging.path) - 1);
     cfg->logging.path[sizeof(cfg->logging.path) - 1] = '\0';
-    free(datum.u.s);
+    free(path_datum.u.s);
   }
 #else
   // Production build: Ignore [logging] section in TOML entirely.
