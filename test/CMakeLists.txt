@@ -8,11 +8,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 set(VITARPS5_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-add_executable(vitarps5_tests
-    config_vita_tests.c
+# Test files (besides config_vita_tests.c) and the app/lib sources they exercise, shared by every
+# target that runs config.c.
+set(VITARPS5_CONFIG_SUPPORT_TESTS
     token_crypto_tests.c
     packet_path_tests.c
     json_escape_tests.c
+)
+set(VITARPS5_CONFIG_SOURCES
     ../vita/src/config.c
     ../vita/src/config_writer.c
     ../vita/src/config_migration.c
@@ -32,27 +35,12 @@ add_executable(vitarps5_tests
     ../lib/src/time.c
 )
 
-target_include_directories(vitarps5_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
-    ${VITARPS5_ROOT}/vita/include
-    ${VITARPS5_ROOT}/vita/third_party
-    ${VITARPS5_ROOT}/lib/include
-    ${VITARPS5_ROOT}/lib/src
-)
-
-# config_values.c includes the VitaSDK header <psp2/registrymgr.h>. A native build has no VitaSDK,
-# so it gets a stand-in. The Vita cross-compile must keep using the real header, so the stand-in
-# directory is added only when not cross-compiling.
-if(NOT CMAKE_CROSSCOMPILING)
-    target_include_directories(vitarps5_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/native
-    )
-endif()
-
-target_compile_definitions(vitarps5_tests PRIVATE
-    CFG_FILENAME="${CMAKE_CURRENT_BINARY_DIR}/config_test.toml"
-    VITARPS5_TEST_BUILD=1
-)
+# forced_logging_tests.c is config_vita_tests.c's stubs plus one test, built with
+# VITARPS5_FORCE_LOGGING=1 (the beta profile) so config.c's forced-logging path is exercised. It
+# has its own main(); the rest of the config suite runs in vitarps5_tests.
+add_executable(vitarps5_tests config_vita_tests.c ${VITARPS5_CONFIG_SUPPORT_TESTS} ${VITARPS5_CONFIG_SOURCES})
+add_executable(forced_logging_tests forced_logging_tests.c ${VITARPS5_CONFIG_SUPPORT_TESTS} ${VITARPS5_CONFIG_SOURCES})
+set(VITARPS5_CONFIG_TARGETS vitarps5_tests forced_logging_tests)
 
 # token_crypto.c uses OpenSSL EVP (AES-256-GCM, SHA-256, RAND_bytes).
 # On the host build OpenSSL is always available through chiaki-lib's dependency.
@@ -63,9 +51,37 @@ find_package(OpenSSL REQUIRED)
 # already available implicitly via libSystem on this Darwin host.
 find_package(Threads REQUIRED)
 
-target_link_libraries(vitarps5_tests OpenSSL::Crypto Threads::Threads)
+foreach(config_target ${VITARPS5_CONFIG_TARGETS})
+    target_include_directories(${config_target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+        ${VITARPS5_ROOT}/vita/include
+        ${VITARPS5_ROOT}/vita/third_party
+        ${VITARPS5_ROOT}/lib/include
+        ${VITARPS5_ROOT}/lib/src
+    )
+
+    # config_values.c includes the VitaSDK header <psp2/registrymgr.h>. A native build has no
+    # VitaSDK, so it gets a stand-in. The Vita cross-compile must keep using the real header, so
+    # the stand-in directory is added only when not cross-compiling.
+    if(NOT CMAKE_CROSSCOMPILING)
+        target_include_directories(${config_target} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/stubs/native
+        )
+    endif()
+
+    # Each target writes its own config file so parallel ctest runs cannot clash.
+    target_compile_definitions(${config_target} PRIVATE
+        CFG_FILENAME="${CMAKE_CURRENT_BINARY_DIR}/${config_target}.toml"
+        VITARPS5_TEST_BUILD=1
+    )
+
+    target_link_libraries(${config_target} OpenSSL::Crypto Threads::Threads)
+endforeach()
+
+target_compile_definitions(forced_logging_tests PRIVATE VITARPS5_FORCE_LOGGING=1)
 
 add_test(NAME vitarps5_config_tests COMMAND vitarps5_tests)
+add_test(NAME vitarps5_forced_logging_tests COMMAND forced_logging_tests)
 
 # bitstream_sps_tests.c has its own main() and #includes lib/src/bitstream.c
 # directly (with a local chiaki_log() stub), so it is a standalone binary

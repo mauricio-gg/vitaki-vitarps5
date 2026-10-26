@@ -678,6 +678,13 @@ void config_parse(VitaChiakiConfig *cfg) {
   // Security: runtime logging overrides are compile-time gated.
   parse_logging_settings(cfg, parsed);
 
+#if defined(VITARPS5_FORCE_LOGGING) && VITARPS5_FORCE_LOGGING
+  /* Beta builds: a saved enable_logging = false (written by every build) must not turn logging
+   * off, or beta logs would lack the measurement lines. The in-session toggle in ui_settings.c
+   * still works for the current session; the next launch forces logging back on. */
+  cfg->logging.enabled = true;
+#endif
+
   config_parse_registered_hosts(cfg, parsed);
   config_parse_manual_hosts(cfg, parsed);
   room_icons_parse(&cfg->room_icons, parsed);
