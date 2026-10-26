@@ -117,7 +117,7 @@ load_env_profile() {
 configure_logging_cmake_args() {
     local profile_define=""
     local lowered_profile
-    local enabled_val force_val allow_runtime_val
+    local enabled_val force_val force_logging_val allow_runtime_val
     local depth_arg path_arg
     local cmake_args=()
 
@@ -141,6 +141,13 @@ configure_logging_cmake_args() {
     if [ -n "$force_val" ]; then
         cmake_args+=("-DVITARPS5_LOGGING_DEFAULT_FORCE_ERRORS=${force_val}")
     fi
+
+    # Beta builds keep logging on regardless of a saved enable_logging = false.
+    # Always emit an explicit -D (0 included) so a stale CMakeCache.txt from a
+    # previous beta build can never leak forced logging into another build; same
+    # reasoning as the debug tools flag below.
+    force_logging_val=$(normalize_bool "$VITARPS5_FORCE_LOGGING")
+    cmake_args+=("-DVITARPS5_FORCE_LOGGING=${force_logging_val:-0}")
 
     if [ -n "$VITARPS5_LOG_QUEUE_DEPTH" ]; then
         if [[ "$VITARPS5_LOG_QUEUE_DEPTH" =~ ^[0-9]+$ ]]; then
@@ -232,7 +239,8 @@ configure_feature_cmake_args() {
 
     # Security: plaintext token storage is OFF by default (production-safe).
     # Enable automatically for .env.testing so QA token persistence keeps working.
-    # Never enable for .env.prod — encrypted storage (#81) must land first.
+    # Internal testing profile only: never for .env.prod or .env.beta, which ship
+    # to users and store the tokens encrypted.
     # Use basename so absolute paths and trailing-slash variants still match.
     if [ "$(basename "$ENV_PROFILE_PATH")" = ".env.testing" ]; then
         cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=ON")

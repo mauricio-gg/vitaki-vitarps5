@@ -65,9 +65,9 @@ jobs:
           VITARPS5_RELEASE_VERSION: ${{ steps.new_version.outputs.NEW_VERSION }}
         run: |
           chmod +x tools/build.sh
-          # Betas build with logging on (testing); stable releases with prod.
+          # Betas build like prod but with logging forced on (beta); stable releases with prod.
           if [ "${{ github.event.inputs.version_type }}" = beta ]; then
-            ./tools/build.sh --env testing
+            ./tools/build.sh --env beta
           else
             ./tools/build.sh --env prod
           fi
