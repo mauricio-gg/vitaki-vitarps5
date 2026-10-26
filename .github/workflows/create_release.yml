@@ -11,6 +11,7 @@ on:
           - patch
           - minor
           - major
+          - beta
         default: 'patch'
 
 jobs:
@@ -32,53 +33,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Get latest tag
-        id: get_latest_tag
-        run: |
-          # Get the latest version tag (v + digit only), or default to v0.0.0 if none exist
-          LATEST_TAG=$(git describe --tags --abbrev=0 --match "v[0-9]*" 2>/dev/null || echo "v0.0.0")
-          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "Latest tag: $LATEST_TAG"
-
-      - name: Calculate new version
+      - name: Calculate version
         id: new_version
-        run: |
-          LATEST_TAG="${{ steps.get_latest_tag.outputs.LATEST_TAG }}"
-          VERSION_TYPE="${{ github.event.inputs.version_type }}"
-
-          # Remove 'v' prefix if present
-          VERSION=${LATEST_TAG#v}
-
-          # Split version into parts
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-
-          # Bump version based on type
-          case $VERSION_TYPE in
-            major)
-              MAJOR=$((MAJOR + 1))
-              MINOR=0
-              PATCH=0
-              ;;
-            minor)
-              MINOR=$((MINOR + 1))
-              PATCH=0
-              ;;
-            patch)
-              PATCH=$((PATCH + 1))
-              ;;
-          esac
-
-          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-          NEW_TAG="v$NEW_VERSION"
-
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "New version: $NEW_TAG"
+        run: tools/next_version.sh "${{ github.event.inputs.version_type }}" | tee -a "$GITHUB_OUTPUT"
 
       - name: Generate release notes
         id: changelog
         run: |
-          LATEST_TAG="${{ steps.get_latest_tag.outputs.LATEST_TAG }}"
+          LATEST_TAG="${{ steps.new_version.outputs.LATEST_TAG }}"
           NEW_TAG="${{ steps.new_version.outputs.NEW_TAG }}"
           BUILD_DATE=$(date -u +%Y-%m-%d)
 
@@ -87,12 +49,28 @@ jobs:
           tools/release_notes.sh "$LATEST_TAG" "$NEW_TAG" "VitaRPS5-${NEW_TAG}.vpk" \
             "${{ github.sha }}" "$BUILD_DATE" "${{ github.repository }}" "$RUNNER_TEMP/release_notes.md"
 
-      - name: Build VPK using Docker (prod env)
+          if [ "${{ github.event.inputs.version_type }}" = beta ]; then
+            {
+              echo "> **Beta: this is a test build, not the stable release.** It is a pre-release for testing and logging is turned on."
+              echo "> The log file is in \`ux0:data/vita-chiaki/\` and is named like \`<number>_vitarps5-testing.log\`."
+              echo "> To report a problem, open a GitHub issue on this repository and attach the log."
+              echo
+              cat "$RUNNER_TEMP/release_notes.md"
+            } > "$RUNNER_TEMP/release_notes_beta.md"
+            mv "$RUNNER_TEMP/release_notes_beta.md" "$RUNNER_TEMP/release_notes.md"
+          fi
+
+      - name: Build VPK using Docker
         env:
           VITARPS5_RELEASE_VERSION: ${{ steps.new_version.outputs.NEW_VERSION }}
         run: |
           chmod +x tools/build.sh
-          ./tools/build.sh --env prod
+          # Betas build with logging on (testing); stable releases with prod.
+          if [ "${{ github.event.inputs.version_type }}" = beta ]; then
+            ./tools/build.sh --env testing
+          else
+            ./tools/build.sh --env prod
+          fi
 
       - name: Find and rename VPK
         id: find_vpk
@@ -110,9 +88,11 @@ jobs:
           RELEASE_NAME="VitaRPS5-${NEW_TAG}.vpk"
           cp "$VPK_FILE" "$RELEASE_NAME"
 
-          # Stable-named copy, attached to every release so
+          # Stable-named copy, attached to every stable release (never a beta) so
           # /releases/latest/download/VitaRPS5-latest.vpk is a permanent link
-          cp "$VPK_FILE" VitaRPS5-latest.vpk
+          if [ "${{ github.event.inputs.version_type }}" != beta ]; then
+            cp "$VPK_FILE" VitaRPS5-latest.vpk
+          fi
 
           echo "VPK_PATH=$RELEASE_NAME" >> $GITHUB_OUTPUT
           echo "VPK_NAME=$RELEASE_NAME" >> $GITHUB_OUTPUT
@@ -143,9 +123,10 @@ jobs:
           name: VitaRPS5 ${{ steps.new_version.outputs.NEW_TAG }}
           files: |
             ${{ steps.find_vpk.outputs.VPK_PATH }}
-            VitaRPS5-latest.vpk
+            ${{ github.event.inputs.version_type != 'beta' && 'VitaRPS5-latest.vpk' || '' }}
           body_path: ${{ runner.temp }}/release_notes.md
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event.inputs.version_type == 'beta' }}
+          make_latest: ${{ github.event.inputs.version_type != 'beta' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
