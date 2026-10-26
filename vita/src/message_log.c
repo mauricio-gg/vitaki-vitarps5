@@ -1,8 +1,14 @@
 #include "message_log.h"
+#include "context.h"
 #include <psp2/kernel/processmgr.h>
 
 VitaChiakiMessageLog *message_log_create() {
   VitaChiakiMessageLog *ml = (VitaChiakiMessageLog *)malloc(sizeof(VitaChiakiMessageLog));
+  if (!ml) {
+    LOGE("Failed to allocate the on-screen message log (%u bytes)",
+         (unsigned)sizeof(VitaChiakiMessageLog));
+    return NULL;
+  }
   ml->start_offset = 0;  // offset of first line
   ml->lines = 0;         // total lines
   ml->last_update = 0;   // update time

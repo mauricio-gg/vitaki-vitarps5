@@ -190,8 +190,9 @@ void ui_hint_row_layout(UiHintLayout *layout, const UiHintItem *items, int count
   if (count > UI_HINT_MAX_ITEMS)
     count = UI_HINT_MAX_ITEMS;
 
-  int widths[UI_HINT_MAX_ITEMS];
-  bool low[UI_HINT_MAX_ITEMS];
+  /* Zero-filled so the fit call below never sees indeterminate entries, even for count == 0. */
+  int widths[UI_HINT_MAX_ITEMS] = {0};
+  bool low[UI_HINT_MAX_ITEMS] = {false};
   bool keep[UI_HINT_MAX_ITEMS];
   for (int i = 0; i < count; i++) {
     widths[i] = item_width(&items[i]);
