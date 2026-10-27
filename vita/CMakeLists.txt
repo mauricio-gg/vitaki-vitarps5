@@ -232,7 +232,7 @@ endif()
 if(DEFINED VITARPS5_DEBUG_TOOLS)
     target_compile_definitions(${VITA_APP_NAME}.elf PUBLIC VITARPS5_DEBUG_TOOLS=${VITARPS5_DEBUG_TOOLS})
     if(VITARPS5_DEBUG_TOOLS)
-        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c src/ui/ui_draw_stats.c)
+        target_sources(${VITA_APP_NAME}.elf PRIVATE src/debug_tools.c src/debug_input_panel.c src/input_test_click.c src/ui/ui_draw_stats.c)
         # Ticket #300: count every sceGxmDraw (ui_draw_stats.c). Testing builds only.
         target_link_options(${VITA_APP_NAME}.elf PRIVATE -Wl,--wrap=sceGxmDraw)
     endif()

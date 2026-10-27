@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaRPS5 Input test mock</title>
+<link rel="stylesheet" href="tokens-xmb.css">
+<link rel="stylesheet" href="tokens-themes.css">
+<style>
+/* Issue #458 mock: debug-build "Input test" panel over the live stream. Debug tool, not a showcase.
+   Every colour, face and spacing value is a token from tokens-xmb.css. Native 960x544. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:radial-gradient(90% 60% at 50% 35%,#111a2c,#04060b);min-height:100%;font-family:var(--font);font-weight:var(--w-reg);-webkit-font-smoothing:antialiased;color:var(--text)}
+button{font-family:inherit}
+.shell{display:flex;flex-direction:column;align-items:center;gap:16px;padding:16px}
+/* ---- mock chrome (not part of the app) ---- */
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;max-width:1100px;font-size:14px}
+.bar .ttl{font-weight:500;font-size:18px;margin-right:8px}
+.bar button,.bar select{font:inherit;font-size:14px;font-weight:500;color:#f3f6fc;background:#151d31;border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:5px 14px;cursor:pointer}
+.bar label{display:flex;align-items:center;gap:6px;color:#bcc6da}
+.bar input[type=range]{width:110px}
+.legend{font-size:14px;color:#bcc6da;max-width:960px;text-align:center;line-height:1.5}
+.legend kbd{font:inherit;font-weight:500;background:#1f2a45;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:1px 8px;color:#fff}
+body.bare .bar,body.bare .legend,body.bare .notes{display:none}
+body.bare .shell{padding:0;gap:0}
+
+/* ---- stage ---- */
+.stage{position:relative;width:960px;height:544px;overflow:hidden;background:var(--stage-bg);color:var(--text);user-select:none;font-weight:var(--w-reg);cursor:crosshair}
+.stage>img.game{position:absolute;inset:0;width:960px;height:544px;display:block}
+.stage .bar-hint{position:absolute;inset:0}
+.px{position:absolute}
+.t14{font-size:var(--t14);line-height:20px}.t16{font-size:var(--t16);line-height:24px}.t20{font-size:var(--t20);line-height:24px;font-weight:var(--w-light)}
+.c2{color:var(--text-2)}.c3{color:var(--text-3)}.cok{color:var(--ok)}.cwarn{color:var(--warn)}
+.num{font-variant-numeric:tabular-nums}
+
+/* Debug widgets (existing "tap: resync", plus new "Input test"). 26 px high, 6 px from the corner, 6 px apart.
+   PANEL fill, R_SM corners, T16 TEXT_2, 10 px text padding: exactly debug_tools_draw_widget today. */
+.wd{position:absolute;top:512px;height:26px;display:flex;align-items:center;padding:0 10px;background:var(--panel);border-radius:var(--r-sm);font-size:var(--t16);line-height:26px;color:var(--text-2);white-space:nowrap;cursor:pointer}
+#wResync{left:764px;width:190px}
+#wInput{left:638px;width:120px;gap:8px}
+#wInput.on{background:var(--panel);box-shadow:inset 0 0 0 var(--lw1) var(--line);color:var(--text)}
+#wInput .dot{width:8px;height:8px;border-radius:50%;background:var(--text-3);flex:none}
+#wInput.on .dot{background:var(--ok)}
+.hit48{position:absolute;left:-6px;right:-3px;bottom:-9px;height:48px} /* invisible 48 px hit box, see notes */
+
+
+/* ---- the panel: edge-docked left, PANEL token at 82% so the game shows through ---- */
+#panel{position:absolute;left:8px;top:8px;width:384px;height:528px;background:var(--panel);border-radius:var(--r-md);box-shadow:inset 0 0 0 var(--lw1) var(--line-faint);padding:0 16px;display:none;text-shadow:none}
+#panel.open{display:block}
+.hdr{position:absolute;left:16px;right:16px;top:0;height:48px;display:flex;align-items:center;justify-content:space-between}
+.hdr .ttl{font-size:var(--t20);font-weight:var(--w-light);color:var(--text)}
+.hdr .sub{font-size:var(--t14);color:var(--text-3);margin-left:8px}
+#bClose{position:relative;display:flex;align-items:center;gap:8px;height:32px;padding:0 16px 0 12px;border-radius:var(--r-pill);box-shadow:inset 0 0 0 var(--lw1) var(--line);font-size:var(--t16);color:var(--text);cursor:pointer;background:transparent;border:0}
+#bClose::after{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px} /* 48 x 48 hit box */
+#bClose:hover,#bClose.press{background:var(--fill-focus)}
+.sec{position:absolute;left:16px;right:16px}
+.lbl{font-size:var(--t14);line-height:20px;color:var(--text-3);letter-spacing:.02em}
+.rule{position:absolute;left:16px;right:16px;height:0;border-top:var(--lw1) solid var(--line-faint)}
+
+/* Touch pad: 1920 x 942 shown at 232 x 114 (same 2.04 ratio). Dots are what is SENT. */
+#pad{position:absolute;left:0;top:20px;width:232px;height:114px;border-radius:var(--r-sm);box-shadow:inset 0 0 0 var(--lw1) var(--line);background:rgba(255,255,255,.05);overflow:hidden}
+#pad i.g{position:absolute;background:var(--line-faint)}
+#pad .dt{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;display:none}
+#pad .t1{background:var(--text);box-shadow:0 0 0 2px rgba(var(--deep-rgb),.9),0 0 8px var(--glow)}
+#pad .t2{background:var(--accent);box-shadow:0 0 0 2px rgba(var(--deep-rgb),.9),0 0 8px var(--accent)}
+#pad .gh{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;box-shadow:inset 0 0 0 var(--lw2) var(--text-3);opacity:0;transition:opacity 400ms linear}
+#pad.lit{box-shadow:inset 0 0 0 var(--lw2) var(--ok);background:rgba(var(--deep-rgb),0)}
+#padNone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:var(--t14);color:var(--text-3)}
+.rd{position:absolute;left:248px;top:20px;width:104px}
+.rd .row{display:flex;align-items:center;gap:8px;height:24px;font-size:var(--t14);color:var(--text-2)}
+.rd .row b{width:16px;height:16px;border-radius:50%;flex:none}
+.rd .row .v{margin-left:auto;color:var(--text);text-align:right}
+.rd .dim{opacity:.45}
+
+/* Click row */
+#light{width:24px;height:24px;border-radius:50%;box-shadow:inset 0 0 0 var(--lw2) var(--line);flex:none;transition:background 120ms linear,box-shadow 120ms linear}
+#light.on{background:var(--ok)}
+.ck{position:absolute;left:0;right:0;top:0;height:40px;display:flex;align-items:center;gap:16px;font-size:var(--t16);color:var(--text-2)}
+.ck .big{font-size:var(--t20);color:var(--text);font-weight:var(--w-light);min-width:40px}
+.ck .sep{width:1px;height:24px;background:var(--line-faint)}
+.verdict{margin-left:auto;font-size:var(--t14)}
+
+/* Motion */
+.hz{position:absolute;top:18px;width:72px;height:90px}
+.hz svg{display:block}
+.hzl{position:absolute;top:-1px;font-size:var(--t14);color:var(--text-3)}
+.tilt{position:absolute;left:168px;top:20px;width:184px;font-size:var(--t14);line-height:20px;color:var(--text-2)}
+.tilt b{font-weight:var(--w-reg);color:var(--text)}
+table.m{position:absolute;left:0;top:112px;width:352px;border-collapse:collapse;font-size:var(--t16);line-height:22px;text-align:right}
+table.m th{font-weight:var(--w-reg);color:var(--text-3);padding:0 0 2px;font-size:var(--t14);line-height:20px}
+table.m td{color:var(--text);padding:0}
+table.m td:first-child,table.m th:first-child{text-align:left;color:var(--text-3);width:32px}
+table.m .grp{border-bottom:var(--lw1) solid var(--line-faint)}
+table.m td.sent{color:var(--accent)}table.m td.raw{color:var(--text)}table.m th.sent{color:var(--accent)}
+table.m .gap{width:12px}
+
+/* Footer */
+.foot{position:absolute;left:16px;right:16px;bottom:0;height:48px;display:flex;align-items:center;gap:8px;font-size:var(--t14);color:var(--text-2);border-top:var(--lw1) solid var(--line-faint)}
+.foot .glyph{display:inline-flex;align-items:center;justify-content:center;height:20px;padding:0 8px;border-radius:var(--r-pill);box-shadow:inset 0 0 0 var(--lw1) var(--text-2);font-size:var(--t14);font-weight:var(--w-reg);color:var(--text)}
+.foot .prog{margin-left:auto;width:72px;height:4px;border-radius:2px;background:var(--line-faint);overflow:hidden}
+.foot .prog>div{height:100%;width:0;background:var(--text)}
+
+/* notes below the stage */
+.notes{max-width:960px;color:var(--text-2);font-size:var(--t16);line-height:1.55}
+.notes h2{font-size:var(--t20);font-weight:var(--w-light);margin:24px 0 8px;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:6px}
+.notes li{margin:0 0 6px 20px}
+.notes code{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--text-3)}
+</style></head><body>
+<div class="shell">
+  <div class="bar" id="bar">
+    <span class="ttl">Input test mock (#458)</span>
+    <select id="jump" aria-label="Jump to state"></select>
+    <button id="bTog">Toggle panel</button>
+    <button id="bClick">Tap (click)</button>
+    <button id="bTwo">Two-finger tap</button>
+    <label>Roll <input type="range" id="sRoll" min="-90" max="90" value="0"></label>
+    <label>Pitch <input type="range" id="sPitch" min="-90" max="90" value="0"></label>
+  </div>
+  <div class="legend">Mouse on the picture = front touch (click = tap, <kbd>Shift</kbd>+click = two-finger tap). Hold <kbd>Q</kbd>+<kbd>E</kbd>+<kbd>Z</kbd> (L + R + Select) for 0.5 s toggles the panel. Mouse down on the two buttons or the panel's Close is swallowed: no dot, no click.</div>
+
+  <div class="stage" id="stage">
+    <img class="game" src="screens/stream-quiet.png" alt="Live stream stand-in" draggable="false">
+    <div id="panel" aria-label="Input test panel">
+      <div class="hdr"><div><span class="ttl">Input test</span><span class="sub">what is sent</span></div>
+        <button id="bClose" aria-label="Close input test"><svg width="12" height="12" viewBox="0 0 12 12" stroke="var(--text)" stroke-width="2" fill="none"><path d="M1 1l10 10M11 1L1 11"/></svg>Close</button></div>
+
+      <div class="sec" style="top:48px;height:140px"><div class="lbl">FRONT TOUCH · 1920 x 942</div>
+        <div id="pad"><i class="g" style="left:77px;top:0;width:1px;height:100%"></i><i class="g" style="left:154px;top:0;width:1px;height:100%"></i><i class="g" style="left:0;top:38px;width:100%;height:1px"></i><i class="g" style="left:0;top:76px;width:100%;height:1px"></i>
+          <div class="gh" id="gh"></div><div class="dt t1" id="d1"></div><div class="dt t2" id="d2"></div><div id="padNone">touch the screen</div></div>
+        <div class="rd" id="rd"></div></div>
+
+      <div class="rule" style="top:196px"></div>
+      <div class="sec" style="top:204px;height:40px"><div class="ck">
+        <div id="light"></div><span>Click</span><span class="big num" id="cnt">0</span><div class="sep"></div>
+        <span>Hold</span><span class="big num" id="hold">-</span><span class="verdict" id="verdict"></span></div></div>
+
+      <div class="rule" style="top:252px"></div>
+      <div class="sec" style="top:256px;height:220px"><div class="lbl">MOTION · raw Vita vs as sent</div>
+        <div class="hz" style="left:0"><div id="hzRaw"></div><div class="lbl" style="text-align:center">raw</div></div>
+        <div class="hz" style="left:80px"><div id="hzSent"></div><div class="lbl" style="text-align:center;color:var(--accent)">sent</div></div>
+        <div class="tilt" id="tilt"></div>
+        <table class="m" id="mt"></table></div>
+
+      <div class="foot"><span class="glyph">L</span><span class="glyph">R</span><span class="glyph">SELECT</span><span id="footTxt">hold to close</span><div class="prog"><div id="prog"></div></div></div>
+    </div>
+
+    <div class="wd" id="wInput" role="button" aria-pressed="false"><span class="dot"></span><span>Input test</span><div class="hit48"></div></div>
+    <div class="wd" id="wResync" role="button">tap: resync</div>
+  </div>
+
+  <div class="notes">
+    <h2>What this is</h2>
+    <p>Issue #458. Debug-tools builds only (<code>VITARPS5_DEBUG_TOOLS</code>). Everything is drawn over the live video, on the stream overlay layer, after the resync widget, so it sits on top of the game. Data is illustrative. The panel shows what VitaRPS5 sends, not what the console receives.</p>
+    <h2>Layout (960 x 544)</h2>
+    <ul>
+      <li><b>Input test</b> button: 120 x 26, PANEL fill, R_SM, T16, left of the resync widget with a 6 px gap (x 638, y 512). Shows a green dot when the panel is open. The visible box stays 26 high like the resync widget; the touch box is taller (see below).</li>
+      <li><b>Panel</b>: docked to the left edge, x 8, y 8, 384 x 528, R_MD, PANEL token (92%, no new alpha). The right 576 px of the picture stay clear. The top-right hint pill and stats panel and the bottom-right widgets are not covered.</li>
+      <li><b>Touch</b>: a 232 x 114 pad (same ratio as 1920 x 942), thirds grid, finger 1 white dot, finger 2 accent dot, 16 px. The right column prints each finger's sent x y. A lifted finger leaves a faint ring for 0.4 s. The pad border turns green while a click is held.</li>
+      <li><b>Click</b>: light (24 px), counter, measured hold of the last click, and a verdict: green when 40 to 70 ms, amber outside it, "-" before the first click. The light stays lit at least 250 ms so a 50 ms click can be seen at 60 fps.</li>
+      <li><b>Motion</b>: two horizon boxes, "raw" and "sent", so a wrong axis frame shows as the two disagreeing. One tilt form only: each is a box with one tilted line (roll) offset by pitch (clamped), so it costs two lines and no clipping on vita2d. The sent horizon is read as a DualSense frame (gravity on +y when flat), the raw one as a Vita frame, so today's copy-as-is shows pitch +90 on a flat table. A WARN line says when sent and raw tilt differ by more than 5 degrees (the #455 symptom). Raw and sent columns are told apart by position and by ACCENT on sent. Below, one table: accel (G) and gyro (rad/s), x y z, raw and sent side by side, signed, 2 decimals for accel and 3 for gyro. The raw vs sent table is T16 on 24 px rows. Numbers rebuild at 10 Hz so they can be read; dots and the light update every frame.</li>
+      <li>Type: T20 title, T16 labels, T14 numbers (Roboto digits are equal width; the footer uses T14 text, not 11 px glyph art). Colours: OK green light and "in range", WARN amber out of range, ACCENT second finger. No new tokens.</li>
+    </ul>
+    <h2>Input</h2>
+    <ul>
+      <li><b>Open</b>: tap the Input test button, or hold <b>L + R + Select</b> for 0.5 s (same style as the exit combo L + R + Start). While the combo is held, those three buttons are swallowed from the game, so Select does not fire Share on the console; the Input test button's long-press hint and the debug design doc state the combo. Open question for the CEO. Both widgets get the same invisible 48 px touch box.</li>
+      <li><b>Close</b>: the Close pill (48 x 48 hit box), the Input test button, or the same L + R + Select hold. Controller buttons cannot move focus around the panel on purpose, because they must keep going to the game; that is why the combo is the controller path. A progress bar in the footer fills while the combo is held.</li>
+      <li><b>Touches that must not reach the game</b>: reuse the existing resync widget filter in <code>host_input.c</code>. The filter decides at touch-down: a touch that starts inside the Input test button, the resync button or the panel's Close pill is swallowed for its whole life (no touchpad event, no button mapping, no click), and a touch that starts anywhere else is sent as usual, even if it later slides across the panel. The panel body is not swallowed, so the CEO can tap on the screen behind it and see the dots. The same rect-helper (<code>debug_widget_contains_screen_point</code>) is used by the drawer and the filter, so the drawn controls and the swallowed areas cannot disagree. The panel exposes only the two button rects, not its whole area.</li>
+      <li>A swallowed touch never appears as a dot, because the pad shows only what is sent.</li>
+      <li>The panel hides itself with the other overlay widgets while reconnecting, on resync and at teardown, and starts closed on every new stream.</li>
+    </ul>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const S={open:false,t:[null,null],ghost:null,count:0,hold:null,litUntil:0,roll:0,pitch:0,gyro:[0,0,0],combo:0};
+const DEG=Math.PI/180;
+function raw(){ // Vita frame (illustrative): flat face up = (0,0,-1) G
+  const r=S.roll*DEG,p=S.pitch*DEG;
+  return {a:[Math.sin(r)*Math.cos(p),Math.sin(p),-Math.cos(r)*Math.cos(p)],g:S.gyro};
+}
+function sent(){const r=raw();return {a:r.a.slice(),g:r.g.slice()};} // today: copied as is (#455 bug)
+const f=(v,n)=>(v>=0?'+':'−')+Math.abs(v).toFixed(n);
+function hzSvg(roll,pitch,label){
+  const off=Math.max(-44,Math.min(44,pitch/90*44)),W=96,c=48;
+  return `<svg width="72" height="72" viewBox="0 0 96 96"><defs><clipPath id="c${label}"><rect x="1" y="1" width="94" height="94" rx="8"/></clipPath></defs>
+  <rect x="1" y="1" width="94" height="94" rx="8" fill="rgba(255,255,255,.05)" stroke="var(--line)"/>
+  <g clip-path="url(#c${label})"><g transform="translate(${c} ${c+off}) rotate(${roll})"><line x1="-90" x2="90" y1="0" y2="0" stroke="var(--text)" stroke-width="2"/><line x1="-90" x2="90" y1="14" y2="14" stroke="var(--line)"/><line x1="-90" x2="90" y1="-14" y2="-14" stroke="var(--line)"/></g></g>
+  <path d="M36 48h8M52 48h8" stroke="var(--accent)" stroke-width="2"/><circle cx="48" cy="48" r="2" fill="var(--accent)"/>
+  </svg>`;
+}
+// attitude in each frame's own convention: Vita = gravity on -z when flat; DualSense = gravity on +y when flat
+function attVita(a){return {roll:Math.atan2(a[0],-a[2])/DEG,pitch:Math.atan2(a[1],Math.hypot(a[0],a[2]))/DEG};}
+function attDS(a){return {roll:Math.atan2(a[0],a[1])/DEG,pitch:Math.atan2(-a[2],Math.hypot(a[0],a[1]))/DEG};}
+function render(){
+  $('panel').classList.toggle('open',S.open);
+  $('wInput').classList.toggle('on',S.open);$('wInput').setAttribute('aria-pressed',S.open);
+  const now=performance.now(),lit=now<S.litUntil;
+  $('light').classList.toggle('on',lit);$('pad').classList.toggle('lit',lit);
+  $('cnt').textContent=S.count;
+  $('hold').innerHTML=S.hold==null?'-':S.hold+'<span class="t14 c3" style="margin-left:4px">ms</span>';
+  const v=$('verdict');
+  if(S.hold==null){v.textContent='';}else if(S.hold>=40&&S.hold<=70){v.textContent='in range';v.className='verdict cok';}else{v.textContent='expect ~50';v.className='verdict cwarn';}
+  // touches
+  const n=S.t.filter(Boolean).length;
+  $('padNone').style.display=n?'none':'flex';
+  [['d1',0],['d2',1]].forEach(([id,i])=>{const e=$(id),t=S.t[i];if(t){e.style.display='block';e.style.left=(t.x/1919*232)+'px';e.style.top=(t.y/1087*114)+'px';}else e.style.display='none';});
+  const gh=$('gh');if(S.ghost){gh.style.left=(S.ghost.x/1919*232)+'px';gh.style.top=(S.ghost.y/1087*114)+'px';gh.style.opacity=n?0:(now-S.ghost.at<400?.6:0);}
+  $('rd').innerHTML=[0,1].map(i=>{const t=S.t[i];const col=i?'var(--accent)':'var(--text)';
+    return `<div class="row ${t?'':'dim'}"><b style="background:${t?col:'transparent'};box-shadow:${t?'none':'inset 0 0 0 1px var(--text-3)'}"></b><span class="num">${t?Math.round(t.x):'-'}</span><span class="v num">${t?Math.round(t.y/1087*941):'-'}</span></div>`}).join('')+`<div class="lbl" style="margin-top:4px">x &nbsp; y (as sent)</div>`;
+  // motion
+  const r=raw(),s=sent(),ar=attVita(r.a),as=attDS(s.a);
+  $('hzRaw').innerHTML=hzSvg(ar.roll,ar.pitch,'raw');$('hzSent').innerHTML=hzSvg(as.roll,as.pitch,'sent');
+  const d=Math.max(Math.abs(ar.roll-as.roll),Math.abs(ar.pitch-as.pitch));
+  $('tilt').innerHTML=`<div class="lbl">TILT &deg; (roll / pitch)</div><div class="t16 num"><span class="c3">raw</span> ${f(ar.roll,0)} / ${f(ar.pitch,0)}</div><div class="t16 num" style="color:var(--accent)"><span class="c3">sent</span> ${f(as.roll,0)} / ${f(as.pitch,0)}</div><div class="t14 ${d>5?'cwarn':'cok'}" style="margin-top:2px">${d>5?'sent differs from raw':'sent matches raw'}</div>`;
+  const ax=['x','y','z'];
+  $('mt').innerHTML=`<tr><th></th><th colspan="2" class="grp">ACCEL (G)</th><th class="gap"></th><th colspan="2" class="grp">GYRO (rad/s)</th></tr><tr><th></th><th>raw</th><th class="sent">sent</th><th class="gap"></th><th>raw</th><th class="sent">sent</th></tr>`+
+   ax.map((a,i)=>`<tr><td>${a}</td><td class="raw num">${f(r.a[i],2)}</td><td class="sent num">${f(s.a[i],2)}</td><td class="gap"></td><td class="raw num">${f(r.g[i],3)}</td><td class="sent num">${f(s.g[i],3)}</td></tr>`).join('');
+  $('prog').style.width=Math.min(100,S.combo/500*100)+'%';
+  $('footTxt').textContent=S.combo>0?'keep holding':'hold to close';
+}
+// --- mock input: mouse = front touch ---
+const stage=$('stage');
+const inCtl=e=>!!e.target.closest('#wInput,#wResync,#bClose');
+let md=null;
+function pos(e){const b=stage.getBoundingClientRect();return {x:(e.clientX-b.left)/960*1919,y:(e.clientY-b.top)/544*1087};}
+stage.addEventListener('mousedown',e=>{
+  if(inCtl(e))return; // swallowed at touch-down: no dot, no click
+  const p=pos(e);md={t:performance.now(),p,two:e.shiftKey};
+  S.t[0]=p;S.t[1]=e.shiftKey?{x:Math.min(1919,p.x+240),y:Math.min(1087,p.y+40)}:null;render();});
+stage.addEventListener('mouseup',()=>{
+  if(!md)return;const quick=performance.now()-md.t<300;
+  if(quick)doClick(md.two);
+  S.ghost={...md.p,at:performance.now()};S.t=[null,null];md=null;render();setTimeout(render,450);});
+stage.addEventListener('mousemove',e=>{if(!md)return;const p=pos(e);S.t[0]=p;if(md.two)S.t[1]={x:Math.min(1919,p.x+240),y:Math.min(1087,p.y+40)};render();});
+function doClick(){S.count++;S.hold=49+Math.round(Math.random()*3);S.litUntil=performance.now()+250;render();setTimeout(render,260);}
+$('wInput').addEventListener('click',()=>{S.open=!S.open;render();});
+$('bClose').addEventListener('click',()=>{S.open=false;render();});
+$('bTog').onclick=()=>{S.open=!S.open;render();};
+$('bClick').onclick=()=>doClick();
+$('bTwo').onclick=()=>{S.t=[{x:760,y:470},{x:1180,y:560}];S.ghost=null;render();setTimeout(()=>{doClick();S.ghost={x:760,y:470,at:performance.now()};S.t=[null,null];render();},60);};
+$('sRoll').oninput=e=>{S.roll=+e.target.value;render();};$('sPitch').oninput=e=>{S.pitch=+e.target.value;render();};
+// L + R + Select (Q + E + Z) hold 0.5 s toggles
+const keys=new Set();let comboT=null;
+addEventListener('keydown',e=>{keys.add(e.key.toLowerCase());if(keys.has('q')&&keys.has('e')&&keys.has('z')&&!comboT){const t0=performance.now();comboT=setInterval(()=>{S.combo=performance.now()-t0;if(S.combo>=500){clearInterval(comboT);comboT=null;S.combo=0;S.open=!S.open;}render();},30);}});
+addEventListener('keyup',e=>{keys.delete(e.key.toLowerCase());if(comboT&&!(keys.has('q')&&keys.has('e')&&keys.has('z'))){clearInterval(comboT);comboT=null;S.combo=0;render();}});
+// --- states (deep links) ---
+const ST={
+ closed:['Panel closed: Input test button next to resync',()=>{S.open=false;}],
+ idle:['Open, nothing happening (device flat, as today)',()=>{S.open=true;}],
+ touch:['One finger down',()=>{S.open=true;S.t=[{x:1150,y:620},null];}],
+ click:['Tap click: light on, count 12, hold 50 ms',()=>{S.open=true;S.count=12;S.hold=50;S.litUntil=1e15;S.t=[{x:1150,y:620},null];}],
+ two:['Two-finger tap click',()=>{S.open=true;S.count=13;S.hold=50;S.litUntil=1e15;S.t=[{x:700,y:430},{x:1230,y:610}];}],
+ slow:['Hold out of range (amber)',()=>{S.open=true;S.count=4;S.hold=83;S.t=[null,null];S.ghost={x:1000,y:500,at:performance.now()};}],
+ tilt:['Tilted 30 deg roll, 15 deg pitch; gyro moving',()=>{S.open=true;S.roll=30;S.pitch=15;S.gyro=[0.412,-0.087,0.034];S.count=12;S.hold=50;}],
+ combo:['Controller combo held, closing',()=>{S.open=true;S.combo=320;}]
+};
+const jump=$('jump');Object.entries(ST).forEach(([k,[n]])=>{const o=document.createElement('option');o.value=k;o.textContent=n;jump.appendChild(o);});
+function go(k){Object.assign(S,{open:false,t:[null,null],ghost:null,count:0,hold:null,litUntil:0,roll:0,pitch:0,gyro:[0,0,0],combo:0});(ST[k]||ST.idle)[1]();jump.value=k;$('sRoll').value=S.roll;$('sPitch').value=S.pitch;render();}
+jump.onchange=()=>{location.hash=jump.value;};
+addEventListener('hashchange',()=>go(location.hash.slice(1)));
+if(location.search.includes('bare'))document.body.classList.add('bare');
+go(location.hash.slice(1)||'idle');
+</script></body></html>
