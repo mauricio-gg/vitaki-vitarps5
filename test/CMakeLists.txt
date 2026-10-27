@@ -529,6 +529,18 @@ target_include_directories(touchpad_gesture_tests PRIVATE
 
 add_test(NAME vitarps5_touchpad_gesture_tests COMMAND touchpad_gesture_tests)
 
+# front_touch_zone_tests.c has its own main() and tests the front-touch start-zone rule (GH #460): a
+# touch keeps the outcome of the zone it started in until it lifts. Cross-compiled but never run by
+# ./tools/build.sh test; the native command is at the top of the file.
+add_executable(front_touch_zone_tests front_touch_zone_tests.c ../vita/src/front_touch_zone.c)
+
+target_include_directories(front_touch_zone_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+    ${VITARPS5_ROOT}/lib/include
+)
+
+add_test(NAME vitarps5_front_touch_zone_tests COMMAND front_touch_zone_tests)
+
 # motion_frame_tests.c has its own main() and tests the Vita -> DualSense motion axis conversion
 # (GH #455). Cross-compiled but never run by ./tools/build.sh test; the native command is at the
 # top of the file.
