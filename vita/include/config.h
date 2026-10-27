@@ -93,6 +93,7 @@ typedef struct vita_chiaki_config_t {
   ControllerMapStorage custom_maps[3];  // 3 independent custom mapping slots
   bool custom_maps_valid[3];            // Validity flags for each custom slot
   bool circle_btn_confirm;
+  bool motion_deadband;         // Vita motion sensor ignores small movements (off by default, #455)
   bool show_latency;            // Display live latency/FPS metrics in Profile + stream HUD
   bool show_network_indicator;  // Display "Network unstable" overlay in stream HUD
   bool show_stream_exit_hint;   // Display stream exit shortcut hint in stream HUD

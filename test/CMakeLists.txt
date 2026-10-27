@@ -529,6 +529,17 @@ target_include_directories(touchpad_gesture_tests PRIVATE
 
 add_test(NAME vitarps5_touchpad_gesture_tests COMMAND touchpad_gesture_tests)
 
+# motion_frame_tests.c has its own main() and tests the Vita -> DualSense motion axis conversion
+# (GH #455). Cross-compiled but never run by ./tools/build.sh test; the native command is at the
+# top of the file.
+add_executable(motion_frame_tests motion_frame_tests.c ../vita/src/motion_frame.c)
+
+target_include_directories(motion_frame_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_motion_frame_tests COMMAND motion_frame_tests)
+
 # input_test_tests.c has its own main() and tests the debug Input test panel (GH #458): the
 # sent-click measurement and which touches the panel swallows. Cross-compiled but never run by
 # ./tools/build.sh test; the native command is at the top of the file.

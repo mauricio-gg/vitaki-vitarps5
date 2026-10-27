@@ -273,10 +273,23 @@ static void circle_confirm_change(int step) {
   ui_settings_apply_circle_confirm();
 }
 
+static bool motion_deadband_is_on(void) {
+  return context.config.motion_deadband;
+}
+
+static void motion_deadband_change(int step) {
+  (void)step;
+  context.config.motion_deadband = !context.config.motion_deadband;
+  ui_settings_persist_config();
+}
+
 static const SettingDef CONTROLS_ROWS[] = {
     {"Circle Button Confirm", UI_SETTING_TOGGLE,
      "Use Circle to confirm and Cross to go back, on every screen.", circle_confirm_is_on, NULL,
      circle_confirm_change},
+    {"Motion Deadband", UI_SETTING_TOGGLE,
+     "Ignore small movements of the motion sensor. Applies from the next stream.",
+     motion_deadband_is_on, NULL, motion_deadband_change},
 };
 
 /* Advanced */
