@@ -1,5 +1,6 @@
 /*
- * token_crypto.h — AES-256-GCM encryption for persisted PSN OAuth tokens.
+ * token_crypto.h — AES-256-GCM encryption for persisted secrets: PSN OAuth tokens and
+ * console pairing keys.
  *
  * Key derivation: SHA-256(salt || OpenPsID || kind) → 32-byte AES-256 key.
  * The key is derived on demand and never stored.
@@ -7,20 +8,39 @@
  * Wire format (base64-encoded):
  *   version(1) || nonce(12) || ciphertext(N) || tag(16)
  *
- * The "kind" string ("access" / "refresh") is bound as GCM AAD alongside a
- * version byte, preventing cross-field blob swapping.
+ * The "kind" string ("access" / "refresh" for PSN tokens, TOKEN_CRYPTO_KIND_RP_KEY /
+ * TOKEN_CRYPTO_KIND_RP_REGIST_KEY for console pairing keys) feeds the key derivation and is
+ * bound as GCM AAD alongside a version byte, preventing cross-field blob swapping.
  *
- * GitHub issue #81.
+ * GitHub issues #81, #464.
  */
 #pragma once
 
 #include <stdint.h>
 
+/* Kind labels for the console pairing keys stored in chiaki.toml (GH #464). */
+#define TOKEN_CRYPTO_KIND_RP_KEY "rp_key"
+#define TOKEN_CRYPTO_KIND_RP_REGIST_KEY "rp_regist_key"
+
+/*
+ * TokenLoadResult — three-way outcome of loading one encrypted value from the config.
+ *
+ * TOKEN_LOAD_ABSENT  : the _enc key is not present in the TOML table.
+ *                      The caller may fall back to a legacy plaintext key.
+ * TOKEN_LOAD_OK      : the _enc key was present and decryption succeeded.
+ *                      The output field has been set; no fallback needed.
+ * TOKEN_LOAD_FAILED  : the _enc key was present but decryption failed
+ *                      (wrong device / tampering).  The output field has
+ *                      been cleared.  The caller MUST NOT fall back to
+ *                      the legacy plaintext key.
+ */
+typedef enum { TOKEN_LOAD_ABSENT = 0, TOKEN_LOAD_OK = 1, TOKEN_LOAD_FAILED = 2 } TokenLoadResult;
+
 /*
  * token_crypto_encrypt — Encrypt a plaintext PSN token for disk storage.
  *
  * @param plaintext  NUL-terminated token string (e.g. the access token).
- * @param kind       Token kind label used as AAD ("access" or "refresh").
+ * @param kind       Kind label used as AAD ("access", "refresh" or a TOKEN_CRYPTO_KIND_*).
  *
  * Returns a heap-allocated, NUL-terminated base64 string on success.
  * The caller is responsible for free()ing the returned pointer.

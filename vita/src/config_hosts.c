@@ -7,7 +7,12 @@
 #include "config_hosts.h"
 #include "context.h"
 #include "host.h"
+#include "token_crypto.h"
 #include "util.h"
+
+/* Both pairing keys are exactly CHIAKI_SESSION_AUTH_SIZE / rp_key bytes (16) of raw data. */
+#define PAIRING_KEY_LEN 0x10
+#define PAIRING_KEY_B64_BUF_SIZE 32
 
 static void zero_pad(char *buf, size_t size) {
   bool pad = false;
@@ -48,7 +53,41 @@ static ChiakiTarget parse_target(const char *target_name) {
   return CHIAKI_TARGET_PS4_UNKNOWN;
 }
 
-void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) {
+/*
+ * load_encrypted_pairing_key — Decrypt one pairing key stored as base64 text inside an _enc blob.
+ *
+ * @param host_cfg  TOML table of the registered host.
+ * @param toml_key  Key of the encrypted blob ("rp_key_enc" / "rp_regist_key_enc").
+ * @param kind      TOKEN_CRYPTO_KIND_* the blob was encrypted with.
+ * @param out       Receives exactly PAIRING_KEY_LEN raw bytes; zeroed on failure.
+ *
+ * Returns TOKEN_LOAD_ABSENT if the key is not in the table, TOKEN_LOAD_OK on success and
+ * TOKEN_LOAD_FAILED if it is present but will not decrypt or does not decode to exactly
+ * PAIRING_KEY_LEN bytes. Key material is never logged.
+ */
+static TokenLoadResult load_encrypted_pairing_key(toml_table_t *host_cfg, const char *toml_key,
+                                                  const char *kind, uint8_t out[PAIRING_KEY_LEN]) {
+  toml_datum_t datum = toml_string_in(host_cfg, toml_key);
+  if (!datum.ok)
+    return TOKEN_LOAD_ABSENT;
+
+  char *plain = token_crypto_decrypt(datum.u.s, kind);
+  free(datum.u.s);
+  if (!plain)
+    return TOKEN_LOAD_FAILED;
+
+  size_t decoded_len = PAIRING_KEY_LEN;
+  ChiakiErrorCode err = chiaki_base64_decode(plain, strlen(plain), out, &decoded_len);
+  free(plain);
+  if (err != CHIAKI_ERR_SUCCESS || decoded_len != PAIRING_KEY_LEN) {
+    memset(out, 0, PAIRING_KEY_LEN);
+    return TOKEN_LOAD_FAILED;
+  }
+  return TOKEN_LOAD_OK;
+}
+
+void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed,
+                                   bool *migrated_plaintext_keys) {
   toml_array_t *regist_hosts = toml_array_in(parsed, "registered_hosts");
   if (!regist_hosts || toml_array_kind(regist_hosts) != 't')
     return;
@@ -100,21 +139,47 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
       free(datum.u.s);
     }
 
-    datum = toml_string_in(host_cfg, "rp_key");
-    if (datum.ok) {
-      parse_b64(datum.u.s, rstate->rp_key, 0x10);
-      free(datum.u.s);
+    /* Encrypted keys win. A plain-text key is read only when its _enc key is absent (legacy
+     * file, migrated on the next save); a present-but-undecryptable _enc key drops the host. */
+    bool host_used_plaintext = false;
+    TokenLoadResult rp_key_result = load_encrypted_pairing_key(
+        host_cfg, "rp_key_enc", TOKEN_CRYPTO_KIND_RP_KEY, rstate->rp_key);
+    if (rp_key_result == TOKEN_LOAD_ABSENT) {
+      datum = toml_string_in(host_cfg, "rp_key");
+      if (datum.ok) {
+        parse_b64(datum.u.s, rstate->rp_key, PAIRING_KEY_LEN);
+        free(datum.u.s);
+        host_used_plaintext = true;
+      }
     }
 
     datum = toml_int_in(host_cfg, "rp_key_type");
     if (datum.ok)
       rstate->rp_key_type = datum.u.i;
 
-    datum = toml_string_in(host_cfg, "rp_regist_key");
-    if (datum.ok) {
-      strncpy(rstate->rp_regist_key, datum.u.s, sizeof(rstate->rp_regist_key));
-      zero_pad(rstate->rp_regist_key, sizeof(rstate->rp_regist_key));
-      free(datum.u.s);
+    TokenLoadResult regist_key_result =
+        load_encrypted_pairing_key(host_cfg, "rp_regist_key_enc", TOKEN_CRYPTO_KIND_RP_REGIST_KEY,
+                                   (uint8_t *)rstate->rp_regist_key);
+    if (regist_key_result == TOKEN_LOAD_ABSENT) {
+      datum = toml_string_in(host_cfg, "rp_regist_key");
+      if (datum.ok) {
+        strncpy(rstate->rp_regist_key, datum.u.s, sizeof(rstate->rp_regist_key));
+        zero_pad(rstate->rp_regist_key, sizeof(rstate->rp_regist_key));
+        free(datum.u.s);
+        host_used_plaintext = true;
+      }
+    }
+
+    if (rp_key_result == TOKEN_LOAD_FAILED || regist_key_result == TOKEN_LOAD_FAILED) {
+      const uint8_t *m = host->server_mac;
+      CHIAKI_LOGE(&(context.log),
+                  "Pairing keys of registered host entry %d (nickname=%s mac=%02x:%02x:%02x:%02x:"
+                  "%02x:%02x) will not decrypt (config from another Vita?); dropping host, pair "
+                  "again",
+                  i, rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>", m[0], m[1],
+                  m[2], m[3], m[4], m[5]);
+      host_free(host);
+      continue;
     }
 
     if (!bytes_nonzero(host->server_mac, sizeof(host->server_mac)) ||
@@ -126,6 +191,8 @@ void config_parse_registered_hosts(VitaChiakiConfig *cfg, toml_table_t *parsed) 
       continue;
     }
 
+    if (host_used_plaintext)
+      *migrated_plaintext_keys = true;
     cfg->registered_hosts[cfg->num_registered_hosts] = host;
     LOGD("Loaded registered host[%zu]: nickname=%s target=%d type=0x%x", cfg->num_registered_hosts,
          rstate->server_nickname[0] ? rstate->server_nickname : "<unnamed>", host->target,
@@ -274,7 +341,34 @@ void config_serialize_manual_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
   }
 }
 
-void config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
+/*
+ * serialize_encrypted_pairing_key — Write one pairing key as an encrypted base64 blob.
+ *
+ * The 16 raw bytes are base64-encoded (so a full buffer with no NUL terminator is safe) and the
+ * text is encrypted with @p kind. An all-zero key is not written, matching serialize_b64.
+ * Returns false only if encryption failed; nothing is written then. Key material is never logged.
+ */
+static bool serialize_encrypted_pairing_key(FILE *fp, const char *field_name,
+                                            const uint8_t key[PAIRING_KEY_LEN], const char *kind) {
+  if (!bytes_nonzero(key, PAIRING_KEY_LEN))
+    return true;
+
+  char b64[PAIRING_KEY_B64_BUF_SIZE];
+  memset(b64, 0, sizeof(b64));
+  if (chiaki_base64_encode(key, PAIRING_KEY_LEN, b64, sizeof(b64)) != CHIAKI_ERR_SUCCESS)
+    return false;
+
+  char *blob = token_crypto_encrypt(b64, kind);
+  if (!blob)
+    return false;
+
+  fprintf(fp, "%s = \"%s\"\n", field_name, blob);
+  free(blob);
+  return true;
+}
+
+bool config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
+  bool ok = true;
   for (size_t i = 0; i < cfg->num_registered_hosts; i++) {
     VitaChiakiHost *host = cfg->registered_hosts[i];
     ChiakiRegisteredHost *rhost = host ? host->registered_state : NULL;
@@ -287,8 +381,18 @@ void config_serialize_registered_hosts(FILE *fp, const VitaChiakiConfig *cfg) {
     serialize_b64(fp, "server_mac", host->server_mac, 6);
     fprintf(fp, "server_nickname = \"%s\"\n", rhost->server_nickname);
     serialize_target(fp, "target", rhost->target);
-    serialize_b64(fp, "rp_key", rhost->rp_key, 0x10);
     fprintf(fp, "rp_key_type = %u\n", rhost->rp_key_type);
-    fprintf(fp, "rp_regist_key = \"%s\"\n", rhost->rp_regist_key);
+    if (!serialize_encrypted_pairing_key(fp, "rp_key_enc", rhost->rp_key,
+                                         TOKEN_CRYPTO_KIND_RP_KEY) ||
+        !serialize_encrypted_pairing_key(fp, "rp_regist_key_enc",
+                                         (const uint8_t *)rhost->rp_regist_key,
+                                         TOKEN_CRYPTO_KIND_RP_REGIST_KEY)) {
+      CHIAKI_LOGE(&(context.log),
+                  "Could not encrypt pairing keys of registered host slot %zu (nickname=%s); "
+                  "refusing to save",
+                  i, rhost->server_nickname[0] ? rhost->server_nickname : "<unnamed>");
+      ok = false;
+    }
   }
+  return ok;
 }

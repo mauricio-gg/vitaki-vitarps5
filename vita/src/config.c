@@ -224,20 +224,6 @@ static bool config_validate_general_section(toml_table_t *parsed) {
 }
 
 /*
- * TokenLoadResult — three-way outcome for load_token_from_encrypted.
- *
- * TOKEN_LOAD_ABSENT  : the _enc key is not present in the TOML table.
- *                      The caller may fall back to a legacy plaintext key.
- * TOKEN_LOAD_OK      : the _enc key was present and decryption succeeded.
- *                      The output field has been set; no fallback needed.
- * TOKEN_LOAD_FAILED  : the _enc key was present but decryption failed
- *                      (wrong device / tampering).  The output field has
- *                      been cleared.  The caller MUST NOT fall back to
- *                      the legacy plaintext key — re-auth is required.
- */
-typedef enum { TOKEN_LOAD_ABSENT = 0, TOKEN_LOAD_OK = 1, TOKEN_LOAD_FAILED = 2 } TokenLoadResult;
-
-/*
  * load_token_from_encrypted — Decrypt and store one token from a TOML key.
  *
  * @param settings   TOML table to read from.
@@ -583,14 +569,13 @@ static void migrate_latency_mode(VitaChiakiConfig *cfg, bool *migrated) {
   *migrated = true;
 }
 
-static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
-                                              bool migrated_root_settings,
-                                              bool migrated_resolution_policy,
-                                              bool migrated_plaintext_tokens,
-                                              bool migrated_auth_provenance,
-                                              bool migrated_latency_mode) {
+static void persist_migrated_config_if_needed(
+    VitaChiakiConfig *cfg, bool migrated_legacy_settings, bool migrated_root_settings,
+    bool migrated_resolution_policy, bool migrated_plaintext_tokens,
+    bool migrated_plaintext_host_keys, bool migrated_auth_provenance, bool migrated_latency_mode) {
   if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy ||
-        migrated_plaintext_tokens || migrated_auth_provenance || migrated_latency_mode))
+        migrated_plaintext_tokens || migrated_plaintext_host_keys || migrated_auth_provenance ||
+        migrated_latency_mode))
     return;
 
   if (migrated_latency_mode) {
@@ -599,6 +584,9 @@ static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrat
     LOGD("Migrating PSN auth provenance (GH #204); rewriting %s", CFG_FILENAME);
   } else if (migrated_plaintext_tokens) {
     LOGD("Migrating legacy plaintext PSN tokens to encrypted storage; rewriting %s", CFG_FILENAME);
+  } else if (migrated_plaintext_host_keys) {
+    LOGD("Migrating plain-text console pairing keys to encrypted storage; rewriting %s",
+         CFG_FILENAME);
   } else if (migrated_root_settings) {
     LOGD("Recovered settings via root-level fallback and rewriting %s", CFG_FILENAME);
   } else if (migrated_resolution_policy) {
@@ -653,6 +641,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   bool migrated_root_settings = false;
   bool migrated_resolution_policy = false;
   bool migrated_plaintext_tokens = false;
+  bool migrated_plaintext_host_keys = false;
   bool migrated_auth_provenance = false;
   bool migrated_latency_mode = false;
   toml_table_t *settings = toml_table_in(parsed, "settings");
@@ -687,13 +676,14 @@ void config_parse(VitaChiakiConfig *cfg) {
   cfg->logging.enabled = true;
 #endif
 
-  config_parse_registered_hosts(cfg, parsed);
+  config_parse_registered_hosts(cfg, parsed, &migrated_plaintext_host_keys);
   config_parse_manual_hosts(cfg, parsed);
   room_icons_parse(&cfg->room_icons, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
                                     migrated_resolution_policy, migrated_plaintext_tokens,
-                                    migrated_auth_provenance, migrated_latency_mode);
+                                    migrated_plaintext_host_keys, migrated_auth_provenance,
+                                    migrated_latency_mode);
 
 config_done:
   LOGD(
@@ -923,9 +913,9 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
 #endif
 
   config_serialize_manual_hosts(fp, cfg);
-  config_serialize_registered_hosts(fp, cfg);
+  const bool hosts_ok = config_serialize_registered_hosts(fp, cfg);
   room_icons_serialize(fp, &cfg->room_icons);
-  const bool format_ok = (ferror(fp) == 0);
+  const bool format_ok = hosts_ok && (ferror(fp) == 0);
   /* fclose() finalizes data/len for a memory stream, so it is needed even after an error. */
   if (fclose(fp) != 0 || !format_ok) {
     LOGE("Failed to format %s in memory", CFG_FILENAME);

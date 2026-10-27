@@ -9,6 +9,7 @@
 #include "chiaki/base64.h"
 #include "config.h"
 #include "context.h"
+#include "token_crypto.h"
 
 VitaChiakiContext context = {0};
 
@@ -78,13 +79,12 @@ void copy_host_registered_state(ChiakiRegisteredHost *rstate_dest, const ChiakiR
     memcpy(rstate_dest, rstate_src, sizeof(*rstate_dest));
 }
 
+/* Same as util.c: the pairing-key tests need the real decode to compare key bytes. */
 void parse_b64(const char *val, uint8_t *dest, size_t len) {
   memset(dest, 0, len);
   if (!val || !val[0] || !dest || len == 0)
     return;
-  for (size_t i = 0; i < len; i++) {
-    dest[i] = (uint8_t)((i + 1u) & 0xFFu);
-  }
+  chiaki_base64_decode(val, strlen(val), dest, &len);
 }
 
 void parse_mac(const char *mac_str, uint8_t *mac_dest) {
@@ -713,11 +713,174 @@ static void test_room_icon_set_rules(void) {
   assert(table.count == MAX_ROOM_ICON_ENTRIES);
 }
 
+static const uint8_t DEVICE_ID_A[16] = {0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8,
+                                        0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0};
+static const uint8_t DEVICE_ID_B[16] = {0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8,
+                                        0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0};
+
+/* Raw pairing-key bytes. The registration key is deliberately 16 non-NUL bytes: a full buffer
+ * with no terminator, as the console registration produces. */
+static const uint8_t TEST_RP_KEY[16] = {0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87,
+                                        0x98, 0xA9, 0xBA, 0xCB, 0xDC, 0xED, 0xFE, 0x0F};
+static const char TEST_RP_KEY_B64[] = "ECEyQ1RldoeYqbrL3O3+Dw==";
+static const char TEST_REGIST_KEY_FULL[16] = {'Q', 'r', 'S', 't', 'U', 'v', 'W', 'x',
+                                              'Y', 'z', '0', '1', '2', '3', '4', '5'};
+
+/* Registers one console with the test pairing keys in cfg (not yet saved). */
+static void add_test_registered_host(VitaChiakiConfig *cfg) {
+  VitaChiakiHost *host = calloc(1, sizeof(*host));
+  ChiakiRegisteredHost *rstate = calloc(1, sizeof(*rstate));
+  assert(host != NULL && rstate != NULL);
+  host->type = REGISTERED;
+  host->registered_state = rstate;
+  host->target = CHIAKI_TARGET_PS5_1;
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  memcpy(host->server_mac, mac, sizeof(mac));
+  memcpy(rstate->server_mac, mac, sizeof(mac));
+  snprintf(rstate->server_nickname, sizeof(rstate->server_nickname), "living-room");
+  rstate->target = CHIAKI_TARGET_PS5_1;
+  rstate->rp_key_type = 2;
+  memcpy(rstate->rp_key, TEST_RP_KEY, sizeof(TEST_RP_KEY));
+  memcpy(rstate->rp_regist_key, TEST_REGIST_KEY_FULL, sizeof(TEST_REGIST_KEY_FULL));
+  cfg->registered_hosts[cfg->num_registered_hosts++] = host;
+}
+
+/* catches: pairing keys written to chiaki.toml as plain text (enough to impersonate the Vita to
+ * the console), or a save/load round trip that corrupts a key, including a registration key that
+ * fills its whole 16-byte buffer with no NUL terminator. */
+static void test_pairing_keys_are_encrypted_and_survive_save_and_load(void) {
+  token_crypto_set_test_device_id(DEVICE_ID_A);
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  add_test_registered_host(&cfg);
+  assert(config_serialize(&cfg));
+
+  char *saved = read_config_text();
+  assert(strstr(saved, "rp_key_enc = ") != NULL);
+  assert(strstr(saved, "rp_regist_key_enc = ") != NULL);
+  assert(strstr(saved, "rp_key =") == NULL);
+  assert(strstr(saved, "rp_regist_key =") == NULL);
+  assert(strstr(saved, TEST_RP_KEY_B64) == NULL);
+  assert(strstr(saved, "QrStUvWxYz012345") == NULL);
+  free(saved);
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.num_registered_hosts == 1);
+  ChiakiRegisteredHost *rstate = loaded.registered_hosts[0]->registered_state;
+  assert(memcmp(rstate->rp_key, TEST_RP_KEY, sizeof(TEST_RP_KEY)) == 0);
+  assert(memcmp(rstate->rp_regist_key, TEST_REGIST_KEY_FULL, sizeof(TEST_REGIST_KEY_FULL)) == 0);
+  assert(rstate->rp_key_type == 2);
+}
+
+/* catches: users losing their console pairing on upgrade (a plain-text host not loading), or the
+ * plain-text keys staying in the file because the migration rewrite never ran. */
+static void test_plaintext_pairing_keys_migrate_to_encrypted(void) {
+  token_crypto_set_test_device_id(DEVICE_ID_A);
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[[registered_hosts]]\n"
+      "server_mac = \"AQIDBAUG\"\n"
+      "server_nickname = \"legacy\"\n"
+      "target = \"ps5_1\"\n"
+      "rp_key = \"ECEyQ1RldoeYqbrL3O3+Dw==\"\n"
+      "rp_key_type = 2\n"
+      "rp_regist_key = \"abcd1234\"\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.num_registered_hosts == 1);
+  ChiakiRegisteredHost *rstate = cfg.registered_hosts[0]->registered_state;
+  assert(memcmp(rstate->rp_key, TEST_RP_KEY, sizeof(TEST_RP_KEY)) == 0);
+  assert(strcmp(rstate->rp_regist_key, "abcd1234") == 0);
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "rp_key_enc = ") != NULL);
+  assert(strstr(rewritten, "rp_regist_key_enc = ") != NULL);
+  assert(strstr(rewritten, "rp_key =") == NULL);
+  assert(strstr(rewritten, "rp_regist_key =") == NULL);
+  free(rewritten);
+
+  VitaChiakiConfig reloaded;
+  init_cfg(&reloaded);
+  assert(reloaded.num_registered_hosts == 1);
+  assert(memcmp(reloaded.registered_hosts[0]->registered_state->rp_key, TEST_RP_KEY,
+                sizeof(TEST_RP_KEY)) == 0);
+}
+
+/* catches: a host whose encrypted keys will not decrypt (memory card moved to another Vita)
+ * silently loading from plain-text keys that sit in the same file. */
+static void test_undecryptable_pairing_keys_drop_host_without_plaintext_fallback(void) {
+  token_crypto_set_test_device_id(DEVICE_ID_A);
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  add_test_registered_host(&cfg);
+  assert(config_serialize(&cfg));
+
+  char *saved = read_config_text();
+  const char *plain_keys = "rp_key = \"ECEyQ1RldoeYqbrL3O3+Dw==\"\nrp_regist_key = \"abcd1234\"\n";
+  char *with_plain = malloc(strlen(saved) + strlen(plain_keys) + 2);
+  assert(with_plain != NULL);
+  sprintf(with_plain, "%s\n%s", saved, plain_keys);
+  write_config_text(with_plain);
+  free(saved);
+  free(with_plain);
+
+  token_crypto_set_test_device_id(DEVICE_ID_B);
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.num_registered_hosts == 0);
+  token_crypto_set_test_device_id(DEVICE_ID_A);
+}
+
+/* catches: legacy plain-text PSN tokens (e.g. from a testing build) staying on disk in plain text
+ * after upgrade, or being lost instead of kept in memory and re-saved encrypted. */
+static void test_plaintext_psn_tokens_migrate_to_encrypted(void) {
+  token_crypto_set_test_device_id(DEVICE_ID_A);
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "psn_auth_provenance = 1\n"
+      "psn_oauth_access_token = \"plain-access-token\"\n"
+      "psn_oauth_refresh_token = \"plain-refresh-token\"\n"
+      "psn_oauth_expires_at_unix = 4102444800\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.psn_oauth_access_token != NULL);
+  assert(strcmp(cfg.psn_oauth_access_token, "plain-access-token") == 0);
+  assert(cfg.psn_oauth_refresh_token != NULL);
+  assert(strcmp(cfg.psn_oauth_refresh_token, "plain-refresh-token") == 0);
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "psn_oauth_access_token_enc = ") != NULL);
+  assert(strstr(rewritten, "psn_oauth_refresh_token_enc = ") != NULL);
+  assert(strstr(rewritten, "psn_oauth_access_token =") == NULL);
+  assert(strstr(rewritten, "psn_oauth_refresh_token =") == NULL);
+  assert(strstr(rewritten, "plain-access-token") == NULL);
+  assert(strstr(rewritten, "plain-refresh-token") == NULL);
+  free(rewritten);
+
+  VitaChiakiConfig reloaded;
+  init_cfg(&reloaded);
+  assert(reloaded.psn_oauth_access_token != NULL);
+  assert(strcmp(reloaded.psn_oauth_access_token, "plain-access-token") == 0);
+}
+
 void run_packet_path_tests(void);
 void run_json_escape_tests(void);
 void run_token_crypto_tests(void);
 
 int main(void) {
+  token_crypto_set_test_device_id(DEVICE_ID_A);
   test_legacy_section_migration();
   test_root_level_fallback_migration();
   test_legacy_bool_and_latency_migration();
@@ -737,6 +900,10 @@ int main(void) {
   test_room_icons_survive_save_and_load();
   test_bad_room_icon_entries_are_ignored();
   test_room_icon_set_rules();
+  test_pairing_keys_are_encrypted_and_survive_save_and_load();
+  test_plaintext_pairing_keys_migrate_to_encrypted();
+  test_undecryptable_pairing_keys_drop_host_without_plaintext_fallback();
+  test_plaintext_psn_tokens_migrate_to_encrypted();
   run_packet_path_tests();
   run_json_escape_tests();
   run_token_crypto_tests();
