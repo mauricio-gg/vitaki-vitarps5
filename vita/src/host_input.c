@@ -1,6 +1,7 @@
 #include "context.h"
 #include "debug_tools.h"
 #include "host_input.h"
+#include "touchpad_gesture.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/motion.h>
@@ -39,7 +40,9 @@ typedef struct debug_widget_touch_t {
 #define CHIAKI_TOUCHPAD_WIDTH 1920
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
-#define TOUCHPAD_CLICK_PULSE_FRAMES 2
+
+_Static_assert(TOUCHPAD_GESTURE_SLOTS == CHIAKI_CONTROLLER_TOUCHES_MAX,
+               "gesture tracker must follow every Chiaki touch slot");
 
 // Motion sensor deadband thresholds, in the same units sceMotionGetState()
 // reports: acceleration in G (1.0 == Earth gravity), angularVelocity in
@@ -291,7 +294,8 @@ void *host_input_thread_func(void *user) {
   int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT / 4;
   int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT / 3;
   int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS * FRONT_ARC_RADIUS;
-  uint8_t pending_touchpad_click_frames = 0;
+  TouchpadGesture touchpad_gesture;
+  touchpad_gesture_init(&touchpad_gesture);
   for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++)
     mapped_touch_slots[slot_i].chiaki_touch_id = -1;
 
@@ -401,10 +405,6 @@ void *host_input_thread_func(void *user) {
       stream->controller_state.buttons = 0x00;
       stream->controller_state.l2_state = 0x00;
       stream->controller_state.r2_state = 0x00;
-      if (pending_touchpad_click_frames > 0) {
-        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
-        pending_touchpad_click_frames--;
-      }
 
       bool reartouch_right = false;
       bool reartouch_left = false;
@@ -560,11 +560,22 @@ void *host_input_thread_func(void *user) {
       }
 #endif
 
+      // GH #454: a lifted tap keeps its Chiaki touch alive while the click is held, so the
+      // console sees the click with a finger on the pad. The gesture tracker says when to let go.
+      TouchpadGestureInput gesture_in[TOUCHPAD_GESTURE_SLOTS];
+      TouchpadGestureOutput gesture_out;
+      for (int slot_i = 0; slot_i < TOUCHPAD_GESTURE_SLOTS; slot_i++) {
+        gesture_in[slot_i].active = mapped_touch_slots[slot_i].active;
+        gesture_in[slot_i].seen = mapped_touch_seen[slot_i];
+        gesture_in[slot_i].moved = mapped_touch_slots[slot_i].moved;
+      }
+      touchpad_gesture_step(&touchpad_gesture, sceKernelGetProcessTimeWide(), gesture_in,
+                            &gesture_out);
+      if (gesture_out.click)
+        stream->controller_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
+
       for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++) {
-        if (mapped_touch_slots[slot_i].active && !mapped_touch_seen[slot_i]) {
-          if (!mapped_touch_slots[slot_i].moved &&
-              pending_touchpad_click_frames < TOUCHPAD_CLICK_PULSE_FRAMES)
-            pending_touchpad_click_frames = TOUCHPAD_CLICK_PULSE_FRAMES;
+        if (mapped_touch_slots[slot_i].active && gesture_out.release[slot_i]) {
           if (mapped_touch_slots[slot_i].chiaki_touch_id >= 0) {
             chiaki_controller_state_stop_touch(&stream->controller_state,
                                                (uint8_t)mapped_touch_slots[slot_i].chiaki_touch_id);

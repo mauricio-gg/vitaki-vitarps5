@@ -517,3 +517,14 @@ target_include_directories(audio_receiver_tests PRIVATE
 )
 
 add_test(NAME vitarps5_audio_receiver_tests COMMAND audio_receiver_tests)
+
+# touchpad_gesture_tests.c has its own main() and tests the front-touch touchpad click timing
+# (single tap, two-finger tap, drag). Cross-compiled but never run by ./tools/build.sh test; the
+# native command is at the top of the file.
+add_executable(touchpad_gesture_tests touchpad_gesture_tests.c ../vita/src/touchpad_gesture.c)
+
+target_include_directories(touchpad_gesture_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_touchpad_gesture_tests COMMAND touchpad_gesture_tests)
