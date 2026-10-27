@@ -5,6 +5,9 @@
 
 #define US_PER_MS 1000ULL
 
+/* The partner of a slot is computed as 1 - slot, which only holds for exactly two slots. */
+_Static_assert(TOUCHPAD_GESTURE_SLOTS == 2, "partner lookup (1 - slot) assumes exactly two slots");
+
 /* Starts a click at @p now_us unless one is already running (then the lift joins it). */
 static void start_click_if_idle(TouchpadGesture *g, uint64_t now_us) {
   if (g->click_running)

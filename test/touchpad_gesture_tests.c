@@ -29,6 +29,7 @@ typedef struct sim_t {
   int click_rises;         /* how many separate clicks started */
   bool prev_click;
   bool click_with_no_touch; /* click was on while no touch was active */
+  int click_frames_not_both; /* click frames where a slot was inactive or released */
   uint64_t first_release_us[TOUCHPAD_GESTURE_SLOTS];
 } Sim;
 
@@ -57,6 +58,12 @@ static void sim_frame(Sim *s) {
       any_left = any_left || (s->active[i] && !out.release[i]);
     if (!any_left)
       s->click_with_no_touch = true;
+    for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++) {
+      if (!s->active[i] || out.release[i]) {
+        s->click_frames_not_both++;
+        break;
+      }
+    }
   }
   s->prev_click = out.click;
 
@@ -112,6 +119,7 @@ static void test_two_finger_tap_gives_one_click_with_both_touches_active(void) {
   assert(s.click_rises == 1);
   assert(s.click_on_us >= MS(50));
   assert(!s.click_with_no_touch);
+  assert(s.click_frames_not_both == 0); /* both touches active on every click frame */
   assert(!s.active[0] && !s.active[1]);
 }
 
