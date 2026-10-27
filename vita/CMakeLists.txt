@@ -27,6 +27,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/util.c
     src/host.c
     src/host_input.c
+    src/front_touch_zone.c
     src/touchpad_gesture.c
     src/motion_frame.c
     src/host_disconnect.c

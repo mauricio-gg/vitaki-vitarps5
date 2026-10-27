@@ -1,5 +1,6 @@
 #include "context.h"
 #include "debug_tools.h"
+#include "front_touch_zone.h"
 #include "host_input.h"
 #include "motion_frame.h"
 #include "touchpad_gesture.h"
@@ -33,15 +34,6 @@ typedef struct mapped_touch_slot_t {
 #define DEBUG_TOUCH_LOG_MOVE_PERIOD_US 100000ULL
 #define DEBUG_MOTION_LOG_PERIOD_US 500000ULL
 
-/* Bits of DebugTouchResolve.zones: which of the geometric front zones the touch lies in. */
-#define DEBUG_ZONE_RIGHT_HALF 0x01
-#define DEBUG_ZONE_UR_ARC 0x02
-#define DEBUG_ZONE_LR_ARC 0x04
-#define DEBUG_ZONE_LEFT_HALF 0x08
-#define DEBUG_ZONE_UL_ARC 0x10
-#define DEBUG_ZONE_LL_ARC 0x20
-#define DEBUG_ZONE_CENTER 0x40
-
 /* What the front-touch loop did with one touch on its latest pass (INPUT_TEST/TOUCH fields). */
 typedef struct debug_touch_resolve_t {
   int slot;        /* local touchpad slot it was sent on, -1 when not sent */
@@ -52,7 +44,7 @@ typedef struct debug_touch_resolve_t {
   int grid;           /* VitakiCtrlIn of the front grid zone (VITAKI_CTRL_IN_NONE if none) */
   int grid_out;       /* vcmi.in_out_btn[grid], 0 when none */
   bool to_touchpad;   /* the touch ended up mapped to the touchpad */
-  unsigned int zones; /* DEBUG_ZONE_* bits */
+  unsigned int zones; /* FRONT_TOUCH_ZONE_* bits */
 } DebugTouchResolve;
 
 /* A touch no debug control or mapping has claimed: nothing sent, no zone. */
@@ -78,20 +70,14 @@ typedef struct debug_widget_touch_t {
 #define DEBUG_WIDGET_TOUCH_SLOTS SCE_TOUCH_MAX_REPORT
 #endif
 
-/* Marks a front zone on a DebugTouchResolve; compiles away in release builds, where the
- * variable does not exist. */
-#if VITARPS5_DEBUG_TOOLS
-#define DEBUG_ZONE_MARK(zones, bit) ((zones) |= (bit))
-#else
-#define DEBUG_ZONE_MARK(zones, bit) ((void)0)
-#endif
-
 #define CHIAKI_TOUCHPAD_WIDTH 1920
 #define CHIAKI_TOUCHPAD_HEIGHT 942
 #define TOUCHPAD_TAP_MOVE_THRESHOLD 24
 
 _Static_assert(TOUCHPAD_GESTURE_SLOTS == CHIAKI_CONTROLLER_TOUCHES_MAX,
                "gesture tracker must follow every Chiaki touch slot");
+_Static_assert(FRONT_TOUCH_ZONE_MAX_TOUCHES == SCE_TOUCH_MAX_REPORT,
+               "front touch zone table must hold every touch the panel can report");
 
 // Motion sensor deadband thresholds, in the same units sceMotionGetState()
 // reports: acceleration in G (1.0 == Earth gravity), angularVelocity in
@@ -126,59 +112,22 @@ _Static_assert(TOUCHPAD_GESTURE_SLOTS == CHIAKI_CONTROLLER_TOUCHES_MAX,
 // real analog input.
 #define STICK_DEADBAND 512
 
-// If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
-// touch-event path instead of being OR'd into button bits.
-static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in,
-                           bool *mapped_to_touchpad) {
+static void set_ctrl_l2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_l2 == ctrl_in) {
     stream->controller_state.l2_state = 0xff;
   } else {
-    VitakiCtrlOut out = vcmi.in_out_btn[ctrl_in];
-    if (mapped_to_touchpad && out == VITAKI_CTRL_OUT_TOUCHPAD) {
-      *mapped_to_touchpad = true;
-    } else {
-      stream->controller_state.buttons |= out;
-    }
+    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
   }
 }
 
-// If mapped_to_touchpad is non-NULL, TOUCHPAD outputs are routed to the
-// touch-event path instead of being OR'd into button bits.
-static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in,
-                           bool *mapped_to_touchpad) {
+static void set_ctrl_r2pos(VitaChiakiStream *stream, VitakiCtrlIn ctrl_in) {
   VitakiCtrlMapInfo vcmi = stream->vcmi;
   if (vcmi.in_r2 == ctrl_in) {
     stream->controller_state.r2_state = 0xff;
   } else {
-    VitakiCtrlOut out = vcmi.in_out_btn[ctrl_in];
-    if (mapped_to_touchpad && out == VITAKI_CTRL_OUT_TOUCHPAD) {
-      *mapped_to_touchpad = true;
-    } else {
-      stream->controller_state.buttons |= out;
-    }
+    stream->controller_state.buttons |= vcmi.in_out_btn[ctrl_in];
   }
-}
-
-static VitakiCtrlIn front_grid_input_from_touch(int x, int y, int max_w, int max_h) {
-  if (x < 0 || y < 0)
-    return VITAKI_CTRL_IN_NONE;
-  if (x >= max_w)
-    x = max_w - 1;
-  if (y >= max_h)
-    y = max_h - 1;
-  int col = (x * VITAKI_FRONT_TOUCH_GRID_COLS) / max_w;
-  int row = (y * VITAKI_FRONT_TOUCH_GRID_ROWS) / max_h;
-  if (col < 0)
-    col = 0;
-  if (col >= VITAKI_FRONT_TOUCH_GRID_COLS)
-    col = VITAKI_FRONT_TOUCH_GRID_COLS - 1;
-  if (row < 0)
-    row = 0;
-  if (row >= VITAKI_FRONT_TOUCH_GRID_ROWS)
-    row = VITAKI_FRONT_TOUCH_GRID_ROWS - 1;
-  return (VitakiCtrlIn)(VITAKI_CTRL_IN_FRONTTOUCH_GRID_START + row * VITAKI_FRONT_TOUCH_GRID_COLS +
-                        col);
 }
 
 static VitakiCtrlIn rear_grid_input_from_touch(int x, int y, int max_w, int max_h) {
@@ -537,12 +486,10 @@ void *host_input_thread_func(void *user) {
   int TOUCH_MAX_HEIGHT = 1087;
   int TOUCH_MAX_WIDTH_BY_2 = TOUCH_MAX_WIDTH / 2;
   int TOUCH_MAX_HEIGHT_BY_2 = TOUCH_MAX_HEIGHT / 2;
-  int TOUCH_MAX_WIDTH_BY_4 = TOUCH_MAX_WIDTH / 4;
-  int TOUCH_MAX_HEIGHT_BY_4 = TOUCH_MAX_HEIGHT / 4;
-  int FRONT_ARC_RADIUS = TOUCH_MAX_HEIGHT / 3;
-  int FRONT_ARC_RADIUS_2 = FRONT_ARC_RADIUS * FRONT_ARC_RADIUS;
   TouchpadGesture touchpad_gesture;
   touchpad_gesture_init(&touchpad_gesture);
+  FrontTouchZones front_touch_zones;
+  front_touch_zone_init(&front_touch_zones);
   for (int slot_i = 0; slot_i < CHIAKI_CONTROLLER_TOUCHES_MAX; slot_i++)
     mapped_touch_slots[slot_i].chiaki_touch_id = -1;
 
@@ -691,6 +638,7 @@ void *host_input_thread_func(void *user) {
       for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++)
         widget_touches[w_i].seen = false;
 #endif
+      front_touch_zone_begin_pass(&front_touch_zones);
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].x;
@@ -707,68 +655,22 @@ void *host_input_thread_func(void *user) {
         }
         DebugTouchResolve dbg_resolve = DEBUG_TOUCH_RESOLVE_UNSENT;
 #endif
-        bool mapped_to_touchpad = false;
-        if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] == VITAKI_CTRL_OUT_TOUCHPAD) {
-          mapped_to_touchpad = true;
-        } else {
-          stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY];
-        }
-
-        VitakiCtrlIn grid_input =
-            front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+        // GH #460: the touch keeps the outcome of the zone it started in until it lifts.
+        const FrontTouchOutcome *zone_outcome = front_touch_zone_latch(
+            &front_touch_zones, vita_touch_id, x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT, &vcmi);
+        if (!zone_outcome)
+          continue;
+        stream->controller_state.buttons |= zone_outcome->buttons;
+        if (zone_outcome->l2)
+          stream->controller_state.l2_state = 0xff;
+        if (zone_outcome->r2)
+          stream->controller_state.r2_state = 0xff;
+        bool mapped_to_touchpad = zone_outcome->to_touchpad;
 #if VITARPS5_DEBUG_TOOLS
-        dbg_resolve.grid = grid_input;
-        dbg_resolve.grid_out = grid_input != VITAKI_CTRL_IN_NONE ? vcmi.in_out_btn[grid_input] : 0;
+        dbg_resolve.grid = zone_outcome->grid;
+        dbg_resolve.grid_out = zone_outcome->grid_out;
+        dbg_resolve.zones = zone_outcome->zones;
 #endif
-        if (grid_input != VITAKI_CTRL_IN_NONE) {
-          VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
-          if (mapped == VITAKI_CTRL_OUT_L2) {
-            stream->controller_state.l2_state = 0xff;
-          } else if (mapped == VITAKI_CTRL_OUT_R2) {
-            stream->controller_state.r2_state = 0xff;
-          } else if (mapped == VITAKI_CTRL_OUT_TOUCHPAD) {
-            mapped_to_touchpad = true;
-          } else if (mapped != VITAKI_CTRL_OUT_NONE) {
-            stream->controller_state.buttons |= mapped;
-          }
-        }
-
-        if (x > TOUCH_MAX_WIDTH_BY_2) {
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT, &mapped_to_touchpad);
-          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_RIGHT_HALF);
-
-          if (y * y + (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
-            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC, &mapped_to_touchpad);
-            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_UR_ARC);
-          } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) +
-                         (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <=
-                     FRONT_ARC_RADIUS_2) {
-            set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC, &mapped_to_touchpad);
-            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LR_ARC);
-          }
-        } else if (x < TOUCH_MAX_WIDTH_BY_2) {
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT, &mapped_to_touchpad);
-          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LEFT_HALF);
-
-          if (y * y + x * x <= FRONT_ARC_RADIUS_2) {
-            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC, &mapped_to_touchpad);
-            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_UL_ARC);
-          } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) + x * x <=
-                     FRONT_ARC_RADIUS_2) {
-            set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC, &mapped_to_touchpad);
-            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LL_ARC);
-          }
-        }
-
-        if ((x >= TOUCH_MAX_WIDTH_BY_4) && (x <= TOUCH_MAX_WIDTH - TOUCH_MAX_WIDTH_BY_4) &&
-            (y >= TOUCH_MAX_HEIGHT_BY_4) && (y <= TOUCH_MAX_HEIGHT - TOUCH_MAX_HEIGHT_BY_4)) {
-          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_CENTER);
-          if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] == VITAKI_CTRL_OUT_TOUCHPAD) {
-            mapped_to_touchpad = true;
-          } else {
-            stream->controller_state.buttons |= vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER];
-          }
-        }
 
         if (mapped_to_touchpad) {
           uint16_t touchpad_x = map_touchpad_x(x, TOUCH_MAX_WIDTH);
@@ -836,6 +738,8 @@ void *host_input_thread_func(void *user) {
         }
 #endif
       }
+
+      front_touch_zone_end_pass(&front_touch_zones);
 
 #if VITARPS5_DEBUG_TOOLS
       for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++) {
@@ -906,19 +810,19 @@ void *host_input_thread_func(void *user) {
       if (ctrl.buttons & SCE_CTRL_LTRIGGER) {
         if (reartouch_left && vitaki_reartouch_left_l1_mapped) {
           // Rear-touch path has no touch-coordinate emission; keep button semantics.
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1, NULL);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_REARTOUCH_LEFT_L1);
         } else {
           // Non-front path: TOUCHPAD outputs (if configured) are treated as button bits.
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1, NULL);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_L1);
         }
       }
       if (ctrl.buttons & SCE_CTRL_RTRIGGER) {
         if (reartouch_right && vitaki_reartouch_right_r1_mapped) {
           // Rear-touch path has no touch-coordinate emission; keep button semantics.
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1, NULL);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_REARTOUCH_RIGHT_R1);
         } else {
           // Non-front path: TOUCHPAD outputs (if configured) are treated as button bits.
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1, NULL);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_R1);
         }
       }
 
@@ -935,7 +839,7 @@ void *host_input_thread_func(void *user) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_BOX;
           // Combo path is button-only; no touchpad coordinate emission here.
-          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE, NULL);
+          set_ctrl_l2pos(stream, VITAKI_CTRL_IN_LEFT_SQUARE);
         }
       }
 
@@ -944,7 +848,7 @@ void *host_input_thread_func(void *user) {
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
           stream->controller_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_MOON;
           // Combo path is button-only; no touchpad coordinate emission here.
-          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE, NULL);
+          set_ctrl_r2pos(stream, VITAKI_CTRL_IN_RIGHT_CIRCLE);
         }
       }
 
