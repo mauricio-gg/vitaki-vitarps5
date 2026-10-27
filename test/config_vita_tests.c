@@ -517,6 +517,25 @@ static void test_manual_account_id_and_choice_survive_save_and_load(void) {
   assert(fresh.psn_account_id_source == PSN_ACCOUNT_ID_SOURCE_VITA);
 }
 
+/* catches: a wrong default or a config without the key loading Motion Deadband on, which would ship
+ * the deadband (dropped fine gyro motion) to every user; and a missing writer entry losing the
+ * user's choice to turn it on at the next start. */
+static void test_motion_deadband_defaults_off_and_survives_save_and_load(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\nversion = 1\n\n[settings]\nshow_network_indicator = false\n");
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_network_indicator == false);
+  assert(cfg.motion_deadband == false);
+
+  cfg.motion_deadband = true;
+  assert(config_serialize(&cfg));
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.motion_deadband == true);
+}
+
 /* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the
  * setting reverts after a restart. */
 static void test_new_fields_survive_save_and_load(void) {
@@ -709,6 +728,7 @@ int main(void) {
   test_old_config_gets_new_field_defaults();
   test_removed_show_only_paired_key_is_dropped();
   test_new_fields_survive_save_and_load();
+  test_motion_deadband_defaults_off_and_survives_save_and_load();
   test_manual_account_id_and_choice_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
   test_out_of_range_theme_is_rejected();

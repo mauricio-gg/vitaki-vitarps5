@@ -450,6 +450,12 @@ void *host_input_thread_func(void *user) {
   sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, 0);
 
   sceMotionStartSampling();
+  const int deadband = context.config.motion_deadband ? 1 : 0;
+  const int deadband_ret = sceMotionSetDeadband(deadband);
+  if (deadband_ret < 0)
+    LOGE("sceMotionSetDeadband(%d) failed: 0x%08x", deadband, (unsigned)deadband_ret);
+  else
+    LOGD("Motion deadband applied: %d", deadband);
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
   sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
   SceCtrlData ctrl;

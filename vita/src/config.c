@@ -69,6 +69,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->show_button_hints = true;
   cfg->room_icons.count = 0;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
+  cfg->motion_deadband = false;
   vita_logging_config_set_defaults(&cfg->logging);
 }
 
@@ -504,6 +505,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
                                                bool *migrated_root_settings) {
   BoolSettingSpec bool_settings[] = {
       {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
+      {"motion_deadband", false, &cfg->motion_deadband},
       {"show_latency", false, &cfg->show_latency},
       {"show_network_indicator", true, &cfg->show_network_indicator},
       {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
@@ -879,6 +881,7 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
   fprintf(fp, "controller_map_id = %d\n", cfg->controller_map_id);
   BoolSerializeSpec bool_settings[] = {
       {"circle_btn_confirm", cfg->circle_btn_confirm},
+      {"motion_deadband", cfg->motion_deadband},
       {"show_latency", cfg->show_latency},
       {"show_network_indicator", cfg->show_network_indicator},
       {"show_stream_exit_hint", cfg->show_stream_exit_hint},
