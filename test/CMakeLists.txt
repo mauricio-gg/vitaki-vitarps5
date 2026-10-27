@@ -528,3 +528,15 @@ target_include_directories(touchpad_gesture_tests PRIVATE
 )
 
 add_test(NAME vitarps5_touchpad_gesture_tests COMMAND touchpad_gesture_tests)
+
+# input_test_tests.c has its own main() and tests the debug Input test panel (GH #458): the
+# sent-click measurement and which touches the panel swallows. Cross-compiled but never run by
+# ./tools/build.sh test; the native command is at the top of the file.
+add_executable(input_test_tests input_test_tests.c ../vita/src/input_test_click.c)
+
+target_compile_definitions(input_test_tests PRIVATE VITARPS5_DEBUG_TOOLS=1)
+target_include_directories(input_test_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_input_test_tests COMMAND input_test_tests)

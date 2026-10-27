@@ -215,6 +215,9 @@ void vitavideo_overlay_render(void) {
 void vitavideo_overlay_on_stream_start(void) {
   stream_exit_hint_start_us = 0;
   memset(&stats_cache, 0, sizeof(stats_cache));
+#if VITARPS5_DEBUG_TOOLS
+  debug_tools_on_stream_start();
+#endif
 }
 
 void vitavideo_overlay_on_stream_stop(void) {

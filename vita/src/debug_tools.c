@@ -19,6 +19,22 @@
 static volatile bool resync_first_frame_pending = false;
 static uint64_t resync_tap_us = 0;
 
+volatile DebugInputSnapshot debug_input_snapshot;
+
+void debug_tools_snapshot_reset(void) {
+  debug_input_snapshot = (DebugInputSnapshot){0};
+}
+
+bool debug_tools_input_test_open(void) {
+  return context.stream.input_test_open;
+}
+
+void debug_tools_on_stream_start(void) {
+  context.stream.input_test_open = false;
+  context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_NONE;
+  context.stream.input_test_close_requested = false;
+}
+
 void debug_tools_on_first_frame(void) {
   if (!resync_first_frame_pending)
     return;
@@ -74,7 +90,25 @@ static void handle_tap(void) {
   }
 }
 
+/* Opens or closes the Input test panel; @p how is logged ("touch" or "combo"). */
+static void set_panel_open(bool open, const char *how) {
+  context.stream.input_test_open = open;
+  LOGD("INPUT_TEST panel %s via %s", open ? "opened" : "closed", how);
+}
+
 void debug_tools_ui_tick(void) {
+  uint8_t toggle_source = context.stream.input_test_toggle_request;
+  if (toggle_source != DEBUG_PANEL_REQUEST_NONE) {
+    context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_NONE;
+    set_panel_open(!context.stream.input_test_open,
+                   toggle_source == DEBUG_PANEL_REQUEST_COMBO ? "combo" : "touch");
+  }
+  if (context.stream.input_test_close_requested) {
+    context.stream.input_test_close_requested = false;
+    if (context.stream.input_test_open)
+      set_panel_open(false, "touch");
+  }
+
   if (context.stream.resync_tap_requested) {
     context.stream.resync_tap_requested = false;
     handle_tap();

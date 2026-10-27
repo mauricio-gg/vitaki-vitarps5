@@ -232,10 +232,11 @@ static uint16_t map_touchpad_y(int y, int max_y) {
 }
 
 #if VITARPS5_DEBUG_TOOLS
-/* Judges one front-touch report against the debug widget. Returns true when the touch belongs
- * to the widget and must be hidden from the game (no touchpad event, no button mapping). The
- * touch-down of a new swallowed touch raises the one resync request; a held finger never
- * repeats it because the touch is already known on later frames. */
+/* Judges one front-touch report against the debug targets (resync widget, Input test button,
+ * Close pill). Returns true when the touch belongs to one of them and must be hidden from the
+ * game (no touchpad event, no button mapping). The touch-down of a new swallowed touch raises
+ * that target's one request; a held finger never repeats it because the touch is already known
+ * on later frames. The panel body is not a target: touches under it reach the game. */
 static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_touch_id, int x,
                                       int y) {
   DebugWidgetTouch *free_slot = NULL;
@@ -247,16 +248,83 @@ static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_to
     if (!touches[i].active && !free_slot)
       free_slot = &touches[i];
   }
-  bool swallowed = debug_widget_contains_touch_point(x, y);
+  DebugTouchTarget target = debug_touch_target_at(x, y, context.stream.input_test_open);
+  bool swallowed = target != DEBUG_TOUCH_TARGET_NONE;
   if (free_slot) {
     free_slot->active = true;
     free_slot->seen = true;
     free_slot->swallowed = swallowed;
     free_slot->vita_touch_id = vita_touch_id;
   }
-  if (swallowed)
-    context.stream.resync_tap_requested = true;
+  switch (target) {
+    case DEBUG_TOUCH_TARGET_RESYNC:
+      context.stream.resync_tap_requested = true;
+      break;
+    case DEBUG_TOUCH_TARGET_INPUT_TEST:
+      context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_TOUCH;
+      break;
+    case DEBUG_TOUCH_TARGET_PANEL_CLOSE:
+      context.stream.input_test_close_requested = true;
+      break;
+    case DEBUG_TOUCH_TARGET_NONE:
+      break;
+  }
   return swallowed;
+}
+
+/* Tracks the L + R + Select hold that toggles the Input test panel. Call once per pass with the
+ * sampled Vita buttons and the time. Returns the buttons to use from here on: while all three
+ * are held they are removed, so the game never sees them (from the first pass they are down, not
+ * only after the hold completes). Raises one toggle request per hold; the buttons must be
+ * released before another can fire. *held_ms gets the hold so far, capped at the threshold, or 0
+ * when not held. */
+static unsigned int debug_panel_combo_step(unsigned int buttons, uint64_t now_us,
+                                           uint64_t *hold_start_us, bool *fired,
+                                           uint32_t *held_ms) {
+  const unsigned int combo = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_SELECT;
+  /* With Start also down it is the stream-exit combo; leave that alone. */
+  if ((buttons & combo) != combo || (buttons & SCE_CTRL_START)) {
+    *hold_start_us = 0;
+    *fired = false;
+    *held_ms = 0;
+    return buttons;
+  }
+  if (!*hold_start_us)
+    *hold_start_us = now_us;
+  uint64_t elapsed_ms = (now_us - *hold_start_us) / 1000ULL;
+  if (!*fired && elapsed_ms >= DEBUG_PANEL_COMBO_HOLD_MS) {
+    *fired = true;
+    context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_COMBO;
+  }
+  *held_ms =
+      elapsed_ms < DEBUG_PANEL_COMBO_HOLD_MS ? (uint32_t)elapsed_ms : DEBUG_PANEL_COMBO_HOLD_MS;
+  return buttons & ~combo;
+}
+
+/* Publishes what was just handed to Chiaki, and the raw motion sample of the same pass, for the
+ * Input test panel. See DebugInputSnapshot for the (deliberate) lack of locking. */
+static void debug_publish_input_snapshot(const ChiakiControllerState *sent,
+                                         const SceMotionState *motion, const InputTestClick *click,
+                                         uint32_t combo_held_ms) {
+  for (int i = 0; i < DEBUG_SNAPSHOT_TOUCHES; i++) {
+    debug_input_snapshot.touches[i].active = sent->touches[i].id >= 0;
+    debug_input_snapshot.touches[i].x = sent->touches[i].x;
+    debug_input_snapshot.touches[i].y = sent->touches[i].y;
+  }
+  debug_input_snapshot.sent_accel[0] = sent->accel_x;
+  debug_input_snapshot.sent_accel[1] = sent->accel_y;
+  debug_input_snapshot.sent_accel[2] = sent->accel_z;
+  debug_input_snapshot.sent_gyro[0] = sent->gyro_x;
+  debug_input_snapshot.sent_gyro[1] = sent->gyro_y;
+  debug_input_snapshot.sent_gyro[2] = sent->gyro_z;
+  debug_input_snapshot.raw_accel[0] = motion->acceleration.x;
+  debug_input_snapshot.raw_accel[1] = motion->acceleration.y;
+  debug_input_snapshot.raw_accel[2] = motion->acceleration.z;
+  debug_input_snapshot.raw_gyro[0] = motion->angularVelocity.x;
+  debug_input_snapshot.raw_gyro[1] = motion->angularVelocity.y;
+  debug_input_snapshot.raw_gyro[2] = motion->angularVelocity.z;
+  debug_input_snapshot.click = *click;
+  debug_input_snapshot.combo_held_ms = combo_held_ms;
 }
 #endif
 
@@ -309,6 +377,15 @@ void *host_input_thread_func(void *user) {
                                    (vcmi.in_l2 == VITAKI_CTRL_IN_LEFT_SQUARE);
   bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) ||
                                     (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
+
+#if VITARPS5_DEBUG_TOOLS
+  InputTestClick input_test_click;
+  input_test_click_init(&input_test_click);
+  debug_tools_snapshot_reset();
+  uint64_t panel_combo_start_us = 0;
+  bool panel_combo_fired = false;
+  uint32_t panel_combo_held_ms = 0;
+#endif
 
   static int exit_combo_hold = 0;
   const int EXIT_COMBO_THRESHOLD = 500;
@@ -363,6 +440,11 @@ void *host_input_thread_func(void *user) {
       } else {
         exit_combo_hold = 0;
       }
+
+#if VITARPS5_DEBUG_TOOLS
+      ctrl.buttons = debug_panel_combo_step(ctrl.buttons, start_time_us, &panel_combo_start_us,
+                                            &panel_combo_fired, &panel_combo_held_ms);
+#endif
 
       if (stream->stop_requested) {
         usleep(ms_per_loop * 1000);
@@ -661,6 +743,14 @@ void *host_input_thread_func(void *user) {
 
       chiaki_session_set_controller_state_ts(&stream->session, &stream->controller_state,
                                              start_time_us);
+#if VITARPS5_DEBUG_TOOLS
+      input_test_click_step(
+          &input_test_click,
+          (stream->controller_state.buttons & CHIAKI_CONTROLLER_BUTTON_TOUCHPAD) != 0,
+          sceKernelGetProcessTimeWide());
+      debug_publish_input_snapshot(&stream->controller_state, &motion, &input_test_click,
+                                   panel_combo_held_ms);
+#endif
       context.stream.cached_controller_state = stream->controller_state;
       context.stream.cached_controller_valid = true;
       context.stream.last_input_packet_us = sceKernelGetProcessTimeWide();

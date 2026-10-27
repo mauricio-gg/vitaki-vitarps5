@@ -238,6 +238,13 @@ typedef struct vita_chiaki_stream_t {
   // as a plain user stop.
   volatile bool resync_tap_requested;
   volatile bool resync_requested;
+  // GH #458: Input test panel. The input thread raises the requests (a touch on the button or
+  // the Close pill, or the L+R+Select hold); the UI thread consumes them in debug_tools_ui_tick().
+  // input_test_toggle_request holds a DEBUG_PANEL_REQUEST_* source (0 = none). input_test_open is
+  // owned by the UI thread; the input thread reads it to know whether the Close pill is live.
+  volatile uint8_t input_test_toggle_request;
+  volatile bool input_test_close_requested;
+  volatile bool input_test_open;
 #endif
   bool reconnect_overlay_active;  // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
