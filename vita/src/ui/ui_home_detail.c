@@ -217,6 +217,7 @@ static void build_settings_rows(int group) {
       break;
     case UI_SETTINGS_GROUP_CONTROLS:
       add_toggle_row("Circle Button Confirm", cfg->circle_btn_confirm);
+      add_toggle_row("Motion Deadband", cfg->motion_deadband);
       break;
     case UI_SETTINGS_GROUP_ADVANCED:
       add_toggle_row("Clamp Soft Restart Bitrate", cfg->clamp_soft_restart_bitrate);
