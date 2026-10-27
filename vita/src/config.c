@@ -317,12 +317,7 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     if (datum.ok) {
       free(cfg->psn_oauth_access_token);
       cfg->psn_oauth_access_token = datum.u.s;
-#ifndef VITARPS5_PLAINTEXT_TOKEN_STORAGE
-      /* In debug plaintext-storage builds the plaintext key IS the persisted
-       * format, so there is nothing to migrate — skip the flag to prevent a
-       * redundant config_serialize() rewrite on every boot. */
       *migrated_plaintext_tokens = true;
-#endif
     }
   }
   /* TOKEN_LOAD_FAILED: _enc key was present but decrypt failed.
@@ -336,12 +331,7 @@ static void parse_basic_settings(VitaChiakiConfig *cfg, toml_table_t *settings,
     if (datum.ok) {
       free(cfg->psn_oauth_refresh_token);
       cfg->psn_oauth_refresh_token = datum.u.s;
-#ifndef VITARPS5_PLAINTEXT_TOKEN_STORAGE
-      /* Same reasoning as the access token block above: in debug plaintext-
-       * storage builds the plaintext key is the canonical format, not a
-       * legacy artifact requiring migration. */
       *migrated_plaintext_tokens = true;
-#endif
     }
   }
   /* TOKEN_LOAD_FAILED: same reasoning as access token above — no plaintext fallback. */
@@ -771,26 +761,8 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
               ? PSN_ACCOUNT_ID_SOURCE_MANUAL_KEY
               : PSN_ACCOUNT_ID_SOURCE_VITA_KEY);
 
-#ifdef VITARPS5_PLAINTEXT_TOKEN_STORAGE
   /*
-   * Debug escape hatch: VITARPS5_PLAINTEXT_TOKEN_STORAGE=1 writes legacy
-   * plaintext keys INSTEAD OF encrypted ones.  Never set this in production.
-   * Encrypted keys are intentionally omitted here so the debug output is clean.
-   */
-  if (cfg->psn_oauth_access_token) {
-    fprintf(fp, "psn_oauth_access_token = \"%s\"\n", cfg->psn_oauth_access_token);
-  }
-  if (cfg->psn_oauth_refresh_token) {
-    fprintf(fp, "psn_oauth_refresh_token = \"%s\"\n", cfg->psn_oauth_refresh_token);
-  }
-  /* Persist expiry alongside plaintext tokens. */
-  if (cfg->psn_oauth_expires_at_unix > 0) {
-    fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
-            (unsigned long long)cfg->psn_oauth_expires_at_unix);
-  }
-#else
-  /*
-   * Production path: persist tokens encrypted-at-rest.
+   * Persist tokens encrypted-at-rest (every build).
    *
    * Only write encrypted keys when a non-empty token is present.  If a field
    * is NULL or empty (e.g. after logout), the corresponding *_enc key is
@@ -836,7 +808,6 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
     fprintf(fp, "psn_oauth_expires_at_unix = %llu\n",
             (unsigned long long)cfg->psn_oauth_expires_at_unix);
   }
-#endif /* VITARPS5_PLAINTEXT_TOKEN_STORAGE */
   if (cfg->psn_oauth_device_code_url) {
     fprintf(fp, "psn_oauth_device_code_url = \"%s\"\n", cfg->psn_oauth_device_code_url);
   }
