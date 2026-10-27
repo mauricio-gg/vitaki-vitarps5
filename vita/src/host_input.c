@@ -10,6 +10,7 @@
 #include <psp2/kernel/threadmgr.h>
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -23,18 +24,63 @@ typedef struct mapped_touch_slot_t {
 } MappedTouchSlot;
 
 #if VITARPS5_DEBUG_TOOLS
+/* GH #458: a front touch is logged (INPUT_TEST/TOUCH) at most this often per finger while it
+ * moves, and the motion sample (INPUT_TEST/MOTION) this often. Both only while the panel is open.
+ */
+#define DEBUG_TOUCH_LOG_MOVE_PERIOD_US 100000ULL
+#define DEBUG_MOTION_LOG_PERIOD_US 500000ULL
+
+/* Bits of DebugTouchResolve.zones: which of the geometric front zones the touch lies in. */
+#define DEBUG_ZONE_RIGHT_HALF 0x01
+#define DEBUG_ZONE_UR_ARC 0x02
+#define DEBUG_ZONE_LR_ARC 0x04
+#define DEBUG_ZONE_LEFT_HALF 0x08
+#define DEBUG_ZONE_UL_ARC 0x10
+#define DEBUG_ZONE_LL_ARC 0x20
+#define DEBUG_ZONE_CENTER 0x40
+
+/* What the front-touch loop did with one touch on its latest pass (INPUT_TEST/TOUCH fields). */
+typedef struct debug_touch_resolve_t {
+  int slot;        /* local touchpad slot it was sent on, -1 when not sent */
+  int chiaki_id;   /* Chiaki touch id, -1 when not sent */
+  bool sent;       /* a touchpad touch was sent for it */
+  uint16_t sent_x; /* position sent, 1920x942 space (valid when sent) */
+  uint16_t sent_y;
+  int grid;           /* VitakiCtrlIn of the front grid zone (VITAKI_CTRL_IN_NONE if none) */
+  int grid_out;       /* vcmi.in_out_btn[grid], 0 when none */
+  bool to_touchpad;   /* the touch ended up mapped to the touchpad */
+  unsigned int zones; /* DEBUG_ZONE_* bits */
+} DebugTouchResolve;
+
+/* A touch no debug control or mapping has claimed: nothing sent, no zone. */
+#define DEBUG_TOUCH_RESOLVE_UNSENT ((DebugTouchResolve){.slot = -1, .chiaki_id = -1})
+
 /* GH #275: one front touch the debug-widget filter has seen. A touch is judged once, on the
  * frame its id first appears: swallowed if it started inside the widget rect, and then for its
  * whole life (sliding out does not hand it to the game); a touch that started outside stays the
- * game's even if it slides into the rect. Sized for the Vita's front-panel report limit. */
+ * game's even if it slides into the rect. Sized for the Vita's front-panel report limit.
+ * GH #458: also keeps what is needed to log the touch (down, throttled moves, up). */
 typedef struct debug_widget_touch_t {
   bool active;
   bool seen;
-  bool swallowed;
+  DebugTouchTarget target; /* swallowed when not DEBUG_TOUCH_TARGET_NONE */
   uint8_t vita_touch_id;
+  bool logged_down;     /* the "down" line has been written for this touch */
+  uint64_t last_log_us; /* when the last line for this touch was written */
+  int raw_x, raw_y;     /* latest raw sceTouch position */
+  int logged_x, logged_y;
+  DebugTouchResolve last; /* latest pass's outcome */
 } DebugWidgetTouch;
 
 #define DEBUG_WIDGET_TOUCH_SLOTS SCE_TOUCH_MAX_REPORT
+#endif
+
+/* Marks a front zone on a DebugTouchResolve; compiles away in release builds, where the
+ * variable does not exist. */
+#if VITARPS5_DEBUG_TOOLS
+#define DEBUG_ZONE_MARK(zones, bit) ((zones) |= (bit))
+#else
+#define DEBUG_ZONE_MARK(zones, bit) ((void)0)
 #endif
 
 #define CHIAKI_TOUCHPAD_WIDTH 1920
@@ -236,25 +282,29 @@ static uint16_t map_touchpad_y(int y, int max_y) {
  * Close pill). Returns true when the touch belongs to one of them and must be hidden from the
  * game (no touchpad event, no button mapping). The touch-down of a new swallowed touch raises
  * that target's one request; a held finger never repeats it because the touch is already known
- * on later frames. The panel body is not a target: touches under it reach the game. */
+ * on later frames. The panel body is not a target: touches under it reach the game.
+ * *slot_out gets the touch's bookkeeping slot (NULL when every slot is taken). */
 static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_touch_id, int x,
-                                      int y) {
+                                      int y, DebugWidgetTouch **slot_out) {
   DebugWidgetTouch *free_slot = NULL;
+  *slot_out = NULL;
   for (int i = 0; i < DEBUG_WIDGET_TOUCH_SLOTS; i++) {
     if (touches[i].active && touches[i].vita_touch_id == vita_touch_id) {
       touches[i].seen = true;
-      return touches[i].swallowed;
+      *slot_out = &touches[i];
+      return touches[i].target != DEBUG_TOUCH_TARGET_NONE;
     }
     if (!touches[i].active && !free_slot)
       free_slot = &touches[i];
   }
   DebugTouchTarget target = debug_touch_target_at(x, y, context.stream.input_test_open);
-  bool swallowed = target != DEBUG_TOUCH_TARGET_NONE;
   if (free_slot) {
-    free_slot->active = true;
-    free_slot->seen = true;
-    free_slot->swallowed = swallowed;
-    free_slot->vita_touch_id = vita_touch_id;
+    *free_slot = (DebugWidgetTouch){.active = true,
+                                    .seen = true,
+                                    .target = target,
+                                    .vita_touch_id = vita_touch_id,
+                                    .last = DEBUG_TOUCH_RESOLVE_UNSENT};
+    *slot_out = free_slot;
   }
   switch (target) {
     case DEBUG_TOUCH_TARGET_RESYNC:
@@ -269,7 +319,74 @@ static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_to
     case DEBUG_TOUCH_TARGET_NONE:
       break;
   }
-  return swallowed;
+  return target != DEBUG_TOUCH_TARGET_NONE;
+}
+
+/* Short name of a touch target for the INPUT_TEST/TOUCH line. */
+static const char *debug_touch_target_name(DebugTouchTarget target) {
+  switch (target) {
+    case DEBUG_TOUCH_TARGET_RESYNC:
+      return "resync";
+    case DEBUG_TOUCH_TARGET_INPUT_TEST:
+      return "input";
+    case DEBUG_TOUCH_TARGET_PANEL_CLOSE:
+      return "close";
+    case DEBUG_TOUCH_TARGET_NONE:
+      break;
+  }
+  return "none";
+}
+
+/* Writes one INPUT_TEST/TOUCH line for @p t from its latest recorded outcome. @p event is
+ * "down", "move" or "up". An "up" line carries the last position and outcome seen. */
+static void debug_log_touch(const DebugWidgetTouch *t, const char *event) {
+  char sent[16] = "-";
+  if (t->last.sent)
+    snprintf(sent, sizeof(sent), "%u,%u", (unsigned)t->last.sent_x, (unsigned)t->last.sent_y);
+  LOGD(
+      "INPUT_TEST/TOUCH ev=%s vid=%u slot=%d cid=%d raw=%d,%d sent=%s zone=%d out=%d tp=%d "
+      "zones=0x%02x swallowed=%s",
+      event, (unsigned)t->vita_touch_id, t->last.slot, t->last.chiaki_id, t->raw_x, t->raw_y, sent,
+      t->last.grid, t->last.grid_out, t->last.to_touchpad ? 1 : 0, t->last.zones,
+      debug_touch_target_name(t->target));
+}
+
+/* Records one touch's latest outcome and writes its "down" line the first time it is seen, then
+ * a "move" line at most every DEBUG_TOUCH_LOG_MOVE_PERIOD_US and only if the raw position
+ * changed since the last line. Call only while the panel is open. */
+static void debug_touch_note(DebugWidgetTouch *t, int x, int y, const DebugTouchResolve *resolve,
+                             uint64_t now_us) {
+  t->raw_x = x;
+  t->raw_y = y;
+  t->last = *resolve;
+  const char *event;
+  if (!t->logged_down) {
+    event = "down";
+  } else if (now_us - t->last_log_us >= DEBUG_TOUCH_LOG_MOVE_PERIOD_US &&
+             (x != t->logged_x || y != t->logged_y)) {
+    event = "move";
+  } else {
+    return;
+  }
+  t->logged_down = true;
+  t->last_log_us = now_us;
+  t->logged_x = x;
+  t->logged_y = y;
+  debug_log_touch(t, event);
+}
+
+/* Writes one INPUT_TEST/MOTION line: the raw sceMotion sample, then what the controller state
+ * (after the deadbands) sends. */
+static void debug_log_motion(const SceMotionState *motion, const ChiakiControllerState *sent) {
+  LOGD(
+      "INPUT_TEST/MOTION raw_accel=%.4f,%.4f,%.4f raw_gyro=%.4f,%.4f,%.4f "
+      "raw_orient=%.4f,%.4f,%.4f,%.4f sent_accel=%.4f,%.4f,%.4f sent_gyro=%.4f,%.4f,%.4f "
+      "sent_orient=%.4f,%.4f,%.4f,%.4f",
+      motion->acceleration.x, motion->acceleration.y, motion->acceleration.z,
+      motion->angularVelocity.x, motion->angularVelocity.y, motion->angularVelocity.z,
+      motion->deviceQuat.x, motion->deviceQuat.y, motion->deviceQuat.z, motion->deviceQuat.w,
+      sent->accel_x, sent->accel_y, sent->accel_z, sent->gyro_x, sent->gyro_y, sent->gyro_z,
+      sent->orient_x, sent->orient_y, sent->orient_z, sent->orient_w);
 }
 
 /* Tracks the L + R + Select hold that toggles the Input test panel. Call once per pass with the
@@ -381,6 +498,7 @@ void *host_input_thread_func(void *user) {
 #if VITARPS5_DEBUG_TOOLS
   InputTestClick input_test_click;
   input_test_click_init(&input_test_click);
+  uint64_t motion_log_us = 0;
   debug_tools_snapshot_reset();
   uint64_t panel_combo_start_us = 0;
   bool panel_combo_fired = false;
@@ -528,8 +646,15 @@ void *host_input_thread_func(void *user) {
         int y = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].y;
         uint8_t vita_touch_id = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].id;
 #if VITARPS5_DEBUG_TOOLS
-        if (debug_widget_filter_touch(widget_touches, vita_touch_id, x, y))
+        DebugWidgetTouch *dbg_touch = NULL;
+        if (debug_widget_filter_touch(widget_touches, vita_touch_id, x, y, &dbg_touch)) {
+          if (dbg_touch && context.stream.input_test_open) {
+            DebugTouchResolve swallowed = DEBUG_TOUCH_RESOLVE_UNSENT;
+            debug_touch_note(dbg_touch, x, y, &swallowed, start_time_us);
+          }
           continue;
+        }
+        DebugTouchResolve dbg_resolve = DEBUG_TOUCH_RESOLVE_UNSENT;
 #endif
         bool mapped_to_touchpad = false;
         if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_ANY] == VITAKI_CTRL_OUT_TOUCHPAD) {
@@ -540,6 +665,10 @@ void *host_input_thread_func(void *user) {
 
         VitakiCtrlIn grid_input =
             front_grid_input_from_touch(x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT);
+#if VITARPS5_DEBUG_TOOLS
+        dbg_resolve.grid = grid_input;
+        dbg_resolve.grid_out = grid_input != VITAKI_CTRL_IN_NONE ? vcmi.in_out_btn[grid_input] : 0;
+#endif
         if (grid_input != VITAKI_CTRL_IN_NONE) {
           VitakiCtrlOut mapped = vcmi.in_out_btn[grid_input];
           if (mapped == VITAKI_CTRL_OUT_L2) {
@@ -555,27 +684,34 @@ void *host_input_thread_func(void *user) {
 
         if (x > TOUCH_MAX_WIDTH_BY_2) {
           set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_RIGHT, &mapped_to_touchpad);
+          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_RIGHT_HALF);
 
           if (y * y + (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <= FRONT_ARC_RADIUS_2) {
             set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UR_ARC, &mapped_to_touchpad);
+            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_UR_ARC);
           } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) +
                          (x - TOUCH_MAX_WIDTH) * (x - TOUCH_MAX_WIDTH) <=
                      FRONT_ARC_RADIUS_2) {
             set_ctrl_r2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LR_ARC, &mapped_to_touchpad);
+            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LR_ARC);
           }
         } else if (x < TOUCH_MAX_WIDTH_BY_2) {
           set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LEFT, &mapped_to_touchpad);
+          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LEFT_HALF);
 
           if (y * y + x * x <= FRONT_ARC_RADIUS_2) {
             set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_UL_ARC, &mapped_to_touchpad);
+            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_UL_ARC);
           } else if ((y - TOUCH_MAX_HEIGHT) * (y - TOUCH_MAX_HEIGHT) + x * x <=
                      FRONT_ARC_RADIUS_2) {
             set_ctrl_l2pos(stream, VITAKI_CTRL_IN_FRONTTOUCH_LL_ARC, &mapped_to_touchpad);
+            DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_LL_ARC);
           }
         }
 
         if ((x >= TOUCH_MAX_WIDTH_BY_4) && (x <= TOUCH_MAX_WIDTH - TOUCH_MAX_WIDTH_BY_4) &&
             (y >= TOUCH_MAX_HEIGHT_BY_4) && (y <= TOUCH_MAX_HEIGHT - TOUCH_MAX_HEIGHT_BY_4)) {
+          DEBUG_ZONE_MARK(dbg_resolve.zones, DEBUG_ZONE_CENTER);
           if (vcmi.in_out_btn[VITAKI_CTRL_IN_FRONTTOUCH_CENTER] == VITAKI_CTRL_OUT_TOUCHPAD) {
             mapped_to_touchpad = true;
           } else {
@@ -630,15 +766,35 @@ void *host_input_thread_func(void *user) {
                 touchpad_x, touchpad_y);
           }
 
-          if (slot_index >= 0)
+          if (slot_index >= 0) {
             mapped_touch_seen[slot_index] = true;
+#if VITARPS5_DEBUG_TOOLS
+            dbg_resolve.sent = true;
+            dbg_resolve.sent_x = touchpad_x;
+            dbg_resolve.sent_y = touchpad_y;
+            dbg_resolve.slot = slot_index;
+            dbg_resolve.chiaki_id = mapped_touch_slots[slot_index].chiaki_touch_id;
+#endif
+          }
         }
+
+#if VITARPS5_DEBUG_TOOLS
+        if (dbg_touch && context.stream.input_test_open) {
+          dbg_resolve.to_touchpad = mapped_to_touchpad;
+          debug_touch_note(dbg_touch, x, y, &dbg_resolve, start_time_us);
+        }
+#endif
       }
 
 #if VITARPS5_DEBUG_TOOLS
       for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++) {
-        if (!widget_touches[w_i].seen)
-          widget_touches[w_i].active = false;
+        DebugWidgetTouch *lifted = &widget_touches[w_i];
+        if (lifted->seen || !lifted->active)
+          continue;
+        if (lifted->logged_down && context.stream.input_test_open)
+          debug_log_touch(lifted, "up");
+        lifted->active = false;
+        lifted->logged_down = false;
       }
 #endif
 
@@ -744,10 +900,21 @@ void *host_input_thread_func(void *user) {
       chiaki_session_set_controller_state_ts(&stream->session, &stream->controller_state,
                                              start_time_us);
 #if VITARPS5_DEBUG_TOOLS
+      bool click_was_down = input_test_click.down;
       input_test_click_step(
           &input_test_click,
           (stream->controller_state.buttons & CHIAKI_CONTROLLER_BUTTON_TOUCHPAD) != 0,
           sceKernelGetProcessTimeWide());
+      if (context.stream.input_test_open) {
+        if (click_was_down && !input_test_click.down) {
+          LOGD("INPUT_TEST/CLICK count=%u hold_ms=%u", (unsigned)input_test_click.count,
+               (unsigned)input_test_click.last_hold_ms);
+        }
+        if (start_time_us - motion_log_us >= DEBUG_MOTION_LOG_PERIOD_US) {
+          motion_log_us = start_time_us;
+          debug_log_motion(&motion, &stream->controller_state);
+        }
+      }
       debug_publish_input_snapshot(&stream->controller_state, &motion, &input_test_click,
                                    panel_combo_held_ms);
 #endif

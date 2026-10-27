@@ -51,25 +51,45 @@ static void test_hold_is_last_finished_click(void) {
   assert(c.count == 3 && c.last_hold_ms == 120);
 }
 
-/* A touch-down on the panel body is sent to the game; one on the Close pill is swallowed, but
- * only while the panel is open. The two buttons swallow their own areas, including the part of
- * the 48 px box below the visible box. */
-static void test_touch_targets(void) {
-  const int body_x = (DEBUG_PANEL_X + 100) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX;
-  const int body_y = (DEBUG_PANEL_Y + 200) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX;
-  assert(debug_touch_target_at(body_x, body_y, true) == DEBUG_TOUCH_TARGET_NONE);
+/* Touch units for a screen pixel. */
+#define TU(px) ((px) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX)
 
-  const int close_x = (DEBUG_CLOSE_X + 4) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX;
-  const int close_y = (DEBUG_CLOSE_Y + 4) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX;
+/* A touch-down on the panel body is sent to the game; one on the Close pill is swallowed, but
+ * only while the panel is open. Each button swallows the strip under its own width down to the
+ * bottom of the screen, and nothing beside it. */
+static void test_touch_targets(void) {
+  assert(debug_touch_target_at(TU(DEBUG_PANEL_X + 100), TU(DEBUG_PANEL_Y + 200), true) ==
+         DEBUG_TOUCH_TARGET_NONE);
+
+  const int close_x = TU(DEBUG_CLOSE_X + 4);
+  const int close_y = TU(DEBUG_CLOSE_Y + 4);
   assert(debug_touch_target_at(close_x, close_y, true) == DEBUG_TOUCH_TARGET_PANEL_CLOSE);
   assert(debug_touch_target_at(close_x, close_y, false) == DEBUG_TOUCH_TARGET_NONE);
 
-  /* Bottom edge of the screen, under each visible box. */
-  const int bottom_y = (DEBUG_WIDGET_SCREEN_HEIGHT - 1) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX;
-  assert(debug_touch_target_at((DEBUG_INPUT_BTN_X + 4) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX, bottom_y,
-                               false) == DEBUG_TOUCH_TARGET_INPUT_TEST);
-  assert(debug_touch_target_at((DEBUG_WIDGET_SCREEN_WIDTH - 1) * DEBUG_WIDGET_TOUCH_PER_SCREEN_PX,
-                               bottom_y, false) == DEBUG_TOUCH_TARGET_RESYNC);
+  const int bottom_y = TU(DEBUG_WIDGET_SCREEN_HEIGHT - 1);
+  const int box_top_y = TU(DEBUG_TAP_BOX_Y);
+  const int input_last_x = DEBUG_INPUT_BTN_X + DEBUG_INPUT_BTN_W - 1;
+  const int resync_last_x = DEBUG_WIDGET_X + DEBUG_WIDGET_W - 1;
+
+  /* Inside each button's x-span, at the bottom of the screen and at the top of the box. */
+  assert(debug_touch_target_at(TU(DEBUG_INPUT_BTN_X), bottom_y, false) ==
+         DEBUG_TOUCH_TARGET_INPUT_TEST);
+  assert(debug_touch_target_at(TU(input_last_x), box_top_y, false) == DEBUG_TOUCH_TARGET_INPUT_TEST);
+  assert(debug_touch_target_at(TU(DEBUG_WIDGET_X), bottom_y, false) == DEBUG_TOUCH_TARGET_RESYNC);
+  assert(debug_touch_target_at(TU(resync_last_x), box_top_y, false) == DEBUG_TOUCH_TARGET_RESYNC);
+
+  /* Just outside: left of the Input test button, the gap between the buttons, and the
+   * bottom-right corner of the screen are all the game's. */
+  assert(debug_touch_target_at(TU(DEBUG_INPUT_BTN_X - 1), bottom_y, false) ==
+         DEBUG_TOUCH_TARGET_NONE);
+  assert(debug_touch_target_at(TU(input_last_x + 1), bottom_y, false) == DEBUG_TOUCH_TARGET_NONE);
+  assert(debug_touch_target_at(TU(DEBUG_WIDGET_X - 1), bottom_y, false) == DEBUG_TOUCH_TARGET_NONE);
+  assert(debug_touch_target_at(TU(DEBUG_WIDGET_SCREEN_WIDTH - 1), bottom_y, false) ==
+         DEBUG_TOUCH_TARGET_NONE);
+
+  /* Above the box the buttons take nothing. */
+  assert(debug_touch_target_at(TU(DEBUG_WIDGET_X), TU(DEBUG_TAP_BOX_Y - 1), false) ==
+         DEBUG_TOUCH_TARGET_NONE);
 }
 
 int main(void) {

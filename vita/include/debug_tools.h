@@ -41,17 +41,11 @@
 #define DEBUG_INPUT_BTN_X (DEBUG_WIDGET_X - DEBUG_INPUT_BTN_GAP - DEBUG_INPUT_BTN_W)
 #define DEBUG_INPUT_BTN_Y DEBUG_WIDGET_Y
 
-/* Both buttons take touches in a 48 px tall invisible box that reaches the bottom of the screen.
- * The two boxes meet in the middle of the gap between the visible boxes and the resync box
- * reaches the right edge, so they never overlap. */
+/* Both buttons take touches in an invisible box as wide as the button itself and 48 px tall,
+ * reaching the bottom of the screen. The boxes never reach past their button's own x-span, so the
+ * gap between the buttons and the right 6 px of the screen's bottom edge stay with the game. */
 #define DEBUG_TAP_BOX_H 48
 #define DEBUG_TAP_BOX_Y (DEBUG_WIDGET_SCREEN_HEIGHT - DEBUG_TAP_BOX_H)
-#define DEBUG_TAP_BOX_PAD 8
-#define DEBUG_TAP_SPLIT_X (DEBUG_WIDGET_X - DEBUG_INPUT_BTN_GAP / 2)
-#define DEBUG_INPUT_TAP_X (DEBUG_INPUT_BTN_X - DEBUG_TAP_BOX_PAD)
-#define DEBUG_INPUT_TAP_W (DEBUG_TAP_SPLIT_X - DEBUG_INPUT_TAP_X)
-#define DEBUG_RESYNC_TAP_X DEBUG_TAP_SPLIT_X
-#define DEBUG_RESYNC_TAP_W (DEBUG_WIDGET_SCREEN_WIDTH - DEBUG_TAP_SPLIT_X)
 
 /* The panel, docked left, and the Close pill in its 48 px header (16 px side padding). */
 #define DEBUG_PANEL_X 8
@@ -81,9 +75,9 @@ typedef struct debug_rect_t {
 
 /* The areas the touch filter swallows, derived from the constants above. */
 #define DEBUG_RESYNC_TAP_RECT \
-  ((DebugRect){DEBUG_RESYNC_TAP_X, DEBUG_TAP_BOX_Y, DEBUG_RESYNC_TAP_W, DEBUG_TAP_BOX_H})
+  ((DebugRect){DEBUG_WIDGET_X, DEBUG_TAP_BOX_Y, DEBUG_WIDGET_W, DEBUG_TAP_BOX_H})
 #define DEBUG_INPUT_TAP_RECT \
-  ((DebugRect){DEBUG_INPUT_TAP_X, DEBUG_TAP_BOX_Y, DEBUG_INPUT_TAP_W, DEBUG_TAP_BOX_H})
+  ((DebugRect){DEBUG_INPUT_BTN_X, DEBUG_TAP_BOX_Y, DEBUG_INPUT_BTN_W, DEBUG_TAP_BOX_H})
 #define DEBUG_CLOSE_TAP_RECT                                                             \
   ((DebugRect){DEBUG_CLOSE_X - DEBUG_CLOSE_TAP_PAD, DEBUG_CLOSE_Y - DEBUG_CLOSE_TAP_PAD, \
                DEBUG_CLOSE_W + 2 * DEBUG_CLOSE_TAP_PAD, DEBUG_CLOSE_H + 2 * DEBUG_CLOSE_TAP_PAD})
