@@ -257,17 +257,19 @@ static void measure_fixed(void) {
 
 /* ---- tilt ---- */
 
-/* Roll and pitch of a gravity vector read as a Vita frame (flat face up = -z). Assumption until
- * #455 step A. */
+/* Roll and pitch of a gravity vector read as a Vita frame (flat face up = -z). */
 static Tilt tilt_from_vita(const float a[3]) {
   return (Tilt){atan2f(a[0], -a[2]) * PANEL_DEG_PER_RAD,
                 atan2f(a[1], hypotf(a[0], a[2])) * PANEL_DEG_PER_RAD};
 }
 
-/* The same, read as a DualSense frame (flat = +y). Assumption until #455 step A. */
+/* The same pose, read from the sent accel in the DualSense frame (flat = +y). The sent accel is
+ * the Vita's (ax, ay, az) as (-ax, -az, ay) (motion_frame.h), so roll = atan2(ax, -az) becomes
+ * atan2(-x, y) and pitch = atan2(ay, hypot(ax, az)) becomes atan2(z, hypot(x, y)): the same
+ * physical roll or pitch tilts both horizons the same way. */
 static Tilt tilt_from_dualsense(const float a[3]) {
-  return (Tilt){atan2f(a[0], a[1]) * PANEL_DEG_PER_RAD,
-                atan2f(-a[2], hypotf(a[0], a[1])) * PANEL_DEG_PER_RAD};
+  return (Tilt){atan2f(-a[0], a[1]) * PANEL_DEG_PER_RAD,
+                atan2f(a[2], hypotf(a[0], a[1])) * PANEL_DEG_PER_RAD};
 }
 
 /* Draws the line through (cx, cy) along (dx, dy), cut to the box [x0..x1] x [y0..y1] by working out

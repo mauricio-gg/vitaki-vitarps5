@@ -1,6 +1,7 @@
 #include "context.h"
 #include "debug_tools.h"
 #include "host_input.h"
+#include "motion_frame.h"
 #include "touchpad_gesture.h"
 
 #include <psp2/ctrl.h>
@@ -8,6 +9,8 @@
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+
+#include <chiaki/orientation.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -92,7 +95,7 @@ _Static_assert(TOUCHPAD_GESTURE_SLOTS == CHIAKI_CONTROLLER_TOUCHES_MAX,
 
 // Motion sensor deadband thresholds, in the same units sceMotionGetState()
 // reports: acceleration in G (1.0 == Earth gravity), angularVelocity in
-// rad/s, deviceQuat as a unit quaternion. The Vita's MEMS accelerometer and
+// rad/s, orientation as a unit quaternion. The Vita's MEMS accelerometer and
 // gyro report measurement noise on the order of a few milli-G / milli-rad/s
 // even perfectly still, and controller_state_equals_for_feedback_state()'s
 // 1e-7 comparison epsilon treats any of that noise as a real input change on
@@ -210,16 +213,29 @@ static uint16_t map_touchpad_x(int x, int max_x) {
 }
 
 // Writes new_val into *dst only if it differs from the current value by at
-// least `deadband`; otherwise keeps the old value so MEMS sensor noise below
-// the deadband doesn't register as a controller_state change (see
-// MOTION_*_DEADBAND above). NaN inputs are naturally filtered out too:
+// least `deadband`; otherwise keeps the old value ("hold last") so MEMS sensor
+// noise below the deadband doesn't register as a controller_state change (see
+// MOTION_*_DEADBAND above). Used for the accelerometer, where holding the
+// last value is harmless. NaN inputs are naturally filtered out too:
 // fabsf(NaN - x) is never >= deadband (all comparisons involving NaN are
-// false per IEEE 754), so a single bad sample from sceMotionGetState() is
-// dropped and the next good sample is free to update normally -- no
-// permanent latch.
+// false per IEEE 754), so a single bad sample is dropped and the next good
+// sample is free to update normally -- no permanent latch.
 static inline void write_motion_sample(float *dst, float new_val, float deadband) {
   if (fabsf(new_val - *dst) >= deadband)
     *dst = new_val;
+}
+
+// Same as write_motion_sample(), but for a gyro axis: a new value within
+// `deadband` of zero is written as exactly 0. Hold-last alone could leave an
+// axis latched on a small non-zero rate (for example 0.0015 rad/s, settling
+// slowly) for as long as the device is still, and the console integrates that
+// rate as drift. Past the zero band it holds last like write_motion_sample().
+// NaN is still dropped (both comparisons are false), so nothing latches.
+static inline void write_motion_gyro(float *dst, float new_val, float deadband) {
+  if (fabsf(new_val) < deadband)
+    *dst = 0.0f;
+  else
+    write_motion_sample(dst, new_val, deadband);
 }
 
 // Same deadband contract as write_motion_sample(), but for the int16_t
@@ -265,6 +281,42 @@ static inline void write_motion_quat(float *dst_x, float *dst_y, float *dst_z, f
     *dst_z = new_z;
     *dst_w = new_w;
   }
+}
+
+// Feeds one fresh sceMotion sample (Vita frame) through the remap and the
+// orientation tracker, then writes the tracker's DualSense-frame accel, gyro
+// and orientation into `dst` through the deadband writers (so sensor noise
+// does not change the controller state on every pass and flood the feedback
+// sender). A sample with any non-finite value is dropped before the tracker
+// sees it: one NaN would poison the Madgwick quaternion for good.
+static void apply_motion_sample(ChiakiOrientationTracker *tracker, const SceMotionState *motion,
+                                ChiakiControllerState *dst) {
+  const float vita_accel[3] = {motion->acceleration.x, motion->acceleration.y,
+                               motion->acceleration.z};
+  const float vita_gyro[3] = {motion->angularVelocity.x, motion->angularVelocity.y,
+                              motion->angularVelocity.z};
+  for (int i = 0; i < 3; i++) {
+    if (!isfinite(vita_accel[i]) || !isfinite(vita_gyro[i]))
+      return;
+  }
+  float accel[3], gyro[3];
+  motion_frame_accel_vita_to_dualsense(vita_accel, accel);
+  motion_frame_gyro_vita_to_dualsense(vita_gyro, gyro);
+  // The tracker takes microseconds as uint32 and handles the wrap.
+  chiaki_orientation_tracker_update(tracker, gyro[0], gyro[1], gyro[2], accel[0], accel[1],
+                                    accel[2], (uint32_t)motion->hostTimestamp);
+
+  ChiakiControllerState tracked;
+  chiaki_orientation_tracker_apply_to_controller_state(tracker, &tracked);
+  write_motion_sample(&dst->accel_x, tracked.accel_x, MOTION_ACCEL_DEADBAND);
+  write_motion_sample(&dst->accel_y, tracked.accel_y, MOTION_ACCEL_DEADBAND);
+  write_motion_sample(&dst->accel_z, tracked.accel_z, MOTION_ACCEL_DEADBAND);
+  write_motion_gyro(&dst->gyro_x, tracked.gyro_x, MOTION_GYRO_DEADBAND);
+  write_motion_gyro(&dst->gyro_y, tracked.gyro_y, MOTION_GYRO_DEADBAND);
+  write_motion_gyro(&dst->gyro_z, tracked.gyro_z, MOTION_GYRO_DEADBAND);
+  write_motion_quat(&dst->orient_x, &dst->orient_y, &dst->orient_z, &dst->orient_w,
+                    tracked.orient_x, tracked.orient_y, tracked.orient_z, tracked.orient_w,
+                    MOTION_ORIENT_DEADBAND);
 }
 
 static uint16_t map_touchpad_y(int y, int max_y) {
@@ -454,6 +506,10 @@ void *host_input_thread_func(void *user) {
   sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
   SceCtrlData ctrl;
   SceMotionState motion;
+  ChiakiOrientationTracker orientation_tracker;
+  chiaki_orientation_tracker_init(&orientation_tracker);
+  bool motion_seen = false;
+  uint64_t last_motion_timestamp = 0;
   VitaChiakiStream *stream = user;
   int ms_per_loop = 2;
 
@@ -574,24 +630,13 @@ void *host_input_thread_func(void *user) {
       }
 
       sceMotionGetState(&motion);
-      write_motion_sample(&stream->controller_state.accel_x, motion.acceleration.x,
-                          MOTION_ACCEL_DEADBAND);
-      write_motion_sample(&stream->controller_state.accel_y, motion.acceleration.y,
-                          MOTION_ACCEL_DEADBAND);
-      write_motion_sample(&stream->controller_state.accel_z, motion.acceleration.z,
-                          MOTION_ACCEL_DEADBAND);
-
-      write_motion_quat(&stream->controller_state.orient_x, &stream->controller_state.orient_y,
-                        &stream->controller_state.orient_z, &stream->controller_state.orient_w,
-                        motion.deviceQuat.x, motion.deviceQuat.y, motion.deviceQuat.z,
-                        motion.deviceQuat.w, MOTION_ORIENT_DEADBAND);
-
-      write_motion_sample(&stream->controller_state.gyro_x, motion.angularVelocity.x,
-                          MOTION_GYRO_DEADBAND);
-      write_motion_sample(&stream->controller_state.gyro_y, motion.angularVelocity.y,
-                          MOTION_GYRO_DEADBAND);
-      write_motion_sample(&stream->controller_state.gyro_z, motion.angularVelocity.z,
-                          MOTION_GYRO_DEADBAND);
+      // The sensor updates slower than this 2 ms poll; a repeated sample would count as a
+      // warm-up sample with a zero time step in the tracker.
+      if (!motion_seen || motion.hostTimestamp != last_motion_timestamp) {
+        motion_seen = true;
+        last_motion_timestamp = motion.hostTimestamp;
+        apply_motion_sample(&orientation_tracker, &motion, &stream->controller_state);
+      }
 
       write_stick_sample(&stream->controller_state.left_x, (ctrl.lx - 128) * 2 * 0x7F,
                          STICK_DEADBAND);
