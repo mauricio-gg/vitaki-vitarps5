@@ -22,6 +22,7 @@
 #include "context.h"
 #include "discovery.h"
 #include "host.h"
+#include "token_crypto.h"
 #include "ui/ui_console_cards.h"
 
 #define TYPED_ADDRESS "192.168.1.77"
@@ -73,6 +74,10 @@ void chiaki_log(ChiakiLog *log, ChiakiLogLevel level, const char *fmt, ...) {
 }
 
 /* The same trivial helpers as vita/src/util.c (that file pulls in Vita-only headers). */
+/* config_hosts.c encrypts/decrypts registered-host pairing keys; these tests only serialize manual
+ * hosts, so the crypto is never reached. */
+char *token_crypto_encrypt(const char *plaintext, const char *kind) { (void)plaintext; (void)kind; return NULL; }
+char *token_crypto_decrypt(const char *b64_blob, const char *kind) { (void)b64_blob; (void)kind; return NULL; }
 size_t get_base64_size(size_t in) { return ((4 * in / 3) + 3) & ~3; }
 void parse_b64(const char *val, uint8_t *dest, size_t len) {
   chiaki_base64_decode(val, get_base64_size(len), dest, &len);

@@ -17,6 +17,7 @@
 #include "config.h"
 #include "context.h"
 #include "json_string.h"
+#include "psn_account_id.h"
 #include "psn_auth.h"
 #include "psn_auth_rules.h"
 #include "psn_remote.h"
@@ -226,7 +227,8 @@ static bool ensure_client_duid(void) {
   }
 
   set_config_string(&context.config.psn_client_duid, duid);
-  LOGD("PSN auth generated client DUID: %s", context.config.psn_client_duid);
+  LOGD("PSN auth generated client DUID, ending ...%s",
+       psn_account_id_fingerprint(context.config.psn_client_duid));
   /* Drained by the UI idle loop (vita/src/ui.c) — same deferred-persist
    * mechanism used for OAuth token writes, so a power-cycle right after
    * login still saves the regenerated DUID. */

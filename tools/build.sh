@@ -21,7 +21,7 @@ DOCKER_RUN_USER="$(id -u):$(id -g)"
 
 # Version configuration
 VERSION_PHASE="0.1"
-VERSION_ITERATION="1227"
+VERSION_ITERATION="1228"
 
 # Colors for output
 RED='\033[0;31m'
@@ -236,19 +236,6 @@ configure_feature_cmake_args() {
         debug_tools_val=1
     fi
     cmake_args+=("-DVITARPS5_DEBUG_TOOLS=${debug_tools_val}")
-
-    # Security: plaintext token storage is OFF by default (production-safe).
-    # Enable automatically for .env.testing so QA token persistence keeps working.
-    # Internal testing profile only: never for .env.prod or .env.beta, which ship
-    # to users and store the tokens encrypted.
-    # Use basename so absolute paths and trailing-slash variants still match.
-    # Always emit an explicit value (OFF included) so a stale CMakeCache.txt from
-    # a previous testing build can never leak plaintext storage into a release.
-    if [ "$(basename "$ENV_PROFILE_PATH")" = ".env.testing" ]; then
-        cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=ON")
-    else
-        cmake_args+=("-DVITARPS5_PLAINTEXT_TOKEN_STORAGE=OFF")
-    fi
 
     if [ ${#cmake_args[@]} -gt 0 ]; then
         if [ -n "$CMAKE_EXTRA_FLAGS" ]; then
