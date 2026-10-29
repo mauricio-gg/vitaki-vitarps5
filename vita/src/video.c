@@ -19,6 +19,7 @@
 
 #include "video.h"
 #include "video_overlay.h"
+#include "video_geometry.h"
 #include "press_meter.h"
 #include "sps_probe.h"
 #include "context.h"
@@ -558,11 +559,12 @@ static bool dechold_record_output(uint32_t frame_seq, uint64_t done_us, uint32_t
 }
 
 void update_scaling_settings(int width, int height) {
-  // Initialize defaults - full screen
-  image_scaling.texture_width = SCREEN_WIDTH;
-  image_scaling.texture_height = SCREEN_HEIGHT;
-  image_scaling.source_width = (unsigned int)width;
-  image_scaling.source_height = (unsigned int)height;
+  // #456 spike: the texture is the decoder's frame size (see video_geometry.h), not the screen.
+  VideoGeometry g = video_geometry_compute(width, height);
+  image_scaling.texture_width = g.texture_width;
+  image_scaling.texture_height = g.texture_height;
+  image_scaling.source_width = g.source_width;
+  image_scaling.source_height = g.source_height;
   image_scaling.origin_x = 0;
   image_scaling.origin_y = 0;
   image_scaling.region_x1 = 0;
@@ -570,26 +572,13 @@ void update_scaling_settings(int width, int height) {
   image_scaling.region_x2 = SCREEN_WIDTH;
   image_scaling.region_y2 = SCREEN_HEIGHT;
 
-  // Clamp source region to texture bounds (defensive)
-  if (image_scaling.source_width > image_scaling.texture_width)
-    image_scaling.source_width = image_scaling.texture_width;
-  if (image_scaling.source_height > image_scaling.texture_height)
-    image_scaling.source_height = image_scaling.texture_height;
-
-  // Fill Screen mode uses vita2d_draw_texture_scale in draw_streaming()
-  // so we only need to calculate aspect-preserving layout here
+  // Fill Screen mode uses vita2d_draw_texture_part_scale in draw_streaming() from the source
+  // size, so only the aspect-preserving layout is computed here.
   if (!context.config.stretch_video) {
-    // Aspect-ratio preserving mode - fit video with letterboxing/pillarboxing
-    float scale_w = (float)SCREEN_WIDTH / (float)width;
-    float scale_h = (float)SCREEN_HEIGHT / (float)height;
-    float scale = scale_w < scale_h ? scale_w : scale_h;
-    if (scale > 1.0f)
-      scale = 1.0f;
-
-    image_scaling.region_x2 = image_scaling.source_width * scale;
-    image_scaling.region_y2 = image_scaling.source_height * scale;
-    image_scaling.origin_x = round((SCREEN_WIDTH - image_scaling.region_x2) / 2.0f);
-    image_scaling.origin_y = round((SCREEN_HEIGHT - image_scaling.region_y2) / 2.0f);
+    image_scaling.region_x2 = g.dest_width;
+    image_scaling.region_y2 = g.dest_height;
+    image_scaling.origin_x = g.origin_x;
+    image_scaling.origin_y = g.origin_y;
   }
 
   LOGD("update_scaling_settings: src=%ux%u tex=%ux%u dst=%.0fx%.0f stretch=%s",
@@ -908,8 +897,29 @@ static void video_cleanup_framebuffer(void) {
   video_status--;
 }
 
+/* #456 spike: one greppable line with the free memory the kernel reports, for the memory types the
+ * decoder and the textures live in. "when" says where in setup it was read. */
+static void probe456_log_free_memory(const char *when) {
+  SceKernelFreeMemorySizeInfo info;
+  memset(&info, 0, sizeof(info));
+  info.size = sizeof(info);
+  int ret = sceKernelGetFreeMemorySize(&info);
+  if (ret < 0) {
+    LOGE("PROBE456/MEM %s sceKernelGetFreeMemorySize failed 0x%x", when, ret);
+    return;
+  }
+  LOGD("PROBE456/MEM %s free_cdram=%d free_user=%d free_phycont=%d", when, info.size_cdram,
+       info.size_user, info.size_phycont);
+}
+
 static int video_setup_framebuffer(int width, int height) {
   update_scaling_settings(width, height);
+  probe456_log_free_memory("before_setup");
+  LOGD("PROBE456/SIZES stream=%dx%d decoder=%ux%u texture=%ux%u source=%ux%u vita2d_memtype=0x%x",
+       width, height, (unsigned int)VITA_DECODER_RESOLUTION(width),
+       (unsigned int)VITA_DECODER_RESOLUTION(height), image_scaling.texture_width,
+       image_scaling.texture_height, image_scaling.source_width, image_scaling.source_height,
+       (unsigned int)vita2d_texture_get_alloc_memblock_type());
   picture.frame.framePitch = image_scaling.texture_width;
   picture.frame.frameWidth = image_scaling.texture_width;
   picture.frame.frameHeight = image_scaling.texture_height;
@@ -918,6 +928,9 @@ static int video_setup_framebuffer(int width, int height) {
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
   if (frame_texture == NULL) {
+    LOGE("PROBE456/ALLOC frame_texture FAILED requested=%ux%u bytes=%u",
+         image_scaling.texture_width, image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
     LOGD("not enough memory4\n");
     return VITA_VIDEO_ERROR_NO_MEM;
   }
@@ -928,6 +941,9 @@ static int video_setup_framebuffer(int width, int height) {
    * hypothetical decode that ran before the first ping-pong swap; kept for
    * defensive clarity rather than relying on that per-decode re-set alone. */
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
+  LOGD("PROBE456/ALLOC frame_texture ok %ux%u bytes=%u", image_scaling.texture_width,
+       image_scaling.texture_height,
+       vita2d_texture_get_stride(frame_texture) * vita2d_texture_get_height(frame_texture));
 
   /* Allocate the twin "last good frame" texture. Same format and dimensions as
    * frame_texture. No copying happens between them (GH #245) -- clean frames are
@@ -939,8 +955,18 @@ static int video_setup_framebuffer(int width, int height) {
   last_good_texture =
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
-  if (last_good_texture == NULL)
+  if (last_good_texture == NULL) {
+    LOGE("PROBE456/ALLOC last_good_texture FAILED requested=%ux%u bytes=%u",
+         image_scaling.texture_width, image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
     LOGD("VIDEO: last_good_texture alloc failed — freeze suppression disabled\n");
+  } else {
+    LOGD("PROBE456/ALLOC last_good_texture ok %ux%u bytes=%u", image_scaling.texture_width,
+         image_scaling.texture_height,
+         vita2d_texture_get_stride(last_good_texture) *
+             vita2d_texture_get_height(last_good_texture));
+  }
+  probe456_log_free_memory("after_textures");
 
   return VITA_VIDEO_INIT_OK;
 }
@@ -959,11 +985,15 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
 
   int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
   if (ret < 0) {
-    sceClibPrintf("sceVideodecQueryMemSize 0x%x\n", ret);
+    LOGE("PROBE456/ALLOC sceVideodecQueryMemSize FAILED 0x%x decoder=%ux%u refs=%d", ret,
+         initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical, REF_FRAMES);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   libMemInfo->memSize = ROUND_UP(libMemInfo->memSize, 256 * 1024);
+  LOGD("PROBE456/ALLOC videodec_lib ok memSize=%u (rounded to 256K) decoder=%ux%u refs=%d",
+       (unsigned int)libMemInfo->memSize, initVideodec->hwAvc.horizontal,
+       initVideodec->hwAvc.vertical, REF_FRAMES);
 
   SceKernelAllocMemBlockOpt opt;
   sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
@@ -974,26 +1004,31 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   videodecblock = sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                          libMemInfo->memSize, &opt);
   if (videodecblock < 0) {
-    sceClibPrintf("videodecblock: 0x%08x\n", videodecblock);
+    LOGE("PROBE456/ALLOC videodec_lib sceKernelAllocMemBlock FAILED 0x%08x requested=%u",
+         videodecblock, (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
   if (ret < 0) {
-    sceClibPrintf("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    LOGE("PROBE456/ALLOC videodec_lib sceKernelGetMemBlockBase FAILED 0x%x", ret);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, libMemInfo->memSize);
   if (videodecUnmap < 0) {
-    sceClibPrintf("sceCodecEngineOpenUnmapMemBlock: 0x%x\n", videodecUnmap);
+    LOGE("PROBE456/ALLOC videodec_lib sceCodecEngineOpenUnmapMemBlock FAILED 0x%x size=%u",
+         videodecUnmap, (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecContext =
       sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, libMemInfo->memSize, 256 * 1024);
   if (videodecContext < 0) {
-    sceClibPrintf("sceCodecEngineAllocMemoryFromUnmapMemBlock: 0x%x\n", videodecContext);
+    LOGE(
+        "PROBE456/ALLOC videodec_lib sceCodecEngineAllocMemoryFromUnmapMemBlock FAILED 0x%x "
+        "size=%u",
+        videodecContext, (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -1003,10 +1038,11 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
 
   ret = sceVideodecInitLibraryWithUnmapMem(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl, initVideodec);
   if (ret < 0) {
-    LOGD("sceVideodecInitLibrary 0x%x\n", ret);
+    LOGE("PROBE456/ALLOC sceVideodecInitLibrary FAILED 0x%x", ret);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
+  probe456_log_free_memory("after_videodec_lib");
   return VITA_VIDEO_INIT_OK;
 }
 
@@ -1026,7 +1062,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   int ret =
       sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
   if (ret < 0) {
-    LOGD("sceAvcdecQueryDecoderMemSize 0x%x size 0x%x\n", ret, decoder_info_out.frameMemSize);
+    LOGE("PROBE456/ALLOC sceAvcdecQueryDecoderMemSize FAILED 0x%x size=%u", ret,
+         (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE;
   }
 
@@ -1038,6 +1075,9 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
 
   decoder->frameBuf.size = decoder_info_out.frameMemSize;
   LOGD("allocating size 0x%x\n", decoder_info_out.frameMemSize);
+  LOGD("PROBE456/ALLOC decoder_frameMem requesting bytes=%u decoder=%ux%u refs=%d",
+       (unsigned int)decoder_info_out.frameMemSize, decoder_info->horizontal,
+       decoder_info->vertical, (int)decoder_info->numOfRefFrames);
   SceKernelAllocMemBlockOpt opt;
   sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
   opt.size = sizeof(SceKernelAllocMemBlockOpt);
@@ -1046,15 +1086,17 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoderblock = sceKernelAllocMemBlock("decoder", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                         decoder_info_out.frameMemSize, &opt);
   if (decoderblock < 0) {
-    LOGD("decoderblock: 0x%08x\n", decoderblock);
+    LOGE("PROBE456/ALLOC decoder_frameMem FAILED 0x%08x requested=%u", decoderblock,
+         (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_ALLOC_MEM;
   }
 
   ret = sceKernelGetMemBlockBase(decoderblock, &decoder->frameBuf.pBuf);
   if (ret < 0) {
-    LOGD("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    LOGE("PROBE456/ALLOC decoder_frameMem sceKernelGetMemBlockBase FAILED 0x%x", ret);
     return VITA_VIDEO_ERROR_GET_MEMBASE;
   }
+  probe456_log_free_memory("after_decoder_frameMem");
 
   return VITA_VIDEO_INIT_OK;
 }
@@ -1063,9 +1105,11 @@ static int video_setup_decoder_instance(void) {
   LOGD("base: 0x%08x\n", decoder->frameBuf.pBuf);
   int ret = sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
   if (ret < 0) {
-    LOGD("sceAvcdecCreateDecoder 0x%x\n", ret);
+    LOGE("PROBE456/ALLOC sceAvcdecCreateDecoder FAILED 0x%x decoder=%ux%u", ret,
+         decoder_info->horizontal, decoder_info->vertical);
     return VITA_VIDEO_ERROR_CREATE_DEC;
   }
+  probe456_log_free_memory("after_create_decoder");
   return VITA_VIDEO_INIT_OK;
 }
 
