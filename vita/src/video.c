@@ -915,11 +915,18 @@ static void probe456_log_free_memory(const char *when) {
 static int video_setup_framebuffer(int width, int height) {
   update_scaling_settings(width, height);
   probe456_log_free_memory("before_setup");
-  LOGD("PROBE456/SIZES stream=%dx%d decoder=%ux%u texture=%ux%u source=%ux%u vita2d_memtype=0x%x",
-       width, height, (unsigned int)VITA_DECODER_RESOLUTION(width),
-       (unsigned int)VITA_DECODER_RESOLUTION(height), image_scaling.texture_width,
-       image_scaling.texture_height, image_scaling.source_width, image_scaling.source_height,
-       (unsigned int)vita2d_texture_get_alloc_memblock_type());
+  /* Bigger than the screen: downscale with bilinear so a 2:1 step averages 2x2 pixels instead of
+   * dropping three of four. At screen size the default is kept, so 540p is unchanged. */
+  const bool downscale_linear =
+      image_scaling.texture_width > SCREEN_WIDTH || image_scaling.texture_height > SCREEN_HEIGHT;
+  LOGD(
+      "PROBE456/SIZES stream=%dx%d decoder=%ux%u texture=%ux%u source=%ux%u vita2d_memtype=0x%x "
+      "filter=%s",
+      width, height, (unsigned int)VITA_DECODER_RESOLUTION(width),
+      (unsigned int)VITA_DECODER_RESOLUTION(height), image_scaling.texture_width,
+      image_scaling.texture_height, image_scaling.source_width, image_scaling.source_height,
+      (unsigned int)vita2d_texture_get_alloc_memblock_type(),
+      downscale_linear ? "linear" : "default");
   picture.frame.framePitch = image_scaling.texture_width;
   picture.frame.frameWidth = image_scaling.texture_width;
   picture.frame.frameHeight = image_scaling.texture_height;
@@ -940,6 +947,9 @@ static int video_setup_framebuffer(int width, int height) {
    * promote_decoded_frame_to_last_good()), so this assignment only matters for a
    * hypothetical decode that ran before the first ping-pong swap; kept for
    * defensive clarity rather than relying on that per-decode re-set alone. */
+  if (downscale_linear)
+    vita2d_texture_set_filters(frame_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                               SCE_GXM_TEXTURE_FILTER_LINEAR);
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
   LOGD("PROBE456/ALLOC frame_texture ok %ux%u bytes=%u", image_scaling.texture_width,
        image_scaling.texture_height,
@@ -961,6 +971,9 @@ static int video_setup_framebuffer(int width, int height) {
          image_scaling.texture_width * image_scaling.texture_height * 4);
     LOGD("VIDEO: last_good_texture alloc failed — freeze suppression disabled\n");
   } else {
+    if (downscale_linear)
+      vita2d_texture_set_filters(last_good_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                                 SCE_GXM_TEXTURE_FILTER_LINEAR);
     LOGD("PROBE456/ALLOC last_good_texture ok %ux%u bytes=%u", image_scaling.texture_width,
          image_scaling.texture_height,
          vita2d_texture_get_stride(last_good_texture) *
