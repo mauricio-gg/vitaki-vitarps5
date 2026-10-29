@@ -78,6 +78,15 @@ static void test_touch_targets(void) {
   assert(debug_touch_target_at(TU(DEBUG_WIDGET_X), bottom_y, false) == DEBUG_TOUCH_TARGET_RESYNC);
   assert(debug_touch_target_at(TU(resync_last_x), box_top_y, false) == DEBUG_TOUCH_TARGET_RESYNC);
 
+  /* GH #467: the Mic button (left of Input test) swallows its own strip, and the 6 px gaps on
+   * either side of it stay with the game. */
+  const int mic_last_x = DEBUG_MIC_BTN_X + DEBUG_MIC_BTN_W - 1;
+  assert(debug_touch_target_at(TU(DEBUG_MIC_BTN_X), bottom_y, false) == DEBUG_TOUCH_TARGET_MIC_TOGGLE);
+  assert(debug_touch_target_at(TU(mic_last_x), box_top_y, false) == DEBUG_TOUCH_TARGET_MIC_TOGGLE);
+  assert(debug_touch_target_at(TU(DEBUG_MIC_BTN_X - 1), bottom_y, false) == DEBUG_TOUCH_TARGET_NONE);
+  assert(debug_touch_target_at(TU(mic_last_x + 1), bottom_y, false) == DEBUG_TOUCH_TARGET_NONE);
+  assert(DEBUG_MIC_BTN_X >= DEBUG_PANEL_X + DEBUG_PANEL_W); /* clear of the open panel */
+
   /* Just outside: left of the Input test button, the gap between the buttons, and the
    * bottom-right corner of the screen are all the game's. */
   assert(debug_touch_target_at(TU(DEBUG_INPUT_BTN_X - 1), bottom_y, false) ==

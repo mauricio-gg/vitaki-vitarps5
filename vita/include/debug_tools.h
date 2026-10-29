@@ -41,7 +41,14 @@
 #define DEBUG_INPUT_BTN_X (DEBUG_WIDGET_X - DEBUG_INPUT_BTN_GAP - DEBUG_INPUT_BTN_W)
 #define DEBUG_INPUT_BTN_Y DEBUG_WIDGET_Y
 
-/* Both buttons take touches in an invisible box as wide as the button itself and 48 px tall,
+/* GH #467: the Mic button (microphone probe) sits DEBUG_INPUT_BTN_GAP left of the Input test one,
+ * same size. */
+#define DEBUG_MIC_BTN_W DEBUG_INPUT_BTN_W
+#define DEBUG_MIC_BTN_H DEBUG_INPUT_BTN_H
+#define DEBUG_MIC_BTN_X (DEBUG_INPUT_BTN_X - DEBUG_INPUT_BTN_GAP - DEBUG_MIC_BTN_W)
+#define DEBUG_MIC_BTN_Y DEBUG_WIDGET_Y
+
+/* The three buttons take touches in an invisible box as wide as the button itself and 48 px tall,
  * reaching the bottom of the screen. The boxes never reach past their button's own x-span, so the
  * gap between the buttons and the right 6 px of the screen's bottom edge stay with the game. */
 #define DEBUG_TAP_BOX_H 48
@@ -70,6 +77,8 @@ typedef struct debug_rect_t {
   ((DebugRect){DEBUG_WIDGET_X, DEBUG_WIDGET_Y, DEBUG_WIDGET_W, DEBUG_WIDGET_H})
 #define DEBUG_INPUT_BTN_RECT \
   ((DebugRect){DEBUG_INPUT_BTN_X, DEBUG_INPUT_BTN_Y, DEBUG_INPUT_BTN_W, DEBUG_INPUT_BTN_H})
+#define DEBUG_MIC_BTN_RECT \
+  ((DebugRect){DEBUG_MIC_BTN_X, DEBUG_MIC_BTN_Y, DEBUG_MIC_BTN_W, DEBUG_MIC_BTN_H})
 #define DEBUG_PANEL_RECT ((DebugRect){DEBUG_PANEL_X, DEBUG_PANEL_Y, DEBUG_PANEL_W, DEBUG_PANEL_H})
 #define DEBUG_CLOSE_RECT ((DebugRect){DEBUG_CLOSE_X, DEBUG_CLOSE_Y, DEBUG_CLOSE_W, DEBUG_CLOSE_H})
 
@@ -78,6 +87,8 @@ typedef struct debug_rect_t {
   ((DebugRect){DEBUG_WIDGET_X, DEBUG_TAP_BOX_Y, DEBUG_WIDGET_W, DEBUG_TAP_BOX_H})
 #define DEBUG_INPUT_TAP_RECT \
   ((DebugRect){DEBUG_INPUT_BTN_X, DEBUG_TAP_BOX_Y, DEBUG_INPUT_BTN_W, DEBUG_TAP_BOX_H})
+#define DEBUG_MIC_TAP_RECT \
+  ((DebugRect){DEBUG_MIC_BTN_X, DEBUG_TAP_BOX_Y, DEBUG_MIC_BTN_W, DEBUG_TAP_BOX_H})
 #define DEBUG_CLOSE_TAP_RECT                                                             \
   ((DebugRect){DEBUG_CLOSE_X - DEBUG_CLOSE_TAP_PAD, DEBUG_CLOSE_Y - DEBUG_CLOSE_TAP_PAD, \
                DEBUG_CLOSE_W + 2 * DEBUG_CLOSE_TAP_PAD, DEBUG_CLOSE_H + 2 * DEBUG_CLOSE_TAP_PAD})
@@ -93,6 +104,7 @@ typedef enum debug_touch_target_t {
   DEBUG_TOUCH_TARGET_RESYNC,      /* swallowed; requests a resync */
   DEBUG_TOUCH_TARGET_INPUT_TEST,  /* swallowed; requests a panel toggle */
   DEBUG_TOUCH_TARGET_PANEL_CLOSE, /* swallowed; requests a panel close (panel open only) */
+  DEBUG_TOUCH_TARGET_MIC_TOGGLE,  /* swallowed; requests a microphone toggle (GH #467) */
 } DebugTouchTarget;
 
 /* Classifies a touch-down. Shared by the touch filter and the tests; the drawer uses the visible
@@ -105,6 +117,8 @@ static inline DebugTouchTarget debug_touch_target_at(int touch_x, int touch_y, b
     return DEBUG_TOUCH_TARGET_RESYNC;
   if (debug_rect_contains(DEBUG_INPUT_TAP_RECT, sx, sy))
     return DEBUG_TOUCH_TARGET_INPUT_TEST;
+  if (debug_rect_contains(DEBUG_MIC_TAP_RECT, sx, sy))
+    return DEBUG_TOUCH_TARGET_MIC_TOGGLE;
   if (panel_open && debug_rect_contains(DEBUG_CLOSE_TAP_RECT, sx, sy))
     return DEBUG_TOUCH_TARGET_PANEL_CLOSE;
   return DEBUG_TOUCH_TARGET_NONE;

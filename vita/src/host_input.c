@@ -1,5 +1,6 @@
 #include "context.h"
 #include "debug_tools.h"
+#include "mic.h"
 #include "front_touch_zone.h"
 #include "host_input.h"
 #include "motion_frame.h"
@@ -317,6 +318,9 @@ static bool debug_widget_filter_touch(DebugWidgetTouch *touches, uint8_t vita_to
     case DEBUG_TOUCH_TARGET_PANEL_CLOSE:
       context.stream.input_test_close_requested = true;
       break;
+    case DEBUG_TOUCH_TARGET_MIC_TOGGLE:
+      context.stream.mic_toggle_request = DEBUG_PANEL_REQUEST_TOUCH;
+      break;
     case DEBUG_TOUCH_TARGET_NONE:
       break;
   }
@@ -332,6 +336,8 @@ static const char *debug_touch_target_name(DebugTouchTarget target) {
       return "input";
     case DEBUG_TOUCH_TARGET_PANEL_CLOSE:
       return "close";
+    case DEBUG_TOUCH_TARGET_MIC_TOGGLE:
+      return "mic";
     case DEBUG_TOUCH_TARGET_NONE:
       break;
   }
@@ -416,6 +422,27 @@ static unsigned int debug_panel_combo_step(unsigned int buttons, uint64_t now_us
   }
   *held_ms =
       elapsed_ms < DEBUG_PANEL_COMBO_HOLD_MS ? (uint32_t)elapsed_ms : DEBUG_PANEL_COMBO_HOLD_MS;
+  return buttons & ~combo;
+}
+
+/* GH #467: L + R + Triangle held MIC_COMBO_HOLD_MS raises one mic toggle request, and while the
+ * three are held they are removed from the buttons so the game never sees them. Same rules as
+ * debug_panel_combo_step(): never with Start also down (stream exit), and the buttons must be
+ * released before another toggle can fire. */
+static unsigned int debug_mic_combo_step(unsigned int buttons, uint64_t now_us,
+                                         uint64_t *hold_start_us, bool *fired) {
+  const unsigned int combo = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_TRIANGLE;
+  if ((buttons & combo) != combo || (buttons & SCE_CTRL_START)) {
+    *hold_start_us = 0;
+    *fired = false;
+    return buttons;
+  }
+  if (!*hold_start_us)
+    *hold_start_us = now_us;
+  if (!*fired && (now_us - *hold_start_us) / 1000ULL >= MIC_COMBO_HOLD_MS) {
+    *fired = true;
+    context.stream.mic_toggle_request = DEBUG_PANEL_REQUEST_COMBO;
+  }
   return buttons & ~combo;
 }
 
@@ -512,6 +539,8 @@ void *host_input_thread_func(void *user) {
   uint64_t panel_combo_start_us = 0;
   bool panel_combo_fired = false;
   uint32_t panel_combo_held_ms = 0;
+  uint64_t mic_combo_start_us = 0;
+  bool mic_combo_fired = false;
 #endif
 
   static int exit_combo_hold = 0;
@@ -571,6 +600,8 @@ void *host_input_thread_func(void *user) {
 #if VITARPS5_DEBUG_TOOLS
       ctrl.buttons = debug_panel_combo_step(ctrl.buttons, start_time_us, &panel_combo_start_us,
                                             &panel_combo_fired, &panel_combo_held_ms);
+      ctrl.buttons =
+          debug_mic_combo_step(ctrl.buttons, start_time_us, &mic_combo_start_us, &mic_combo_fired);
 #endif
 
       if (stream->stop_requested) {

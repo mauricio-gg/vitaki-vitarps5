@@ -5,6 +5,7 @@
 #include "context.h"
 #include "debug_input_panel.h"
 #include "host_input.h"
+#include "mic.h"
 #include "ui/ui_component.h"
 #include "ui/ui_shapes.h"
 #include "ui/ui_text.h"
@@ -16,6 +17,8 @@
 #define DEBUG_WIDGET_TEXT_PADDING_X 10
 #define DEBUG_WIDGET_TEXT "tap: resync"
 #define DEBUG_INPUT_BTN_TEXT "Input test"
+#define DEBUG_MIC_BTN_TEXT_ON "Mic: on"
+#define DEBUG_MIC_BTN_TEXT_OFF "Mic: off"
 #define DEBUG_INPUT_DOT_R 4
 #define DEBUG_INPUT_DOT_GAP 8
 
@@ -38,6 +41,7 @@ void debug_tools_on_stream_start(void) {
   context.stream.input_test_open = false;
   context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_NONE;
   context.stream.input_test_close_requested = false;
+  context.stream.mic_toggle_request = DEBUG_PANEL_REQUEST_NONE;
   debug_input_panel_reset();
 }
 
@@ -53,9 +57,9 @@ void debug_tools_resync_clear(void) {
   resync_first_frame_pending = false;
 }
 
-/* Draws the Input test button; the dot is green and the outline on while the panel is open. */
-static void draw_input_button(bool open) {
-  const DebugRect r = DEBUG_INPUT_BTN_RECT;
+/* Draws a bar button; the dot is green and the outline on while @p open (the Input test panel is
+ * open, or the mic is on). */
+static void draw_bar_button(DebugRect r, bool open, const char *text) {
   if (open) {
     /* A 1 px LINE outline: the LINE shape, then the PANEL shape one px inside it. */
     ui_shape9_draw(UI_SHAPE9_SM, (UiRect){r.x, r.y, r.w, r.h}, UI_LINE);
@@ -69,7 +73,7 @@ static void draw_input_button(bool open) {
   vita2d_draw_fill_circle((float)(dot_x + DEBUG_INPUT_DOT_R), (float)(r.y + r.h / 2),
                           (float)DEBUG_INPUT_DOT_R, open ? UI_OK : UI_TEXT_3);
   ui_text_draw_face_centered_v(UI_FACE_T16, dot_x + 2 * DEBUG_INPUT_DOT_R + DEBUG_INPUT_DOT_GAP,
-                               r.y, r.h, open ? UI_TEXT : UI_TEXT_2, DEBUG_INPUT_BTN_TEXT);
+                               r.y, r.h, open ? UI_TEXT : UI_TEXT_2, text);
 }
 
 void debug_tools_draw_widget(void) {
@@ -82,7 +86,10 @@ void debug_tools_draw_widget(void) {
                                resync.h, UI_TEXT_2, DEBUG_WIDGET_TEXT);
 
   const bool open = context.stream.input_test_open;
-  draw_input_button(open);
+  draw_bar_button(DEBUG_INPUT_BTN_RECT, open, DEBUG_INPUT_BTN_TEXT);
+  const bool mic_on = vitamic_is_on();
+  draw_bar_button(DEBUG_MIC_BTN_RECT, mic_on,
+                  mic_on ? DEBUG_MIC_BTN_TEXT_ON : DEBUG_MIC_BTN_TEXT_OFF);
 
   /* The panel goes with the widgets, and also while a stop, teardown or resync is under way. */
   if (open && !context.stream.stop_requested && !context.stream.teardown_in_progress &&
@@ -136,6 +143,11 @@ void debug_tools_ui_tick(void) {
     context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_NONE;
     set_panel_open(!context.stream.input_test_open,
                    toggle_source == DEBUG_PANEL_REQUEST_COMBO ? "combo" : "touch");
+  }
+  uint8_t mic_source = context.stream.mic_toggle_request;
+  if (mic_source != DEBUG_PANEL_REQUEST_NONE) {
+    context.stream.mic_toggle_request = DEBUG_PANEL_REQUEST_NONE;
+    vitamic_request_toggle(mic_source);
   }
   if (context.stream.input_test_close_requested) {
     context.stream.input_test_close_requested = false;
