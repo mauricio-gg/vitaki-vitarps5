@@ -194,16 +194,11 @@ bool host_request_stream_resync(void) {
 
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
   ChiakiVideoResolutionPreset resolution = context.config.resolution;
-  // Defensive guardrail: config/UI path should already normalize unsupported values,
-  // but force a safe profile here to preserve stream startup reliability.
-  if (resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
-      resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
-    resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
   chiaki_connect_video_profile_preset(profile, resolution, context.config.fps);
   /* The start bitrate is the user's Latency Mode (GH #420), not the preset's. On the PSN/internet
-   * path it is capped at PSN_REMOTE_BITRATE_CAP_KBPS (3.5 Mbps), lower of the two wins: 6 Mbps
-   * saturates Vita 802.11g Wi-Fi combined with a typical home upstream, and PS5 does not support
-   * mid-session bitrate renegotiation, so the start value is final. */
+   * path it is capped at PSN_REMOTE_BITRATE_CAP_KBPS (3.5 Mbps), lower of the two wins. Whether 6
+   * Mbps or more saturates Vita 802.11g Wi-Fi is being probed in #456, not asserted. PS5 does not
+   * support mid-session bitrate renegotiation, so the start value is final. */
   uint32_t uncapped = 0;
   profile->bitrate = latency_policy_start_kbps(context.config.latency_mode, psn_remote, &uncapped);
   return uncapped;

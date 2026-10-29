@@ -262,16 +262,16 @@ static void test_legacy_section_migration(void) {
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
+  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
   assert(cfg.show_latency == true);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "resolution = \"540p\"") != NULL);
+  assert(strstr(rewritten, "resolution = \"720p\"") != NULL);
   assert(strstr(rewritten, "fps = 60") != NULL);
   assert(strstr(rewritten, "show_latency = true") != NULL);
-  assert(count_occurrences(rewritten, "resolution = \"540p\"") == 1);
+  assert(count_occurrences(rewritten, "resolution = \"720p\"") == 1);
   free(rewritten);
 }
 
@@ -286,15 +286,14 @@ static void test_root_level_fallback_migration(void) {
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
+  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "resolution = \"540p\"") != NULL);
-  assert(strstr(rewritten, "resolution = \"1080p\"") == NULL);
+  assert(strstr(rewritten, "resolution = \"1080p\"") != NULL);
   assert(strstr(rewritten, "fps = 60") != NULL);
-  assert(count_occurrences(rewritten, "resolution = \"540p\"") == 1);
+  assert(count_occurrences(rewritten, "resolution = \"1080p\"") == 1);
   free(rewritten);
 }
 
@@ -383,8 +382,8 @@ static void test_resolution_roundtrip(void) {
   } cases[] = {
       {CHIAKI_VIDEO_RESOLUTION_PRESET_360p, CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p"},
       {CHIAKI_VIDEO_RESOLUTION_PRESET_540p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_720p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_720p, CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p"},
   };
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -401,13 +400,22 @@ static void test_resolution_roundtrip(void) {
 
     char *saved = read_config_text();
     assert(strstr(saved, cases[i].expected_label) != NULL);
-    if (cases[i].input_preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ||
-        cases[i].input_preset == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
-      assert(strstr(saved, "1080p") == NULL);
-      assert(strstr(saved, "720p") == NULL);
-    }
     free(saved);
   }
+}
+
+/* catches: the 10 Mbps probe step failing to survive a save/load and silently falling back to
+ * Max (6 Mbps), so the probe would run at the wrong bitrate. */
+static void test_probe_latency_mode_roundtrip(void) {
+  reset_config_file();
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  cfg.latency_mode = VITA_LATENCY_MODE_PROBE_10MBPS;
+  assert(config_serialize(&cfg));
+
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.latency_mode == VITA_LATENCY_MODE_PROBE_10MBPS);
 }
 
 static void test_registered_hosts_require_required_fields(void) {
@@ -887,6 +895,7 @@ int main(void) {
   test_root_level_bool_migration();
   test_invalid_fps_falls_back_to_30();
   test_resolution_roundtrip();
+  test_probe_latency_mode_roundtrip();
   test_registered_hosts_require_required_fields();
   test_old_config_gets_new_field_defaults();
   test_removed_show_only_paired_key_is_dropped();

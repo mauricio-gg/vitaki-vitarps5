@@ -9,5 +9,6 @@ typedef enum vita_chiaki_latency_mode_t {
   VITA_LATENCY_MODE_BALANCED,       // Start bitrate 3.5 Mbps
   VITA_LATENCY_MODE_HIGH,           // Start bitrate 4.5 Mbps
   VITA_LATENCY_MODE_MAX,            // Start bitrate 6 Mbps (default)
+  VITA_LATENCY_MODE_PROBE_10MBPS,   // Start bitrate 10 Mbps (#456 probe, LAN only)
   VITA_LATENCY_MODE_COUNT
 } VitaChiakiLatencyMode;

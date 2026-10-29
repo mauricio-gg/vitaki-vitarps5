@@ -730,12 +730,6 @@ void config_free(VitaChiakiConfig *cfg) {
  * hold the file contents (not NUL-terminated by contract) and the caller owns the buffer.
  */
 static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *out_len) {
-  bool downgraded_resolution = false;
-  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
-  if (downgraded_resolution) {
-    LOGD("Refusing to persist unsupported resolution on Vita; saving 540p instead");
-  }
-
   char *data = NULL;
   size_t len = 0;
   FILE *fp = open_memstream(&data, &len);

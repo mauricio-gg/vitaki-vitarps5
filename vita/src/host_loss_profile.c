@@ -86,6 +86,7 @@ LossDetectionProfile host_loss_profile_for_mode(VitaChiakiLatencyMode mode) {
       profile.burst_frame_threshold = 6;
       break;
     case VITA_LATENCY_MODE_MAX:
+    case VITA_LATENCY_MODE_PROBE_10MBPS:
       profile.window_us = LOSS_PROFILE_WINDOW_MAX_US;
       profile.min_frames = 6;
       profile.event_threshold = 4;

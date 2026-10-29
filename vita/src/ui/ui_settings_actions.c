@@ -13,18 +13,18 @@ void ui_settings_persist_config(void) {
   config_serialize_async(&context.config);
 }
 
-ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current) {
-  switch (current) {
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-    default:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
+ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current,
+                                                        int step) {
+  static const ChiakiVideoResolutionPreset ORDER[] = {
+      CHIAKI_VIDEO_RESOLUTION_PRESET_360p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p,
+      CHIAKI_VIDEO_RESOLUTION_PRESET_720p, CHIAKI_VIDEO_RESOLUTION_PRESET_1080p};
+  const int count = (int)(sizeof(ORDER) / sizeof(ORDER[0]));
+  int index = 1; /* unknown values count as 540p, the default */
+  for (int i = 0; i < count; i++) {
+    if (ORDER[i] == current)
+      index = i;
   }
+  return ORDER[(index + (step < 0 ? -1 : 1) + count) % count];
 }
 
 void ui_settings_apply_force_30fps(void) {

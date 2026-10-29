@@ -61,8 +61,7 @@ static const char *quality_text(void) {
 }
 
 static void quality_change(int step) {
-  (void)step; /* two values: one step either way leads to the other */
-  context.config.resolution = ui_settings_next_resolution(context.config.resolution);
+  context.config.resolution = ui_settings_next_resolution(context.config.resolution, step);
   ui_settings_persist_config();
 }
 
@@ -110,11 +109,13 @@ static void fill_screen_change(int step) {
 }
 
 static const SettingDef VIDEO_ROWS[] = {
-    {"Quality Preset", UI_SETTING_CHOICE, "Video resolution requested from the console.", NULL,
+    {"Quality Preset", UI_SETTING_CHOICE,
+     "Video resolution requested from the console. 720p and 1080p are experimental probes.", NULL,
      quality_text, quality_change},
     {"Latency Mode", UI_SETTING_CHOICE,
-     "Sets the target bitrate. Higher looks better but needs a stronger connection.", NULL,
-     latency_text, latency_change},
+     "Sets the target bitrate. Higher looks better but needs a stronger connection. 10 Mbps is an "
+     "experimental probe (home network only).",
+     NULL, latency_text, latency_change},
     {"FPS Target", UI_SETTING_CHOICE, "Frame rate requested from the console.", NULL, fps_text,
      fps_change},
     {"Force 30 FPS Output", UI_SETTING_TOGGLE, "Output video at 30 FPS.", force_30fps_is_on, NULL,

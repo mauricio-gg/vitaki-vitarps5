@@ -18,7 +18,7 @@
 
 /* Home network: every mode asks for exactly its ladder value, nothing is capped. */
 static void test_home_network_uses_the_ladder(void) {
-  const unsigned int expected[] = {1500, 2500, 3500, 4500, 6000};
+  const unsigned int expected[] = {1500, 2500, 3500, 4500, 6000, 10000};
   for (int mode = 0; mode < VITA_LATENCY_MODE_COUNT; mode++) {
     unsigned int uncapped = 99;
     assert(latency_policy_start_kbps((VitaChiakiLatencyMode)mode, false, &uncapped) ==
@@ -39,6 +39,9 @@ static void test_psn_cap_lowest_wins(void) {
   assert(latency_policy_start_kbps(VITA_LATENCY_MODE_MAX, true, &uncapped) ==
          PSN_REMOTE_BITRATE_CAP_KBPS);
   assert(uncapped == 6000);
+  assert(latency_policy_start_kbps(VITA_LATENCY_MODE_PROBE_10MBPS, true, &uncapped) ==
+         PSN_REMOTE_BITRATE_CAP_KBPS);
+  assert(uncapped == 10000);
   assert(latency_policy_start_kbps(VITA_LATENCY_MODE_HIGH, true, NULL) ==
          PSN_REMOTE_BITRATE_CAP_KBPS);
 }

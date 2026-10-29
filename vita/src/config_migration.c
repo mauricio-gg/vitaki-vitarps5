@@ -213,13 +213,7 @@ void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settin
     free(str_value);
     apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
   }
-
-  bool downgraded_resolution = false;
-  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
-  if (downgraded_resolution) {
-    LOGD("Resolution is not supported on Vita; downgrading to 540p");
-    *migrated_resolution_policy = true;
-  }
+  (void)migrated_resolution_policy; /* #456 probe: no resolution is downgraded any more */
 }
 
 void parse_fps_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings, toml_table_t *parsed,

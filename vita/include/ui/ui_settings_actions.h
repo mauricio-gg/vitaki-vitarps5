@@ -16,11 +16,12 @@ void ui_settings_persist_config(void);
 /**
  * ui_settings_next_resolution() - The quality preset one press of Quality Preset leads to.
  * @current: The stored preset.
+ * @step: Negative steps back, anything else steps forward.
  *
- * 360p goes to 540p and 540p to 360p. A legacy 720p or 1080p value (shown as 540p) goes to 540p,
- * and any unknown value goes to 360p, exactly as the old screen did.
+ * Cycles 360p, 540p, 720p, 1080p and wraps. An unknown value counts as 540p.
  */
-ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current);
+ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current,
+                                                        int step);
 
 /**
  * ui_settings_apply_force_30fps() - Apply the Force 30 FPS Output setting to a running session.
