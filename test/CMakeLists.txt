@@ -563,3 +563,14 @@ target_include_directories(input_test_tests PRIVATE
 )
 
 add_test(NAME vitarps5_input_test_tests COMMAND input_test_tests)
+
+# mic_frame_tests.c has its own main() and tests the microphone probe's grain -> 480-sample frame
+# builder (GH #467). Cross-compiled but never run by ./tools/build.sh test; the native command is
+# at the top of the file.
+add_executable(mic_frame_tests mic_frame_tests.c ../vita/src/mic_frame.c)
+
+target_include_directories(mic_frame_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_mic_frame_tests COMMAND mic_frame_tests)
