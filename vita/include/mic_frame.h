@@ -28,7 +28,7 @@ typedef void (*MicFrameSink)(int16_t *pcm, void *user);
 
 typedef struct mic_frame_t {
   int16_t pcm[MIC_FRAME_SAMPLES * MIC_FRAME_CHANNELS];
-  size_t fill; /* samples (per channel) written so far */
+  size_t fill;  /* samples (per channel) written so far */
   int upsample; /* 1 or 3 */
   int16_t prev;
   int have_prev;

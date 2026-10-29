@@ -245,6 +245,9 @@ typedef struct vita_chiaki_stream_t {
   volatile uint8_t input_test_toggle_request;
   volatile bool input_test_close_requested;
   volatile bool input_test_open;
+  // GH #467: microphone probe. The input thread raises a DEBUG_PANEL_REQUEST_* source (a touch on
+  // the Mic button or the L+R+Triangle hold); the UI thread consumes it in debug_tools_ui_tick().
+  volatile uint8_t mic_toggle_request;
 #endif
   bool reconnect_overlay_active;  // Show reconnecting overlay during fallback
   uint64_t reconnect_overlay_start_us;
