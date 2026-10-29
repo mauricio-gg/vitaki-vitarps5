@@ -15,6 +15,12 @@
  *  - two-finger tap: two unmoved touches that went down within TOUCHPAD_TWO_FINGER_DOWN_WINDOW_MS
  *    of each other give ONE click, pressed when the second lifts while both are still active;
  *    the first to lift is held up to TOUCHPAD_TWO_FINGER_LIFT_WINDOW_MS for the second;
+ *  - two-finger hold: two unmoved touches that went down within TOUCHPAD_TWO_FINGER_DOWN_WINDOW_MS
+ *    of each other and are both still down TOUCHPAD_TWO_FINGER_HOLD_MS after the later one started
+ *    press the click, and keep it pressed while both stay down. The click ends on the first frame
+ *    either finger is gone, never after its touch is released; the finger still down is released
+ *    when it lifts, without any click. A touch that moved before the threshold blocks the hold;
+ *    moving after it has started does not end it;
  *  - a touch that moved is a drag: it is released at once and never clicks.
  */
 
@@ -31,6 +37,9 @@
 
 /** Two touches count as put down "together" when the second started within this of the first. */
 #define TOUCHPAD_TWO_FINGER_DOWN_WINDOW_MS 150
+
+/** A two-finger press held this long (from the later finger's start) becomes a held click. */
+#define TOUCHPAD_TWO_FINGER_HOLD_MS 500
 
 /** A lifted touch waits this long for its partner to lift; after that it is let go without a click.
  */
@@ -51,9 +60,10 @@ typedef struct touchpad_gesture_output_t {
 
 typedef enum touchpad_gesture_phase_t {
   TOUCHPAD_PHASE_IDLE,
-  TOUCHPAD_PHASE_DOWN,               /**< Finger on the screen. */
-  TOUCHPAD_PHASE_HELD,               /**< Lifted unmoved, kept active, waiting for its partner. */
-  TOUCHPAD_PHASE_RELEASE_AFTER_CLICK /**< Lifted; released when the running click ends. */
+  TOUCHPAD_PHASE_DOWN,                /**< Finger on the screen. */
+  TOUCHPAD_PHASE_HELD,                /**< Lifted unmoved, kept active, waiting for its partner. */
+  TOUCHPAD_PHASE_RELEASE_AFTER_CLICK, /**< Lifted; released when the running click ends. */
+  TOUCHPAD_PHASE_DOWN_NO_CLICK        /**< Finger left on the screen after a hold click ended. */
 } TouchpadGesturePhase;
 
 /** Gesture state; zero-initialise (or call touchpad_gesture_init) before use. */
@@ -63,6 +73,7 @@ typedef struct touchpad_gesture_t {
   uint64_t lift_us[TOUCHPAD_GESTURE_SLOTS];
   bool click_running;
   uint64_t click_end_us;
+  bool hold_running; /**< A two-finger hold click is pressed until either finger is gone. */
 } TouchpadGesture;
 
 /** Resets @p g to the idle state. */

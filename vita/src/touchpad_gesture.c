@@ -35,6 +35,44 @@ static bool is_tap_partner(const TouchpadGesture *g, int slot, int other, uint64
   return apart <= TOUCHPAD_TWO_FINGER_DOWN_WINDOW_MS * US_PER_MS;
 }
 
+/* True when both slots are unmoved fingers on the screen that went down together and have been
+ * down TOUCHPAD_TWO_FINGER_HOLD_MS since the later one started. */
+static bool is_hold_ready(const TouchpadGesture *g, uint64_t now_us,
+                          const TouchpadGestureInput in[TOUCHPAD_GESTURE_SLOTS]) {
+  for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++) {
+    if (g->phase[i] != TOUCHPAD_PHASE_DOWN || !in[i].seen || in[i].moved)
+      return false;
+  }
+  uint64_t first = g->down_us[0] < g->down_us[1] ? g->down_us[0] : g->down_us[1];
+  uint64_t later = g->down_us[0] < g->down_us[1] ? g->down_us[1] : g->down_us[0];
+  return later - first <= TOUCHPAD_TWO_FINGER_DOWN_WINDOW_MS * US_PER_MS &&
+         now_us - later >= TOUCHPAD_TWO_FINGER_HOLD_MS * US_PER_MS;
+}
+
+/* Ends a running hold click when either finger is gone. A finger that lifted is released this
+ * frame; one still down is marked so its later lift releases it without a click. */
+static void end_hold_if_broken(TouchpadGesture *g,
+                               const TouchpadGestureInput in[TOUCHPAD_GESTURE_SLOTS],
+                               TouchpadGestureOutput *out) {
+  bool both_down = true;
+  for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++)
+    both_down = both_down && in[i].active && in[i].seen;
+  if (both_down)
+    return;
+
+  g->hold_running = false;
+  for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++) {
+    if (g->phase[i] != TOUCHPAD_PHASE_DOWN)
+      continue;
+    if (in[i].seen) {
+      g->phase[i] = TOUCHPAD_PHASE_DOWN_NO_CLICK;
+    } else {
+      out->release[i] = true;
+      g->phase[i] = TOUCHPAD_PHASE_IDLE;
+    }
+  }
+}
+
 /* Handles a finger that has just lifted from @p slot. */
 static void handle_lift(TouchpadGesture *g, int slot, uint64_t now_us,
                         const TouchpadGestureInput in[TOUCHPAD_GESTURE_SLOTS],
@@ -118,6 +156,18 @@ void touchpad_gesture_step(TouchpadGesture *g, uint64_t now_us,
     }
   }
 
+  if (g->hold_running)
+    end_hold_if_broken(g, in, out);
+  else if (is_hold_ready(g, now_us, in))
+    g->hold_running = true;
+
+  for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++) {
+    if (g->phase[i] == TOUCHPAD_PHASE_DOWN_NO_CLICK && !in[i].seen) {
+      out->release[i] = true;
+      g->phase[i] = TOUCHPAD_PHASE_IDLE;
+    }
+  }
+
   for (int i = 0; i < TOUCHPAD_GESTURE_SLOTS; i++) {
     if (g->phase[i] == TOUCHPAD_PHASE_DOWN && !in[i].seen)
       handle_lift(g, i, now_us, in, out);
@@ -128,5 +178,5 @@ void touchpad_gesture_step(TouchpadGesture *g, uint64_t now_us,
       expire_held(g, i, now_us, in, out);
   }
 
-  out->click = g->click_running;
+  out->click = g->click_running || g->hold_running;
 }
