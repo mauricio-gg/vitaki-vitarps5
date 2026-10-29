@@ -563,3 +563,13 @@ target_include_directories(input_test_tests PRIVATE
 )
 
 add_test(NAME vitarps5_input_test_tests COMMAND input_test_tests)
+
+# video_geometry_tests.c checks the decoder texture size and aspect-fit math for 540p/720p/1080p
+# (#456 spike). Header-only code; standalone binary with its own main(); run natively.
+add_executable(video_geometry_tests video_geometry_tests.c)
+
+target_include_directories(video_geometry_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_video_geometry_tests COMMAND video_geometry_tests)
