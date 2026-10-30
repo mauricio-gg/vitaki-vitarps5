@@ -22,7 +22,8 @@ const char *ui_label_resolution(ChiakiVideoResolutionPreset preset) {
       return "1080p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
     default:
-      /* An unsupported value is shown as the 540p preset the stream falls back to. */
+      /* Display default only: unknown config strings already parse to 540p
+       * (parse_resolution_preset), so this is not reached by a loaded config. */
       return "540p";
   }
 }
