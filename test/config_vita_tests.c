@@ -484,8 +484,7 @@ static void test_removed_show_only_paired_key_is_dropped(void) {
   free(rewritten);
 }
 
-/* catches: the removed Force 30 FPS Output key (#473) failing to load, or lingering in the file
- * and being written back on every save. */
+/* catches: the removed Force 30 FPS key breaking load of other settings or being written back. */
 static void test_removed_force_30fps_key_is_ignored_and_dropped(void) {
   reset_config_file();
   write_config_text(

@@ -389,8 +389,8 @@ typedef struct vita_chiaki_stream_t {
   // newest sample would hide exactly the late-window stall this instrumentation exists to
   // catch.
   //
-  // Local frame pacing is gone (#473), so every claimed frame is drawn and swapped and all
-  // four rings receive the same number of samples; display_paced_count stays 0.
+  // Every claimed frame is drawn and swapped, so all four rings receive the same number of
+  // samples per window.
   uint32_t display_pickup_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
   uint32_t display_pickup_sample_count;
   uint32_t display_pickup_write_idx;
@@ -407,9 +407,6 @@ typedef struct vita_chiaki_stream_t {
   uint32_t display_swap_sample_count;
   uint32_t display_swap_write_idx;
   uint32_t display_swap_dropped_count;
-  // display_paced_count: number of paced-drop frames this window (pickup-only samples,
-  // see above). Reset each window close alongside the rings.
-  uint32_t display_paced_count;
   // Reduced p50/p95 outputs, published once per ~1s window by
   // host_metrics_update_latency(). No _max_us fields (unlike latency_max_ms above) --
   // four extra maxima would clutter the PIPE/DISPLAY line without adding much beyond
@@ -423,13 +420,10 @@ typedef struct vita_chiaki_stream_t {
   uint32_t display_draw_p95_us;
   uint32_t display_swap_p50_us;
   uint32_t display_swap_p95_us;
-  // display_sample_n: the synchronized snapshot/draw/swap sample count for the window that
-  // just closed (all three rings always wrap together -- see comment above -- so any one
-  // ring's count/dropped represents all three; pickup's true count is
-  // display_sample_n + display_paced_n).
+  // display_sample_n: the sample count for the window that just closed (all four rings are
+  // always written together and wrap together, so any one ring's count/dropped represents all).
   uint32_t display_sample_n;
   uint32_t display_dropped_n;
-  uint32_t display_paced_n;
 
   // PIPE/PRESS (#413): see PressWindow above. The press_seen_* values are the running totals
   // the previous window close saw (recv-thread counters are never reset mid-session, so the

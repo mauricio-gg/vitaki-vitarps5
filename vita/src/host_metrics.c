@@ -298,7 +298,6 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.display_swap_sample_count = 0;
   context.stream.display_swap_write_idx = 0;
   context.stream.display_swap_dropped_count = 0;
-  context.stream.display_paced_count = 0;
   context.stream.display_pickup_p50_us = 0;
   context.stream.display_pickup_p95_us = 0;
   context.stream.display_snapshot_p50_us = 0;
@@ -309,7 +308,6 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.display_swap_p95_us = 0;
   context.stream.display_sample_n = 0;
   context.stream.display_dropped_n = 0;
-  context.stream.display_paced_n = 0;
 
   memset(&context.stream.press_acc, 0, sizeof(context.stream.press_acc));
   memset(&context.stream.press_pub, 0, sizeof(context.stream.press_pub));
@@ -902,15 +900,10 @@ void host_metrics_update_latency(void) {
       (void)discard_n;
       (void)discard_dropped;
 
-      // snapshot/draw/swap rings wrap in lockstep -- all three are always written
-      // together on the non-paced path (see the display_pickup_* field comment in
-      // stream_state.h) -- so snapshot's n/dropped represents all three; pickup's own
-      // n/dropped are internal ring bookkeeping only and are not separately published
-      // (pickup's true sample count for the window is display_sample_n + display_paced_n).
+      // All four rings are written together and wrap in lockstep, so snapshot's n/dropped
+      // represents all of them; pickup's own n/dropped are internal ring bookkeeping only.
       context.stream.display_sample_n = snapshot_n;
       context.stream.display_dropped_n = snapshot_dropped;
-      context.stream.display_paced_n = context.stream.display_paced_count;
-      context.stream.display_paced_count = 0;
     }
 
     // PIPE/PRESS: publish this window's press-to-picture results (see PressWindow in
@@ -1056,16 +1049,15 @@ void host_metrics_update_latency(void) {
          context.stream.input_latency_dropped_n);
     // PIPE/DISPLAY: the decode-done -> on-screen split this whole instrumentation pass
     // exists to produce -- see the PIPE/DISPLAY field comment in stream_state.h for the
-    // four stage definitions and how paced-drop frames (n vs. paced) are handled.
+    // four stage definitions.
     LOGD(
         "PIPE/DISPLAY pickup_p50_us=%u pickup_p95_us=%u snapshot_p50_us=%u snapshot_p95_us=%u "
-        "draw_p50_us=%u draw_p95_us=%u swap_p50_us=%u swap_p95_us=%u n=%u dropped=%u paced=%u",
+        "draw_p50_us=%u draw_p95_us=%u swap_p50_us=%u swap_p95_us=%u n=%u dropped=%u",
         context.stream.display_pickup_p50_us, context.stream.display_pickup_p95_us,
         context.stream.display_snapshot_p50_us, context.stream.display_snapshot_p95_us,
         context.stream.display_draw_p50_us, context.stream.display_draw_p95_us,
         context.stream.display_swap_p50_us, context.stream.display_swap_p95_us,
-        context.stream.display_sample_n, context.stream.display_dropped_n,
-        context.stream.display_paced_n);
+        context.stream.display_sample_n, context.stream.display_dropped_n);
     // PIPE/PRESENT (#416): how evenly and in what order the UI thread presented pictures this
     // window, then reset. Counts buffer swaps, not panel refreshes. See streaming.md section 9.10.
     {
