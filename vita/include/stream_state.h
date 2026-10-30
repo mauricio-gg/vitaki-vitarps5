@@ -139,7 +139,6 @@ typedef struct vita_chiaki_stream_t {
   } reconnect;
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
-  uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator
   ChiakiOpusDecoder opus_decoder;
   ChiakiThread input_thread;
   volatile bool input_thread_should_exit;  // Signal for clean thread exit (volatile prevents CPU
@@ -390,15 +389,8 @@ typedef struct vita_chiaki_stream_t {
   // newest sample would hide exactly the late-window stall this instrumentation exists to
   // catch.
   //
-  // On the paced-drop path (should_drop_frame_for_pacing() == true) the frame is consumed
-  // but never drawn or swapped, so only pickup_us has a real value -- recording a 0 for
-  // snapshot/draw/swap there would corrupt their percentiles with fake zero-latency
-  // samples. Paced-drop occurrences are counted separately in display_paced_count instead;
-  // pickup_us IS still recorded for those frames (the pickup span is real and happens
-  // regardless of pacing), so its ring naturally receives more samples per window than the
-  // other three -- display_sample_n below (published by host_metrics.c) tracks the
-  // synchronized snapshot/draw/swap count (all three are always written together on the
-  // non-paced path only).
+  // Local frame pacing is gone (#473), so every claimed frame is drawn and swapped and all
+  // four rings receive the same number of samples; display_paced_count stays 0.
   uint32_t display_pickup_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
   uint32_t display_pickup_sample_count;
   uint32_t display_pickup_write_idx;

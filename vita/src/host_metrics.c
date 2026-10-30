@@ -178,7 +178,6 @@ void host_metrics_reset_stream(bool preserve_recovery_state) {
   context.stream.fps_window_frame_count = 0;
   context.stream.negotiated_fps = 0;
   context.stream.target_fps = 0;
-  context.stream.pacing_accumulator = 0;
   context.stream.frame_loss_events = 0;
   context.stream.total_frames_lost = 0;
   context.stream.loss_window_start_us = 0;

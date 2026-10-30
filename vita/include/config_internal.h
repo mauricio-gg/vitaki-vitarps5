@@ -11,8 +11,6 @@ typedef enum migration_source_t {
 } MigrationSource;
 
 ChiakiVideoResolutionPreset parse_resolution_preset(const char *preset);
-ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionPreset preset,
-                                                          bool *was_downgraded);
 VitaChiakiLatencyMode parse_latency_mode(const char *mode);
 const char *serialize_latency_mode(VitaChiakiLatencyMode mode);
 bool get_circle_btn_confirm_default(void);
@@ -26,8 +24,7 @@ void apply_migration_source(MigrationSource source, bool *migrated_legacy_settin
                             bool *migrated_root_settings);
 void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
                                      toml_table_t *parsed, bool *migrated_legacy_settings,
-                                     bool *migrated_root_settings,
-                                     bool *migrated_resolution_policy);
+                                     bool *migrated_root_settings);
 void parse_fps_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings, toml_table_t *parsed,
                               bool *migrated_legacy_settings, bool *migrated_root_settings);
 void parse_latency_mode_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,

@@ -23,12 +23,6 @@ void ui_settings_persist_config(void);
 ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current);
 
 /**
- * ui_settings_apply_force_30fps() - Apply the Force 30 FPS Output setting to a running session.
- * Does nothing when no session is initialised.
- */
-void ui_settings_apply_force_30fps(void);
-
-/**
  * ui_settings_apply_circle_confirm() - Make a change of the Circle Button Confirm setting take
  * effect cleanly (the UiInput snapshot already reads the config every frame). A face button that is
  * held is blocked until released, so the press that flipped the setting is not read again as the

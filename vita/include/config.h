@@ -98,7 +98,6 @@ typedef struct vita_chiaki_config_t {
   bool show_network_indicator;  // Display "Network unstable" overlay in stream HUD
   bool show_stream_exit_hint;   // Display stream exit shortcut hint in stream HUD
   bool stretch_video;
-  bool force_30fps;                 // Drop frames locally to hold 30 fps presentation
   bool send_actual_start_bitrate;   // Guard for RP-StartBitrate payload
   bool clamp_soft_restart_bitrate;  // Keep soft restart bitrate <= ~1.5 Mbps
   bool submit_on_missing_ref;       // GH #251 A/B: feed missing-ref P-frames to the decoder (drift)
