@@ -34,6 +34,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_feedback.c
     src/host_callbacks.c
     src/host_lifecycle.c
+    src/mic.c
+    src/mic_frame.c
     src/host_loss_profile.c
     src/host_metrics.c
     src/host_quit.c
@@ -301,6 +303,7 @@ target_link_libraries(${VITA_APP_NAME}.elf
   SceVideodec_stub
   SceCodecEngine_stub
   SceAudio_stub
+  SceAudioIn_stub
   SceIme_stub
   SceSsl_stub
   ScePower_stub

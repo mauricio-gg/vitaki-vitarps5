@@ -51,6 +51,7 @@
 #include "host_constants.h"
 #include "host_metrics.h"
 #include "host_quit.h"
+#include "mic.h"
 #include "psn_auth.h"
 #include "psn_account_id.h"
 #include "psn_remote.h"
@@ -950,6 +951,8 @@ void draw_ui() {
       // Metrics update runs here so the 1Hz sceNetCtlInetGetInfo probe and
       // diag_mutex trylock are off the Takion recv thread entirely.
       host_metrics_update_latency();
+      // GH #474: starts the microphone once the stream is flowing (UI thread, as it must be).
+      vitamic_ui_tick();
     }
   }
 }
