@@ -311,7 +311,7 @@ function acPick(v){
 /* Profile > Connection by situation. Network Type, Console, Console IP (when an address is known) and Quality follow today's code; Status uses the Home list wording */
 const PCONN={wifi:{net:'Local Wi-Fi',con:'Living Room',ip:'192.168.1.20',st:'Ready'},standby:{net:'Local Wi-Fi',con:'Den',ip:'192.168.1.31',st:'Standby'},psn:{net:'PSN Internet',con:'Office',ip:null,st:'Ready'},psnip:{net:'PSN Internet',con:'Office',ip:'192.168.1.40',st:'Ready'},manual:{net:'Manual Host',con:'Manual host',ip:'192.168.1.77',st:'Ready'},unavail:{net:'Unavailable',con:'Dorm',ip:null,st:'Unavailable'},unreg:{net:'Local Wi-Fi',con:'Bedroom',ip:'192.168.1.44',st:'Unpaired'},none:{net:'Unavailable',con:'Not selected',ip:null,st:'None'}};
 function pageRows(kind,g){
- if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>({label:s.label,type:s.type,s,desc:s.desc,plain:setVal(s)}));
+ if(kind==='settings')return SETTINGS.filter(s=>s.g===g).map(s=>{const lock=s.id==='fps'&&SET('quality').v===3;return {label:s.label,type:s.type,s,lock,desc:lock?'Fixed at 30 FPS at 1080p. The Vita cannot decode 1080p any faster, and above about 42 FPS the picture falls further behind. Choose 720p for 60 FPS.':s.desc,plain:setVal(s)};});
  if(g===0){
   const ck=on=>on?`<span class="on" style="display:inline-flex">${ico('check',20)}</span>`:'';
   const vitaVal=AC.vita?`${ck(acEff()==='vita')}<span class="mono">${AC.vita}</span>`:`<span class="mid" style="display:inline-flex;align-items:center;gap:8px">${ico('warn',20)}${AC.unreadable?'Not found':'Not signed in'}</span>`;
@@ -343,6 +343,7 @@ function pageRows(kind,g){
 const curRow=()=>{const P=S.pg,rs=pageRows(P.kind,P.g),k=P.kind+P.g;return {rs,i:Math.min(P.row[k]||0,rs.length-1),k};};
 function rowVal(r,i){
  if(r.type==='toggle')return toggle(r.s.v);
+ if(r.type==='choice'&&r.s.id==='fps'&&SET('quality').v===3)return `<span class="lk">${ico('lock',18)}<span>30 FPS</span><em>1080p limit</em></span>`;
  if(r.type==='choice')return choice(r.s.opts[r.s.v],i);
  if(r.type==='info')return r.val||'';
  return r.dis?'':(r.val!==undefined?r.val:ico('next',20));
@@ -364,6 +365,7 @@ function pageHints(){
  if(P.focus==='g')return [['confirm','Open',{key:'ok'}],['cancel','Back',{key:'back'}]];
  const L=[];
  if(r.type==='toggle')L.push(['confirm','Toggle',{key:'ok'}]);
+ else if(r.lock){}
  else if(r.type==='choice')L.push(['confirm','Next',{key:'ok'}],['dpadh','Change']);
  else if(r.type==='action')L.push(['confirm',r.act==='acman'?(AC.manual?'Edit ID':'Enter ID'):r.act==='acclr'?(AC.arm?'Confirm clear':'Clear'):r.act==='login'?'Log in':r.act==='logout'?(S.logout?'Confirm log out':'Log out'):'Refresh',{key:'ok',dim:r.dis}]);
  L.push(['LR','Group'],['cancel','Back',{key:'back'}]);
@@ -400,7 +402,7 @@ function pageAct(r){
  }
 }
 function pageChange(d){
- const {rs,i}=curRow(),r=rs[i];if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur'){BLUR[SET('bg').v]=s.v;applyGlass();}else if(s.id==='bg'){SET('blur').v=BLUR[s.v];applyGlass();}else if(s.id==='theme')applyTheme();else if(s.id==='acsrc')return acPick(s.v);}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
+ const {rs,i}=curRow(),r=rs[i];if(r.lock)return;if(r.type==='choice'){const s=r.s;s.v=(s.v+d+s.opts.length)%s.opts.length;if(s.id==='blur'){BLUR[SET('bg').v]=s.v;applyGlass();}else if(s.id==='bg'){SET('blur').v=BLUR[s.v];applyGlass();}else if(s.id==='theme')applyTheme();else if(s.id==='acsrc')return acPick(s.v);else if(s.id==='quality'&&s.v===3&&SET('fps').v===1)toast('Frame rate set to 30 FPS (1080p limit)','','lock');}else if(r.type==='toggle'){r.s.v=!r.s.v;if(r.s.id==='cc'||r.s.id==='hints')refreshHints();}else return;
  paintPage(false);
 }
 

@@ -26,6 +26,8 @@ VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
     return VITA_LATENCY_MODE_HIGH;
   if (strcmp(mode, "max") == 0)
     return VITA_LATENCY_MODE_MAX;
+  if (strcmp(mode, "extreme") == 0)
+    return VITA_LATENCY_MODE_EXTREME;
   if (strcmp(mode, "balanced") == 0)
     return VITA_LATENCY_MODE_BALANCED;
   return VITA_LATENCY_MODE_MAX;
@@ -41,6 +43,8 @@ const char *serialize_latency_mode(VitaChiakiLatencyMode mode) {
       return "high";
     case VITA_LATENCY_MODE_MAX:
       return "max";
+    case VITA_LATENCY_MODE_EXTREME:
+      return "extreme";
     case VITA_LATENCY_MODE_BALANCED:
     default:
       return "balanced";

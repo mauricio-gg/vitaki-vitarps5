@@ -16,9 +16,11 @@
 #include "host_constants.h"
 #include "latency_policy.h"
 
-/* Home network: every mode asks for exactly its ladder value, nothing is capped. */
+/* catches: a step asking for the wrong bitrate on a home network (the Extreme step's 10 Mbps
+ * included), or a new step added without a ladder value. Every mode asks for exactly its ladder
+ * value, nothing is capped. */
 static void test_home_network_uses_the_ladder(void) {
-  const unsigned int expected[] = {1500, 2500, 3500, 4500, 6000};
+  const unsigned int expected[] = {1500, 2500, 3500, 4500, 6000, 10000};
   for (int mode = 0; mode < VITA_LATENCY_MODE_COUNT; mode++) {
     unsigned int uncapped = 99;
     assert(latency_policy_start_kbps((VitaChiakiLatencyMode)mode, false, &uncapped) ==
@@ -27,7 +29,8 @@ static void test_home_network_uses_the_ladder(void) {
   }
 }
 
-/* Internet/PSN: the lower of mode and cap wins; the uncapped value is reported only when the
+/* catches: the Internet/PSN cap not lowering the 10 Mbps Extreme step, or the uncapped value
+ * going unreported. The lower of mode and cap wins; the uncapped value is reported only when the
  * cap actually lowered it (the Retrying-at screen and the log use that). */
 static void test_psn_cap_lowest_wins(void) {
   unsigned int uncapped = 0;
@@ -41,9 +44,13 @@ static void test_psn_cap_lowest_wins(void) {
   assert(uncapped == 6000);
   assert(latency_policy_start_kbps(VITA_LATENCY_MODE_HIGH, true, NULL) ==
          PSN_REMOTE_BITRATE_CAP_KBPS);
+  assert(latency_policy_start_kbps(VITA_LATENCY_MODE_EXTREME, true, &uncapped) ==
+         PSN_REMOTE_BITRATE_CAP_KBPS);
+  assert(uncapped == 10000);
 }
 
-/* An old config (marker 0) with any saved mode goes to Max once; after the marker is saved, the
+/* catches: the one-time Max migration firing again and overwriting a later choice, Extreme
+ * included. An old config (marker 0) with any saved mode goes to Max once; after the marker is saved, the
  * user's later choice survives every following load. */
 static void test_migration_fires_once_and_choice_sticks(void) {
   VitaChiakiLatencyMode mode = VITA_LATENCY_MODE_ULTRA_LOW;
@@ -51,6 +58,10 @@ static void test_migration_fires_once_and_choice_sticks(void) {
   assert(latency_policy_migrate(&mode, &marker));
   assert(mode == VITA_LATENCY_MODE_MAX);
   assert(marker == LATENCY_MODE_MIGRATION_CURRENT);
+
+  mode = VITA_LATENCY_MODE_EXTREME; /* user picks Extreme: later loads leave it alone */
+  assert(!latency_policy_migrate(&mode, &marker));
+  assert(mode == VITA_LATENCY_MODE_EXTREME);
 
   mode = VITA_LATENCY_MODE_LOW; /* user picks Low, config saved, next boot loads it */
   assert(!latency_policy_migrate(&mode, &marker));

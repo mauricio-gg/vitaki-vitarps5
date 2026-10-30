@@ -242,6 +242,24 @@ static void init_cfg(VitaChiakiConfig *cfg) {
   config_parse(cfg);
 }
 
+/* catches: a Latency Mode step whose saved name the loader does not know (it would fall back to
+ * Max after a restart), and the one-time Max migration (#420) dragging a saved choice, the new
+ * Extreme step included, to another value on the next load. */
+static void test_latency_mode_roundtrip_every_step(void) {
+  for (int mode = 0; mode < VITA_LATENCY_MODE_COUNT; mode++) {
+    reset_config_file();
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    cfg.latency_mode = (VitaChiakiLatencyMode)mode;
+    assert(config_serialize(&cfg));
+
+    VitaChiakiConfig loaded;
+    init_cfg(&loaded);
+    assert(loaded.latency_mode == (VitaChiakiLatencyMode)mode);
+  }
+}
+
 static void test_legacy_section_migration(void) {
   reset_config_file();
   write_config_text(
@@ -899,6 +917,7 @@ void run_token_crypto_tests(void);
 
 int main(void) {
   token_crypto_set_test_device_id(DEVICE_ID_A);
+  test_latency_mode_roundtrip_every_step();
   test_legacy_section_migration();
   test_root_level_fallback_migration();
   test_legacy_bool_and_latency_migration();

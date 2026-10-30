@@ -12,7 +12,7 @@
 #include "host.h"
 #include "ui/ui_console_status.h"
 
-/** ui_label_resolution() - "360p" or "540p" (legacy values show as the Vita preset they use). */
+/** ui_label_resolution() - "360p", "540p", "720p" or "1080p" ("540p" for an unsupported value). */
 const char *ui_label_resolution(ChiakiVideoResolutionPreset preset);
 
 /** ui_label_fps() - "30 FPS" or "60 FPS". */

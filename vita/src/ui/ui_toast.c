@@ -15,6 +15,7 @@
 #include "ui/ui_constants.h"
 #include "ui/ui_internal.h"
 #include "ui/ui_motion.h"
+#include "ui/ui_page_frame.h"
 #include "ui/ui_shapes.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -46,9 +47,31 @@ static int measure_text(const char *text, void *ctx) {
 
 /** The icon of @tone, or NULL for a plain toast (or one whose art did not load). */
 static vita2d_texture *tone_icon(UiToastTone tone) {
-  if (tone == UI_TOAST_OK)
-    return s_icon_check;
-  return tone == UI_TOAST_ERR ? s_icon_warn : NULL;
+  switch (tone) {
+    case UI_TOAST_OK:
+      return s_icon_check;
+    case UI_TOAST_ERR:
+      return s_icon_warn;
+    case UI_TOAST_LOCK:
+      return ui_page_frame_icon(UI_PAGE_ICON_LOCK);
+    case UI_TOAST_PLAIN:
+    default:
+      return NULL;
+  }
+}
+
+/** The colour a toast of @tone draws its icon in. */
+static uint32_t tone_color(UiToastTone tone) {
+  switch (tone) {
+    case UI_TOAST_OK:
+      return UI_OK;
+    case UI_TOAST_ERR:
+      return UI_ERR;
+    case UI_TOAST_LOCK:
+    case UI_TOAST_PLAIN:
+    default:
+      return UI_TEXT;
+  }
 }
 
 void ui_toast_show(const char *text, UiToastTone tone) {
@@ -106,7 +129,7 @@ void ui_toast_draw(void) {
     const float scale = (float)UI_TOAST_ICON / (float)vita2d_texture_get_height(icon);
     vita2d_draw_texture_tint_scale(icon, (float)text_x,
                                    (float)(y + (UI_TOAST_H - UI_TOAST_ICON) / 2), scale, scale,
-                                   ui_layer_color(s_toast.tone == UI_TOAST_OK ? UI_OK : UI_ERR));
+                                   ui_layer_color(tone_color(s_toast.tone)));
     text_x += UI_TOAST_ICON + UI_TOAST_ICON_GAP;
   }
   ui_text_draw_face_centered_v(UI_FACE_T20, text_x, y, UI_TOAST_H, UI_TEXT, s_toast.text);

@@ -9,6 +9,7 @@
 #define LATENCY_KBPS_BALANCED 3500
 #define LATENCY_KBPS_HIGH 4500
 #define LATENCY_KBPS_MAX 6000
+#define LATENCY_KBPS_EXTREME 10000
 
 unsigned int latency_policy_kbps(VitaChiakiLatencyMode mode) {
   switch (mode) {
@@ -20,6 +21,8 @@ unsigned int latency_policy_kbps(VitaChiakiLatencyMode mode) {
       return LATENCY_KBPS_HIGH;
     case VITA_LATENCY_MODE_MAX:
       return LATENCY_KBPS_MAX;
+    case VITA_LATENCY_MODE_EXTREME:
+      return LATENCY_KBPS_EXTREME;
     case VITA_LATENCY_MODE_BALANCED:
     default:
       return LATENCY_KBPS_BALANCED;

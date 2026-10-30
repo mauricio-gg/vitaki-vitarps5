@@ -23,6 +23,7 @@
 #include "ui/ui_settings_actions.h"
 #include "ui/ui_text.h"
 #include "ui/ui_text_wrap.h"
+#include "ui/ui_toast.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_top_bar.h"
 #include "ui/ui_value_labels.h"
@@ -34,6 +35,8 @@
 /**
  * One setting. A toggle fills @is_on, a choice fills @value_text. @change applies one step
  * (+1 forward, -1 back; a toggle ignores the way), saves the config and runs the side effect.
+ * A choice may be locked by a rule: while @is_locked says so, the row shows @lock_tag and
+ * @lock_description, nothing changes it, and @value_text gives the value that is in force.
  */
 typedef struct setting_def_t {
   const char *label;
@@ -42,6 +45,9 @@ typedef struct setting_def_t {
   bool (*is_on)(void);
   const char *(*value_text)(void);
   void (*change)(int step);
+  bool (*is_locked)(void);
+  const char *lock_tag;
+  const char *lock_description;
 } SettingDef;
 
 typedef struct setting_group_t {
@@ -56,14 +62,22 @@ static int wrap_index(int current, int step, int count) {
 
 /* Video */
 
+static const char FPS_LOCK_TAG[] = "1080p limit";
+static const char TOAST_FPS_LIMITED[] = "Frame rate set to 30 FPS (1080p limit)";
+
 static const char *quality_text(void) {
   return ui_label_resolution(context.config.resolution);
 }
 
 static void quality_change(int step) {
-  (void)step; /* two values: one step either way leads to the other */
-  context.config.resolution = ui_settings_next_resolution(context.config.resolution);
+  context.config.resolution = ui_settings_next_resolution(context.config.resolution, step);
   ui_settings_persist_config();
+  /* The stored FPS Target is left alone (it applies again below 1080p); say that the stream will
+   * not use it, once, when the user lands on the preset that overrides it. */
+  if (host_resolution_forces_30fps(context.config.resolution) &&
+      context.config.fps == CHIAKI_VIDEO_FPS_PRESET_60) {
+    ui_toast_show(TOAST_FPS_LIMITED, UI_TOAST_LOCK);
+  }
 }
 
 static const char *latency_text(void) {
@@ -76,8 +90,13 @@ static void latency_change(int step) {
   ui_settings_persist_config();
 }
 
+/** FPS Target is locked while the chosen resolution streams at 30 fps whatever it says. */
+static bool fps_is_locked(void) {
+  return host_resolution_forces_30fps(context.config.resolution);
+}
+
 static const char *fps_text(void) {
-  return ui_label_fps(context.config.fps);
+  return ui_label_fps(fps_is_locked() ? CHIAKI_VIDEO_FPS_PRESET_30 : context.config.fps);
 }
 
 static void fps_change(int step) {
@@ -99,13 +118,16 @@ static void fill_screen_change(int step) {
 }
 
 static const SettingDef VIDEO_ROWS[] = {
-    {"Quality Preset", UI_SETTING_CHOICE, "Video resolution requested from the console.", NULL,
-     quality_text, quality_change},
+    {"Quality Preset", UI_SETTING_CHOICE,
+     "Video resolution requested from the console. 1080p is limited to 30 FPS.", NULL, quality_text,
+     quality_change},
     {"Latency Mode", UI_SETTING_CHOICE,
      "Sets the target bitrate. Higher looks better but needs a stronger connection.", NULL,
      latency_text, latency_change},
     {"FPS Target", UI_SETTING_CHOICE, "Frame rate requested from the console.", NULL, fps_text,
-     fps_change},
+     fps_change, fps_is_locked, FPS_LOCK_TAG,
+     "Fixed at 30 FPS at 1080p. The Vita cannot decode 1080p any faster, and above about 42 FPS "
+     "the picture falls further behind. Choose 720p for 60 FPS."},
     {"Fill Screen", UI_SETTING_TOGGLE, "Stretch the video to fill the whole screen.",
      fill_screen_is_on, NULL, fill_screen_change},
 };
@@ -368,6 +390,7 @@ static bool s_pane_focus = false;
 static UiWrapped s_desc;
 static int s_desc_group = -1;
 static int s_desc_row = -1;
+static bool s_desc_locked = false;
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
 
@@ -385,6 +408,8 @@ static void fill_items(void) {
         .kind = def->kind,
         .on = def->is_on ? def->is_on() : false,
         .value_text = def->value_text ? def->value_text() : NULL,
+        .locked = def->is_locked && def->is_locked(),
+        .lock_tag = def->lock_tag,
     };
   }
 }
@@ -404,13 +429,19 @@ static int measure_description(const char *text, void *ctx) {
   return ui_text_face_width(UI_FACE_T16, text);
 }
 
-/** Wrap the focused row's description when the group or the focused row changed. */
+/** Wrap the focused row's description when the group, the focused row or its lock changed. */
 static void update_description(void) {
-  if (s_desc_group == s_group && s_desc_row == s_pane.focus)
+  const bool locked = s_pane.count > 0 && s_pane.items[s_pane.focus].locked;
+  if (s_desc_group == s_group && s_desc_row == s_pane.focus && s_desc_locked == locked)
     return;
   s_desc_group = s_group;
   s_desc_row = s_pane.focus;
-  const char *text = s_pane.count > 0 ? GROUPS[s_group].rows[s_pane.focus].description : "";
+  s_desc_locked = locked;
+  const char *text = "";
+  if (s_pane.count > 0) {
+    const SettingDef *def = &GROUPS[s_group].rows[s_pane.focus];
+    text = locked && def->lock_description ? def->lock_description : def->description;
+  }
   ui_text_wrap(text, UI_PAGE_PANE_W, measure_description, NULL, &s_desc);
 }
 
@@ -498,7 +529,7 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_OPEN, .dim = s_pane.count == 0};
   } else if (s_pane.items[s_pane.focus].kind == UI_SETTING_TOGGLE) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_TOGGLE};
-  } else {
+  } else if (!s_pane.items[s_pane.focus].locked) {
     out[n++] = (UiHintItem){.action = UI_BTN_CONFIRM, .label = HINT_NEXT};
     out[n++] = (UiHintItem){.action = UI_BTN_LEFT | UI_BTN_RIGHT, .label = HINT_CHANGE};
   }
@@ -508,8 +539,11 @@ static int build_hints(UiHintItem out[UI_HINT_MAX_ITEMS]) {
   return n;
 }
 
-/** Draw the focused row's description, at most UI_PAGE_DESC_LINES lines. */
+/** Draw the focused row's description, at most UI_PAGE_DESC_LINES lines. The toast covers its
+ * place, so it waits until the toast is gone. */
 static void draw_description(void) {
+  if (ui_toast_active())
+    return;
   for (int i = 0; i < s_desc.count && i < UI_PAGE_DESC_LINES; i++) {
     ui_text_draw_face_centered_v(UI_FACE_T16, UI_PAGE_PANE_X, UI_PAGE_DESC_Y + i * UI_T16_LINE,
                                  UI_T16_LINE, UI_TEXT_2, s_desc.lines[i]);
@@ -576,6 +610,7 @@ UIScreenType ui_settings_frame(void) {
   const int hint_count = build_hints(hints);
   ui_hint_row_layout(&s_hints, hints, hint_count);
   ui_hint_row_draw(&s_hints);
+  ui_toast_draw();
 
   if (!back)
     return UI_SCREEN_TYPE_SETTINGS;

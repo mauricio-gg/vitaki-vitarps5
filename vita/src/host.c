@@ -192,13 +192,17 @@ bool host_request_stream_resync(void) {
 }
 #endif
 
+bool host_resolution_forces_30fps(ChiakiVideoResolutionPreset resolution) {
+  return resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p;
+}
+
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
   ChiakiVideoResolutionPreset resolution = context.config.resolution;
   ChiakiVideoFPSPreset fps = context.config.fps;
   /* 1080p always asks for 30 fps (#473, hardware finding of #456): the Vita decoder tops out at
    * about 42 fps at 1080p, so a 60 fps request builds an ever-growing backlog. The stored FPS
    * Target setting is not touched; it applies again at the other resolutions. */
-  if (resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
+  if (host_resolution_forces_30fps(resolution))
     fps = CHIAKI_VIDEO_FPS_PRESET_30;
   chiaki_connect_video_profile_preset(profile, resolution, fps);
   /* The start bitrate is the user's Latency Mode (GH #420), not the preset's. On the PSN/internet
