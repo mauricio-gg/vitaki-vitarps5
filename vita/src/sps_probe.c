@@ -274,6 +274,7 @@ static void read_vui(SpsBits *b, SpsFields *f) {
     for (int i = 0; i < 4; i++) /* max_bytes_per_pic_denom .. log2_max_mv_length_vertical */
       (void)bits_ue(b);
     f->num_reorder_frames = bits_ue(b);
+    f->max_dec_frame_buffering_bit = b->pos;
     f->max_dec_frame_buffering = bits_ue(b);
     f->bitstream_restriction = true;
   }
@@ -343,6 +344,7 @@ SpsParseStatus sps_probe_parse(const uint8_t *nal, uint32_t stored, uint32_t tru
     }
   }
 
+  f.max_num_ref_frames_bit = b.pos;
   f.max_num_ref_frames = bits_ue(&b);
   (void)bits_u(&b, 1); /* gaps_in_frame_num_value_allowed_flag */
   (void)bits_ue(&b);   /* pic_width_in_mbs_minus1 */

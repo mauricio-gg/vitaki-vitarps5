@@ -441,6 +441,19 @@ target_include_directories(sps_probe_tests PRIVATE
 
 add_test(NAME vitarps5_sps_probe_tests COMMAND sps_probe_tests)
 
+# sps_rewrite_tests.c checks the SPS rewrite (#473) against real console SPS.
+add_executable(sps_rewrite_tests
+    sps_rewrite_tests.c
+    ../vita/src/sps_rewrite.c
+    ../vita/src/sps_probe.c
+)
+
+target_include_directories(sps_rewrite_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_sps_rewrite_tests COMMAND sps_rewrite_tests)
+
 # psn_account_id_tests.c checks the typed-in account ID parser and the "which ID is in use" rule
 # (issue #201). Standalone binary with its own main(); run natively (see the file header).
 add_executable(psn_account_id_tests
