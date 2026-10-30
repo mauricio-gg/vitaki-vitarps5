@@ -24,6 +24,7 @@
 #include "sps_probe.h"
 #include "sps_rewrite.h"
 #include "context.h"
+#include "host_input.h"
 #include "ui/ui_draw_stats.h"
 
 #include <chiaki/thread.h>
@@ -1331,6 +1332,46 @@ static SceInt32 internal_pic_state = 0;
 static uint32_t internal_err_logged = 0;
 #define INTERNAL_ERR_LOG_MAX 20
 
+/* #473 drain. The Internal decoder can have more than one picture ready after a unit goes in (a
+ * burst after a network stall); VitaIPTV measured the same on its HD decoder and takes out every
+ * ready picture (src/tsplayer.c drain_internal, up to 4 extra calls per unit). With one picture
+ * taken per unit, each unit that left a second picture inside left it there for good: the hold
+ * (fed - handed) stepped up in every burst and never came back (hardware log 13291197098, 3 -> 36
+ * frames, about 1.2 s at 30 fps). INTERNAL_DRAIN_MAX bounds the extra calls per unit (a call that
+ * finds nothing ready is cheap); a burst of about 10 extra pictures is worked off in a few units.
+ */
+#define INTERNAL_DRAIN_MAX 4u
+/* Pictures the last decode_internal() call took out of the decoder (the first plus the drained
+ * ones); decode_frame_now() hands it to the PIPE/DECHOLD accounting. Decode thread only. */
+static uint32_t internal_pics_out = 0;
+/* Extra pictures drained this session and since the last PIPE/INTBACKLOG line. Decode thread only;
+ * reset in vita_h264_start. */
+static uint32_t internal_drained_total = 0;
+static uint32_t internal_drained_since_log = 0;
+
+/* #473 safety net. The backlog is the PIPE/DECHOLD hold (units fed minus pictures out). Steady
+ * state at 1080p/30 is 2 to 4 (log 13291197098: held 3-4 on a clean run). If the hold stays above
+ * INTERNAL_BACKLOG_RESYNC_HOLD for INTERNAL_BACKLOG_RESYNC_FRAMES units in a row, the drain is not
+ * keeping up and a resync (a reconnect that empties the decoder) is requested. 12 is three times
+ * the top of the steady range (400 ms at 30 fps); 30 units is about a second, so a burst the
+ * drain is still working off never trips it. At most one resync per
+ * INTERNAL_BACKLOG_RESYNC_GAP_US, so it can never loop. */
+#define INTERNAL_BACKLOG_RESYNC_HOLD 12u
+#define INTERNAL_BACKLOG_RESYNC_FRAMES 30u
+#define INTERNAL_BACKLOG_RESYNC_GAP_US 10000000ull
+/* PIPE/INTBACKLOG is logged when the hold has moved by at least this much since the last line, at
+ * most once per INTERNAL_BACKLOG_LOG_GAP_US, so a steady backlog (and the 1-frame flicker around
+ * it) is silent. */
+#define INTERNAL_BACKLOG_LOG_STEP 2u
+#define INTERNAL_BACKLOG_LOG_GAP_US 1000000ull
+static uint32_t internal_backlog_logged = 0;
+static uint64_t internal_backlog_log_us = 0;
+static uint32_t internal_backlog_over_frames = 0;
+static uint64_t internal_backlog_resync_us = 0; /* survives sessions on purpose; 0 = never fired */
+/* Set by internal_backlog_observe() under `mtx` when a resync is decided; carried out by
+ * internal_backlog_resync_if_wanted() once `mtx` is released. Decode thread only. */
+static bool internal_resync_wanted = false;
+
 static void log_internal_call_failed(const char *call, int ret, uint32_t frame_seq) {
   if (internal_err_logged >= INTERNAL_ERR_LOG_MAX)
     return;
@@ -1359,11 +1400,42 @@ static int internal_get_picture(uint32_t frame_seq) {
   return r;
 }
 
-/* The Internal replacement for the single sceAvcdecDecode call: feed the access unit, then pull
- * the ready picture. ES buffer full: an empty unit lets the decoder hand a picture out, which is
- * taken, then the unit goes in again (VitaIPTV decode_internal; in that case this call's picture
- * is the one taken and no second pull is made, as there is one output texture). An "invalid
- * stream" answer is counted as fed: it is seen on device for units that decoded fine. */
+/* Takes every ready picture out of the Internal decoder (#473, see INTERNAL_DRAIN_MAX). There is
+ * one output texture, so each picture overwrites the one before and only the newest stays; the
+ * older ones are dropped, never queued. A call that finds nothing ready ends the loop and leaves
+ * the texture and numOfOutput untouched. On success with at least one picture, numOfOutput is 1
+ * and picture.info.pts is the newest picture's; internal_pics_out is how many came out. Returns
+ * the first failing call's code (the texture may then be partly written; the caller applies the
+ * #418 rule). */
+static int internal_collect(uint32_t frame_seq) {
+  internal_pics_out = 0;
+  int r = internal_get_picture(frame_seq);
+  if (r < 0 || array_picture.numOfOutput != 1)
+    return r;
+  internal_pics_out = 1;
+  SceVideodecTimeStamp newest_pts = picture.info.pts;
+  for (uint32_t i = 0; i < INTERNAL_DRAIN_MAX; i++) {
+    r = internal_get_picture(frame_seq);
+    if (r < 0)
+      return r;
+    if (array_picture.numOfOutput != 1)
+      break;
+    internal_pics_out++;
+    internal_drained_total++;
+    internal_drained_since_log++;
+    newest_pts = picture.info.pts;
+  }
+  array_picture.numOfOutput = 1;
+  picture.info.pts = newest_pts;
+  return 0;
+}
+
+/* The Internal replacement for the single sceAvcdecDecode call: feed the access unit, then take
+ * out the ready pictures (internal_collect). ES buffer full: an empty unit lets the decoder hand
+ * pictures out, which are taken, then the unit goes in again (VitaIPTV decode_internal; in that
+ * case the pictures taken are this call's result and no second collect is made, as there is one
+ * output texture). An "invalid stream" answer is counted as fed: it is seen on device for units
+ * that decoded fine. */
 static int decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
   bool pulled = false;
   int ra = sceAvcdecDecodeAuInternal(decoder, a, &internal_pic_state);
@@ -1374,7 +1446,7 @@ static int decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
     int re = sceAvcdecDecodeAuInternal(decoder, &empty, &internal_pic_state);
     if (re < 0 && (unsigned int)re != AVCDEC_ERROR_INVALID_STREAM)
       log_internal_call_failed("sceAvcdecDecodeAuInternal(empty)", re, frame_seq);
-    int rg = internal_get_picture(frame_seq);
+    int rg = internal_collect(frame_seq);
     if (rg < 0)
       return rg;
     pulled = true;
@@ -1386,7 +1458,48 @@ static int decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
   }
   if (pulled)
     return 0;
-  return internal_get_picture(frame_seq);
+  return internal_collect(frame_seq);
+}
+
+/* #473, decode thread under `mtx`, after the unit's output is accounted: logs the backlog when it
+ * has moved (PIPE/INTBACKLOG) and asks for a resync when it stays far above steady state (see
+ * INTERNAL_BACKLOG_RESYNC_HOLD). now_us is the caller's process-time reading. */
+static void internal_backlog_observe(uint32_t frame_seq, uint64_t now_us) {
+  uint32_t backlog = dechold_current_hold();
+  uint32_t moved = backlog > internal_backlog_logged ? backlog - internal_backlog_logged
+                                                     : internal_backlog_logged - backlog;
+  if (moved >= INTERNAL_BACKLOG_LOG_STEP &&
+      now_us - internal_backlog_log_us >= INTERNAL_BACKLOG_LOG_GAP_US) {
+    LOGW("PIPE/INTBACKLOG backlog=%u prev=%u drained=%u drained_total=%u frame=%u", backlog,
+         internal_backlog_logged, internal_drained_since_log, internal_drained_total, frame_seq);
+    internal_backlog_logged = backlog;
+    internal_backlog_log_us = now_us;
+    internal_drained_since_log = 0;
+  }
+
+  internal_backlog_over_frames =
+      backlog > INTERNAL_BACKLOG_RESYNC_HOLD ? internal_backlog_over_frames + 1 : 0;
+  if (internal_backlog_over_frames < INTERNAL_BACKLOG_RESYNC_FRAMES)
+    return;
+  internal_backlog_over_frames = 0;
+  if (internal_backlog_resync_us != 0 &&
+      now_us - internal_backlog_resync_us < INTERNAL_BACKLOG_RESYNC_GAP_US)
+    return;
+  internal_backlog_resync_us = now_us;
+  internal_resync_wanted = true;
+  LOGW("PIPE/INTBACKLOG resync backlog=%u threshold=%u frame=%u (requesting)", backlog,
+       INTERNAL_BACKLOG_RESYNC_HOLD, frame_seq);
+}
+
+/* Carries out the resync internal_backlog_observe() decided on. Called on the decode thread after
+ * decode_frame_now() has returned, so `mtx` is not held: the request takes the session's and the
+ * stream connection's locks, and no video lock may be held while it does. */
+static void internal_backlog_resync_if_wanted(uint32_t frame_seq) {
+  if (!internal_resync_wanted)
+    return;
+  internal_resync_wanted = false;
+  LOGW("PIPE/INTBACKLOG resync frame=%u accepted=%d", frame_seq,
+       host_request_stream_resync() ? 1 : 0);
 }
 
 typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
@@ -1551,9 +1664,13 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   uint32_t readback_seq = 0;
   dechold_record_feed(frame_seq, decode_start_us);
   bool have_picture = array_picture.numOfOutput == 1;
-  if (dechold_record_output(frame_seq, decode_end_us, array_picture.numOfOutput, &picture.info.pts,
-                            &readback_seq))
+  /* The Internal decoder can hand out several pictures per unit (internal_collect); only the
+   * newest is in the texture, but all of them left the decoder. */
+  uint32_t num_output = decoder_internal ? internal_pics_out : (uint32_t)array_picture.numOfOutput;
+  if (dechold_record_output(frame_seq, decode_end_us, num_output, &picture.info.pts, &readback_seq))
     published_seq = readback_seq;
+  if (decoder_internal)
+    internal_backlog_observe(frame_seq, decode_end_us);
 
   if (!have_picture) {
     LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
@@ -2238,6 +2355,7 @@ static void *decode_thread_func(void *user) {
      * decode_q_head below — the producer will block or drop-oldest on the
      * preceding slots rather than overwriting this one. */
     decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms, frame_seq);
+    internal_backlog_resync_if_wanted(frame_seq); /* after the unlock: takes lib locks */
 
     /* Release the slot now that decode is done. Signal any blocked producer. */
     chiaki_mutex_lock(&decode_q_mtx);
@@ -2269,6 +2387,13 @@ void vita_h264_start() {
   sps_rewrite_logged = false;
   internal_pic_state = 0;
   internal_err_logged = 0;
+  internal_pics_out = 0;
+  internal_drained_total = 0;
+  internal_drained_since_log = 0;
+  internal_backlog_logged = 0;
+  internal_backlog_log_us = 0;
+  internal_backlog_over_frames = 0;
+  internal_resync_wanted = false;
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;

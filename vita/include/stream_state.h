@@ -230,13 +230,14 @@ typedef struct vita_chiaki_stream_t {
   // fallback session reports CONNECTED or recovery ends. Survives host_stream() (unlike the
   // loss_retry_* fields it guards); written by the session thread and the UI thread.
   volatile bool recovery_active;
+  // GH #275 / #473: resync_requested marks a stop as a resync (host_request_stream_resync), so the
+  // quit handler reconnects at once instead of treating it as a plain user stop. Present in every
+  // build: the 1080p decoder-backlog safety net uses it too.
+  volatile bool resync_requested;
 #if VITARPS5_DEBUG_TOOLS
   // GH #275: the input thread raises resync_tap_requested on the touch-down of a tap on the
-  // debug widget; the UI thread consumes it. resync_requested marks the stop the UI thread
-  // then requests as a resync, so the quit handler reconnects at once instead of treating it
-  // as a plain user stop.
+  // debug widget; the UI thread consumes it.
   volatile bool resync_tap_requested;
-  volatile bool resync_requested;
   // GH #458: Input test panel. The input thread raises the requests (a touch on the button or
   // the Close pill, or the L+R+Select hold); the UI thread consumes them in debug_tools_ui_tick().
   // input_test_toggle_request holds a DEBUG_PANEL_REQUEST_* source (0 = none). input_test_open is

@@ -177,7 +177,6 @@ void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
 }
 
-#if VITARPS5_DEBUG_TOOLS
 bool host_request_stream_resync(void) {
   if (!context.stream.session_init || context.stream.stop_requested)
     return false;
@@ -190,7 +189,6 @@ bool host_request_stream_resync(void) {
   }
   return true;
 }
-#endif
 
 bool host_resolution_forces_30fps(ChiakiVideoResolutionPreset resolution) {
   return resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p;
