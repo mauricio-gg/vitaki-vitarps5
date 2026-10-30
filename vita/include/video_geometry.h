@@ -21,6 +21,15 @@ typedef struct {
   float dest_height;
 } VideoGeometry;
 
+/* #456 probe: true when the decoder must be set up through the firmware's Internal entry points,
+ * i.e. the public path cannot do the size: only above 720p's 3600 macroblocks. 540p (2040) and 720p
+ * (3600) stay on the public path; 1920x1088 (8160) takes the Internal one. */
+static inline int video_geometry_needs_internal_decoder(int width, int height) {
+  unsigned int mbs = ((unsigned int)VITA_DECODER_RESOLUTION(width) / 16u) *
+                     ((unsigned int)VITA_DECODER_RESOLUTION(height) / 16u);
+  return mbs > 3600u;
+}
+
 /* The texture is the decoder's frame (stream size rounded to 16, so 1080 becomes 1088: the
  * decoder is created with that size and writes whole macroblock rows), but never smaller than the
  * screen. So 960x540 stays 960x544 as before; 1280x720 is 1280x720; 1920x1080 is 1920x1088. */

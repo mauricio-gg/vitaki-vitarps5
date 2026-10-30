@@ -861,6 +861,14 @@ extern SceInt32 sceAvcdecQueryDecoderMemSizeInternal(SceVideodecType codec,
                                                      SceAvcdecDecoderInfo *decoderInfo);
 extern SceInt32 sceAvcdecCreateDecoderInternal(SceVideodecType codec, SceAvcdecCtrl *decoder,
                                                const SceAvcdecQueryDecoderInfo *query);
+/* Decode: feed one access unit, then pull the picture that is ready (if any). `pic` is the int both
+ * calls share (VitaIPTV tsplayer.c: SceInt32 pic_state kept per decoder). Signatures as in VitaIPTV
+ * src/tsplayer.c 84-86, OpenNOW-vita decoder.rs 47-58 and wiliwili ffmpeg.patch 843-844. */
+extern SceInt32 sceAvcdecDecodeAuInternal(SceAvcdecCtrl *decoder, SceAvcdecAu *au, SceInt32 *pic);
+extern SceInt32 sceAvcdecDecodeGetPictureWithWorkPictureInternal(SceAvcdecCtrl *decoder,
+                                                                 SceAvcdecArrayPicture *pictures,
+                                                                 SceAvcdecArrayPicture *work,
+                                                                 SceInt32 *pic);
 
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
@@ -898,6 +906,10 @@ static void video_cleanup_avc_lib(void) {
     return;
 
   sceVideodecTermLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC);
+  if (probe456_internal_lib)
+    LOGW(
+        "PROBE456/INTERNAL state_reset reset=unavailable (config=2 decode_mode=0x80 stay set; a "
+        "later 540p/720p session in this app run may be affected)");
 
   if (videodecContext != 0) {
     sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
@@ -1076,22 +1088,7 @@ static void probe456_free_lib_memory(void) {
   videodecblock = -1;
 }
 
-/* #456 attempt 1: vita-moonlight's setup (src/video/vita.c ~340-350): public sceVideodecInitLibrary
- * with 4 reference frames and no QueryMemSize. The public call takes no memory argument (the
- * library allocates its own), so there is no library memory size to choose. */
-static int probe456_try_direct_init(SceVideodecQueryInitInfo *initVideodec, int refs) {
-  initVideodec->hwAvc.numOfRefFrames = refs;
-  int ret = sceVideodecInitLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC, &initVideodec->hwAvc);
-  LOGD("PROBE456/INIT1080 path=moonlight_direct refs=%d ret=0x%x", refs, (unsigned int)ret);
-  if (ret < 0) {
-    sceVideodecTermLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC);
-    return ret;
-  }
-  probe456_decoder_refs = refs;
-  return 0;
-}
-
-/* #456 attempt 2: the Internal sequence the other homebrew uses: sceVideodecSetConfigInternal(2),
+/* #456: the Internal sequence the other homebrew uses: sceVideodecSetConfigInternal(2),
  * decode mode 0x80, sceVideodecQueryMemSizeInternal, codec memory in CDRAM at 1 MB alignment
  * handed to the codec engine, sceVideodecInitLibraryWithUnmapMemInternal. refs=4 is what level 4.x
  * allows at 1920x1088 (32768 / 8160 macroblocks; VitaIPTV saw 5 refused). */
@@ -1100,17 +1097,23 @@ static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemIn
   initVideodec->hwAvc.numOfRefFrames = refs;
   int cfg = sceVideodecSetConfigInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, 2);
   int mode = sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, 0x80);
+  /* Process-wide codec state: none of VitaIPTV, OpenNOW-vita or wiliwili resets it, and no reset
+   * call is known (see the state_reset line in video_cleanup_avc_lib). */
+  LOGW("PROBE456/INTERNAL state_set config=2 ret=0x%x decode_mode=0x80 ret=0x%x", (unsigned int)cfg,
+       (unsigned int)mode);
+  if (cfg < 0)
+    LOGE("PROBE456/INTERNAL sceVideodecSetConfigInternal FAILED 0x%x", (unsigned int)cfg);
+  if (mode < 0)
+    LOGE("PROBE456/INTERNAL sceAvcdecSetDecodeMode FAILED 0x%x", (unsigned int)mode);
   libMemInfo->memSize = 0;
   int ret = sceVideodecQueryMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
-  LOGD(
-      "PROBE456/INIT1080 path=internal_cfg2 step=query setconfig=0x%x setmode=0x%x refs=%d "
-      "ret=0x%x memSize=%u",
-      (unsigned int)cfg, (unsigned int)mode, refs, (unsigned int)ret,
-      (unsigned int)libMemInfo->memSize);
+  LOGD("PROBE456/INTERNAL query_mem refs=%d ret=0x%x memSize=%u", refs, (unsigned int)ret,
+       (unsigned int)libMemInfo->memSize);
   if (ret >= 0 && (int)libMemInfo->memSize <= 0)
     ret = PROBE456_VIDEODEC_INVALID_PARAM;
   if (ret < 0) {
-    LOGD("PROBE456/INIT1080 path=internal_cfg2 refs=%d ret=0x%x", refs, (unsigned int)ret);
+    LOGE("PROBE456/INTERNAL sceVideodecQueryMemSizeInternal FAILED 0x%x refs=%d", (unsigned int)ret,
+         refs);
     return ret;
   }
 
@@ -1127,14 +1130,13 @@ static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemIn
   if (videodecblock < 0) {
     ret = videodecblock;
     videodecblock = -1;
-    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=alloc refs=%d ret=0x%x block=%u", refs,
+    LOGE("PROBE456/INTERNAL sceKernelAllocMemBlock(codec CDRAM) FAILED 0x%x block=%u",
          (unsigned int)ret, (unsigned int)block_size);
     return ret;
   }
   ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
   if (ret < 0) {
-    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=blockbase refs=%d ret=0x%x", refs,
-         (unsigned int)ret);
+    LOGE("PROBE456/INTERNAL sceKernelGetMemBlockBase FAILED 0x%x", (unsigned int)ret);
     probe456_free_lib_memory();
     return ret;
   }
@@ -1142,8 +1144,7 @@ static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemIn
   if (videodecUnmap <= 0) {
     ret = videodecUnmap < 0 ? videodecUnmap : -1;
     videodecUnmap = -1;
-    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=unmap refs=%d ret=0x%x", refs,
-         (unsigned int)ret);
+    LOGE("PROBE456/INTERNAL sceCodecEngineOpenUnmapMemBlock FAILED 0x%x", (unsigned int)ret);
     probe456_free_lib_memory();
     return ret;
   }
@@ -1151,7 +1152,7 @@ static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemIn
   if (videodecContext <= 0) {
     ret = videodecContext < 0 ? videodecContext : -1;
     videodecContext = 0;
-    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=vaddr refs=%d ret=0x%x", refs,
+    LOGE("PROBE456/INTERNAL sceCodecEngineAllocMemoryFromUnmapMemBlock FAILED 0x%x",
          (unsigned int)ret);
     probe456_free_lib_memory();
     return ret;
@@ -1162,8 +1163,10 @@ static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemIn
   libCtrl->contextSize = ctx_size;
   ret = sceVideodecInitLibraryWithUnmapMemInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl,
                                                    initVideodec);
-  LOGD("PROBE456/INIT1080 path=internal_cfg2 refs=%d ret=0x%x", refs, (unsigned int)ret);
+  LOGD("PROBE456/INTERNAL init_library refs=%d ret=0x%x", refs, (unsigned int)ret);
   if (ret < 0) {
+    LOGE("PROBE456/INTERNAL sceVideodecInitLibraryWithUnmapMemInternal FAILED 0x%x refs=%d",
+         (unsigned int)ret, refs);
     probe456_free_lib_memory();
     return ret;
   }
@@ -1187,10 +1190,29 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   probe456_internal_lib = false;
   probe456_spsrefs_logged = false;
 
+  int ret = 0;
+  const bool use_internal = video_geometry_needs_internal_decoder(width, height);
+  /* Internal output: opaque alpha, as VitaIPTV sets for RGBA. Public path: the zero it always had.
+   */
+  picture.frame.opt.rgba.alpha = use_internal ? 0xFF : 0;
+  if (use_internal) {
+    /* #456: 1080p (1920x1088) is decided from the size, not by failing the public query first.
+     * The public path caps at 720p; the Internal one takes the reference count the level allows
+     * (hd_ref_cap in VitaIPTV tsplayer.c: 32768 macroblocks / 8160 = 4). On any failure the stream
+     * start ends with the usual error. */
+    int hd_refs =
+        32768 / (int)((initVideodec->hwAvc.horizontal / 16) * (initVideodec->hwAvc.vertical / 16));
+    LOGD("PROBE456/INTERNAL selected decoder=%ux%u refs=%d", initVideodec->hwAvc.horizontal,
+         initVideodec->hwAvc.vertical, hd_refs);
+    if (probe456_try_internal_init(libCtrl, libMemInfo, initVideodec, hd_refs) < 0)
+      return VITA_VIDEO_ERROR_INIT_LIB;
+    probe456_log_free_memory("after_videodec_lib");
+    return VITA_VIDEO_INIT_OK;
+  }
+
   /* #456: the hardware refuses some (size, numOfRefFrames) pairs with INVALID_PARAM (720p and
    * 1080p with 8 refs, 540p accepts 8). Step the count down from REF_FRAMES toward 1 and keep
    * the first one accepted; initVideodec carries it on to the library init and decoder_info. */
-  int ret = 0;
   for (int refs = REF_FRAMES; refs >= 1; refs--) {
     initVideodec->hwAvc.numOfRefFrames = refs;
     ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
@@ -1204,20 +1226,6 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
       break;
     LOGD("PROBE456/REFS refused refs=%d decoder=%ux%u err=0x%x", refs,
          initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical, (unsigned int)ret);
-  }
-  if (ret == PROBE456_VIDEODEC_INVALID_PARAM) {
-    /* #456: every count down to 1 was refused (1920x1088 behaves like H.264 level 3.1 here).
-     * Try the other setups once each; sizes that accepted a count above never get here. */
-    const int hd_refs = 4;
-    if (probe456_try_direct_init(initVideodec, hd_refs) >= 0) {
-      probe456_log_free_memory("after_videodec_lib");
-      return VITA_VIDEO_INIT_OK;
-    }
-    if (probe456_try_internal_init(libCtrl, libMemInfo, initVideodec, hd_refs) >= 0) {
-      probe456_log_free_memory("after_videodec_lib");
-      return VITA_VIDEO_INIT_OK;
-    }
-    initVideodec->hwAvc.numOfRefFrames = 1;
   }
   if (ret < 0) {
     LOGE("PROBE456/ALLOC sceVideodecQueryMemSize FAILED 0x%x decoder=%ux%u refs=%d", ret,
@@ -1301,6 +1309,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
                 : sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info,
                                                &decoder_info_out);
   if (ret < 0) {
+    if (probe456_internal_lib)
+      LOGE("PROBE456/INTERNAL sceAvcdecQueryDecoderMemSizeInternal FAILED 0x%x", ret);
     LOGE("PROBE456/ALLOC sceAvcdecQueryDecoderMemSize FAILED 0x%x size=%u", ret,
          (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE;
@@ -1345,9 +1355,11 @@ static int video_setup_decoder_instance(void) {
   int ret = probe456_internal_lib
                 ? sceAvcdecCreateDecoderInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info)
                 : sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
-  LOGD("PROBE456/INIT1080 decoder_create internal=%d ret=0x%x", (int)probe456_internal_lib,
-       (unsigned int)ret);
+  if (probe456_internal_lib)
+    LOGD("PROBE456/INTERNAL decoder_create ret=0x%x", (unsigned int)ret);
   if (ret < 0) {
+    if (probe456_internal_lib)
+      LOGE("PROBE456/INTERNAL sceAvcdecCreateDecoderInternal FAILED 0x%x", (unsigned int)ret);
     LOGE("PROBE456/ALLOC sceAvcdecCreateDecoder FAILED 0x%x decoder=%ux%u", ret,
          decoder_info->horizontal, decoder_info->vertical);
     return VITA_VIDEO_ERROR_CREATE_DEC;
@@ -1443,6 +1455,144 @@ static void withdraw_unclaimed_picture(uint32_t frame_seq) {
   }
 }
 
+/* #456 probe: counters for PROBE456/RATE (Internal decoder sessions). The decode thread owns the
+ * decode counters and prints; the recv thread owns rx, the UI thread owns shown. Each is a 32-bit
+ * counter with one writer, read as deltas, so no lock. Reset in vita_h264_start. */
+static SceInt32 probe456_pic_state = 0; /* the int both Internal decode calls share and write */
+static volatile uint32_t probe456_rx_frames = 0;
+static volatile uint32_t probe456_shown_frames = 0;
+static uint32_t probe456_fed = 0;  /* access units the Internal decoder accepted */
+static uint32_t probe456_pics = 0; /* pictures it handed out */
+static uint32_t probe456_es_full =
+    0; /* ES buffer full answers (an empty unit and a retry follow) */
+static uint32_t probe456_invalid = 0; /* "invalid stream" answers, counted as fed (VitaIPTV) */
+static uint32_t probe456_get_err = 0;
+static int probe456_last_get_ret = 0;
+static uint32_t probe456_err_logged = 0;
+static uint32_t probe456_win_dec_total_us = 0;
+static uint32_t probe456_win_dec_max_us = 0;
+static uint32_t probe456_win_dec_n = 0;
+static uint64_t probe456_win_start_us = 0;
+static uint32_t probe456_win_rx0 = 0, probe456_win_shown0 = 0, probe456_win_fed0 = 0,
+                probe456_win_pics0 = 0;
+
+#define PROBE456_ERR_LOG_MAX 20 /* call failures can repeat at the frame rate; log the first ones \
+                                 */
+
+static void probe456_log_call_failed(const char *call, int ret, uint32_t frame_seq) {
+  if (probe456_err_logged >= PROBE456_ERR_LOG_MAX)
+    return;
+  probe456_err_logged++;
+  LOGE("PROBE456/INTERNAL %s FAILED 0x%x frame=%u%s", call, (unsigned int)ret, frame_seq,
+       probe456_err_logged == PROBE456_ERR_LOG_MAX ? " (suppressing further reports)" : "");
+}
+
+static void probe456_reset_rate(void) {
+  probe456_pic_state = 0;
+  probe456_rx_frames = 0;
+  probe456_shown_frames = 0;
+  probe456_fed = probe456_pics = probe456_es_full = probe456_invalid = probe456_get_err = 0;
+  probe456_last_get_ret = 0;
+  probe456_err_logged = 0;
+  probe456_win_dec_total_us = probe456_win_dec_max_us = probe456_win_dec_n = 0;
+  probe456_win_start_us = 0;
+  probe456_win_rx0 = probe456_win_shown0 = probe456_win_fed0 = probe456_win_pics0 = 0;
+}
+
+/* Decode thread, once per decode call, Internal sessions only: accumulates the decode time and
+ * prints PROBE456/RATE when a second has passed. Counters only; the print is once a second. */
+static void probe456_rate_tick(uint32_t decode_us, uint64_t now_us) {
+  probe456_win_dec_total_us += decode_us;
+  probe456_win_dec_n++;
+  if (decode_us > probe456_win_dec_max_us)
+    probe456_win_dec_max_us = decode_us;
+  if (probe456_win_start_us == 0) {
+    probe456_win_start_us = now_us;
+    return;
+  }
+  uint64_t win_us = now_us - probe456_win_start_us;
+  if (win_us < 1000000)
+    return;
+  uint32_t rx = probe456_rx_frames, shown = probe456_shown_frames;
+  uint32_t avg_us = probe456_win_dec_n ? probe456_win_dec_total_us / probe456_win_dec_n : 0;
+  LOGW(
+      "PROBE456/RATE win_ms=%u dec_avg_ms=%u.%02u dec_max_ms=%u.%02u fed=%u pics=%u rx=%u shown=%u "
+      "held=%d es_full=%u invalid=%u get_err=%u get_ret=0x%x pic_state=%d",
+      (unsigned int)(win_us / 1000), avg_us / 1000, (avg_us % 1000) / 10,
+      probe456_win_dec_max_us / 1000, (probe456_win_dec_max_us % 1000) / 10,
+      probe456_fed - probe456_win_fed0, probe456_pics - probe456_win_pics0, rx - probe456_win_rx0,
+      shown - probe456_win_shown0, (int)(probe456_fed - probe456_pics), probe456_es_full,
+      probe456_invalid, probe456_get_err, (unsigned int)probe456_last_get_ret,
+      (int)probe456_pic_state);
+  probe456_win_start_us = now_us;
+  probe456_win_dec_total_us = probe456_win_dec_max_us = probe456_win_dec_n = 0;
+  probe456_win_rx0 = rx;
+  probe456_win_shown0 = shown;
+  probe456_win_fed0 = probe456_fed;
+  probe456_win_pics0 = probe456_pics;
+}
+
+/* #456: pull the ready picture out of the Internal decoder into array_picture (output pointer is
+ * already set by the caller). Follows VitaIPTV tsplayer.c decode_internal: the work-picture array
+ * is zeroed and passed along. numOfOutput stays 0 while the decoder has nothing ready yet. */
+static int probe456_get_picture_internal(uint32_t frame_seq) {
+  static SceAvcdecPicture work_pic;
+  static SceAvcdecPicture *work_pp[1];
+  static SceAvcdecArrayPicture work;
+  memset(&work_pic, 0, sizeof(work_pic));
+  work_pp[0] = &work_pic;
+  work.numOfOutput = 0;
+  work.numOfElm = 0;
+  work.pPicture = work_pp;
+  array_picture.numOfOutput = 0;
+  int r = sceAvcdecDecodeGetPictureWithWorkPictureInternal(decoder, &array_picture, &work,
+                                                           &probe456_pic_state);
+  probe456_last_get_ret = r;
+  if (r < 0) {
+    probe456_get_err++;
+    probe456_log_call_failed("sceAvcdecDecodeGetPictureWithWorkPictureInternal", r, frame_seq);
+    return r;
+  }
+  if (array_picture.numOfOutput == 1)
+    probe456_pics++;
+  return r;
+}
+
+/* #456: the Internal replacement for the single sceAvcdecDecode call: feed the access unit, then
+ * pull the ready picture. ES buffer full: an empty unit lets the decoder hand a picture out, which
+ * is taken, then the unit goes in again (VitaIPTV decode_internal; in that case this call's picture
+ * is the one taken and no second pull is made, as there is one output texture). */
+static int probe456_decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
+  bool pulled = false;
+  int ra = sceAvcdecDecodeAuInternal(decoder, a, &probe456_pic_state);
+  if ((unsigned int)ra == 0x8062000Au) {
+    probe456_es_full++;
+    SceAvcdecAu empty = *a;
+    empty.es.pBuf = NULL;
+    empty.es.size = 0;
+    int re = sceAvcdecDecodeAuInternal(decoder, &empty, &probe456_pic_state);
+    if (re < 0 && (unsigned int)re != 0x8062000Du)
+      probe456_log_call_failed("sceAvcdecDecodeAuInternal(empty)", re, frame_seq);
+    int rg = probe456_get_picture_internal(frame_seq);
+    if (rg < 0)
+      return rg;
+    pulled = true;
+    ra = sceAvcdecDecodeAuInternal(decoder, a, &probe456_pic_state);
+  }
+  if ((unsigned int)ra == 0x8062000Du) {
+    probe456_invalid++; /* seen on device for units that decoded fine (VitaIPTV): counted, not fatal
+                         */
+  } else if (ra < 0) {
+    probe456_log_call_failed("sceAvcdecDecodeAuInternal", ra, frame_seq);
+    return pulled && array_picture.numOfOutput == 1 ? 0 : ra;
+  }
+  if (ra >= 0 || (unsigned int)ra == 0x8062000Du)
+    probe456_fed++;
+  if (pulled)
+    return 0;
+  return probe456_get_picture_internal(frame_seq);
+}
+
 typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
 
 /* #413 decoder pull. The hardware decoder gives back at most one picture per sceAvcdecDecode call,
@@ -1465,8 +1615,8 @@ typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } 
  * now_us is the caller's process-time reading. */
 static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint32_t *readback_seq,
                                        bool *readback_valid) {
-  if (dechold_pull_disabled || dechold_handed_total == 0)
-    return PULL_NOT_TRIED;
+  if (dechold_pull_disabled || dechold_handed_total == 0 || probe456_internal_lib)
+    return PULL_NOT_TRIED; /* the Internal decoder is read by probe456_decode_internal */
 
   if (dechold_pull_floor > dechold_pull_base &&
       now_us - dechold_pull_floor_change_us >= DECHOLD_PULL_FLOOR_DECAY_US) {
@@ -1530,7 +1680,9 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                             uint64_t frame_first_packet_ms, uint32_t frame_seq) {
   chiaki_mutex_lock(&mtx);
 
-  int avail_size = sceAvcdecDecodeAvailableSize(decoder);
+  /* The Internal decoder has its own ES buffer: there is no available-size call for it, a full
+   * buffer is answered by ES_BUFFER_FULL (handled in probe456_decode_internal). */
+  int avail_size = probe456_internal_lib ? 0x7fffffff : sceAvcdecDecodeAvailableSize(decoder);
   uint32_t avail_now = avail_size > 0 ? (uint32_t)avail_size : 0;
   if (avail_now < dechold_acc.avail_min)
     dechold_acc.avail_min = avail_now;
@@ -1568,13 +1720,16 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   picture.info.pts.upper = DECHOLD_PTS_SENTINEL;
   picture.info.pts.lower = DECHOLD_PTS_SENTINEL;
   uint64_t decode_start_us = sceKernelGetProcessTimeWide();
-  ret = sceAvcdecDecode(decoder, &au, &array_picture);
+  ret = probe456_internal_lib ? probe456_decode_internal(&au, frame_seq)
+                              : sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
   uint32_t since_prev_us =
       decode_prev_start_us != 0 ? (uint32_t)(decode_start_us - decode_prev_start_us) : 0;
   decode_prev_start_us = decode_start_us;
   record_decode_timing_sample(decode_elapsed_us);
+  if (probe456_internal_lib)
+    probe456_rate_tick(decode_elapsed_us, decode_end_us);
   if (context.stream.first_decode_frame_count < 30) {
     context.stream.first_decode_frame_count++;
     LOGD("PIPE/DECODE n=%u us=%u", context.stream.first_decode_frame_count, decode_elapsed_us);
@@ -1790,6 +1945,7 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   bool sps_rewritten = probe456_rewrite_sps(buf, buf_size, sps_pre, &sps_pre_len, &sps_consumed);
 
   uint32_t frame_seq = press_meter_observe_frame(buf_size, frame_corrupt, frame_first_packet_ms);
+  probe456_rx_frames++;
 
   chiaki_mutex_lock(&decode_q_mtx);
 
@@ -2196,6 +2352,7 @@ bool vita_video_render_latest_frame(void) {
     if (context.stream.display_fps_window_start_us == 0)
       context.stream.display_fps_window_start_us = now_us;
     context.stream.display_frame_count++;
+    probe456_shown_frames++;
     if (now_us - context.stream.display_fps_window_start_us >= 1000000) {
       context.stream.display_fps = context.stream.display_frame_count;
       context.stream.display_frame_count = 0;
@@ -2349,6 +2506,7 @@ void vita_h264_start() {
   press_meter_reset(&press_meter);
   sps_probe_reset();
   probe456_sps_rewrites = 0;
+  probe456_reset_rate();
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;

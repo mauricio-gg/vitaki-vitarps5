@@ -39,7 +39,16 @@ static void test_1080p(void) {
   assert(g.origin_x == 0.0f && g.origin_y == 2.0f);
 }
 
+/* catches: 540p or 720p being routed to the undocumented Internal decoder path (they must keep the
+ * public calls of build 0.1.1231), or 1080p being routed to the public path that refuses it. */
+static void test_internal_decoder_only_for_1080p(void) {
+  assert(!video_geometry_needs_internal_decoder(960, 540));
+  assert(!video_geometry_needs_internal_decoder(1280, 720));
+  assert(video_geometry_needs_internal_decoder(1920, 1080));
+}
+
 int main(void) {
+  test_internal_decoder_only_for_1080p();
   test_540p_unchanged();
   test_720p();
   test_1080p();
