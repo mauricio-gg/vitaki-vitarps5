@@ -17,6 +17,7 @@ CHIAKI_EXPORT void chiaki_opus_encoder_init(ChiakiOpusEncoder *encoder, ChiakiLo
 	encoder->audio_sender = NULL;
 	encoder->opus_frame_buf = NULL;
 	encoder->opus_frame_buf_size = 0;
+	encoder->last_encoded_size = 0;
 }
 
 CHIAKI_EXPORT void chiaki_opus_encoder_fini(ChiakiOpusEncoder *encoder)
@@ -52,6 +53,14 @@ CHIAKI_EXPORT void chiaki_opus_encoder_header(ChiakiAudioHeader *header, ChiakiO
 	CHIAKI_LOGI(encoder->log, "ChiakiOpusEncoder initialized");
 
 	size_t opus_frame_buf_size_required = 40;
+
+	// The sender only accepts packets of exactly 40 bytes (see chiaki_audio_sender_opus_data), so
+	// every frame must come out at that size. With VBR (the Opus default) a frame may be smaller,
+	// notably a band-limited or quiet source, and every packet was dropped (GH #467: 16 kHz Vita mic,
+	// packets_sent=0). CBR makes Opus pad each packet to the full size; the bitrate is the one that
+	// makes that size exact: 40 bytes x 8 x frames per second = 32 kbps for 10 ms frames.
+	opus_encoder_ctl(encoder->opus_encoder, OPUS_SET_VBR(0));
+	opus_encoder_ctl(encoder->opus_encoder, OPUS_SET_BITRATE((opus_int32)(opus_frame_buf_size_required * 8 * (header->rate / header->frame_size))));
 	uint8_t *opus_frame_buf_old = encoder->opus_frame_buf;
 	if(!encoder->opus_frame_buf || encoder->opus_frame_buf_size != opus_frame_buf_size_required)
 		encoder->opus_frame_buf = realloc(encoder->opus_frame_buf, opus_frame_buf_size_required);
@@ -78,6 +87,7 @@ CHIAKI_EXPORT void chiaki_opus_encoder_frame(int16_t *pcm_buf, ChiakiOpusEncoder
 	}
 
 	int r = opus_encode(encoder->opus_encoder, pcm_buf, encoder->audio_header.frame_size, encoder->opus_frame_buf, encoder->opus_frame_buf_size);
+	encoder->last_encoded_size = r;
 	if(r < 1)
 		CHIAKI_LOGE(encoder->log, "Encoding audio frame with opus failed: %s", opus_strerror(r));
 	else

@@ -21,6 +21,7 @@ typedef struct chiaki_opus_encoder_t
 	uint8_t *opus_frame_buf;
 	size_t opus_frame_buf_size;
 	ChiakiAudioSender *audio_sender;
+	int last_encoded_size; // opus_encode() result of the last frame (bytes, or a negative error); diagnostics
 } ChiakiOpusEncoder;
 
 CHIAKI_EXPORT void chiaki_opus_encoder_init(ChiakiOpusEncoder *encoder, ChiakiLog *log);
