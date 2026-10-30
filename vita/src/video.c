@@ -22,6 +22,7 @@
 #include "video_geometry.h"
 #include "press_meter.h"
 #include "sps_probe.h"
+#include "sps_rewrite.h"
 #include "context.h"
 #include "ui/ui_draw_stats.h"
 
@@ -94,6 +95,8 @@ static int probe456_decoder_refs = 0;
 static int probe456_stream_w = 0;
 static int probe456_stream_h = 0;
 static bool probe456_spsrefs_logged = false;
+/* SPS rewrites done this session (receive thread only; reset in vita_h264_start). */
+static uint32_t probe456_sps_rewrites = 0;
 
 /* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
  * own convention requires for a cross-thread flag -- a pre-existing gap (written on
@@ -1561,6 +1564,45 @@ static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
   return frame_seq;
 }
 
+/* #456 probe: when the decoder holds fewer reference frames than the SPS declares (720p and
+ * 1080p only; 540p is never touched), rewrite the SPS at the start of this buffer. Receive thread,
+ * no allocation. On a rewrite, pre[0..*pre_len) replaces the first *consumed bytes of buf (start
+ * code + SPS NAL); the caller copies the rest unchanged. */
+static bool probe456_rewrite_sps(const uint8_t *buf, size_t size, uint8_t *pre, size_t *pre_len,
+                                 size_t *consumed) {
+  if (probe456_stream_w <= 960 || probe456_decoder_refs <= 0)
+    return false;
+  size_t off, len;
+  if (!sps_probe_locate(buf, size, &off, &len))
+    return false;
+  uint8_t out[SPS_REWRITE_MAX_OUT];
+  uint32_t out_len = 0;
+  SpsRewriteInfo info;
+  SpsRewriteStatus st = sps_rewrite_max_refs(
+      buf + off, (uint32_t)len, (uint32_t)probe456_decoder_refs, out, sizeof(out), &out_len, &info);
+  if (st == SPS_REWRITE_NOT_NEEDED)
+    return false;
+  if (st != SPS_REWRITE_DONE) {
+    LOGW("PROBE456/SPSREWRITE refused status=%s", sps_rewrite_status_name(st));
+    return false;
+  }
+  if (size - len + out_len > DECODE_SLOT_CAPACITY - DECODE_SLOT_PAD)
+    return false;
+  memcpy(pre, buf, off); /* the original start code */
+  memcpy(pre + off, out, out_len);
+  *pre_len = off + out_len;
+  *consumed = off + len;
+  probe456_sps_rewrites++;
+  if (probe456_sps_rewrites == 1) {
+    LOGW("PROBE456/SPSREWRITE refs %u->%u dfb %d->%d len %u->%u", info.refs_old, info.refs_new,
+         info.dfb_old == UINT32_MAX ? -1 : (int)info.dfb_old,
+         info.dfb_new == UINT32_MAX ? -1 : (int)info.dfb_new, info.len_old, info.len_new);
+  } else if (probe456_sps_rewrites % 10 == 0) {
+    LOGW("PROBE456/SPSREWRITE count=%u", probe456_sps_rewrites);
+  }
+  return true;
+}
+
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                            uint64_t frame_first_packet_ms) {
   /* Early validation — reject garbage before touching the queue. */
@@ -1585,6 +1627,12 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * compares; one bounded copy or compare only when it does). buf is not modified and the
    * decoder is fed exactly as before. Parsing and printing happen on the UI thread. */
   sps_probe_observe(buf, buf_size);
+
+  /* #456 probe: SPS rewrite for 720p/1080p. Prefix replaces the SPS at the buffer start. */
+  uint8_t sps_pre[4 + SPS_REWRITE_MAX_OUT];
+  size_t sps_pre_len = 0;
+  size_t sps_consumed = 0;
+  bool sps_rewritten = probe456_rewrite_sps(buf, buf_size, sps_pre, &sps_pre_len, &sps_consumed);
 
   uint32_t frame_seq = press_meter_observe_frame(buf_size, frame_corrupt, frame_first_packet_ms);
 
@@ -1617,9 +1665,16 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * the callback returns. Zero the trailing DECODE_SLOT_PAD bytes required by
    * sceAvcdecDecode (== CHIAKI_VIDEO_BUFFER_PADDING_SIZE). */
   DecodeSlot *slot = &decode_queue[decode_q_tail];
-  sceClibMemcpy(slot->data, buf, buf_size);
-  sceClibMemset(slot->data + buf_size, 0, DECODE_SLOT_PAD);
-  slot->size = buf_size;
+  size_t slot_size = buf_size;
+  if (sps_rewritten) {
+    sceClibMemcpy(slot->data, sps_pre, sps_pre_len);
+    sceClibMemcpy(slot->data + sps_pre_len, buf + sps_consumed, buf_size - sps_consumed);
+    slot_size = sps_pre_len + (buf_size - sps_consumed);
+  } else {
+    sceClibMemcpy(slot->data, buf, buf_size);
+  }
+  sceClibMemset(slot->data + slot_size, 0, DECODE_SLOT_PAD);
+  slot->size = slot_size;
   slot->frame_corrupt = frame_corrupt;
   slot->frame_first_packet_ms = frame_first_packet_ms;
   slot->press_frame_seq = frame_seq;
@@ -2138,6 +2193,7 @@ void vita_h264_start() {
   incoming_frame_decode_done_us = 0;
   press_meter_reset(&press_meter);
   sps_probe_reset();
+  probe456_sps_rewrites = 0;
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;
