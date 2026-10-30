@@ -1368,6 +1368,9 @@ static uint32_t internal_backlog_logged = 0;
 static uint64_t internal_backlog_log_us = 0;
 static uint32_t internal_backlog_over_frames = 0;
 static uint64_t internal_backlog_resync_us = 0; /* survives sessions on purpose; 0 = never fired */
+/* Set by internal_backlog_observe() under `mtx` when a resync is decided; carried out by
+ * internal_backlog_resync_if_wanted() once `mtx` is released. Decode thread only. */
+static bool internal_resync_wanted = false;
 
 static void log_internal_call_failed(const char *call, int ret, uint32_t frame_seq) {
   if (internal_err_logged >= INTERNAL_ERR_LOG_MAX)
@@ -1483,8 +1486,20 @@ static void internal_backlog_observe(uint32_t frame_seq, uint64_t now_us) {
       now_us - internal_backlog_resync_us < INTERNAL_BACKLOG_RESYNC_GAP_US)
     return;
   internal_backlog_resync_us = now_us;
-  LOGW("PIPE/INTBACKLOG resync backlog=%u threshold=%u frame=%u accepted=%d", backlog,
-       INTERNAL_BACKLOG_RESYNC_HOLD, frame_seq, host_request_stream_resync() ? 1 : 0);
+  internal_resync_wanted = true;
+  LOGW("PIPE/INTBACKLOG resync backlog=%u threshold=%u frame=%u (requesting)", backlog,
+       INTERNAL_BACKLOG_RESYNC_HOLD, frame_seq);
+}
+
+/* Carries out the resync internal_backlog_observe() decided on. Called on the decode thread after
+ * decode_frame_now() has returned, so `mtx` is not held: the request takes the session's and the
+ * stream connection's locks, and no video lock may be held while it does. */
+static void internal_backlog_resync_if_wanted(uint32_t frame_seq) {
+  if (!internal_resync_wanted)
+    return;
+  internal_resync_wanted = false;
+  LOGW("PIPE/INTBACKLOG resync frame=%u accepted=%d", frame_seq,
+       host_request_stream_resync() ? 1 : 0);
 }
 
 typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
@@ -2340,6 +2355,7 @@ static void *decode_thread_func(void *user) {
      * decode_q_head below — the producer will block or drop-oldest on the
      * preceding slots rather than overwriting this one. */
     decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms, frame_seq);
+    internal_backlog_resync_if_wanted(frame_seq); /* after the unlock: takes lib locks */
 
     /* Release the slot now that decode is done. Signal any blocked producer. */
     chiaki_mutex_lock(&decode_q_mtx);
@@ -2377,6 +2393,7 @@ void vita_h264_start() {
   internal_backlog_logged = 0;
   internal_backlog_log_us = 0;
   internal_backlog_over_frames = 0;
+  internal_resync_wanted = false;
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;
