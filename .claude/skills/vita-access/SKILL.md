@@ -26,13 +26,14 @@ The test Vita runs [vitacompanion](https://github.com/devnoname120/vitacompanion
 ```
 tools/vita.sh upload <local.vpk> [remote-name]   # to ux0:/vpk/<remote-name>
 tools/vita.sh ls [dir]                           # list ux0:/<dir>, default vpk
-tools/vita.sh log <local-path>                   # pull ux0:/data/vita-chiaki/vitarps5-testing.log
+tools/vita.sh logs                               # list the testing logs on the Vita
+tools/vita.sh log <local-path> [remote-name]     # pull the newest testing log, or the named one
 tools/vita.sh cmd <command...>                   # send to the command port
 ```
 
 Give VPKs a name that says what they test (e.g. `VitaRPS5-468-two-finger-hold.vpk`) so the CEO can tell them apart. After `upload`, `ls` and compare the size with `wc -c` on the local file. Then tell the CEO the name to install.
 
-Pull the log with `tools/vita.sh log <scratchpad>/vita.log`, then `grep -a` / `tail -a` it. The log only exists after a build from `./tools/build.sh --env testing` has run on the Vita.
+Testing logs live in `ux0:/data/vita-chiaki/`. The app writes one file per run, named `<number>_vitarps5-testing.log` (`vita/src/logging.c` prefixes the configured name with the system time in microseconds at the first log call; the clock restarts at each Vita boot, so the number is not chronological). Only builds from `./tools/build.sh --env testing` write them. `log` without a remote name picks the file with the newest modification time (read over FTP), prints which one it pulled, and fails clearly if there is none. Then `grep -a` / `tail -n` the local copy (`tail -n 5 file | cut -c1-160`, since lines can be long hex dumps).
 
 `./tools/build.sh deploy <vita_ip>` also uploads over FTP 1337, but it puts `build/vitarps5.vpk` in `ux0:/` (not `ux0:/vpk/`) and still prints a VitaShell message. Prefer `tools/vita.sh upload`.
 
