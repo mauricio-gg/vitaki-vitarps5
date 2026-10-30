@@ -188,7 +188,7 @@ static volatile uint64_t incoming_frame_decode_done_us = 0;
 /* PIPE/PRESS (#413, docs/design/streaming.md "Delay probes"): press-to-picture meter wiring.
  * Detection (press_meter.c) runs on the recv thread inside vita_h264_decode_frame(); the
  * jump frame is then followed to the screen by comparing frame sequence numbers, so it still
- * completes when the queue dropped the frame, a newer decode replaced it, pacing skipped it
+ * completes when the queue dropped the frame, a newer decode replaced it
  * or the freeze path showed an older picture. Log-only: nothing here changes behaviour. */
 
 /* Recv thread only: the detector state and the running frame counter (frame_seq stored in each
@@ -359,27 +359,6 @@ static vita2d_texture *promote_decoded_frame_to_last_good(void) {
   frame_texture_seq = last_good_texture_seq;
   last_good_texture_seq = newly_decoded_seq;
   return last_good_texture;
-}
-
-static bool should_drop_frame_for_pacing(void) {
-  if (!context.config.force_30fps)
-    return false;
-
-  uint32_t target = context.stream.target_fps;
-  if (target == 0)
-    return false;
-
-  uint32_t source = context.stream.measured_incoming_fps ? context.stream.measured_incoming_fps
-                                                         : context.stream.negotiated_fps;
-  if (source == 0 || target >= source)
-    return false;
-
-  context.stream.pacing_accumulator += target;
-  if (context.stream.pacing_accumulator < source)
-    return true;
-
-  context.stream.pacing_accumulator -= source;
-  return false;
 }
 
 static void record_decode_timing_sample(uint32_t decode_elapsed_us) {
@@ -2001,9 +1980,7 @@ bool vita_video_render_latest_frame(void) {
     return false;
   }
   frame_ready_for_display = false;
-  /* Latency investigation (item 1): snapshot once, before either branch below, so the
-   * paced-drop path (which never swaps buffers, and therefore never has a real display
-   * timestamp) and the display path both see the same frame's timestamp consistently.
+  /* Latency investigation (item 1): snapshot the frame's timestamps once, before the draw.
    * PIPE/DISPLAY: the decode-done stamp is snapshotted together with it. */
   uint64_t frame_first_packet_ms_snapshot = incoming_frame_first_packet_ms;
   uint64_t decode_done_us_snapshot = incoming_frame_decode_done_us;
@@ -2033,9 +2010,7 @@ bool vita_video_render_latest_frame(void) {
     }
   }
 
-  /* Called exactly once per claimed frame. It only touches UI-thread pacing state. */
-  bool drop_frame = should_drop_frame_for_pacing();
-  /* A swap is due exactly when the frame is clean, paced out or not. */
+  /* A swap is due exactly when the frame is clean. */
   vita2d_texture *clean_texture = corrupt ? NULL : promote_decoded_frame_to_last_good();
   chiaki_mutex_unlock(&mtx);
 
@@ -2049,35 +2024,6 @@ bool vita_video_render_latest_frame(void) {
         context.stream.display_pickup_samples_us, &context.stream.display_pickup_sample_count,
         &context.stream.display_pickup_write_idx, &context.stream.display_pickup_dropped_count,
         render_entry_us - decode_done_us_snapshot);
-  }
-
-  if (drop_frame) {
-    // Frame is paced out but still consumed — advance freeze state so the cap
-    // counts all consumed frames, not just displayed ones.
-    if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
-      frozen_frame_streak++;
-      context.stream.freeze_engaged_count++;
-    } else if (!corrupt) {
-      // Clean paced-drop: the frame was already promoted to last-good by the claim above (no
-      // draw happens on this path, so the swap is unconditionally safe -- there is no
-      // concurrent GPU read of either texture to race against here).
-      if (frozen_frame_streak > 0) {
-        LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
-      }
-      frozen_frame_streak = 0;
-    } else {
-      /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
-      if (frozen_frame_streak > 0)
-        LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
-      frozen_frame_streak = 0;
-    }
-    // PIPE/DISPLAY: pickup_us was already recorded above (real regardless of pacing);
-    // snapshot/draw/swap never happen on this path (no buffer swap occurs), so recording
-    // zeros for them would corrupt those rings' percentiles with fake zero-latency
-    // samples. Track this as a distinct counter instead.
-    context.stream.display_paced_count++;
-    ui_render_in_progress = false;
-    return true;  // consumed the frame but skipped display
   }
 
   /* Determine which texture to present.

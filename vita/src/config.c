@@ -58,7 +58,6 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->show_stream_exit_hint = true;
   cfg->latency_mode = VITA_LATENCY_MODE_MAX;
   cfg->stretch_video = false;
-  cfg->force_30fps = false;
   cfg->send_actual_start_bitrate = true;
   cfg->clamp_soft_restart_bitrate = true;
   cfg->submit_on_missing_ref = false;
@@ -486,7 +485,6 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
       {"show_network_indicator", true, &cfg->show_network_indicator},
       {"show_stream_exit_hint", true, &cfg->show_stream_exit_hint},
       {"stretch_video", false, &cfg->stretch_video},
-      {"force_30fps", false, &cfg->force_30fps},
       {"send_actual_start_bitrate", true, &cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", true, &cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", false, &cfg->submit_on_missing_ref},
@@ -559,13 +557,14 @@ static void migrate_latency_mode(VitaChiakiConfig *cfg, bool *migrated) {
   *migrated = true;
 }
 
-static void persist_migrated_config_if_needed(
-    VitaChiakiConfig *cfg, bool migrated_legacy_settings, bool migrated_root_settings,
-    bool migrated_resolution_policy, bool migrated_plaintext_tokens,
-    bool migrated_plaintext_host_keys, bool migrated_auth_provenance, bool migrated_latency_mode) {
-  if (!(migrated_legacy_settings || migrated_root_settings || migrated_resolution_policy ||
-        migrated_plaintext_tokens || migrated_plaintext_host_keys || migrated_auth_provenance ||
-        migrated_latency_mode))
+static void persist_migrated_config_if_needed(VitaChiakiConfig *cfg, bool migrated_legacy_settings,
+                                              bool migrated_root_settings,
+                                              bool migrated_plaintext_tokens,
+                                              bool migrated_plaintext_host_keys,
+                                              bool migrated_auth_provenance,
+                                              bool migrated_latency_mode) {
+  if (!(migrated_legacy_settings || migrated_root_settings || migrated_plaintext_tokens ||
+        migrated_plaintext_host_keys || migrated_auth_provenance || migrated_latency_mode))
     return;
 
   if (migrated_latency_mode) {
@@ -579,8 +578,6 @@ static void persist_migrated_config_if_needed(
          CFG_FILENAME);
   } else if (migrated_root_settings) {
     LOGD("Recovered settings via root-level fallback and rewriting %s", CFG_FILENAME);
-  } else if (migrated_resolution_policy) {
-    LOGD("Applied Vita resolution policy and rewriting %s", CFG_FILENAME);
   } else {
     LOGD("Recovered misplaced settings from legacy config layout; rewriting %s", CFG_FILENAME);
   }
@@ -629,7 +626,6 @@ void config_parse(VitaChiakiConfig *cfg) {
 
   bool migrated_legacy_settings = false;
   bool migrated_root_settings = false;
-  bool migrated_resolution_policy = false;
   bool migrated_plaintext_tokens = false;
   bool migrated_plaintext_host_keys = false;
   bool migrated_auth_provenance = false;
@@ -639,7 +635,7 @@ void config_parse(VitaChiakiConfig *cfg) {
   parse_basic_settings(cfg, settings, &migrated_plaintext_tokens);
   migrate_auth_provenance(cfg, &migrated_auth_provenance);
   parse_resolution_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
-                                  &migrated_root_settings, &migrated_resolution_policy);
+                                  &migrated_root_settings);
   parse_fps_with_migration(cfg, settings, parsed, &migrated_legacy_settings,
                            &migrated_root_settings);
 
@@ -671,16 +667,14 @@ void config_parse(VitaChiakiConfig *cfg) {
   room_icons_parse(&cfg->room_icons, parsed);
   toml_free(parsed);
   persist_migrated_config_if_needed(cfg, migrated_legacy_settings, migrated_root_settings,
-                                    migrated_resolution_policy, migrated_plaintext_tokens,
-                                    migrated_plaintext_host_keys, migrated_auth_provenance,
-                                    migrated_latency_mode);
+                                    migrated_plaintext_tokens, migrated_plaintext_host_keys,
+                                    migrated_auth_provenance, migrated_latency_mode);
 
 config_done:
   LOGD(
-      "Config loaded: latency_mode=%s force_30fps=%s send_actual_start_bitrate=%s "
+      "Config loaded: latency_mode=%s send_actual_start_bitrate=%s "
       "clamp_soft_restart_bitrate=%s submit_on_missing_ref=%s",
-      serialize_latency_mode(cfg->latency_mode), cfg->force_30fps ? "true" : "false",
-      cfg->send_actual_start_bitrate ? "true" : "false",
+      serialize_latency_mode(cfg->latency_mode), cfg->send_actual_start_bitrate ? "true" : "false",
       cfg->clamp_soft_restart_bitrate ? "true" : "false",
       cfg->submit_on_missing_ref ? "true" : "false");
 }
@@ -730,12 +724,6 @@ void config_free(VitaChiakiConfig *cfg) {
  * hold the file contents (not NUL-terminated by contract) and the caller owns the buffer.
  */
 static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *out_len) {
-  bool downgraded_resolution = false;
-  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
-  if (downgraded_resolution) {
-    LOGD("Refusing to persist unsupported resolution on Vita; saving 540p instead");
-  }
-
   char *data = NULL;
   size_t len = 0;
   FILE *fp = open_memstream(&data, &len);
@@ -847,7 +835,6 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
       {"show_network_indicator", cfg->show_network_indicator},
       {"show_stream_exit_hint", cfg->show_stream_exit_hint},
       {"stretch_video", cfg->stretch_video},
-      {"force_30fps", cfg->force_30fps},
       {"send_actual_start_bitrate", cfg->send_actual_start_bitrate},
       {"clamp_soft_restart_bitrate", cfg->clamp_soft_restart_bitrate},
       {"submit_on_missing_ref", cfg->submit_on_missing_ref},

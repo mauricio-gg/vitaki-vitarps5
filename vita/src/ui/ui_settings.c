@@ -88,17 +88,6 @@ static void fps_change(int step) {
   ui_settings_persist_config();
 }
 
-static bool force_30fps_is_on(void) {
-  return context.config.force_30fps;
-}
-
-static void force_30fps_change(int step) {
-  (void)step;
-  context.config.force_30fps = !context.config.force_30fps;
-  ui_settings_persist_config();
-  ui_settings_apply_force_30fps();
-}
-
 static bool fill_screen_is_on(void) {
   return context.config.stretch_video;
 }
@@ -117,8 +106,6 @@ static const SettingDef VIDEO_ROWS[] = {
      latency_text, latency_change},
     {"FPS Target", UI_SETTING_CHOICE, "Frame rate requested from the console.", NULL, fps_text,
      fps_change},
-    {"Force 30 FPS Output", UI_SETTING_TOGGLE, "Output video at 30 FPS.", force_30fps_is_on, NULL,
-     force_30fps_change},
     {"Fill Screen", UI_SETTING_TOGGLE, "Stretch the video to fill the whole screen.",
      fill_screen_is_on, NULL, fill_screen_change},
 };

@@ -15,19 +15,6 @@ ChiakiVideoResolutionPreset parse_resolution_preset(const char *preset) {
   return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
 }
 
-ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionPreset preset,
-                                                          bool *was_downgraded) {
-  if (was_downgraded)
-    *was_downgraded = false;
-  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ||
-      preset == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
-    if (was_downgraded)
-      *was_downgraded = true;
-    return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-  }
-  return preset;
-}
-
 VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
   if (!mode)
     return VITA_LATENCY_MODE_MAX;

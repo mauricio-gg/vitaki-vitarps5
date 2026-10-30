@@ -197,7 +197,6 @@ static void build_settings_rows(int group) {
       add_row("Quality Preset", ui_label_resolution(cfg->resolution), 0);
       add_row("Latency Mode", ui_label_latency_mode(cfg->latency_mode), 0);
       add_row("FPS Target", ui_label_fps(cfg->fps), 0);
-      add_toggle_row("Force 30 FPS Output", cfg->force_30fps);
       add_toggle_row("Fill Screen", cfg->stretch_video);
       break;
     case UI_SETTINGS_GROUP_NETWORK:
