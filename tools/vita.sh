@@ -10,7 +10,7 @@ set -u
 
 FTP_PORT=1337
 CMD_PORT=1338
-LOG_REMOTE="ux0:data/vita-chiaki/vitarps5-testing.log"
+LOG_REMOTE="ux0:/data/vita-chiaki/vitarps5-testing.log"
 
 die() { echo "vita.sh: $*" >&2; exit 1; }
 
@@ -22,6 +22,7 @@ ftp() {
   out=$(curl -sS --fail --connect-timeout 3 --max-time 600 "$@" 2>&1); rc=$?
   if [ $rc -ne 0 ]; then
     echo "$out" >&2
+    [ -z "${CLEANUP:-}" ] || rm -f "$CLEANUP"
     die "FTP request to $VITA_IP:$FTP_PORT failed (curl exit $rc). Is the Vita awake, on the same network, and running vitacompanion?"
   fi
   [ -z "$out" ] || printf '%s\n' "$out"
@@ -36,12 +37,11 @@ case "$sub" in
     echo "uploaded $src -> ux0:/vpk/$name ($(wc -c <"$src" | tr -d ' ') bytes)"
     ;;
   ls)
-    ftp --list-only "ftp://$VITA_IP:$FTP_PORT/ux0:/${1:-vpk}/" 
+    ftp --list-only "ftp://$VITA_IP:$FTP_PORT/ux0:/${1:-vpk}/"
     ;;
   log)
     dest="${1:-}"; [ -n "$dest" ] || die "usage: log <local-path>"
-    ftp --ftp-method nocwd -o "$dest" "ftp://$VITA_IP:$FTP_PORT//$LOG_REMOTE" \
-      || exit 1
+    CLEANUP="$dest" ftp --ftp-method nocwd -o "$dest" "ftp://$VITA_IP:$FTP_PORT//$LOG_REMOTE"
     echo "pulled $LOG_REMOTE -> $dest ($(wc -c <"$dest" | tr -d ' ') bytes)"
     ;;
   cmd)

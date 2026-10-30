@@ -26,7 +26,7 @@ The test Vita runs [vitacompanion](https://github.com/devnoname120/vitacompanion
 ```
 tools/vita.sh upload <local.vpk> [remote-name]   # to ux0:/vpk/<remote-name>
 tools/vita.sh ls [dir]                           # list ux0:/<dir>, default vpk
-tools/vita.sh log <local-path>                   # pull ux0:data/vita-chiaki/vitarps5-testing.log
+tools/vita.sh log <local-path>                   # pull ux0:/data/vita-chiaki/vitarps5-testing.log
 tools/vita.sh cmd <command...>                   # send to the command port
 ```
 
