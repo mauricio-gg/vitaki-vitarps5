@@ -177,7 +177,6 @@ void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
 }
 
-#if VITARPS5_DEBUG_TOOLS
 bool host_request_stream_resync(void) {
   if (!context.stream.session_init || context.stream.stop_requested)
     return false;
@@ -190,7 +189,6 @@ bool host_request_stream_resync(void) {
   }
   return true;
 }
-#endif
 
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
   ChiakiVideoResolutionPreset resolution = context.config.resolution;
