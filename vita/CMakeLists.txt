@@ -36,6 +36,8 @@ add_executable(${VITA_APP_NAME}.elf
     src/host_lifecycle.c
     src/mic.c
     src/mic_frame.c
+    src/mic_touch.c
+    src/input_combos.c
     src/host_loss_profile.c
     src/host_metrics.c
     src/host_quit.c
@@ -93,6 +95,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/ui/ui_theme.c
     src/ui/ui_shapes.c
     src/ui/ui_pill.c
+    src/ui/ui_mic.c
     src/ui/ui_stream_stats.c
     src/ui/ui_top_bar.c
     src/ui/ui_wifi_level.c
@@ -391,6 +394,7 @@ if(CHIAKI_IS_VITA)
         FILE assets/glyphs/hint_l.png assets/glyphs/hint_l.png
         FILE assets/glyphs/hint_r.png assets/glyphs/hint_r.png
         FILE assets/glyphs/hint_start.png assets/glyphs/hint_start.png
+        FILE assets/glyphs/hint_select.png assets/glyphs/hint_select.png
         # Logos
         FILE assets/Vita_RPS5_Logo.png assets/Vita_RPS5_Logo.png
         FILE assets/PS5_logo.png assets/PS5_logo.png

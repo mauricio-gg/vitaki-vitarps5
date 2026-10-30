@@ -63,6 +63,7 @@
 #include "ui/ui_draw_stats.h"
 #include "ui/ui_freeze.h"
 #include "ui/ui_list_popup.h"
+#include "ui/ui_mic.h"
 #include "ui/ui_pair_popup.h"
 #include "ui/ui_pin.h"
 #include "ui/ui_result_popup.h"
@@ -953,6 +954,7 @@ void draw_ui() {
       host_metrics_update_latency();
       // GH #474: starts the microphone once the stream is flowing (UI thread, as it must be).
       vitamic_ui_tick();
+      ui_mic_tick();
     }
   }
 }

@@ -115,8 +115,7 @@ static inline DebugTouchTarget debug_touch_target_at(int touch_x, int touch_y, b
 #define DEBUG_PANEL_REQUEST_TOUCH 1
 #define DEBUG_PANEL_REQUEST_COMBO 2
 
-/* L + R + Select held this long toggles the panel. */
-#define DEBUG_PANEL_COMBO_HOLD_MS 500
+/* L + R + Triangle held for INPUT_COMBO_HOLD_MS (input_combos.h) toggles the panel. */
 
 /* What the input thread last SENT, plus the raw motion sample of the same pass, for the panel.
  * Written by the input thread once per pass, read by the UI thread with no lock. Torn reads
@@ -133,7 +132,7 @@ typedef struct debug_input_snapshot_t {
   float raw_accel[3]; /* sceMotion, this pass */
   float raw_gyro[3];
   InputTestClick click;
-  uint32_t combo_held_ms; /* L+R+Select held so far (0 when not held), capped at the threshold */
+  uint32_t combo_held_ms; /* L+R+Triangle held so far (0 when not held), capped at the threshold */
 } DebugInputSnapshot;
 
 /* Written by the input thread, read by the UI thread; see DebugInputSnapshot. */

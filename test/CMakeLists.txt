@@ -587,3 +587,18 @@ target_include_directories(mic_frame_tests PRIVATE
 )
 
 add_test(NAME vitarps5_mic_frame_tests COMMAND mic_frame_tests)
+
+# input_combos_tests.c and mic_touch_tests.c have their own main(): the hold-to-fire combos (mute,
+# debug panel) and the touch area of the on-screen mic control (GH #474). Cross-compiled but never
+# run by ./tools/build.sh test; the native commands are at the top of the files.
+add_executable(input_combos_tests input_combos_tests.c ../vita/src/input_combos.c)
+target_include_directories(input_combos_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_input_combos_tests COMMAND input_combos_tests)
+
+add_executable(mic_touch_tests mic_touch_tests.c ../vita/src/mic_touch.c)
+target_include_directories(mic_touch_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_mic_touch_tests COMMAND mic_touch_tests)

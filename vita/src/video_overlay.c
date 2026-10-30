@@ -5,6 +5,7 @@
 #include "ui.h"
 #include "ui/ui_component.h"
 #include "ui/ui_draw_stats.h"
+#include "ui/ui_mic.h"
 #include "ui/ui_pill.h"
 #include "ui/ui_shapes.h"
 #include "ui/ui_stream_stats.h"
@@ -76,16 +77,39 @@ static UiPillPart exit_hint_parts[] = {
 };
 #define EXIT_HINT_PART_COUNT ((int)(sizeof(exit_hint_parts) / sizeof(exit_hint_parts[0])))
 
-/** Width of the exit hint pill; measured once on first use, 0 until then. */
+/** Parts of the mic hint pill: "Mute mic: Hold [L] + [R] + [Select]". */
+static UiPillPart mute_hint_parts[] = {
+    {.text = "Mute mic: Hold "}, {.glyph = UI_BTN_L}, {.text = " + "},
+    {.glyph = UI_BTN_R},         {.text = " + "},     {.glyph = UI_BTN_SELECT},
+};
+#define MUTE_HINT_PART_COUNT ((int)(sizeof(mute_hint_parts) / sizeof(mute_hint_parts[0])))
+
+/** Widths of the two hint pills; measured once on first use, 0 until then. */
 static int exit_hint_width = 0;
+static int mute_hint_width = 0;
+
+/** True when the mute hint pill is stacked under the exit hint pill, which pushes the stats panel
+ * down. With the exit hint off the mute hint takes the top slot and nothing moves. */
+static bool hints_stacked(void) {
+  return context.config.microphone && context.config.show_stream_exit_hint;
+}
+
+/** Draw @parts as a plain pill right-aligned at the overlay margin, @slot pills below the top. */
+static void draw_hint_pill(UiPillPart *parts, int count, int *width, int slot) {
+  if (*width == 0)
+    *width = ui_pill_plain_layout(parts, count);
+  ui_pill_plain_draw(SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - *width,
+                     UI_STREAM_OVERLAY_MARGIN + slot * UI_STREAM_HINT_STEP, *width, parts, count);
+}
 
 /**
- * Draw the exit hint (C19 plain, SPEC 3.5): visible for UI_STREAM_HINT_VISIBLE_MS from the first
- * frame of the stream, then a linear fade over UI_STREAM_HINT_FADE_MS. The fade is the layer
- * opacity, restored to 1 before returning.
+ * Draw the stream hints (C19 plain, SPEC 3.5): the exit hint (Show Exit Shortcut Hint on) and,
+ * under it, the mic hint (Microphone on). Both are visible for UI_STREAM_HINT_VISIBLE_MS from the
+ * first frame of the stream, then fade out linearly over UI_STREAM_HINT_FADE_MS. The fade is the
+ * layer opacity, restored to 1 before returning.
  */
-static void draw_stream_exit_hint(void) {
-  if (!context.config.show_stream_exit_hint)
+static void draw_stream_hints(void) {
+  if (!context.config.show_stream_exit_hint && !context.config.microphone)
     return;
 
   uint64_t now_us = sceKernelGetProcessTimeWide();
@@ -105,14 +129,12 @@ static void draw_stream_exit_hint(void) {
     opacity = 1.0f - (float)(elapsed_us - visible_us) / (float)fade_us;
   }
 
-  if (exit_hint_width == 0) {
-    exit_hint_width = ui_pill_plain_layout(exit_hint_parts, EXIT_HINT_PART_COUNT);
-  }
-
   ui_layer_set_alpha(opacity);
-  ui_pill_plain_draw(SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - exit_hint_width,
-                     UI_STREAM_OVERLAY_MARGIN, exit_hint_width, exit_hint_parts,
-                     EXIT_HINT_PART_COUNT);
+  if (context.config.show_stream_exit_hint)
+    draw_hint_pill(exit_hint_parts, EXIT_HINT_PART_COUNT, &exit_hint_width, 0);
+  if (context.config.microphone)
+    draw_hint_pill(mute_hint_parts, MUTE_HINT_PART_COUNT, &mute_hint_width,
+                   context.config.show_stream_exit_hint ? 1 : 0);
   ui_layer_set_alpha(1.0f);
 }
 
@@ -183,11 +205,12 @@ static void draw_stream_stats_panel(void) {
   const int box_h =
       UI_STATS_PAD_Y * 2 + UI_STATS_LINE_H + UI_STATS_TITLE_GAP + UI_STATS_ROWS * UI_STATS_LINE_H;
   const int box_x = SCREEN_WIDTH - UI_STREAM_OVERLAY_MARGIN - box_w;
-  UiRect box = {box_x, UI_STATS_TOP, box_w, box_h};
+  const int top = UI_STATS_TOP + (hints_stacked() ? UI_STREAM_HINT_STEP : 0);
+  UiRect box = {box_x, top, box_w, box_h};
   ui_shape9_draw(UI_SHAPE9_MD, box, UI_PANEL);
 
   const int text_x = box_x + UI_STATS_PAD_X;
-  int line_y = UI_STATS_TOP + UI_STATS_PAD_Y;
+  int line_y = top + UI_STATS_PAD_Y;
   ui_text_draw_face_centered_v(UI_FACE_T16, text_x, line_y, UI_STATS_LINE_H, UI_TEXT_2,
                                stats_title);
   line_y += UI_STATS_LINE_H + UI_STATS_TITLE_GAP;
@@ -203,9 +226,10 @@ static void draw_stream_stats_panel(void) {
 
 void vitavideo_overlay_render(void) {
   UI_DRAW_STATS_FRAME_BEGIN();
-  draw_stream_exit_hint();
+  draw_stream_hints();
   draw_stream_stats_panel();
   draw_indicators();
+  ui_mic_draw();
 #if VITARPS5_DEBUG_TOOLS
   debug_tools_draw_widget();
 #endif
@@ -214,6 +238,7 @@ void vitavideo_overlay_render(void) {
 
 void vitavideo_overlay_on_stream_start(void) {
   stream_exit_hint_start_us = 0;
+  ui_mic_on_stream_start();
   memset(&stats_cache, 0, sizeof(stats_cache));
 #if VITARPS5_DEBUG_TOOLS
   debug_tools_on_stream_start();
@@ -222,6 +247,7 @@ void vitavideo_overlay_on_stream_start(void) {
 
 void vitavideo_overlay_on_stream_stop(void) {
   stream_exit_hint_start_us = 0;
+  ui_mic_on_stream_stop();
   memset(&stats_cache, 0, sizeof(stats_cache));
 }
 

@@ -111,6 +111,7 @@ static const PreloadEntry PRELOAD_LIST[] = {
     {GLYPHS "hint_l.png", 1},
     {GLYPHS "hint_r.png", 1},
     {GLYPHS "hint_start.png", 1},
+    {GLYPHS "hint_select.png", 1},
     /* step connecting: the page frame icons */
     {ICONS "page_lan.png", 1},
     {ICONS "page_globe.png", 1},

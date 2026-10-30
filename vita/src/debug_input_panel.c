@@ -1,5 +1,7 @@
 #include "debug_input_panel.h"
 
+#include "input_combos.h"
+
 #if VITARPS5_DEBUG_TOOLS
 
 #include "ui/ui_component.h"
@@ -117,7 +119,7 @@ static const char PANEL_MATCHES[] = "sent matches raw";
 static const char PANEL_CLOSE[] = "Close";
 static const char PANEL_HINT_IDLE[] = "hold to close";
 static const char PANEL_HINT_HELD[] = "keep holding";
-static const char *const PANEL_PILLS[] = {"L", "R", "SELECT"};
+static const char *const PANEL_PILLS[] = {"L", "R", "TRIANGLE"};
 #define PANEL_PILL_COUNT 3
 static const char PANEL_AXIS_NAMES[PANEL_AXES][2] = {"x", "y", "z"};
 
@@ -607,10 +609,9 @@ static void draw_footer(int x, int y, uint32_t combo_held_ms) {
   const int bar_x = x + PANEL_CONTENT_W - PANEL_PROGRESS_W;
   const int bar_y = cy - PANEL_PROGRESS_H / 2;
   fill_rect(bar_x, bar_y, PANEL_PROGRESS_W, PANEL_PROGRESS_H, UI_LINE_FAINT);
-  uint32_t held =
-      combo_held_ms > DEBUG_PANEL_COMBO_HOLD_MS ? DEBUG_PANEL_COMBO_HOLD_MS : combo_held_ms;
-  fill_rect(bar_x, bar_y, (int)(PANEL_PROGRESS_W * held / DEBUG_PANEL_COMBO_HOLD_MS),
-            PANEL_PROGRESS_H, UI_TEXT);
+  uint32_t held = combo_held_ms > INPUT_COMBO_HOLD_MS ? INPUT_COMBO_HOLD_MS : combo_held_ms;
+  fill_rect(bar_x, bar_y, (int)(PANEL_PROGRESS_W * held / INPUT_COMBO_HOLD_MS), PANEL_PROGRESS_H,
+            UI_TEXT);
 }
 
 void debug_input_panel_draw(void) {

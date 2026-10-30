@@ -2,8 +2,12 @@
 #include "debug_tools.h"
 #include "front_touch_zone.h"
 #include "host_input.h"
+#include "input_combos.h"
+#include "mic.h"
+#include "mic_touch.h"
 #include "motion_frame.h"
 #include "touchpad_gesture.h"
+#include "ui/ui_mic.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/motion.h>
@@ -390,35 +394,6 @@ static void debug_log_motion(const SceMotionState *motion, const ChiakiControlle
       sent->orient_x, sent->orient_y, sent->orient_z, sent->orient_w);
 }
 
-/* Tracks the L + R + Select hold that toggles the Input test panel. Call once per pass with the
- * sampled Vita buttons and the time. Returns the buttons to use from here on: while all three
- * are held they are removed, so the game never sees them (from the first pass they are down, not
- * only after the hold completes). Raises one toggle request per hold; the buttons must be
- * released before another can fire. *held_ms gets the hold so far, capped at the threshold, or 0
- * when not held. */
-static unsigned int debug_panel_combo_step(unsigned int buttons, uint64_t now_us,
-                                           uint64_t *hold_start_us, bool *fired,
-                                           uint32_t *held_ms) {
-  const unsigned int combo = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_SELECT;
-  /* With Start also down it is the stream-exit combo; leave that alone. */
-  if ((buttons & combo) != combo || (buttons & SCE_CTRL_START)) {
-    *hold_start_us = 0;
-    *fired = false;
-    *held_ms = 0;
-    return buttons;
-  }
-  if (!*hold_start_us)
-    *hold_start_us = now_us;
-  uint64_t elapsed_ms = (now_us - *hold_start_us) / 1000ULL;
-  if (!*fired && elapsed_ms >= DEBUG_PANEL_COMBO_HOLD_MS) {
-    *fired = true;
-    context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_COMBO;
-  }
-  *held_ms =
-      elapsed_ms < DEBUG_PANEL_COMBO_HOLD_MS ? (uint32_t)elapsed_ms : DEBUG_PANEL_COMBO_HOLD_MS;
-  return buttons & ~combo;
-}
-
 /* Publishes what was just handed to Chiaki, and the raw motion sample of the same pass, for the
  * Input test panel. See DebugInputSnapshot for the (deliberate) lack of locking. */
 static void debug_publish_input_snapshot(const ChiakiControllerState *sent,
@@ -504,13 +479,19 @@ void *host_input_thread_func(void *user) {
   bool vitaki_right_circle_mapped = (vcmi.in_out_btn[VITAKI_CTRL_IN_RIGHT_CIRCLE] != 0) ||
                                     (vcmi.in_r2 == VITAKI_CTRL_IN_RIGHT_CIRCLE);
 
+  // GH #474: the mic control's touches, and the hold-to-fire combos (mute, and the debug panel).
+  MicTouchTracker mic_touches = {0};
+  InputCombos combos = {0};
+  const InputComboButtons combo_buttons = {.l = SCE_CTRL_LTRIGGER,
+                                           .r = SCE_CTRL_RTRIGGER,
+                                           .select = SCE_CTRL_SELECT,
+                                           .start = SCE_CTRL_START,
+                                           .triangle = SCE_CTRL_TRIANGLE};
 #if VITARPS5_DEBUG_TOOLS
   InputTestClick input_test_click;
   input_test_click_init(&input_test_click);
   uint64_t motion_log_us = 0;
   debug_tools_snapshot_reset();
-  uint64_t panel_combo_start_us = 0;
-  bool panel_combo_fired = false;
   uint32_t panel_combo_held_ms = 0;
 #endif
 
@@ -568,9 +549,20 @@ void *host_input_thread_func(void *user) {
         exit_combo_hold = 0;
       }
 
+      // The mute combo (L + R + Select) is watched only while the mic is live or muted; the debug
+      // panel combo (L + R + Triangle) only in testing builds. A held combo is hidden from the
+      // game.
+      const MicState mic_state = vitamic_state();
+      InputComboResult combo_result;
+      ctrl.buttons = input_combos_step(&combos, &combo_buttons, ctrl.buttons, start_time_us,
+                                       mic_state == MIC_STATE_LIVE || mic_state == MIC_STATE_MUTED,
+                                       VITARPS5_DEBUG_TOOLS, &combo_result);
+      if (combo_result.mute_fired)
+        ui_mic_request_toggle();
 #if VITARPS5_DEBUG_TOOLS
-      ctrl.buttons = debug_panel_combo_step(ctrl.buttons, start_time_us, &panel_combo_start_us,
-                                            &panel_combo_fired, &panel_combo_held_ms);
+      if (combo_result.panel_fired)
+        context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_COMBO;
+      panel_combo_held_ms = combo_result.panel_held_ms;
 #endif
 
       if (stream->stop_requested) {
@@ -639,6 +631,7 @@ void *host_input_thread_func(void *user) {
         widget_touches[w_i].seen = false;
 #endif
       front_touch_zone_begin_pass(&front_touch_zones);
+      mic_touch_pass_begin(&mic_touches);
 
       for (int touch_i = 0; touch_i < touch[SCE_TOUCH_PORT_FRONT].reportNum; touch_i++) {
         int x = touch[SCE_TOUCH_PORT_FRONT].report[touch_i].x;
@@ -655,6 +648,15 @@ void *host_input_thread_func(void *user) {
         }
         DebugTouchResolve dbg_resolve = DEBUG_TOUCH_RESOLVE_UNSENT;
 #endif
+        // GH #474: a touch that started on the mic control is the control's, never the game's, and
+        // wins over every touchpad and button zone. Its first sight is the tap.
+        bool mic_tap = false;
+        if (mic_touch_judge(&mic_touches, vita_touch_id, x, y, ui_mic_touch_mode(),
+                            ui_mic_touch_label_w(), &mic_tap)) {
+          if (mic_tap)
+            ui_mic_request_toggle();
+          continue;
+        }
         // GH #460: the touch keeps the outcome of the zone it started in until it lifts.
         const FrontTouchOutcome *zone_outcome = front_touch_zone_latch(
             &front_touch_zones, vita_touch_id, x, y, TOUCH_MAX_WIDTH, TOUCH_MAX_HEIGHT, &vcmi);
@@ -740,6 +742,7 @@ void *host_input_thread_func(void *user) {
       }
 
       front_touch_zone_end_pass(&front_touch_zones);
+      mic_touch_pass_end(&mic_touches);
 
 #if VITARPS5_DEBUG_TOOLS
       for (int w_i = 0; w_i < DEBUG_WIDGET_TOUCH_SLOTS; w_i++) {
