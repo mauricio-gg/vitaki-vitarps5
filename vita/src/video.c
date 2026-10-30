@@ -1467,6 +1467,7 @@ static uint32_t probe456_es_full =
     0; /* ES buffer full answers (an empty unit and a retry follow) */
 static uint32_t probe456_invalid = 0; /* "invalid stream" answers, counted as fed (VitaIPTV) */
 static uint32_t probe456_get_err = 0;
+static uint32_t probe456_oversize = 0; /* units larger than the decoder's free ES space, not fed */
 static int probe456_last_get_ret = 0;
 static uint32_t probe456_err_logged = 0;
 static uint32_t probe456_win_dec_total_us = 0;
@@ -1476,8 +1477,9 @@ static uint64_t probe456_win_start_us = 0;
 static uint32_t probe456_win_rx0 = 0, probe456_win_shown0 = 0, probe456_win_fed0 = 0,
                 probe456_win_pics0 = 0;
 
-#define PROBE456_ERR_LOG_MAX 20 /* call failures can repeat at the frame rate; log the first ones \
-                                 */
+#define PROBE456_ERR_LOG_MAX                                           \
+  20 /* call failures can repeat at the frame rate; log the first ones \
+      */
 
 static void probe456_log_call_failed(const char *call, int ret, uint32_t frame_seq) {
   if (probe456_err_logged >= PROBE456_ERR_LOG_MAX)
@@ -1491,7 +1493,8 @@ static void probe456_reset_rate(void) {
   probe456_pic_state = 0;
   probe456_rx_frames = 0;
   probe456_shown_frames = 0;
-  probe456_fed = probe456_pics = probe456_es_full = probe456_invalid = probe456_get_err = 0;
+  probe456_fed = probe456_pics = probe456_es_full = probe456_invalid = probe456_get_err =
+      probe456_oversize = 0;
   probe456_last_get_ret = 0;
   probe456_err_logged = 0;
   probe456_win_dec_total_us = probe456_win_dec_max_us = probe456_win_dec_n = 0;
@@ -1517,12 +1520,12 @@ static void probe456_rate_tick(uint32_t decode_us, uint64_t now_us) {
   uint32_t avg_us = probe456_win_dec_n ? probe456_win_dec_total_us / probe456_win_dec_n : 0;
   LOGW(
       "PROBE456/RATE win_ms=%u dec_avg_ms=%u.%02u dec_max_ms=%u.%02u fed=%u pics=%u rx=%u shown=%u "
-      "held=%d es_full=%u invalid=%u get_err=%u get_ret=0x%x pic_state=%d",
+      "held=%d es_full=%u invalid=%u oversize=%u get_err=%u get_ret=0x%x pic_state=%d",
       (unsigned int)(win_us / 1000), avg_us / 1000, (avg_us % 1000) / 10,
       probe456_win_dec_max_us / 1000, (probe456_win_dec_max_us % 1000) / 10,
       probe456_fed - probe456_win_fed0, probe456_pics - probe456_win_pics0, rx - probe456_win_rx0,
       shown - probe456_win_shown0, (int)(probe456_fed - probe456_pics), probe456_es_full,
-      probe456_invalid, probe456_get_err, (unsigned int)probe456_last_get_ret,
+      probe456_invalid, probe456_oversize, probe456_get_err, (unsigned int)probe456_last_get_ret,
       (int)probe456_pic_state);
   probe456_win_start_us = now_us;
   probe456_win_dec_total_us = probe456_win_dec_max_us = probe456_win_dec_n = 0;
@@ -1680,14 +1683,19 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                             uint64_t frame_first_packet_ms, uint32_t frame_seq) {
   chiaki_mutex_lock(&mtx);
 
-  /* The Internal decoder has its own ES buffer: there is no available-size call for it, a full
-   * buffer is answered by ES_BUFFER_FULL (handled in probe456_decode_internal). */
-  int avail_size = probe456_internal_lib ? 0x7fffffff : sceAvcdecDecodeAvailableSize(decoder);
+  /* Same cap for the Internal decoder: wiliwili's ffmpeg.patch (vita_h264 decode, ~1716) calls
+   * sceAvcdecDecodeAvailableSize on the decoder created by sceAvcdecCreateDecoderInternal and does
+   * not feed a unit larger than it. VitaIPTV and OpenNOW-vita have no such call. An error from it
+   * (negative) is treated as no room on the Internal path, so nothing oversized is ever fed. */
+  int avail_size = sceAvcdecDecodeAvailableSize(decoder);
+  size_t avail_cap = (probe456_internal_lib && avail_size < 0) ? 0 : (size_t)avail_size;
   uint32_t avail_now = avail_size > 0 ? (uint32_t)avail_size : 0;
   if (avail_now < dechold_acc.avail_min)
     dechold_acc.avail_min = avail_now;
-  if (buf_size > (size_t)avail_size) {
+  if (buf_size > avail_cap) {
     decode_buf_small_count++;
+    if (probe456_internal_lib)
+      probe456_oversize++;
     if (decode_buf_small_logged < DECODE_ANOM_LOG_MAX) {
       decode_buf_small_logged++;
       LOGE("DECODE/ANOM buf_too_small count=%u frame=%u size=%u avail=%d%s", decode_buf_small_count,
