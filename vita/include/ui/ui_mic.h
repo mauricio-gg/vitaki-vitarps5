@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "mic.h"
 #include "mic_touch.h"
 
 /** Bakes the mic icons once. Call after vita2d is initialised. */
@@ -29,8 +30,9 @@ void ui_mic_on_stream_start(void);
 /** The stream ended: no touch area exists any more. */
 void ui_mic_on_stream_stop(void);
 
-/** Any thread: ask for the mute to be toggled (a tap on the control, or the mute combo). */
-void ui_mic_request_toggle(void);
+/** Any thread: ask for the mute to be toggled by @p source (a tap on the control, or the mute
+ * combo). One request is kept; the UI thread applies it on its next tick. */
+void ui_mic_request_toggle(MicSource source);
 
 /** UI thread, every streaming pass: applies a pending toggle request, notes a failure, and
  * publishes the touch area for the input thread. */

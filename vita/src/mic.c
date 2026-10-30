@@ -3,6 +3,7 @@
 #include "mic.h"
 
 #include "context.h"
+#include "mic_decide.h"
 #include "mic_frame.h"
 
 #include <chiaki/opusencoder.h>
@@ -53,6 +54,19 @@ static ChiakiOpusEncoder enc;
 static bool enc_live = false;
 static MicFrame frame_builder;
 static int16_t grain_buf[MIC_CAPTURE_GRAIN];
+
+/* Per-stream totals in every MIC/STATS line, so a line the logger drops loses nothing. Cleared when
+ * a stream starts. mutes, unmutes and by_source are written by the UI thread, the rest by the
+ * capture thread; both only add. */
+typedef struct mic_totals_t {
+  uint32_t packets; /* packets the audio sender emitted */
+  uint32_t leaked;  /* packets emitted while the thread was not sending: must stay 0 */
+  volatile uint32_t mutes;
+  volatile uint32_t unmutes;
+  volatile uint32_t by_source[MIC_SOURCE_COUNT];
+} MicTotals;
+static MicTotals totals;
+static const char *const SOURCE_NAMES[MIC_SOURCE_COUNT] = {"button", "corner", "combo"};
 
 typedef struct mic_stats_t {
   uint32_t grains, frames, enc_calls;
@@ -128,43 +142,65 @@ static void on_frame(int16_t *pcm, void *user) {
     stats.enc_max_us = dt;
 }
 
-static void log_stats(uint16_t *last_frame_index) {
+/* One MIC/STATS line, once a second for as long as the thread lives, muted or not. The window
+ * fields (win_pkts, frames, encode and capture times) cover the last second; the totals are
+ * cumulative for the stream, so a line the logger drops loses nothing. leaked_pkts counts packets
+ * the audio sender emitted while this thread was not sending (muted, stopped): it must stay 0. */
+static void log_stats(bool is_muted, uint16_t *last_frame_index) {
   uint16_t idx = (uint16_t)enc.audio_sender->frame_index;
   uint16_t sent = (uint16_t)(idx - *last_frame_index);
   *last_frame_index = idx;
+  totals.packets += sent;
   uint32_t calls = stats.enc_calls ? stats.enc_calls : 1;
   uint32_t grains = stats.grains ? stats.grains : 1;
   LOGD(
-      "MIC/STATS frames_captured=%u frames_encoded=%u packets_sent=%u enc_avg_us=%u enc_max_us=%u "
-      "grains=%u cap_block_avg_us=%u cap_block_max_us=%u pkt_bytes_min=%d pkt_bytes_max=%d "
-      "pkt_40=%u",
-      stats.frames, stats.enc_calls, sent, (unsigned)(stats.enc_sum_us / calls),
-      (unsigned)stats.enc_max_us, stats.grains, (unsigned)(stats.cap_sum_us / grains),
-      (unsigned)stats.cap_max_us, stats.size_min, stats.size_max, stats.size_40);
+      "MIC/STATS muted=%d win_pkts=%u tot_pkts=%u mutes=%u unmutes=%u src_button=%u "
+      "src_corner=%u src_combo=%u leaked_pkts=%u frames_captured=%u frames_encoded=%u "
+      "enc_avg_us=%u enc_max_us=%u grains=%u cap_block_avg_us=%u cap_block_max_us=%u "
+      "pkt_bytes_min=%d pkt_bytes_max=%d pkt_40=%u",
+      is_muted ? 1 : 0, sent, totals.packets, totals.mutes, totals.unmutes,
+      totals.by_source[MIC_SOURCE_BUTTON], totals.by_source[MIC_SOURCE_CORNER],
+      totals.by_source[MIC_SOURCE_COMBO], totals.leaked, stats.frames, stats.enc_calls,
+      (unsigned)(stats.enc_sum_us / calls), (unsigned)stats.enc_max_us, stats.grains,
+      (unsigned)(stats.cap_sum_us / grains), (unsigned)stats.cap_max_us, stats.size_min,
+      stats.size_max, stats.size_40);
   memset(&stats, 0, sizeof(stats));
 }
 
-/* Capture thread. Sends while the mic is not muted; a mute releases the port and tells the
- * console, an unmute reopens it. Any failure ends the thread (logged as MIC/FAIL) and leaves the
- * mic off for the rest of this stream; the stream itself carries on. */
+/* Capture thread. mic_decide() says what each pass does; this thread only carries it out. Sends
+ * while the mic is not muted; a mute releases the port and tells the console, an unmute reopens
+ * it. Any failure ends the thread (logged as MIC/FAIL) and leaves the mic off for the rest of
+ * this stream; the stream itself carries on. */
 static int mic_thread_func(SceSize args, void *argp) {
   (void)args;
   (void)argp;
   bool connected = false; /* chiaki_session_connect_microphone() done for this session */
   bool sending = false;
   int port = -1;
-  uint16_t last_frame_index = 0;
-  uint64_t stats_at_us = 0;
 
   if (!encoder_start()) {
     thread_dead = true;
     return 0;
   }
+  uint16_t last_frame_index = (uint16_t)enc.audio_sender->frame_index;
+  uint16_t leak_frame_index = last_frame_index;
+  uint64_t stats_at_us = sceKernelGetProcessTimeWide();
 
   while (!should_exit) {
-    const bool want = !muted && !context.stream.stop_requested;
+    /* Any packet the sender emits while this thread is not sending is a leak. */
+    const uint16_t idx = (uint16_t)enc.audio_sender->frame_index;
+    if (!sending && idx != leak_frame_index)
+      totals.leaked += (uint16_t)(idx - leak_frame_index);
+    leak_frame_index = idx;
 
-    if (want && !sending) {
+    const bool is_muted = muted; /* one read per pass: the decision and the log agree */
+    const MicDecideIn in = {.muted = is_muted,
+                            .stop_requested = context.stream.stop_requested,
+                            .sending = sending,
+                            .connected = connected};
+    const MicDecision decision = mic_decide(&in);
+
+    if (decision.action == MIC_ACTION_OPEN) {
       port = sceAudioInOpenPort(SCE_AUDIO_IN_PORT_TYPE_VOICE, MIC_CAPTURE_GRAIN, MIC_CAPTURE_RATE,
                                 SCE_AUDIO_IN_PARAM_FORMAT_S16_MONO);
       if (port < 0) {
@@ -173,7 +209,7 @@ static int mic_thread_func(SceSize args, void *argp) {
         port = -1;
         break;
       }
-      if (!connected) {
+      if (decision.connect_first) {
         ChiakiErrorCode err = chiaki_session_connect_microphone(&context.stream.session);
         if (err != CHIAKI_ERR_SUCCESS) {
           LOGE("MIC/FAIL connect_microphone err=%d \"%s\"", err, chiaki_error_string(err));
@@ -184,20 +220,23 @@ static int mic_thread_func(SceSize args, void *argp) {
       if (!send_mic_state(true))
         break;
       mic_frame_init(&frame_builder);
-      memset(&stats, 0, sizeof(stats));
-      last_frame_index = (uint16_t)enc.audio_sender->frame_index;
-      stats_at_us = sceKernelGetProcessTimeWide();
       sending = true;
       LOGD("MIC/START port=VOICE rate=%d grain=%d upsample=%d prio=%d affinity=default",
            MIC_CAPTURE_RATE, MIC_CAPTURE_GRAIN, MIC_FRAME_UPSAMPLE, MIC_THREAD_PRIORITY);
-    } else if (!want && sending) {
-      /* On a stop the session is going away: skip the control message. */
-      if (!context.stream.stop_requested)
+    } else if (decision.action == MIC_ACTION_CLOSE) {
+      if (decision.announce)
         send_mic_state(false);
       sceAudioInReleasePort(port);
       port = -1;
       sending = false;
+      leak_frame_index = (uint16_t)enc.audio_sender->frame_index;
       LOGD("MIC/STOP capture closed");
+    }
+
+    const uint64_t pass_us = sceKernelGetProcessTimeWide();
+    if (pass_us - stats_at_us >= MIC_STATS_PERIOD_US) {
+      stats_at_us = pass_us;
+      log_stats(is_muted, &last_frame_index);
     }
 
     if (!sending) {
@@ -212,18 +251,16 @@ static int mic_thread_func(SceSize args, void *argp) {
       LOGE("MIC/FAIL sceAudioInInput err=0x%08X", (unsigned)r);
       break;
     }
+    /* A mute that landed while the grain was being captured: drop the grain, the next pass closes
+     * the port. */
+    if (muted)
+      continue;
     stats.grains++;
     stats.cap_sum_us += blocked;
     if (blocked > stats.cap_max_us)
       stats.cap_max_us = blocked;
     stats.frames +=
         (uint32_t)mic_frame_push(&frame_builder, grain_buf, MIC_CAPTURE_GRAIN, on_frame, NULL);
-
-    uint64_t now = sceKernelGetProcessTimeWide();
-    if (now - stats_at_us >= MIC_STATS_PERIOD_US) {
-      stats_at_us = now;
-      log_stats(&last_frame_index);
-    }
   }
 
   if (port >= 0)
@@ -261,6 +298,7 @@ void vitamic_on_stream_start(bool recovery_reconnect) {
   lock_lifecycle();
   armed = context.config.microphone;
   start_failed = false;
+  memset(&totals, 0, sizeof(totals));
   if (!recovery_reconnect)
     muted = false;
   LOGD("MIC/ARM setting=%s muted=%d recovery_reconnect=%d", armed ? "on" : "off", muted ? 1 : 0,
@@ -295,11 +333,16 @@ void vitamic_ui_tick(void) {
   unlock_lifecycle();
 }
 
-void vitamic_set_muted(bool new_muted) {
+void vitamic_set_muted(bool new_muted, MicSource source) {
   if (muted == new_muted)
     return;
   muted = new_muted;
-  LOGD("MIC/%s", new_muted ? "MUTE" : "UNMUTE");
+  if (new_muted)
+    totals.mutes++;
+  else
+    totals.unmutes++;
+  totals.by_source[source]++;
+  LOGD("MIC/%s source=%s", new_muted ? "MUTE" : "UNMUTE", SOURCE_NAMES[source]);
 }
 
 MicState vitamic_state(void) {

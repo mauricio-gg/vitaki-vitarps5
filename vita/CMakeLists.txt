@@ -37,6 +37,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/mic.c
     src/mic_frame.c
     src/mic_touch.c
+    src/mic_decide.c
     src/input_combos.c
     src/host_loss_profile.c
     src/host_metrics.c

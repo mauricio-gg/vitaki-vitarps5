@@ -110,8 +110,8 @@ static const char TEXT_MUTED[] = "Mic muted";
 static UiPillPart s_failed_parts[] = {{.text = "Mic unavailable"}};
 #define FAILED_PART_COUNT ((int)(sizeof(s_failed_parts) / sizeof(s_failed_parts[0])))
 
-/** Set by any thread, consumed by ui_mic_tick(). */
-static volatile bool s_toggle_request = false;
+/** Set by any thread, consumed by ui_mic_tick(): 0 for none, else the MicSource plus 1. */
+static volatile int s_toggle_request = 0;
 /** The touch area as the input thread should see it; written only by ui_mic_tick(). */
 static volatile MicTouchMode s_touch_mode = MIC_TOUCH_MODE_NONE;
 static volatile int s_touch_label_w = 0;
@@ -131,7 +131,7 @@ static int s_text_muted_w = 0;
 static int s_failed_w = 0;
 
 void ui_mic_on_stream_start(void) {
-  s_toggle_request = false;
+  s_toggle_request = 0;
   s_touch_mode = MIC_TOUCH_MODE_NONE;
   s_touch_label_w = 0;
   s_label_start_us = 0;
@@ -140,13 +140,13 @@ void ui_mic_on_stream_start(void) {
 }
 
 void ui_mic_on_stream_stop(void) {
-  s_toggle_request = false;
+  s_toggle_request = 0;
   s_touch_mode = MIC_TOUCH_MODE_NONE;
   s_touch_label_w = 0;
 }
 
-void ui_mic_request_toggle(void) {
-  s_toggle_request = true;
+void ui_mic_request_toggle(MicSource source) {
+  s_toggle_request = (int)source + 1;
 }
 
 /** True while the label is still showing at @now_us. */
@@ -156,7 +156,7 @@ static bool label_showing(uint64_t now_us) {
 
 void ui_mic_tick(void) {
   const uint64_t now_us = sceKernelGetProcessTimeWide();
-  const bool request = __atomic_exchange_n(&s_toggle_request, false, __ATOMIC_SEQ_CST);
+  const int request = __atomic_exchange_n(&s_toggle_request, 0, __ATOMIC_SEQ_CST);
 
   if (!context.config.microphone) {
     s_touch_mode = MIC_TOUCH_MODE_NONE;
@@ -169,7 +169,7 @@ void ui_mic_tick(void) {
     s_failed_since_us = now_us;
 
   if (request && (state == MIC_STATE_LIVE || state == MIC_STATE_MUTED)) {
-    vitamic_set_muted(state == MIC_STATE_LIVE);
+    vitamic_set_muted(state == MIC_STATE_LIVE, (MicSource)(request - 1));
     state = vitamic_state();
     /* The corner icon has no label; the button shows what the toggle did. */
     if (context.config.show_mic_button)
@@ -254,8 +254,6 @@ static void draw_button(MicState state, uint64_t now_us) {
 
   ui_layer_set_alpha(s_anim_alpha);
   ui_shape3_draw(UI_SHAPE3_PILL_32, x, MIC_BTN_Y, w, UI_HUD);
-  if (muted)
-    ui_shape3_draw(UI_SHAPE3_PILL_32_OUTLINE, x, MIC_BTN_Y, w, UI_ERR);
 
   const float content_w = (float)UI_MIC_ICON + grown * (float)(UI_MIC_ICON_GAP + text_w);
   const int icon_x = x + (int)(((float)w - content_w) / 2.0f);

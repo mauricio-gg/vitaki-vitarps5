@@ -602,3 +602,10 @@ target_include_directories(mic_touch_tests PRIVATE
     ${VITARPS5_ROOT}/vita/include
 )
 add_test(NAME vitarps5_mic_touch_tests COMMAND mic_touch_tests)
+
+# mic_decide_tests.c has its own main() and tests the mic capture thread's decision (GH #474).
+add_executable(mic_decide_tests mic_decide_tests.c ../vita/src/mic_decide.c)
+target_include_directories(mic_decide_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_mic_decide_tests COMMAND mic_decide_tests)

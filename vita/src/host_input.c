@@ -558,7 +558,7 @@ void *host_input_thread_func(void *user) {
                                        mic_state == MIC_STATE_LIVE || mic_state == MIC_STATE_MUTED,
                                        VITARPS5_DEBUG_TOOLS, &combo_result);
       if (combo_result.mute_fired)
-        ui_mic_request_toggle();
+        ui_mic_request_toggle(MIC_SOURCE_COMBO);
 #if VITARPS5_DEBUG_TOOLS
       if (combo_result.panel_fired)
         context.stream.input_test_toggle_request = DEBUG_PANEL_REQUEST_COMBO;
@@ -651,10 +651,12 @@ void *host_input_thread_func(void *user) {
         // GH #474: a touch that started on the mic control is the control's, never the game's, and
         // wins over every touchpad and button zone. Its first sight is the tap.
         bool mic_tap = false;
-        if (mic_touch_judge(&mic_touches, vita_touch_id, x, y, ui_mic_touch_mode(),
-                            ui_mic_touch_label_w(), &mic_tap)) {
+        const MicTouchMode mic_mode = ui_mic_touch_mode();
+        if (mic_touch_judge(&mic_touches, vita_touch_id, x, y, mic_mode, ui_mic_touch_label_w(),
+                            &mic_tap)) {
           if (mic_tap)
-            ui_mic_request_toggle();
+            ui_mic_request_toggle(mic_mode == MIC_TOUCH_MODE_CORNER ? MIC_SOURCE_CORNER
+                                                                    : MIC_SOURCE_BUTTON);
           continue;
         }
         // GH #460: the touch keeps the outcome of the zone it started in until it lifts.
