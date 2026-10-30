@@ -85,6 +85,16 @@ SceUID videodecUnmap = -1;
 SceUIntVAddr videodecContext = 0;
 SceAvcdecQueryDecoderInfo *decoder_info = NULL;
 
+/* #456 probe: SCE_VIDEODEC_ERROR_INVALID_PARAM, spelled out so the build does not depend on the
+ * SDK header carrying the name. */
+#define PROBE456_VIDEODEC_INVALID_PARAM ((int)0x80620802)
+/* Reference count the decoder was set up with (0 until setup accepts one), the stream size, and
+ * whether this session's PROBE456/SPSREFS line was printed. */
+static int probe456_decoder_refs = 0;
+static int probe456_stream_w = 0;
+static int probe456_stream_h = 0;
+static bool probe456_spsrefs_logged = false;
+
 /* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
  * own convention requires for a cross-thread flag -- a pre-existing gap (written on
  * the session/stop thread in vita_h264_stop(), read on the decode thread in
@@ -913,6 +923,8 @@ static void probe456_log_free_memory(const char *when) {
 }
 
 static int video_setup_framebuffer(int width, int height) {
+  probe456_stream_w = width;
+  probe456_stream_h = height;
   update_scaling_settings(width, height);
   probe456_log_free_memory("before_setup");
   /* Bigger than the screen: downscale with bilinear so a 2:1 step averages 2x2 pixels instead of
@@ -984,6 +996,46 @@ static int video_setup_framebuffer(int width, int height) {
   return VITA_VIDEO_INIT_OK;
 }
 
+/* #456: once per session, compares the SPS's max_num_ref_frames with the count the decoder was
+ * set up with. UI thread. Logging only. */
+static void probe456_log_spsrefs(void) {
+  if (probe456_spsrefs_logged)
+    return;
+  uint32_t version = sps_probe_version();
+  if (version & 1)
+    return;
+  SpsProbeData d;
+  if (!sps_probe_snapshot(&d, 3) || d.first_len == 0)
+    return;
+  probe456_spsrefs_logged = true;
+  uint32_t stored = d.first_len < SPS_PROBE_CAP ? d.first_len : SPS_PROBE_CAP;
+  SpsFields f;
+  SpsParseStatus status = sps_probe_parse(d.first, stored, d.first_len, &f);
+  if (status != SPS_PARSE_OK) {
+    LOGW("PROBE456/SPSREFS stream=%dx%d sps_parse_fail=%s decoder_refs=%d", probe456_stream_w,
+         probe456_stream_h, sps_probe_status_name(status), probe456_decoder_refs);
+    return;
+  }
+  char dfb[16];
+  if (f.bitstream_restriction)
+    snprintf(dfb, sizeof(dfb), "%u", (unsigned)f.max_dec_frame_buffering);
+  else
+    snprintf(dfb, sizeof(dfb), "na");
+  if ((int)f.max_num_ref_frames > probe456_decoder_refs) {
+    LOGW(
+        "PROBE456/SPSREFS stream=%dx%d sps_max_num_ref_frames=%u max_dec_frame_buffering=%s "
+        "decoder_refs=%d SPS_NEEDS_MORE_THAN_DECODER",
+        probe456_stream_w, probe456_stream_h, (unsigned)f.max_num_ref_frames, dfb,
+        probe456_decoder_refs);
+  } else {
+    LOGD(
+        "PROBE456/SPSREFS stream=%dx%d sps_max_num_ref_frames=%u max_dec_frame_buffering=%s "
+        "decoder_refs=%d",
+        probe456_stream_w, probe456_stream_h, (unsigned)f.max_num_ref_frames, dfb,
+        probe456_decoder_refs);
+  }
+}
+
 static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
                                SceVideodecMemInfo *libMemInfo,
                                SceVideodecQueryInitInfo *initVideodec) {
@@ -995,18 +1047,38 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   initVideodec->hwAvc.vertical = VITA_DECODER_RESOLUTION(height);
   initVideodec->hwAvc.numOfStreams = 1;
   initVideodec->hwAvc.numOfRefFrames = REF_FRAMES;
+  probe456_decoder_refs = 0;
+  probe456_spsrefs_logged = false;
 
-  int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
+  /* #456: the hardware refuses some (size, numOfRefFrames) pairs with INVALID_PARAM (720p and
+   * 1080p with 8 refs, 540p accepts 8). Step the count down from REF_FRAMES toward 1 and keep
+   * the first one accepted; initVideodec carries it on to the library init and decoder_info. */
+  int ret = 0;
+  for (int refs = REF_FRAMES; refs >= 1; refs--) {
+    initVideodec->hwAvc.numOfRefFrames = refs;
+    ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
+    if (ret >= 0) {
+      LOGD("PROBE456/REFS accepted refs=%d decoder=%ux%u", refs, initVideodec->hwAvc.horizontal,
+           initVideodec->hwAvc.vertical);
+      probe456_decoder_refs = refs;
+      break;
+    }
+    if (ret != PROBE456_VIDEODEC_INVALID_PARAM)
+      break;
+    LOGD("PROBE456/REFS refused refs=%d decoder=%ux%u err=0x%x", refs,
+         initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical, (unsigned int)ret);
+  }
   if (ret < 0) {
     LOGE("PROBE456/ALLOC sceVideodecQueryMemSize FAILED 0x%x decoder=%ux%u refs=%d", ret,
-         initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical, REF_FRAMES);
+         initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical,
+         (int)initVideodec->hwAvc.numOfRefFrames);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   libMemInfo->memSize = ROUND_UP(libMemInfo->memSize, 256 * 1024);
   LOGD("PROBE456/ALLOC videodec_lib ok memSize=%u (rounded to 256K) decoder=%ux%u refs=%d",
        (unsigned int)libMemInfo->memSize, initVideodec->hwAvc.horizontal,
-       initVideodec->hwAvc.vertical, REF_FRAMES);
+       initVideodec->hwAvc.vertical, (int)initVideodec->hwAvc.numOfRefFrames);
 
   SceKernelAllocMemBlockOpt opt;
   sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
@@ -1720,6 +1792,7 @@ bool vita_video_render_latest_frame(void) {
     ui_render_in_progress = false;
     return false;
   }
+  probe456_log_spsrefs();
 
   /* PIPE/DISPLAY: the render-entry clock read, taken before the claim lock below so the
    * `snapshot` stage (render_entry_us to after_snapshot_us) includes any wait for `mtx`. */
