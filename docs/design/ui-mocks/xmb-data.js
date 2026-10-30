@@ -35,12 +35,11 @@ const bannerPill=r=>`<span class="pill warn ban"><span>Streaming stopped:</span>
 
 /* ---------- settings (inventory: all 16 minus Show Navigation Labels) ---------- */
 const GROUPS=['Video','Network','Display','Appearance','Controls','Advanced'];
-const LAT=['Ultra Low (~1.2 Mbps)','Low (~1.8 Mbps)','Balanced (~2.6 Mbps)','High (~3.2 Mbps)','Max (~3.8 Mbps)'];
+const LAT=['Ultra Low (~1.5 Mbps)','Low (~2.5 Mbps)','Balanced (~3.5 Mbps)','High (~4.5 Mbps)','Max (~6 Mbps)','Extreme (~10 Mbps)'];
 const SETTINGS=[
- {id:'quality',g:0,label:'Quality Preset',type:'choice',opts:['360p','540p'],v:1,desc:'Video resolution requested from the console.'},
+ {id:'quality',g:0,label:'Quality Preset',type:'choice',opts:['360p','540p','720p','1080p'],v:1,desc:'Video resolution requested from the console. 1080p is limited to 30 FPS.'},
  {id:'latency',g:0,label:'Latency Mode',type:'choice',opts:LAT,v:2,desc:'Sets the target bitrate. Higher looks better but needs a stronger connection.'},
  {id:'fps',g:0,label:'FPS Target',type:'choice',opts:['30 FPS','60 FPS'],v:0,desc:'Frame rate requested from the console.'},
- {id:'f30',g:0,label:'Force 30 FPS Output',type:'toggle',v:false,desc:'Output video at 30 FPS.'},
  {id:'fill',g:0,label:'Fill Screen',type:'toggle',v:false,desc:'Stretch the video to fill the whole screen.'},
  {id:'disc',g:1,label:'Auto Discovery',type:'toggle',v:true,desc:'Find consoles on your network automatically. Takes effect the next time the app starts.'},
  {id:'psnmode',g:1,label:'Enable PSN Internet Mode',type:'toggle',v:true,desc:'Connect to your consoles over the internet with your PSN account.'},

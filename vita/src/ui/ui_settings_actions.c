@@ -13,28 +13,23 @@ void ui_settings_persist_config(void) {
   config_serialize_async(&context.config);
 }
 
-ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current) {
-  switch (current) {
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-    default:
-      return CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-  }
-}
+/** The presets Quality Preset offers, lowest first. */
+static const ChiakiVideoResolutionPreset RESOLUTION_STEPS[] = {
+    CHIAKI_VIDEO_RESOLUTION_PRESET_360p,
+    CHIAKI_VIDEO_RESOLUTION_PRESET_540p,
+    CHIAKI_VIDEO_RESOLUTION_PRESET_720p,
+    CHIAKI_VIDEO_RESOLUTION_PRESET_1080p,
+};
+#define RESOLUTION_STEP_COUNT ((int)(sizeof(RESOLUTION_STEPS) / sizeof(RESOLUTION_STEPS[0])))
 
-void ui_settings_apply_force_30fps(void) {
-  if (!context.stream.session_init)
-    return;
-  uint32_t clamp = context.stream.negotiated_fps ? context.stream.negotiated_fps : 60;
-  if (context.config.force_30fps && clamp > 30)
-    clamp = 30;
-  context.stream.target_fps = clamp;
-  context.stream.pacing_accumulator = 0;
+ChiakiVideoResolutionPreset ui_settings_next_resolution(ChiakiVideoResolutionPreset current,
+                                                        int step) {
+  int index = 1; /* an unsupported value is shown as 540p (RESOLUTION_STEPS[1]) */
+  for (int i = 0; i < RESOLUTION_STEP_COUNT; i++) {
+    if (RESOLUTION_STEPS[i] == current)
+      index = i;
+  }
+  return RESOLUTION_STEPS[(index + step + RESOLUTION_STEP_COUNT) % RESOLUTION_STEP_COUNT];
 }
 
 void ui_settings_apply_circle_confirm(void) {

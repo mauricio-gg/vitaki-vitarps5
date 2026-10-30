@@ -242,6 +242,24 @@ static void init_cfg(VitaChiakiConfig *cfg) {
   config_parse(cfg);
 }
 
+/* catches: a Latency Mode step whose saved name the loader does not know (it would fall back to
+ * Max after a restart), and the one-time Max migration (#420) dragging a saved choice, the new
+ * Extreme step included, to another value on the next load. */
+static void test_latency_mode_roundtrip_every_step(void) {
+  for (int mode = 0; mode < VITA_LATENCY_MODE_COUNT; mode++) {
+    reset_config_file();
+
+    VitaChiakiConfig cfg;
+    init_cfg(&cfg);
+    cfg.latency_mode = (VitaChiakiLatencyMode)mode;
+    assert(config_serialize(&cfg));
+
+    VitaChiakiConfig loaded;
+    init_cfg(&loaded);
+    assert(loaded.latency_mode == (VitaChiakiLatencyMode)mode);
+  }
+}
+
 static void test_legacy_section_migration(void) {
   reset_config_file();
   write_config_text(
@@ -262,16 +280,16 @@ static void test_legacy_section_migration(void) {
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
+  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
   assert(cfg.show_latency == true);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "resolution = \"540p\"") != NULL);
+  assert(strstr(rewritten, "resolution = \"720p\"") != NULL);
   assert(strstr(rewritten, "fps = 60") != NULL);
   assert(strstr(rewritten, "show_latency = true") != NULL);
-  assert(count_occurrences(rewritten, "resolution = \"540p\"") == 1);
+  assert(count_occurrences(rewritten, "resolution = \"720p\"") == 1);
   free(rewritten);
 }
 
@@ -286,15 +304,14 @@ static void test_root_level_fallback_migration(void) {
 
   VitaChiakiConfig cfg;
   init_cfg(&cfg);
-  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
+  assert(cfg.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p);
   assert(cfg.fps == CHIAKI_VIDEO_FPS_PRESET_60);
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "[settings]") != NULL);
-  assert(strstr(rewritten, "resolution = \"540p\"") != NULL);
-  assert(strstr(rewritten, "resolution = \"1080p\"") == NULL);
+  assert(strstr(rewritten, "resolution = \"1080p\"") != NULL);
   assert(strstr(rewritten, "fps = 60") != NULL);
-  assert(count_occurrences(rewritten, "resolution = \"540p\"") == 1);
+  assert(count_occurrences(rewritten, "resolution = \"1080p\"") == 1);
   free(rewritten);
 }
 
@@ -377,14 +394,13 @@ static void test_invalid_fps_falls_back_to_30(void) {
 
 static void test_resolution_roundtrip(void) {
   const struct {
-    ChiakiVideoResolutionPreset input_preset;
-    ChiakiVideoResolutionPreset expected_preset;
-    const char *expected_label;
+    ChiakiVideoResolutionPreset preset;
+    const char *label;
   } cases[] = {
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_360p, CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p"},
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_540p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_720p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-      {CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p"},
+      {CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p"},
   };
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -392,20 +408,17 @@ static void test_resolution_roundtrip(void) {
 
     VitaChiakiConfig cfg;
     init_cfg(&cfg);
-    cfg.resolution = cases[i].input_preset;
+    cfg.resolution = cases[i].preset;
     assert(config_serialize(&cfg));
 
     VitaChiakiConfig loaded;
     init_cfg(&loaded);
-    assert(loaded.resolution == cases[i].expected_preset);
+    assert(loaded.resolution == cases[i].preset);
 
     char *saved = read_config_text();
-    assert(strstr(saved, cases[i].expected_label) != NULL);
-    if (cases[i].input_preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ||
-        cases[i].input_preset == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
-      assert(strstr(saved, "1080p") == NULL);
-      assert(strstr(saved, "720p") == NULL);
-    }
+    char expected_line[32];
+    snprintf(expected_line, sizeof(expected_line), "resolution = \"%s\"", cases[i].label);
+    assert(strstr(saved, expected_line) != NULL);
     free(saved);
   }
 }
@@ -485,6 +498,29 @@ static void test_removed_show_only_paired_key_is_dropped(void) {
 
   char *rewritten = read_config_text();
   assert(strstr(rewritten, "show_only_paired") == NULL);
+  assert(strstr(rewritten, "show_latency = true") != NULL);
+  free(rewritten);
+}
+
+/* catches: the removed Force 30 FPS key breaking load of other settings or being written back. */
+static void test_removed_force_30fps_key_is_ignored_and_dropped(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\n"
+      "version = 1\n"
+      "\n"
+      "[settings]\n"
+      "controller_map_id = 201\n"
+      "force_30fps = true\n"
+      "show_latency = true\n");
+
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_latency == true);
+  assert(config_serialize(&cfg));
+
+  char *rewritten = read_config_text();
+  assert(strstr(rewritten, "force_30fps") == NULL);
   assert(strstr(rewritten, "show_latency = true") != NULL);
   free(rewritten);
 }
@@ -881,6 +917,7 @@ void run_token_crypto_tests(void);
 
 int main(void) {
   token_crypto_set_test_device_id(DEVICE_ID_A);
+  test_latency_mode_roundtrip_every_step();
   test_legacy_section_migration();
   test_root_level_fallback_migration();
   test_legacy_bool_and_latency_migration();
@@ -890,6 +927,7 @@ int main(void) {
   test_registered_hosts_require_required_fields();
   test_old_config_gets_new_field_defaults();
   test_removed_show_only_paired_key_is_dropped();
+  test_removed_force_30fps_key_is_ignored_and_dropped();
   test_new_fields_survive_save_and_load();
   test_motion_deadband_defaults_off_and_survives_save_and_load();
   test_manual_account_id_and_choice_survive_save_and_load();

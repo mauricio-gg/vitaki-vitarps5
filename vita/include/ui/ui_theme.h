@@ -765,6 +765,12 @@ typedef enum ui_face_t {
 #define UI_SETTING_GLYPH_GAP UI_S1
 /** A disabled row is drawn at this opacity. */
 #define UI_ROW_DISABLED_PCT 50
+/* A locked choice (SPEC 3.6, FPS Target at 1080p): no chevrons; a lock icon, the value and a T16
+ * tag, as one group centred in the choice's value box. The icon is UI_SETTING_LOCK_ICON, its gap
+ * to the value UI_SETTING_LOCK_GAP, and the tag UI_SETTING_LOCK_TAG_GAP after the value. */
+#define UI_SETTING_LOCK_ICON 18
+#define UI_SETTING_LOCK_GAP UI_S1
+#define UI_SETTING_LOCK_TAG_GAP UI_S2
 
 /* Choice: a chevron box, the centred value, a chevron box. */
 #define UI_CHOICE_VALUE_W 224

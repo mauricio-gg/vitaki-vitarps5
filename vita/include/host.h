@@ -92,6 +92,10 @@ bool host_in_active_use(const VitaChiakiHost *host);
  * so a recovery reconnect is by construction the same as a fresh connect. Returns the bitrate
  * the PSN cap replaced, or 0 when no cap applied. */
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote);
+
+/* True when @resolution is streamed at 30 fps whatever the FPS Target says (1080p, #473). The
+ * Settings screen shows FPS Target locked while this holds. */
+bool host_resolution_forces_30fps(ChiakiVideoResolutionPreset resolution);
 int host_register(VitaChiakiHost *host, int pin);
 int host_wakeup(VitaChiakiHost *host);
 int host_stream(VitaChiakiHost *host);

@@ -129,6 +129,11 @@ static int measure_value(const char *text, void *ctx) {
   return ui_text_face_width(*(const UiFace *)ctx, text);
 }
 
+/** True for a choice that a rule has fixed: it is shown with its lock and nothing changes it. */
+static bool is_locked(const UiSettingItem *item) {
+  return item->kind == UI_SETTING_CHOICE && item->locked;
+}
+
 /** The face an item's value is drawn in: a choice is T20, an info row or an action T20 or T16 as it
  * asks. */
 static UiFace value_face(const UiSettingItem *item) {
@@ -177,6 +182,10 @@ static void refresh_caches(UiSettingList *list, bool animate) {
       measure_label(list, i);
       list->value_raw[i][0] = '\0'; /* the room for the value changed with the label */
     }
+    if (item->lock_tag != list->lock_tag_seen[i]) {
+      list->lock_tag_seen[i] = item->lock_tag;
+      list->lock_tag_w[i] = item->lock_tag ? ui_text_face_width(UI_FACE_T16, item->lock_tag) : 0;
+    }
     if (item->kind == UI_SETTING_TOGGLE) {
       if (item->on != list->shown_on[i]) {
         list->shown_on[i] = item->on;
@@ -208,6 +217,8 @@ void ui_setting_list_load(UiSettingList *list, const UiSettingItem *items, int c
   for (int i = 0; i < list->count; i++) {
     list->label_seen[i] = NULL;
     list->tail_seen[i] = NULL;
+    list->lock_tag_seen[i] = NULL;
+    list->lock_tag_w[i] = 0;
     list->shown_on[i] = items[i].on;
     list->toggle_start_us[i] = 0;
     list->value_raw[i][0] = '\0';
@@ -285,6 +296,25 @@ static void draw_choice(const UiSettingList *list, int index, UiRect left, UiRec
   const int value_x = left_box_x + UI_CHOICE_ARROW + (UI_CHOICE_VALUE_W - list->value_w[index]) / 2;
   ui_text_draw_face_centered_v(UI_FACE_T20, value_x, y, UI_ROW_H, text_color,
                                list->value_fit[index]);
+}
+
+/** Draw the locked choice of row @index: the lock icon, the value and the tag, one group centred in
+ * the value box between the chevron boxes (which a locked choice does not draw). */
+static void draw_locked_choice(const UiSettingList *list, int index, UiRect left, int y) {
+  const UiSettingItem *item = &list->items[index];
+  const int tag_w = item->lock_tag ? UI_SETTING_LOCK_TAG_GAP + list->lock_tag_w[index] : 0;
+  const int group_w = UI_SETTING_LOCK_ICON + UI_SETTING_LOCK_GAP + list->value_w[index] + tag_w;
+  const int box_x = left.x + (left.w - UI_CHOICE_ARROW) / 2 + UI_CHOICE_ARROW;
+  int x = box_x + (UI_CHOICE_VALUE_W - group_w) / 2;
+
+  ui_toast_draw_icon(UI_TOAST_LOCK, x, y + (UI_ROW_H - UI_SETTING_LOCK_ICON) / 2,
+                     UI_SETTING_LOCK_ICON, UI_TEXT_2);
+  x += UI_SETTING_LOCK_ICON + UI_SETTING_LOCK_GAP;
+  ui_text_draw_face_centered_v(UI_FACE_T20, x, y, UI_ROW_H, UI_TEXT_2, list->value_fit[index]);
+  if (item->lock_tag) {
+    x += list->value_w[index] + UI_SETTING_LOCK_TAG_GAP;
+    ui_text_draw_face_centered_v(UI_FACE_T16, x, y, UI_ROW_H, UI_TEXT_3, item->lock_tag);
+  }
 }
 
 /** Draw the in-use check of @item in UI_OK, UI_SETTING_CHECK_GAP before a value that starts at
@@ -399,8 +429,11 @@ void ui_setting_list_draw(const UiSettingList *list) {
             text_color);
         break;
       case UI_SETTING_CHOICE:
-        draw_choice(list, i, list->arrow_left[slot], list->arrow_right[slot], row.y, focused,
-                    text_color);
+        if (item->locked)
+          draw_locked_choice(list, i, list->arrow_left[slot], row.y);
+        else
+          draw_choice(list, i, list->arrow_left[slot], list->arrow_right[slot], row.y, focused,
+                      text_color);
         break;
       case UI_SETTING_INFO:
         draw_info(list, i, row, text_color);
@@ -452,9 +485,9 @@ static void focus_row(UiSettingList *list, int index) {
   follow_focus(list);
 }
 
-/** True when row @index only takes focus: an info row. */
+/** True when row @index only takes focus: an info row or a locked choice. */
 static bool focus_only(const UiSettingList *list, int index) {
-  return list->items[index].kind == UI_SETTING_INFO;
+  return list->items[index].kind == UI_SETTING_INFO || is_locked(&list->items[index]);
 }
 
 /** Report that row @index was pressed: a disabled action tells the screen without the pressed
@@ -476,7 +509,7 @@ static UiEvent handle_tap(UiSettingList *list, float x, float y) {
   for (int slot = 0; slot < UI_PAGE_PANE_ROWS && list->scroll + slot < list->count; slot++) {
     const int i = list->scroll + slot;
     int step = 0;
-    if (list->items[i].kind == UI_SETTING_CHOICE) {
+    if (list->items[i].kind == UI_SETTING_CHOICE && !is_locked(&list->items[i])) {
       if (ui_rect_contains(list->arrow_left[slot], x, y))
         step = -1;
       else if (ui_rect_contains(list->arrow_right[slot], x, y))
@@ -519,6 +552,7 @@ UiEvent ui_setting_list_input(UiSettingList *list, const UiInput *in) {
     return swiped;
 
   const UiSettingKind kind = list->items[list->focus].kind;
+  const bool changeable_choice = kind == UI_SETTING_CHOICE && !is_locked(&list->items[list->focus]);
   if ((in->repeat & UI_BTN_UP) && set_focus(list, list->focus - 1))
     return UI_EVENT_MOVED;
   if ((in->repeat & UI_BTN_DOWN) && set_focus(list, list->focus + 1))
@@ -527,10 +561,10 @@ UiEvent ui_setting_list_input(UiSettingList *list, const UiInput *in) {
     return focus_only(list, list->focus) ? UI_EVENT_NONE : press(list, list->focus, 1);
   if (kind == UI_SETTING_TOGGLE && (in->pressed & UI_BTN_RIGHT))
     return activate(list, 1);
-  if (kind == UI_SETTING_CHOICE && (in->repeat & UI_BTN_RIGHT))
+  if (changeable_choice && (in->repeat & UI_BTN_RIGHT))
     return activate(list, 1);
   if (in->repeat & UI_BTN_LEFT)
-    return kind == UI_SETTING_CHOICE ? activate(list, -1) : UI_EVENT_CANCELLED;
+    return changeable_choice ? activate(list, -1) : UI_EVENT_CANCELLED;
   if (in->pressed & UI_BTN_CANCEL)
     return UI_EVENT_CANCELLED;
   if (ui_touch_tap(in))

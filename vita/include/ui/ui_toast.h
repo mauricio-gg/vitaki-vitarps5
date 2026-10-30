@@ -20,10 +20,12 @@ typedef enum ui_toast_tone_t {
   UI_TOAST_PLAIN = 0,  ///< no icon
   UI_TOAST_OK,         ///< check icon, OK colour
   UI_TOAST_ERR,        ///< warning icon, ERR colour
+  UI_TOAST_LOCK,       ///< lock icon, TEXT colour: a value was fixed by a rule, not an error
 } UiToastTone;
 
 /** ui_toast_init() - Load the tone icons. Call once at start-up, after vita2d and ui_shapes_init().
- */
+ * The lock icon is the page frame's, so ui_page_frame_init() must have run before the first
+ * UI_TOAST_LOCK toast. */
 void ui_toast_init(void);
 
 /**

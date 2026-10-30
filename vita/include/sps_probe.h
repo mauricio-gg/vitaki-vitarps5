@@ -95,6 +95,10 @@ typedef struct {
   bool bitstream_restriction;       /* only ever true when `vui` is */
   uint32_t num_reorder_frames;      /* valid only when bitstream_restriction */
   uint32_t max_dec_frame_buffering; /* valid only when bitstream_restriction */
+  /* Bit offsets of those two Exp-Golomb codes in the NAL with its emulation-prevention bytes
+   * removed (NAL header byte included), for sps_rewrite.c (#473). */
+  uint32_t max_num_ref_frames_bit;
+  uint32_t max_dec_frame_buffering_bit; /* valid only when bitstream_restriction */
 } SpsFields;
 
 /* Reads the SPS NAL unit at nal (NAL header byte first, start code not included): `stored` bytes

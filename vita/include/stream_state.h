@@ -139,7 +139,6 @@ typedef struct vita_chiaki_stream_t {
   } reconnect;
   uint64_t fps_window_start_us;     // rolling one-second window start
   uint32_t fps_window_frame_count;  // frames counted within the window
-  uint64_t pacing_accumulator;      // Bresenham-style pacing accumulator
   ChiakiOpusDecoder opus_decoder;
   ChiakiThread input_thread;
   volatile bool input_thread_should_exit;  // Signal for clean thread exit (volatile prevents CPU
@@ -231,13 +230,14 @@ typedef struct vita_chiaki_stream_t {
   // fallback session reports CONNECTED or recovery ends. Survives host_stream() (unlike the
   // loss_retry_* fields it guards); written by the session thread and the UI thread.
   volatile bool recovery_active;
+  // GH #275 / #473: resync_requested marks a stop as a resync (host_request_stream_resync), so the
+  // quit handler reconnects at once instead of treating it as a plain user stop. Present in every
+  // build: the 1080p decoder-backlog safety net uses it too.
+  volatile bool resync_requested;
 #if VITARPS5_DEBUG_TOOLS
   // GH #275: the input thread raises resync_tap_requested on the touch-down of a tap on the
-  // debug widget; the UI thread consumes it. resync_requested marks the stop the UI thread
-  // then requests as a resync, so the quit handler reconnects at once instead of treating it
-  // as a plain user stop.
+  // debug widget; the UI thread consumes it.
   volatile bool resync_tap_requested;
-  volatile bool resync_requested;
   // GH #458: Input test panel. The input thread raises the requests (a touch on the button or
   // the Close pill, or the L+R+Select hold); the UI thread consumes them in debug_tools_ui_tick().
   // input_test_toggle_request holds a DEBUG_PANEL_REQUEST_* source (0 = none). input_test_open is
@@ -390,15 +390,8 @@ typedef struct vita_chiaki_stream_t {
   // newest sample would hide exactly the late-window stall this instrumentation exists to
   // catch.
   //
-  // On the paced-drop path (should_drop_frame_for_pacing() == true) the frame is consumed
-  // but never drawn or swapped, so only pickup_us has a real value -- recording a 0 for
-  // snapshot/draw/swap there would corrupt their percentiles with fake zero-latency
-  // samples. Paced-drop occurrences are counted separately in display_paced_count instead;
-  // pickup_us IS still recorded for those frames (the pickup span is real and happens
-  // regardless of pacing), so its ring naturally receives more samples per window than the
-  // other three -- display_sample_n below (published by host_metrics.c) tracks the
-  // synchronized snapshot/draw/swap count (all three are always written together on the
-  // non-paced path only).
+  // Every claimed frame is drawn and swapped, so all four rings receive the same number of
+  // samples per window.
   uint32_t display_pickup_samples_us[LATENCY_WINDOW_SAMPLE_CAP];
   uint32_t display_pickup_sample_count;
   uint32_t display_pickup_write_idx;
@@ -415,9 +408,6 @@ typedef struct vita_chiaki_stream_t {
   uint32_t display_swap_sample_count;
   uint32_t display_swap_write_idx;
   uint32_t display_swap_dropped_count;
-  // display_paced_count: number of paced-drop frames this window (pickup-only samples,
-  // see above). Reset each window close alongside the rings.
-  uint32_t display_paced_count;
   // Reduced p50/p95 outputs, published once per ~1s window by
   // host_metrics_update_latency(). No _max_us fields (unlike latency_max_ms above) --
   // four extra maxima would clutter the PIPE/DISPLAY line without adding much beyond
@@ -431,13 +421,10 @@ typedef struct vita_chiaki_stream_t {
   uint32_t display_draw_p95_us;
   uint32_t display_swap_p50_us;
   uint32_t display_swap_p95_us;
-  // display_sample_n: the synchronized snapshot/draw/swap sample count for the window that
-  // just closed (all three rings always wrap together -- see comment above -- so any one
-  // ring's count/dropped represents all three; pickup's true count is
-  // display_sample_n + display_paced_n).
+  // display_sample_n: the sample count for the window that just closed (all four rings are
+  // always written together and wrap together, so any one ring's count/dropped represents all).
   uint32_t display_sample_n;
   uint32_t display_dropped_n;
-  uint32_t display_paced_n;
 
   // PIPE/PRESS (#413): see PressWindow above. The press_seen_* values are the running totals
   // the previous window close saw (recv-thread counters are never reset mid-session, so the

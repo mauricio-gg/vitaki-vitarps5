@@ -56,6 +56,7 @@ add_executable(${VITA_APP_NAME}.elf
     src/press_meter.c
     src/recv_probe.c
     src/sps_probe.c
+    src/sps_rewrite.c
     src/video_overlay.c
     src/audio.c
     src/audio_queue.c

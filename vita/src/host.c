@@ -177,7 +177,6 @@ void host_request_stream_stop_from_input(const char *reason) {
   request_stream_stop(reason);
 }
 
-#if VITARPS5_DEBUG_TOOLS
 bool host_request_stream_resync(void) {
   if (!context.stream.session_init || context.stream.stop_requested)
     return false;
@@ -190,16 +189,20 @@ bool host_request_stream_resync(void) {
   }
   return true;
 }
-#endif
+
+bool host_resolution_forces_30fps(ChiakiVideoResolutionPreset resolution) {
+  return resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p;
+}
 
 uint32_t host_default_video_profile(ChiakiConnectVideoProfile *profile, bool psn_remote) {
   ChiakiVideoResolutionPreset resolution = context.config.resolution;
-  // Defensive guardrail: config/UI path should already normalize unsupported values,
-  // but force a safe profile here to preserve stream startup reliability.
-  if (resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_720p ||
-      resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
-    resolution = CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-  chiaki_connect_video_profile_preset(profile, resolution, context.config.fps);
+  ChiakiVideoFPSPreset fps = context.config.fps;
+  /* 1080p always asks for 30 fps (#473, hardware finding of #456): the Vita decoder tops out at
+   * about 42 fps at 1080p, so a 60 fps request builds an ever-growing backlog. The stored FPS
+   * Target setting is not touched; it applies again at the other resolutions. */
+  if (host_resolution_forces_30fps(resolution))
+    fps = CHIAKI_VIDEO_FPS_PRESET_30;
+  chiaki_connect_video_profile_preset(profile, resolution, fps);
   /* The start bitrate is the user's Latency Mode (GH #420), not the preset's. On the PSN/internet
    * path it is capped at PSN_REMOTE_BITRATE_CAP_KBPS (3.5 Mbps), lower of the two wins: 6 Mbps
    * saturates Vita 802.11g Wi-Fi combined with a typical home upstream, and PS5 does not support
@@ -310,6 +313,9 @@ int host_stream(VitaChiakiHost *host) {
   LOGD("Bitrate policy: latency_mode=%s (%u kbps @ %ux%u)",
        serialize_latency_mode(context.config.latency_mode),
        uncapped_kbps ? uncapped_kbps : profile.bitrate, profile.width, profile.height);
+  if (context.config.resolution == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p)
+    LOGD("1080p fps override: resolution=1080p fps_setting=%u requested_fps=%u",
+         (unsigned)context.config.fps, profile.max_fps);
   if (uncapped_kbps)
     LOGD("PSN path: clamped bitrate %u -> %u kbps", uncapped_kbps, profile.bitrate);
   if (context.stream.recovery_active) {
@@ -471,14 +477,10 @@ int host_stream(VitaChiakiHost *host) {
   if (negotiated == 0)
     negotiated = 60;
   context.stream.negotiated_fps = negotiated;
-  uint32_t clamp_fps = negotiated;
-  if (context.config.force_30fps)
-    clamp_fps = clamp_fps > 30 ? 30 : clamp_fps;
-  context.stream.target_fps = clamp_fps;
+  context.stream.target_fps = negotiated;
   context.stream.measured_incoming_fps = 0;
   context.stream.fps_window_start_us = 0;
   context.stream.fps_window_frame_count = 0;
-  context.stream.pacing_accumulator = 0;
   LOGD("Chiaki session initialized successfully, starting media pipeline");
   ChiakiAudioSink audio_sink;
   chiaki_opus_decoder_init(&context.stream.opus_decoder, &context.log);

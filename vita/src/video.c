@@ -19,9 +19,12 @@
 
 #include "video.h"
 #include "video_overlay.h"
+#include "video_geometry.h"
 #include "press_meter.h"
 #include "sps_probe.h"
+#include "sps_rewrite.h"
 #include "context.h"
+#include "host_input.h"
 #include "ui/ui_draw_stats.h"
 
 #include <chiaki/thread.h>
@@ -83,6 +86,24 @@ SceUID videodecblock = -1;
 SceUID videodecUnmap = -1;
 SceUIntVAddr videodecContext = 0;
 SceAvcdecQueryDecoderInfo *decoder_info = NULL;
+
+/* SCE_VIDEODEC_ERROR_INVALID_PARAM, spelled out so the build does not depend on the SDK header
+ * carrying the name. */
+#define VIDEODEC_ERROR_INVALID_PARAM ((int)0x80620802)
+/* Decoder answers the Internal decode calls use (not in the SDK headers). */
+#define AVCDEC_ERROR_ES_BUFFER_FULL 0x8062000Au
+#define AVCDEC_ERROR_INVALID_STREAM 0x8062000Du
+/* Set up by video_setup_avc_lib() on the session thread before any stream thread runs, read on
+ * the decode and receive threads: true when this session's decoder uses the firmware's Internal
+ * entry points (1080p); volatile per this file's cross-thread convention. */
+static volatile bool decoder_internal = false;
+/* Reference count the stream's SPS is rewritten down to, or 0 for "never rewrite" (540p, and any
+ * session whose decoder holds as many references as the stream declares). Same threading as
+ * decoder_internal. */
+static volatile int sps_rewrite_target_refs = 0;
+/* Receive thread only; reset in vita_h264_start: whether this session's first SPS rewrite was
+ * logged. */
+static bool sps_rewrite_logged = false;
 
 /* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
  * own convention requires for a cross-thread flag -- a pre-existing gap (written on
@@ -168,7 +189,7 @@ static volatile uint64_t incoming_frame_decode_done_us = 0;
 /* PIPE/PRESS (#413, docs/design/streaming.md "Delay probes"): press-to-picture meter wiring.
  * Detection (press_meter.c) runs on the recv thread inside vita_h264_decode_frame(); the
  * jump frame is then followed to the screen by comparing frame sequence numbers, so it still
- * completes when the queue dropped the frame, a newer decode replaced it, pacing skipped it
+ * completes when the queue dropped the frame, a newer decode replaced it
  * or the freeze path showed an older picture. Log-only: nothing here changes behaviour. */
 
 /* Recv thread only: the detector state and the running frame counter (frame_seq stored in each
@@ -339,27 +360,6 @@ static vita2d_texture *promote_decoded_frame_to_last_good(void) {
   frame_texture_seq = last_good_texture_seq;
   last_good_texture_seq = newly_decoded_seq;
   return last_good_texture;
-}
-
-static bool should_drop_frame_for_pacing(void) {
-  if (!context.config.force_30fps)
-    return false;
-
-  uint32_t target = context.stream.target_fps;
-  if (target == 0)
-    return false;
-
-  uint32_t source = context.stream.measured_incoming_fps ? context.stream.measured_incoming_fps
-                                                         : context.stream.negotiated_fps;
-  if (source == 0 || target >= source)
-    return false;
-
-  context.stream.pacing_accumulator += target;
-  if (context.stream.pacing_accumulator < source)
-    return true;
-
-  context.stream.pacing_accumulator -= source;
-  return false;
 }
 
 static void record_decode_timing_sample(uint32_t decode_elapsed_us) {
@@ -558,11 +558,12 @@ static bool dechold_record_output(uint32_t frame_seq, uint64_t done_us, uint32_t
 }
 
 void update_scaling_settings(int width, int height) {
-  // Initialize defaults - full screen
-  image_scaling.texture_width = SCREEN_WIDTH;
-  image_scaling.texture_height = SCREEN_HEIGHT;
-  image_scaling.source_width = (unsigned int)width;
-  image_scaling.source_height = (unsigned int)height;
+  // The texture is the decoder's frame size, never smaller than the screen (video_geometry.h).
+  VideoGeometry g = video_geometry_compute(width, height);
+  image_scaling.texture_width = g.texture_width;
+  image_scaling.texture_height = g.texture_height;
+  image_scaling.source_width = g.source_width;
+  image_scaling.source_height = g.source_height;
   image_scaling.origin_x = 0;
   image_scaling.origin_y = 0;
   image_scaling.region_x1 = 0;
@@ -570,26 +571,13 @@ void update_scaling_settings(int width, int height) {
   image_scaling.region_x2 = SCREEN_WIDTH;
   image_scaling.region_y2 = SCREEN_HEIGHT;
 
-  // Clamp source region to texture bounds (defensive)
-  if (image_scaling.source_width > image_scaling.texture_width)
-    image_scaling.source_width = image_scaling.texture_width;
-  if (image_scaling.source_height > image_scaling.texture_height)
-    image_scaling.source_height = image_scaling.texture_height;
-
-  // Fill Screen mode uses vita2d_draw_texture_scale in draw_streaming()
-  // so we only need to calculate aspect-preserving layout here
+  // Fill Screen mode uses vita2d_draw_texture_part_scale in draw_streaming() from the source
+  // size, so only the aspect-preserving layout is computed here.
   if (!context.config.stretch_video) {
-    // Aspect-ratio preserving mode - fit video with letterboxing/pillarboxing
-    float scale_w = (float)SCREEN_WIDTH / (float)width;
-    float scale_h = (float)SCREEN_HEIGHT / (float)height;
-    float scale = scale_w < scale_h ? scale_w : scale_h;
-    if (scale > 1.0f)
-      scale = 1.0f;
-
-    image_scaling.region_x2 = image_scaling.source_width * scale;
-    image_scaling.region_y2 = image_scaling.source_height * scale;
-    image_scaling.origin_x = round((SCREEN_WIDTH - image_scaling.region_x2) / 2.0f);
-    image_scaling.origin_y = round((SCREEN_HEIGHT - image_scaling.region_y2) / 2.0f);
+    image_scaling.region_x2 = g.dest_width;
+    image_scaling.region_y2 = g.dest_height;
+    image_scaling.origin_x = g.origin_x;
+    image_scaling.origin_y = g.origin_y;
   }
 
   LOGD("update_scaling_settings: src=%ux%u tex=%ux%u dst=%.0fx%.0f stretch=%s",
@@ -840,6 +828,30 @@ extern SceUIntVAddr sceCodecEngineAllocMemoryFromUnmapMemBlock(SceUID unmapUid, 
 extern SceInt32 sceCodecEngineFreeMemoryFromUnmapMemBlock(SceUID unmapUid, SceUIntVAddr vaCtx);
 extern SceInt32 sceAvcdecDecodeAvailableSize(const SceAvcdecCtrl *decoder);
 
+/* The firmware's "Internal" entry points, the only way found in other homebrew to set the AVC
+ * decoder up above 720p (the public ones stop at H.264 level 3.1). Not in the SDK headers; the
+ * stub libraries carry the NIDs. Sources: VitaIPTV src/tsplayer.c decoder_core_open_internal,
+ * OpenNOW-vita decoder.rs try_initialize_internal, wiliwili ffmpeg.patch. */
+extern SceInt32 sceVideodecSetConfigInternal(SceVideodecType codec, SceInt32 config);
+extern SceInt32 sceAvcdecSetDecodeMode(SceVideodecType codec, SceInt32 mode);
+extern SceInt32 sceVideodecQueryMemSizeInternal(SceVideodecType codec,
+                                                const SceVideodecQueryInitInfo *pInitInfo,
+                                                SceVideodecMemInfo *pMemInfo);
+extern SceInt32 sceVideodecInitLibraryWithUnmapMemInternal(
+    SceVideodecType codec, SceVideodecCtrl *libCtrl, const SceVideodecQueryInitInfo *initInfo);
+extern SceInt32 sceAvcdecQueryDecoderMemSizeInternal(SceVideodecType codec,
+                                                     const SceAvcdecQueryDecoderInfo *query,
+                                                     SceAvcdecDecoderInfo *decoderInfo);
+extern SceInt32 sceAvcdecCreateDecoderInternal(SceVideodecType codec, SceAvcdecCtrl *decoder,
+                                               const SceAvcdecQueryDecoderInfo *query);
+/* Decode: feed one access unit, then pull the picture that is ready (if any). `pic` is the int both
+ * calls share (VitaIPTV tsplayer.c keeps one per decoder). */
+extern SceInt32 sceAvcdecDecodeAuInternal(SceAvcdecCtrl *decoder, SceAvcdecAu *au, SceInt32 *pic);
+extern SceInt32 sceAvcdecDecodeGetPictureWithWorkPictureInternal(SceAvcdecCtrl *decoder,
+                                                                 SceAvcdecArrayPicture *pictures,
+                                                                 SceAvcdecArrayPicture *work,
+                                                                 SceInt32 *pic);
+
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
 struct SceAvcdecPicture picture = {0};
@@ -876,6 +888,10 @@ static void video_cleanup_avc_lib(void) {
     return;
 
   sceVideodecTermLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC);
+  if (decoder_internal)
+    LOGW(
+        "DECODE/INTERNAL codec state stays set after this session (config=2 decode_mode=0x80, no "
+        "reset call known); a later 540p/720p session in this app run may be affected");
 
   if (videodecContext != 0) {
     sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
@@ -910,6 +926,16 @@ static void video_cleanup_framebuffer(void) {
 
 static int video_setup_framebuffer(int width, int height) {
   update_scaling_settings(width, height);
+  /* Bigger than the screen: downscale with bilinear so a 2:1 step averages 2x2 pixels instead of
+   * dropping three of four. At screen size the default filter is kept, so 540p is unchanged. */
+  const bool downscale_linear =
+      image_scaling.texture_width > SCREEN_WIDTH || image_scaling.texture_height > SCREEN_HEIGHT;
+  const VideoDecoderPlan plan = video_geometry_decoder_plan(width, height);
+  LOGW("DECODE/SETUP stream=%dx%d decoder=%ux%u texture=%ux%u path=%s refs=%d filter=%s", width,
+       height, (unsigned int)VITA_DECODER_RESOLUTION(width),
+       (unsigned int)VITA_DECODER_RESOLUTION(height), image_scaling.texture_width,
+       image_scaling.texture_height, plan.use_internal ? "internal" : "public", plan.ref_frames,
+       downscale_linear ? "linear" : "default");
   picture.frame.framePitch = image_scaling.texture_width;
   picture.frame.frameWidth = image_scaling.texture_width;
   picture.frame.frameHeight = image_scaling.texture_height;
@@ -918,7 +944,9 @@ static int video_setup_framebuffer(int width, int height) {
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
   if (frame_texture == NULL) {
-    LOGD("not enough memory4\n");
+    LOGE("DECODE/SETUP frame_texture alloc FAILED size=%ux%u bytes=%u", image_scaling.texture_width,
+         image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
     return VITA_VIDEO_ERROR_NO_MEM;
   }
   /* Initial decode target, matching frame_texture's freshly-allocated value above.
@@ -927,6 +955,9 @@ static int video_setup_framebuffer(int width, int height) {
    * promote_decoded_frame_to_last_good()), so this assignment only matters for a
    * hypothetical decode that ran before the first ping-pong swap; kept for
    * defensive clarity rather than relying on that per-decode re-set alone. */
+  if (downscale_linear)
+    vita2d_texture_set_filters(frame_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                               SCE_GXM_TEXTURE_FILTER_LINEAR);
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
 
   /* Allocate the twin "last good frame" texture. Same format and dimensions as
@@ -939,10 +970,119 @@ static int video_setup_framebuffer(int width, int height) {
   last_good_texture =
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
-  if (last_good_texture == NULL)
-    LOGD("VIDEO: last_good_texture alloc failed — freeze suppression disabled\n");
+  if (last_good_texture == NULL) {
+    LOGE("DECODE/SETUP last_good_texture alloc FAILED size=%ux%u bytes=%u (freeze suppression off)",
+         image_scaling.texture_width, image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
+  } else if (downscale_linear) {
+    vita2d_texture_set_filters(last_good_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                               SCE_GXM_TEXTURE_FILTER_LINEAR);
+  }
 
   return VITA_VIDEO_INIT_OK;
+}
+
+/* What the decoder is being set up with, kept for the failure lines below. Session thread only. */
+static unsigned int setup_decoder_w = 0;
+static unsigned int setup_decoder_h = 0;
+static int setup_refs = 0;
+
+/* One line for every decoder setup failure, naming the call, its return code and the size and
+ * reference count in use, so a beta tester's log says which step refused which configuration.
+ * bytes is the memory the step asked for, 0 when it asks for none. */
+static void log_setup_failure(const char *call, int ret, unsigned int bytes) {
+  LOGE("DECODE/SETUP %s FAILED ret=0x%x decoder=%ux%u refs=%d path=%s bytes=%u", call,
+       (unsigned int)ret, setup_decoder_w, setup_decoder_h, setup_refs,
+       decoder_internal ? "internal" : "public", bytes);
+}
+
+/* Frees the library memory a failed Internal init allocated (the same globals
+ * video_cleanup_avc_lib releases after a successful setup, which does not run for a failed one). */
+static void free_lib_memory(void) {
+  if (videodecContext > 0)
+    sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
+  videodecContext = 0;
+  if (videodecUnmap > 0)
+    sceCodecEngineCloseUnmapMemBlock(videodecUnmap);
+  videodecUnmap = -1;
+  if (videodecblock >= 0)
+    sceKernelFreeMemBlock(videodecblock);
+  videodecblock = -1;
+}
+
+/* The Internal init sequence the other homebrew uses: sceVideodecSetConfigInternal(2), decode
+ * mode 0x80, sceVideodecQueryMemSizeInternal, codec memory in CDRAM at 1 MB alignment handed to
+ * the codec engine, sceVideodecInitLibraryWithUnmapMemInternal. The config and decode mode are
+ * process-wide and nothing resets them (see the warning in video_cleanup_avc_lib). Returns 0 or
+ * a negative error; on failure nothing stays allocated. */
+static int video_setup_avc_lib_internal(SceVideodecCtrl *libCtrl, SceVideodecMemInfo *libMemInfo,
+                                        SceVideodecQueryInitInfo *initVideodec) {
+  int cfg = sceVideodecSetConfigInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, 2);
+  if (cfg < 0)
+    log_setup_failure("sceVideodecSetConfigInternal", cfg, 0);
+  int mode = sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, 0x80);
+  if (mode < 0)
+    log_setup_failure("sceAvcdecSetDecodeMode", mode, 0);
+
+  libMemInfo->memSize = 0;
+  int ret = sceVideodecQueryMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
+  if (ret >= 0 && (int)libMemInfo->memSize <= 0)
+    ret = VIDEODEC_ERROR_INVALID_PARAM;
+  if (ret < 0) {
+    log_setup_failure("sceVideodecQueryMemSizeInternal", ret, 0);
+    return ret;
+  }
+
+  SceUInt32 ctx_size = libMemInfo->memSize;
+  SceUInt32 block_size = ROUND_UP(ctx_size, 1024 * 1024);
+  SceKernelAllocMemBlockOpt opt;
+  sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
+  opt.size = sizeof(SceKernelAllocMemBlockOpt);
+  opt.attr = 4;
+  opt.alignment = 1024 * 1024;
+  void *libMem = NULL;
+  videodecblock =
+      sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, block_size, &opt);
+  if (videodecblock < 0) {
+    ret = videodecblock;
+    videodecblock = -1;
+    log_setup_failure("sceKernelAllocMemBlock(videodec)", ret, (unsigned int)block_size);
+    return ret;
+  }
+  ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
+  if (ret < 0) {
+    log_setup_failure("sceKernelGetMemBlockBase(videodec)", ret, 0);
+    free_lib_memory();
+    return ret;
+  }
+  videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, block_size);
+  if (videodecUnmap <= 0) {
+    ret = videodecUnmap < 0 ? videodecUnmap : -1;
+    videodecUnmap = -1;
+    log_setup_failure("sceCodecEngineOpenUnmapMemBlock", ret, (unsigned int)block_size);
+    free_lib_memory();
+    return ret;
+  }
+  videodecContext = sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, ctx_size, 256 * 1024);
+  if (videodecContext <= 0) {
+    ret = videodecContext < 0 ? videodecContext : -1;
+    videodecContext = 0;
+    log_setup_failure("sceCodecEngineAllocMemoryFromUnmapMemBlock", ret, (unsigned int)ctx_size);
+    free_lib_memory();
+    return ret;
+  }
+
+  sceClibMemset(libCtrl, 0, sizeof(SceVideodecCtrl));
+  libCtrl->vaContext = videodecContext;
+  libCtrl->contextSize = ctx_size;
+  ret = sceVideodecInitLibraryWithUnmapMemInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl,
+                                                   initVideodec);
+  if (ret < 0) {
+    log_setup_failure("sceVideodecInitLibraryWithUnmapMemInternal", ret, 0);
+    free_lib_memory();
+    return ret;
+  }
+  return 0;
 }
 
 static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
@@ -951,15 +1091,33 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   void *libMem;
   sceClibMemset(&initVideodec->hwAvc, 0, sizeof(SceVideodecQueryInitInfoHwAvcdec));
 
+  /* The size decides the entry points and the reference count (video_geometry.h). Only 720p and
+   * 1080p have their SPS rewritten down to that count; 540p is never touched. */
+  const VideoDecoderPlan plan = video_geometry_decoder_plan(width, height);
+  decoder_internal = plan.use_internal != 0;
+  sps_rewrite_target_refs = width > (int)VIDEO_GEOMETRY_SCREEN_W ? plan.ref_frames : 0;
+  /* Internal output: opaque alpha, as VitaIPTV sets for RGBA. Public path: the zero it always had.
+   */
+  picture.frame.opt.rgba.alpha = plan.use_internal ? 0xFF : 0;
+
   initVideodec->hwAvc.size = sizeof(SceVideodecQueryInitInfoHwAvcdec);
   initVideodec->hwAvc.horizontal = VITA_DECODER_RESOLUTION(width);
   initVideodec->hwAvc.vertical = VITA_DECODER_RESOLUTION(height);
   initVideodec->hwAvc.numOfStreams = 1;
-  initVideodec->hwAvc.numOfRefFrames = REF_FRAMES;
+  initVideodec->hwAvc.numOfRefFrames = plan.ref_frames;
+  setup_decoder_w = initVideodec->hwAvc.horizontal;
+  setup_decoder_h = initVideodec->hwAvc.vertical;
+  setup_refs = plan.ref_frames;
+
+  if (plan.use_internal) {
+    if (video_setup_avc_lib_internal(libCtrl, libMemInfo, initVideodec) < 0)
+      return VITA_VIDEO_ERROR_INIT_LIB;
+    return VITA_VIDEO_INIT_OK;
+  }
 
   int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
   if (ret < 0) {
-    sceClibPrintf("sceVideodecQueryMemSize 0x%x\n", ret);
+    log_setup_failure("sceVideodecQueryMemSize", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -974,26 +1132,29 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   videodecblock = sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                          libMemInfo->memSize, &opt);
   if (videodecblock < 0) {
-    sceClibPrintf("videodecblock: 0x%08x\n", videodecblock);
+    log_setup_failure("sceKernelAllocMemBlock(videodec)", videodecblock,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
   if (ret < 0) {
-    sceClibPrintf("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    log_setup_failure("sceKernelGetMemBlockBase(videodec)", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, libMemInfo->memSize);
   if (videodecUnmap < 0) {
-    sceClibPrintf("sceCodecEngineOpenUnmapMemBlock: 0x%x\n", videodecUnmap);
+    log_setup_failure("sceCodecEngineOpenUnmapMemBlock", videodecUnmap,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecContext =
       sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, libMemInfo->memSize, 256 * 1024);
   if (videodecContext < 0) {
-    sceClibPrintf("sceCodecEngineAllocMemoryFromUnmapMemBlock: 0x%x\n", videodecContext);
+    log_setup_failure("sceCodecEngineAllocMemoryFromUnmapMemBlock", videodecContext,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -1003,7 +1164,7 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
 
   ret = sceVideodecInitLibraryWithUnmapMem(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl, initVideodec);
   if (ret < 0) {
-    LOGD("sceVideodecInitLibrary 0x%x\n", ret);
+    log_setup_failure("sceVideodecInitLibraryWithUnmapMem", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -1014,7 +1175,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   if (decoder_info == NULL) {
     decoder_info = calloc(1, sizeof(SceAvcdecQueryDecoderInfo));
     if (decoder_info == NULL) {
-      LOGD("not enough memory2\n");
+      LOGE("DECODE/SETUP decoder_info calloc FAILED bytes=%u",
+           (unsigned int)sizeof(SceAvcdecQueryDecoderInfo));
       return VITA_VIDEO_ERROR_NO_MEM;
     }
   }
@@ -1023,16 +1185,19 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoder_info->numOfRefFrames = initVideodec->hwAvc.numOfRefFrames;
 
   SceAvcdecDecoderInfo decoder_info_out = (SceAvcdecDecoderInfo){0};
-  int ret =
-      sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
+  int ret = decoder_internal ? sceAvcdecQueryDecoderMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC,
+                                                                    decoder_info, &decoder_info_out)
+                             : sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC,
+                                                            decoder_info, &decoder_info_out);
   if (ret < 0) {
-    LOGD("sceAvcdecQueryDecoderMemSize 0x%x size 0x%x\n", ret, decoder_info_out.frameMemSize);
+    log_setup_failure("sceAvcdecQueryDecoderMemSize", ret,
+                      (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE;
   }
 
   decoder = calloc(1, sizeof(SceAvcdecCtrl));
   if (decoder == NULL) {
-    LOGD("not enough memory3\n");
+    LOGE("DECODE/SETUP decoder calloc FAILED bytes=%u", (unsigned int)sizeof(SceAvcdecCtrl));
     return VITA_VIDEO_ERROR_ALLOC_MEM;
   }
 
@@ -1046,13 +1211,14 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoderblock = sceKernelAllocMemBlock("decoder", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                         decoder_info_out.frameMemSize, &opt);
   if (decoderblock < 0) {
-    LOGD("decoderblock: 0x%08x\n", decoderblock);
+    log_setup_failure("sceKernelAllocMemBlock(decoder)", decoderblock,
+                      (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_ALLOC_MEM;
   }
 
   ret = sceKernelGetMemBlockBase(decoderblock, &decoder->frameBuf.pBuf);
   if (ret < 0) {
-    LOGD("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    log_setup_failure("sceKernelGetMemBlockBase(decoder)", ret, 0);
     return VITA_VIDEO_ERROR_GET_MEMBASE;
   }
 
@@ -1061,9 +1227,11 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
 
 static int video_setup_decoder_instance(void) {
   LOGD("base: 0x%08x\n", decoder->frameBuf.pBuf);
-  int ret = sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
+  int ret = decoder_internal
+                ? sceAvcdecCreateDecoderInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info)
+                : sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
   if (ret < 0) {
-    LOGD("sceAvcdecCreateDecoder 0x%x\n", ret);
+    log_setup_failure("sceAvcdecCreateDecoder", ret, 0);
     return VITA_VIDEO_ERROR_CREATE_DEC;
   }
   return VITA_VIDEO_INIT_OK;
@@ -1156,6 +1324,184 @@ static void withdraw_unclaimed_picture(uint32_t frame_seq) {
   }
 }
 
+/* The int both Internal decode calls share and write. Decode thread only; reset in
+ * vita_h264_start. */
+static SceInt32 internal_pic_state = 0;
+/* Failed Internal decode calls logged this session (the calls can fail at the frame rate, so
+ * only the first ones are reported). Decode thread only; reset in vita_h264_start. */
+static uint32_t internal_err_logged = 0;
+#define INTERNAL_ERR_LOG_MAX 20
+
+/* #473 drain. The Internal decoder can have more than one picture ready after a unit goes in (a
+ * burst after a network stall); VitaIPTV measured the same on its HD decoder and takes out every
+ * ready picture (src/tsplayer.c drain_internal, up to 4 extra calls per unit). With one picture
+ * taken per unit, each unit that left a second picture inside left it there for good: the hold
+ * (fed - handed) stepped up in every burst and never came back (hardware log 13291197098, 3 -> 36
+ * frames, about 1.2 s at 30 fps). INTERNAL_DRAIN_MAX bounds the extra calls per unit (a call that
+ * finds nothing ready is cheap); a burst of about 10 extra pictures is worked off in a few units.
+ */
+#define INTERNAL_DRAIN_MAX 4u
+/* Pictures the last decode_internal() call took out of the decoder (the first plus the drained
+ * ones); decode_frame_now() hands it to the PIPE/DECHOLD accounting. Decode thread only. */
+static uint32_t internal_pics_out = 0;
+/* Extra pictures drained this session and since the last PIPE/INTBACKLOG line. Decode thread only;
+ * reset in vita_h264_start. */
+static uint32_t internal_drained_total = 0;
+static uint32_t internal_drained_since_log = 0;
+
+/* #473 safety net. The backlog is the PIPE/DECHOLD hold (units fed minus pictures out). Steady
+ * state at 1080p/30 is 2 to 4 (log 13291197098: held 3-4 on a clean run). If the hold stays above
+ * INTERNAL_BACKLOG_RESYNC_HOLD for INTERNAL_BACKLOG_RESYNC_FRAMES units in a row, the drain is not
+ * keeping up and a resync (a reconnect that empties the decoder) is requested. 12 is three times
+ * the top of the steady range (400 ms at 30 fps); 30 units is about a second, so a burst the
+ * drain is still working off never trips it. At most one resync per
+ * INTERNAL_BACKLOG_RESYNC_GAP_US, so it can never loop. */
+#define INTERNAL_BACKLOG_RESYNC_HOLD 12u
+#define INTERNAL_BACKLOG_RESYNC_FRAMES 30u
+#define INTERNAL_BACKLOG_RESYNC_GAP_US 10000000ull
+/* PIPE/INTBACKLOG is logged when the hold has moved by at least this much since the last line, at
+ * most once per INTERNAL_BACKLOG_LOG_GAP_US, so a steady backlog (and the 1-frame flicker around
+ * it) is silent. */
+#define INTERNAL_BACKLOG_LOG_STEP 2u
+#define INTERNAL_BACKLOG_LOG_GAP_US 1000000ull
+static uint32_t internal_backlog_logged = 0;
+static uint64_t internal_backlog_log_us = 0;
+static uint32_t internal_backlog_over_frames = 0;
+static uint64_t internal_backlog_resync_us = 0; /* survives sessions on purpose; 0 = never fired */
+/* Set by internal_backlog_observe() under `mtx` when a resync is decided; carried out by
+ * internal_backlog_resync_if_wanted() once `mtx` is released. Decode thread only. */
+static bool internal_resync_wanted = false;
+
+static void log_internal_call_failed(const char *call, int ret, uint32_t frame_seq) {
+  if (internal_err_logged >= INTERNAL_ERR_LOG_MAX)
+    return;
+  internal_err_logged++;
+  LOGE("DECODE/INTERNAL %s FAILED ret=0x%x frame=%u%s", call, (unsigned int)ret, frame_seq,
+       internal_err_logged == INTERNAL_ERR_LOG_MAX ? " (suppressing further reports)" : "");
+}
+
+/* Pulls the ready picture out of the Internal decoder into array_picture (the output pointer is
+ * already set by the caller). Follows VitaIPTV tsplayer.c decode_internal: the work-picture array
+ * is zeroed and passed along. numOfOutput stays 0 while the decoder has nothing ready yet. */
+static int internal_get_picture(uint32_t frame_seq) {
+  static SceAvcdecPicture work_pic;
+  static SceAvcdecPicture *work_pp[1];
+  static SceAvcdecArrayPicture work;
+  memset(&work_pic, 0, sizeof(work_pic));
+  work_pp[0] = &work_pic;
+  work.numOfOutput = 0;
+  work.numOfElm = 0;
+  work.pPicture = work_pp;
+  array_picture.numOfOutput = 0;
+  int r = sceAvcdecDecodeGetPictureWithWorkPictureInternal(decoder, &array_picture, &work,
+                                                           &internal_pic_state);
+  if (r < 0)
+    log_internal_call_failed("sceAvcdecDecodeGetPictureWithWorkPictureInternal", r, frame_seq);
+  return r;
+}
+
+/* Takes every ready picture out of the Internal decoder (#473, see INTERNAL_DRAIN_MAX). There is
+ * one output texture, so each picture overwrites the one before and only the newest stays; the
+ * older ones are dropped, never queued. A call that finds nothing ready ends the loop and leaves
+ * the texture and numOfOutput untouched. On success with at least one picture, numOfOutput is 1
+ * and picture.info.pts is the newest picture's; internal_pics_out is how many came out. Returns
+ * the first failing call's code (the texture may then be partly written; the caller applies the
+ * #418 rule). */
+static int internal_collect(uint32_t frame_seq) {
+  internal_pics_out = 0;
+  int r = internal_get_picture(frame_seq);
+  if (r < 0 || array_picture.numOfOutput != 1)
+    return r;
+  internal_pics_out = 1;
+  SceVideodecTimeStamp newest_pts = picture.info.pts;
+  for (uint32_t i = 0; i < INTERNAL_DRAIN_MAX; i++) {
+    r = internal_get_picture(frame_seq);
+    if (r < 0)
+      return r;
+    if (array_picture.numOfOutput != 1)
+      break;
+    internal_pics_out++;
+    internal_drained_total++;
+    internal_drained_since_log++;
+    newest_pts = picture.info.pts;
+  }
+  array_picture.numOfOutput = 1;
+  picture.info.pts = newest_pts;
+  return 0;
+}
+
+/* The Internal replacement for the single sceAvcdecDecode call: feed the access unit, then take
+ * out the ready pictures (internal_collect). ES buffer full: an empty unit lets the decoder hand
+ * pictures out, which are taken, then the unit goes in again (VitaIPTV decode_internal; in that
+ * case the pictures taken are this call's result and no second collect is made, as there is one
+ * output texture). An "invalid stream" answer is counted as fed: it is seen on device for units
+ * that decoded fine. */
+static int decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
+  bool pulled = false;
+  int ra = sceAvcdecDecodeAuInternal(decoder, a, &internal_pic_state);
+  if ((unsigned int)ra == AVCDEC_ERROR_ES_BUFFER_FULL) {
+    SceAvcdecAu empty = *a;
+    empty.es.pBuf = NULL;
+    empty.es.size = 0;
+    int re = sceAvcdecDecodeAuInternal(decoder, &empty, &internal_pic_state);
+    if (re < 0 && (unsigned int)re != AVCDEC_ERROR_INVALID_STREAM)
+      log_internal_call_failed("sceAvcdecDecodeAuInternal(empty)", re, frame_seq);
+    int rg = internal_collect(frame_seq);
+    if (rg < 0)
+      return rg;
+    pulled = true;
+    ra = sceAvcdecDecodeAuInternal(decoder, a, &internal_pic_state);
+  }
+  if (ra < 0 && (unsigned int)ra != AVCDEC_ERROR_INVALID_STREAM) {
+    log_internal_call_failed("sceAvcdecDecodeAuInternal", ra, frame_seq);
+    return pulled && array_picture.numOfOutput == 1 ? 0 : ra;
+  }
+  if (pulled)
+    return 0;
+  return internal_collect(frame_seq);
+}
+
+/* #473, decode thread under `mtx`, after the unit's output is accounted: logs the backlog when it
+ * has moved (PIPE/INTBACKLOG) and asks for a resync when it stays far above steady state (see
+ * INTERNAL_BACKLOG_RESYNC_HOLD). now_us is the caller's process-time reading. */
+static void internal_backlog_observe(uint32_t frame_seq, uint64_t now_us) {
+  uint32_t backlog = dechold_current_hold();
+  uint32_t moved = backlog > internal_backlog_logged ? backlog - internal_backlog_logged
+                                                     : internal_backlog_logged - backlog;
+  if (moved >= INTERNAL_BACKLOG_LOG_STEP &&
+      now_us - internal_backlog_log_us >= INTERNAL_BACKLOG_LOG_GAP_US) {
+    LOGW("PIPE/INTBACKLOG backlog=%u prev=%u drained=%u drained_total=%u frame=%u", backlog,
+         internal_backlog_logged, internal_drained_since_log, internal_drained_total, frame_seq);
+    internal_backlog_logged = backlog;
+    internal_backlog_log_us = now_us;
+    internal_drained_since_log = 0;
+  }
+
+  internal_backlog_over_frames =
+      backlog > INTERNAL_BACKLOG_RESYNC_HOLD ? internal_backlog_over_frames + 1 : 0;
+  if (internal_backlog_over_frames < INTERNAL_BACKLOG_RESYNC_FRAMES)
+    return;
+  internal_backlog_over_frames = 0;
+  if (internal_backlog_resync_us != 0 &&
+      now_us - internal_backlog_resync_us < INTERNAL_BACKLOG_RESYNC_GAP_US)
+    return;
+  internal_backlog_resync_us = now_us;
+  internal_resync_wanted = true;
+  LOGW("PIPE/INTBACKLOG resync backlog=%u threshold=%u frame=%u (requesting)", backlog,
+       INTERNAL_BACKLOG_RESYNC_HOLD, frame_seq);
+}
+
+/* Carries out the resync internal_backlog_observe() decided on. Called on the decode thread after
+ * decode_frame_now() has returned, so `mtx` is not held: the request takes the session's and the
+ * stream connection's locks, and no video lock may be held while it does. */
+static void internal_backlog_resync_if_wanted(uint32_t frame_seq) {
+  if (!internal_resync_wanted)
+    return;
+  internal_resync_wanted = false;
+  LOGW("PIPE/INTBACKLOG resync frame=%u accepted=%d", frame_seq,
+       host_request_stream_resync() ? 1 : 0);
+}
+
 typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
 
 /* #413 decoder pull. The hardware decoder gives back at most one picture per sceAvcdecDecode call,
@@ -1178,8 +1524,8 @@ typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } 
  * now_us is the caller's process-time reading. */
 static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint32_t *readback_seq,
                                        bool *readback_valid) {
-  if (dechold_pull_disabled || dechold_handed_total == 0)
-    return PULL_NOT_TRIED;
+  if (dechold_pull_disabled || dechold_handed_total == 0 || decoder_internal)
+    return PULL_NOT_TRIED; /* the Internal decoder is read by decode_internal() */
 
   if (dechold_pull_floor > dechold_pull_base &&
       now_us - dechold_pull_floor_change_us >= DECHOLD_PULL_FLOOR_DECAY_US) {
@@ -1243,11 +1589,15 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                             uint64_t frame_first_packet_ms, uint32_t frame_seq) {
   chiaki_mutex_lock(&mtx);
 
+  /* The Internal decoder gets the same cap (wiliwili's ffmpeg.patch calls this on a decoder made
+   * by sceAvcdecCreateDecoderInternal and feeds nothing larger). An error from it (negative) means
+   * no room on the Internal path, so nothing oversized is ever fed. */
   int avail_size = sceAvcdecDecodeAvailableSize(decoder);
+  size_t avail_cap = (decoder_internal && avail_size < 0) ? 0 : (size_t)avail_size;
   uint32_t avail_now = avail_size > 0 ? (uint32_t)avail_size : 0;
   if (avail_now < dechold_acc.avail_min)
     dechold_acc.avail_min = avail_now;
-  if (buf_size > (size_t)avail_size) {
+  if (buf_size > avail_cap) {
     decode_buf_small_count++;
     if (decode_buf_small_logged < DECODE_ANOM_LOG_MAX) {
       decode_buf_small_logged++;
@@ -1281,7 +1631,8 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   picture.info.pts.upper = DECHOLD_PTS_SENTINEL;
   picture.info.pts.lower = DECHOLD_PTS_SENTINEL;
   uint64_t decode_start_us = sceKernelGetProcessTimeWide();
-  ret = sceAvcdecDecode(decoder, &au, &array_picture);
+  ret = decoder_internal ? decode_internal(&au, frame_seq)
+                         : sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
   uint32_t since_prev_us =
@@ -1313,9 +1664,13 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   uint32_t readback_seq = 0;
   dechold_record_feed(frame_seq, decode_start_us);
   bool have_picture = array_picture.numOfOutput == 1;
-  if (dechold_record_output(frame_seq, decode_end_us, array_picture.numOfOutput, &picture.info.pts,
-                            &readback_seq))
+  /* The Internal decoder can hand out several pictures per unit (internal_collect); only the
+   * newest is in the texture, but all of them left the decoder. */
+  uint32_t num_output = decoder_internal ? internal_pics_out : (uint32_t)array_picture.numOfOutput;
+  if (dechold_record_output(frame_seq, decode_end_us, num_output, &picture.info.pts, &readback_seq))
     published_seq = readback_seq;
+  if (decoder_internal)
+    internal_backlog_observe(frame_seq, decode_end_us);
 
   if (!have_picture) {
     LOGD("numOfOutput %d bufSize 0x%x\n", array_picture.numOfOutput, (unsigned int)buf_size);
@@ -1432,6 +1787,46 @@ static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
   return frame_seq;
 }
 
+/* When the decoder holds fewer reference frames than the stream's SPS declares (720p and 1080p
+ * only; sps_rewrite_target_refs is 0 for 540p), rewrites the SPS at the start of buf so the
+ * hardware decoder does not hold its output waiting for references it cannot keep. Receive
+ * thread, no allocation. On a rewrite, pre[0..*pre_len) replaces the first *consumed bytes of buf
+ * (start code + SPS NAL) and the caller copies the rest unchanged. Returns false when the buffer
+ * is to be used as it is. */
+static bool rewrite_sps_for_decoder(const uint8_t *buf, size_t size, uint8_t *pre, size_t *pre_len,
+                                    size_t *consumed) {
+  const int target_refs = sps_rewrite_target_refs;
+  if (target_refs <= 0)
+    return false;
+  size_t off, len;
+  if (!sps_probe_locate(buf, size, &off, &len))
+    return false;
+  uint8_t out[SPS_REWRITE_MAX_OUT];
+  uint32_t out_len = 0;
+  SpsRewriteInfo info;
+  SpsRewriteStatus st = sps_rewrite_max_refs(buf + off, (uint32_t)len, (uint32_t)target_refs, out,
+                                             sizeof(out), &out_len, &info);
+  if (st == SPS_REWRITE_NOT_NEEDED)
+    return false;
+  if (st != SPS_REWRITE_DONE) {
+    LOGW("DECODE/SPS rewrite refused status=%s", sps_rewrite_status_name(st));
+    return false;
+  }
+  if (size - len + out_len > DECODE_SLOT_CAPACITY - DECODE_SLOT_PAD)
+    return false;
+  memcpy(pre, buf, off); /* the original start code */
+  memcpy(pre + off, out, out_len);
+  *pre_len = off + out_len;
+  *consumed = off + len;
+  if (!sps_rewrite_logged) {
+    sps_rewrite_logged = true;
+    LOGW("DECODE/SPS rewritten refs %u->%u dfb %d->%d len %u->%u", info.refs_old, info.refs_new,
+         info.dfb_old == UINT32_MAX ? -1 : (int)info.dfb_old,
+         info.dfb_new == UINT32_MAX ? -1 : (int)info.dfb_new, info.len_old, info.len_new);
+  }
+  return true;
+}
+
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                            uint64_t frame_first_packet_ms) {
   /* Early validation — reject garbage before touching the queue. */
@@ -1456,6 +1851,12 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * compares; one bounded copy or compare only when it does). buf is not modified and the
    * decoder is fed exactly as before. Parsing and printing happen on the UI thread. */
   sps_probe_observe(buf, buf_size);
+
+  /* Prefix replaces the SPS at the buffer start when the decoder holds fewer references. */
+  uint8_t sps_pre[4 + SPS_REWRITE_MAX_OUT];
+  size_t sps_pre_len = 0;
+  size_t sps_consumed = 0;
+  bool sps_rewritten = rewrite_sps_for_decoder(buf, buf_size, sps_pre, &sps_pre_len, &sps_consumed);
 
   uint32_t frame_seq = press_meter_observe_frame(buf_size, frame_corrupt, frame_first_packet_ms);
 
@@ -1488,9 +1889,16 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * the callback returns. Zero the trailing DECODE_SLOT_PAD bytes required by
    * sceAvcdecDecode (== CHIAKI_VIDEO_BUFFER_PADDING_SIZE). */
   DecodeSlot *slot = &decode_queue[decode_q_tail];
-  sceClibMemcpy(slot->data, buf, buf_size);
-  sceClibMemset(slot->data + buf_size, 0, DECODE_SLOT_PAD);
-  slot->size = buf_size;
+  size_t slot_size = buf_size;
+  if (sps_rewritten) {
+    sceClibMemcpy(slot->data, sps_pre, sps_pre_len);
+    sceClibMemcpy(slot->data + sps_pre_len, buf + sps_consumed, buf_size - sps_consumed);
+    slot_size = sps_pre_len + (buf_size - sps_consumed);
+  } else {
+    sceClibMemcpy(slot->data, buf, buf_size);
+  }
+  sceClibMemset(slot->data + slot_size, 0, DECODE_SLOT_PAD);
+  slot->size = slot_size;
   slot->frame_corrupt = frame_corrupt;
   slot->frame_first_packet_ms = frame_first_packet_ms;
   slot->press_frame_seq = frame_seq;
@@ -1689,9 +2097,7 @@ bool vita_video_render_latest_frame(void) {
     return false;
   }
   frame_ready_for_display = false;
-  /* Latency investigation (item 1): snapshot once, before either branch below, so the
-   * paced-drop path (which never swaps buffers, and therefore never has a real display
-   * timestamp) and the display path both see the same frame's timestamp consistently.
+  /* Latency investigation (item 1): snapshot the frame's timestamps once, before the draw.
    * PIPE/DISPLAY: the decode-done stamp is snapshotted together with it. */
   uint64_t frame_first_packet_ms_snapshot = incoming_frame_first_packet_ms;
   uint64_t decode_done_us_snapshot = incoming_frame_decode_done_us;
@@ -1721,9 +2127,7 @@ bool vita_video_render_latest_frame(void) {
     }
   }
 
-  /* Called exactly once per claimed frame. It only touches UI-thread pacing state. */
-  bool drop_frame = should_drop_frame_for_pacing();
-  /* A swap is due exactly when the frame is clean, paced out or not. */
+  /* A swap is due exactly when the frame is clean. */
   vita2d_texture *clean_texture = corrupt ? NULL : promote_decoded_frame_to_last_good();
   chiaki_mutex_unlock(&mtx);
 
@@ -1737,35 +2141,6 @@ bool vita_video_render_latest_frame(void) {
         context.stream.display_pickup_samples_us, &context.stream.display_pickup_sample_count,
         &context.stream.display_pickup_write_idx, &context.stream.display_pickup_dropped_count,
         render_entry_us - decode_done_us_snapshot);
-  }
-
-  if (drop_frame) {
-    // Frame is paced out but still consumed — advance freeze state so the cap
-    // counts all consumed frames, not just displayed ones.
-    if (corrupt && last_good_texture != NULL && frozen_frame_streak < FREEZE_MAX_STREAK) {
-      frozen_frame_streak++;
-      context.stream.freeze_engaged_count++;
-    } else if (!corrupt) {
-      // Clean paced-drop: the frame was already promoted to last-good by the claim above (no
-      // draw happens on this path, so the swap is unconditionally safe -- there is no
-      // concurrent GPU read of either texture to race against here).
-      if (frozen_frame_streak > 0) {
-        LOGD("PIPE/FREEZE cleared streak=%d (paced)", frozen_frame_streak);
-      }
-      frozen_frame_streak = 0;
-    } else {
-      /* corrupt + cap-release or no snapshot: mirror the non-paced cap-release path */
-      if (frozen_frame_streak > 0)
-        LOGD("PIPE/FREEZE cap-released streak=%d (paced)", frozen_frame_streak);
-      frozen_frame_streak = 0;
-    }
-    // PIPE/DISPLAY: pickup_us was already recorded above (real regardless of pacing);
-    // snapshot/draw/swap never happen on this path (no buffer swap occurs), so recording
-    // zeros for them would corrupt those rings' percentiles with fake zero-latency
-    // samples. Track this as a distinct counter instead.
-    context.stream.display_paced_count++;
-    ui_render_in_progress = false;
-    return true;  // consumed the frame but skipped display
   }
 
   /* Determine which texture to present.
@@ -1980,6 +2355,7 @@ static void *decode_thread_func(void *user) {
      * decode_q_head below — the producer will block or drop-oldest on the
      * preceding slots rather than overwriting this one. */
     decode_frame_now(frame_data, frame_size, corrupt, frame_first_packet_ms, frame_seq);
+    internal_backlog_resync_if_wanted(frame_seq); /* after the unlock: takes lib locks */
 
     /* Release the slot now that decode is done. Signal any blocked producer. */
     chiaki_mutex_lock(&decode_q_mtx);
@@ -2008,6 +2384,16 @@ void vita_h264_start() {
   incoming_frame_decode_done_us = 0;
   press_meter_reset(&press_meter);
   sps_probe_reset();
+  sps_rewrite_logged = false;
+  internal_pic_state = 0;
+  internal_err_logged = 0;
+  internal_pics_out = 0;
+  internal_drained_total = 0;
+  internal_drained_since_log = 0;
+  internal_backlog_logged = 0;
+  internal_backlog_log_us = 0;
+  internal_backlog_over_frames = 0;
+  internal_resync_wanted = false;
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;

@@ -15,19 +15,6 @@ ChiakiVideoResolutionPreset parse_resolution_preset(const char *preset) {
   return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
 }
 
-ChiakiVideoResolutionPreset normalize_resolution_for_vita(ChiakiVideoResolutionPreset preset,
-                                                          bool *was_downgraded) {
-  if (was_downgraded)
-    *was_downgraded = false;
-  if (preset == CHIAKI_VIDEO_RESOLUTION_PRESET_1080p ||
-      preset == CHIAKI_VIDEO_RESOLUTION_PRESET_720p) {
-    if (was_downgraded)
-      *was_downgraded = true;
-    return CHIAKI_VIDEO_RESOLUTION_PRESET_540p;
-  }
-  return preset;
-}
-
 VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
   if (!mode)
     return VITA_LATENCY_MODE_MAX;
@@ -39,6 +26,8 @@ VitaChiakiLatencyMode parse_latency_mode(const char *mode) {
     return VITA_LATENCY_MODE_HIGH;
   if (strcmp(mode, "max") == 0)
     return VITA_LATENCY_MODE_MAX;
+  if (strcmp(mode, "extreme") == 0)
+    return VITA_LATENCY_MODE_EXTREME;
   if (strcmp(mode, "balanced") == 0)
     return VITA_LATENCY_MODE_BALANCED;
   return VITA_LATENCY_MODE_MAX;
@@ -54,6 +43,8 @@ const char *serialize_latency_mode(VitaChiakiLatencyMode mode) {
       return "high";
     case VITA_LATENCY_MODE_MAX:
       return "max";
+    case VITA_LATENCY_MODE_EXTREME:
+      return "extreme";
     case VITA_LATENCY_MODE_BALANCED:
     default:
       return "balanced";

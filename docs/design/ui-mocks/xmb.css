@@ -402,3 +402,7 @@ radial-gradient(ellipse 50% 40% at 20% 20%,rgba(90,120,220,.22),transparent 70%)
 
 /* #428 top-bar Wi-Fi: PNG used as a mask so currentColor tints it, like the app's tinted draw */
 #top .wifi{display:inline-block;background:currentColor;cursor:pointer}
+
+/* Locked choice (FPS Target at 1080p): lock icon, value, tag, centred in the 224 px value box */
+.srow .lk{display:inline-flex;align-items:center;gap:8px;color:var(--text-2);width:224px;justify-content:center;margin-right:48px;margin-left:48px}
+.srow .lk em{font-style:normal;font-size:var(--t16);color:var(--text-3);margin-left:8px}

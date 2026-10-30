@@ -192,8 +192,7 @@ void apply_migration_source(MigrationSource source, bool *migrated_legacy_settin
 
 void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settings,
                                      toml_table_t *parsed, bool *migrated_legacy_settings,
-                                     bool *migrated_root_settings,
-                                     bool *migrated_resolution_policy) {
+                                     bool *migrated_root_settings) {
   toml_datum_t datum;
   char *str_value = NULL;
   MigrationSource source = MIGRATION_SOURCE_NONE;
@@ -212,13 +211,6 @@ void parse_resolution_with_migration(VitaChiakiConfig *cfg, toml_table_t *settin
     cfg->resolution = parse_resolution_preset(str_value);
     free(str_value);
     apply_migration_source(source, migrated_legacy_settings, migrated_root_settings);
-  }
-
-  bool downgraded_resolution = false;
-  cfg->resolution = normalize_resolution_for_vita(cfg->resolution, &downgraded_resolution);
-  if (downgraded_resolution) {
-    LOGD("Resolution is not supported on Vita; downgrading to 540p");
-    *migrated_resolution_policy = true;
   }
 }
 

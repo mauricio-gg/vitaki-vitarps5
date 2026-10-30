@@ -13,9 +13,10 @@
 void *host_input_thread_func(void *user);
 void host_request_stream_stop_from_input(const char *reason);
 
-#if VITARPS5_DEBUG_TOOLS
 /* GH #275: ends the live session as a user stop would, marked as a resync so host_quit.c
- * reconnects at once. Returns false (and changes nothing) if there is no session to stop or a
- * stop is already under way. */
+ * reconnects at once. Used by the debug widget and by the 1080p decoder-backlog safety net (#473).
+ * Returns false (and changes nothing) if there is no session to stop or a stop is already under
+ * way. It calls chiaki_session_stop, which takes the session's and the stream connection's state
+ * mutexes, so it must never be called with a video lock (`mtx` in video.c) held; the decode thread
+ * calls it only after decode_frame_now() has returned. */
 bool host_request_stream_resync(void);
-#endif

@@ -41,15 +41,12 @@
 
 void host_handle_quit_event(ChiakiEvent *event) {
   bool user_stop_requested = context.stream.stop_requested || context.stream.stop_requested_by_user;
-#if VITARPS5_DEBUG_TOOLS
-  // GH #275: a debug-widget resync is a user-style stop that reconnects at once. The marker is
-  // consumed here on every path so it can never leak into a later real user stop; it counts only
-  // if the stop it was raised for is the one being handled.
+  // GH #275: a resync (the debug widget, or the 1080p decoder-backlog safety net, #473) is a
+  // user-style stop that reconnects at once. The marker is consumed here on every path so it can
+  // never leak into a later real user stop; it counts only if the stop it was raised for is the
+  // one being handled.
   bool resync_quit = context.stream.resync_requested && context.stream.stop_requested;
   context.stream.resync_requested = false;
-#else
-  const bool resync_quit = false;
-#endif
   // Snapshot BEFORE host_shutdown_media_pipeline() (called below) clears
   // is_streaming -- this tells the guard-mapping below whether a real RP
   // session was ever live on the console, or the connect was cancelled
