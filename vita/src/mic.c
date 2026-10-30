@@ -43,7 +43,6 @@ static const MicOpenTry open_tries[] = {
     {SCE_AUDIO_IN_PORT_TYPE_RAW, 48000, 480, 1, "RAW"},
     {SCE_AUDIO_IN_PORT_TYPE_RAW, 48000, 512, 1, "RAW"},
     {SCE_AUDIO_IN_PORT_TYPE_RAW, 48000, 256, 1, "RAW"},
-    {SCE_AUDIO_IN_PORT_TYPE_VOICE, 16000, 160, 3, "VOICE"},
     {SCE_AUDIO_IN_PORT_TYPE_VOICE, 16000, 256, 3, "VOICE"},
     {SCE_AUDIO_IN_PORT_TYPE_VOICE, 16000, 128, 3, "VOICE"},
 };
@@ -68,6 +67,8 @@ static int chosen_try = -1; /* open_tries index that worked, kept for later reop
 typedef struct mic_stats_t {
   uint32_t grains, frames, enc_calls;
   uint64_t enc_sum_us, enc_max_us, cap_sum_us, cap_max_us;
+  int size_min, size_max; /* opus_encode() result: bytes, or a negative error */
+  uint32_t size_40;       /* frames of exactly 40 bytes, the only size the sender sends */
 } MicStats;
 static MicStats stats;
 
@@ -148,6 +149,13 @@ static void on_frame(int16_t *pcm, void *user) {
   uint64_t t0 = sceKernelGetProcessTimeWide();
   chiaki_opus_encoder_frame(pcm, &enc);
   uint64_t dt = sceKernelGetProcessTimeWide() - t0;
+  const int size = enc.last_encoded_size;
+  if (!stats.enc_calls || size < stats.size_min)
+    stats.size_min = size;
+  if (!stats.enc_calls || size > stats.size_max)
+    stats.size_max = size;
+  if (size == 40)
+    stats.size_40++;
   stats.enc_calls++;
   stats.enc_sum_us += dt;
   if (dt > stats.enc_max_us)
@@ -162,10 +170,11 @@ static void log_stats(uint16_t *last_frame_index) {
   uint32_t grains = stats.grains ? stats.grains : 1;
   LOGD(
       "MIC/STATS frames_captured=%u frames_encoded=%u packets_sent=%u enc_avg_us=%u enc_max_us=%u "
-      "grains=%u cap_block_avg_us=%u cap_block_max_us=%u",
+      "grains=%u cap_block_avg_us=%u cap_block_max_us=%u pkt_bytes_min=%d pkt_bytes_max=%d "
+      "pkt_40=%u",
       stats.frames, stats.enc_calls, sent, (unsigned)(stats.enc_sum_us / calls),
       (unsigned)stats.enc_max_us, stats.grains, (unsigned)(stats.cap_sum_us / grains),
-      (unsigned)stats.cap_max_us);
+      (unsigned)stats.cap_max_us, stats.size_min, stats.size_max, stats.size_40);
   memset(&stats, 0, sizeof(stats));
 }
 
