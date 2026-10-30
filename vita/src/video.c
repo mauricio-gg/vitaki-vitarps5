@@ -19,8 +19,10 @@
 
 #include "video.h"
 #include "video_overlay.h"
+#include "video_geometry.h"
 #include "press_meter.h"
 #include "sps_probe.h"
+#include "sps_rewrite.h"
 #include "context.h"
 #include "ui/ui_draw_stats.h"
 
@@ -83,6 +85,24 @@ SceUID videodecblock = -1;
 SceUID videodecUnmap = -1;
 SceUIntVAddr videodecContext = 0;
 SceAvcdecQueryDecoderInfo *decoder_info = NULL;
+
+/* SCE_VIDEODEC_ERROR_INVALID_PARAM, spelled out so the build does not depend on the SDK header
+ * carrying the name. */
+#define VIDEODEC_ERROR_INVALID_PARAM ((int)0x80620802)
+/* Decoder answers the Internal decode calls use (not in the SDK headers). */
+#define AVCDEC_ERROR_ES_BUFFER_FULL 0x8062000Au
+#define AVCDEC_ERROR_INVALID_STREAM 0x8062000Du
+/* Set up by video_setup_avc_lib() on the session thread before any stream thread runs, read on
+ * the decode and receive threads: true when this session's decoder uses the firmware's Internal
+ * entry points (1080p); volatile per this file's cross-thread convention. */
+static volatile bool decoder_internal = false;
+/* Reference count the stream's SPS is rewritten down to, or 0 for "never rewrite" (540p, and any
+ * session whose decoder holds as many references as the stream declares). Same threading as
+ * decoder_internal. */
+static volatile int sps_rewrite_target_refs = 0;
+/* Receive thread only; reset in vita_h264_start: whether this session's first SPS rewrite was
+ * logged. */
+static bool sps_rewrite_logged = false;
 
 /* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
  * own convention requires for a cross-thread flag -- a pre-existing gap (written on
@@ -558,11 +578,12 @@ static bool dechold_record_output(uint32_t frame_seq, uint64_t done_us, uint32_t
 }
 
 void update_scaling_settings(int width, int height) {
-  // Initialize defaults - full screen
-  image_scaling.texture_width = SCREEN_WIDTH;
-  image_scaling.texture_height = SCREEN_HEIGHT;
-  image_scaling.source_width = (unsigned int)width;
-  image_scaling.source_height = (unsigned int)height;
+  // The texture is the decoder's frame size, never smaller than the screen (video_geometry.h).
+  VideoGeometry g = video_geometry_compute(width, height);
+  image_scaling.texture_width = g.texture_width;
+  image_scaling.texture_height = g.texture_height;
+  image_scaling.source_width = g.source_width;
+  image_scaling.source_height = g.source_height;
   image_scaling.origin_x = 0;
   image_scaling.origin_y = 0;
   image_scaling.region_x1 = 0;
@@ -570,26 +591,13 @@ void update_scaling_settings(int width, int height) {
   image_scaling.region_x2 = SCREEN_WIDTH;
   image_scaling.region_y2 = SCREEN_HEIGHT;
 
-  // Clamp source region to texture bounds (defensive)
-  if (image_scaling.source_width > image_scaling.texture_width)
-    image_scaling.source_width = image_scaling.texture_width;
-  if (image_scaling.source_height > image_scaling.texture_height)
-    image_scaling.source_height = image_scaling.texture_height;
-
-  // Fill Screen mode uses vita2d_draw_texture_scale in draw_streaming()
-  // so we only need to calculate aspect-preserving layout here
+  // Fill Screen mode uses vita2d_draw_texture_part_scale in draw_streaming() from the source
+  // size, so only the aspect-preserving layout is computed here.
   if (!context.config.stretch_video) {
-    // Aspect-ratio preserving mode - fit video with letterboxing/pillarboxing
-    float scale_w = (float)SCREEN_WIDTH / (float)width;
-    float scale_h = (float)SCREEN_HEIGHT / (float)height;
-    float scale = scale_w < scale_h ? scale_w : scale_h;
-    if (scale > 1.0f)
-      scale = 1.0f;
-
-    image_scaling.region_x2 = image_scaling.source_width * scale;
-    image_scaling.region_y2 = image_scaling.source_height * scale;
-    image_scaling.origin_x = round((SCREEN_WIDTH - image_scaling.region_x2) / 2.0f);
-    image_scaling.origin_y = round((SCREEN_HEIGHT - image_scaling.region_y2) / 2.0f);
+    image_scaling.region_x2 = g.dest_width;
+    image_scaling.region_y2 = g.dest_height;
+    image_scaling.origin_x = g.origin_x;
+    image_scaling.origin_y = g.origin_y;
   }
 
   LOGD("update_scaling_settings: src=%ux%u tex=%ux%u dst=%.0fx%.0f stretch=%s",
@@ -840,6 +848,30 @@ extern SceUIntVAddr sceCodecEngineAllocMemoryFromUnmapMemBlock(SceUID unmapUid, 
 extern SceInt32 sceCodecEngineFreeMemoryFromUnmapMemBlock(SceUID unmapUid, SceUIntVAddr vaCtx);
 extern SceInt32 sceAvcdecDecodeAvailableSize(const SceAvcdecCtrl *decoder);
 
+/* The firmware's "Internal" entry points, the only way found in other homebrew to set the AVC
+ * decoder up above 720p (the public ones stop at H.264 level 3.1). Not in the SDK headers; the
+ * stub libraries carry the NIDs. Sources: VitaIPTV src/tsplayer.c decoder_core_open_internal,
+ * OpenNOW-vita decoder.rs try_initialize_internal, wiliwili ffmpeg.patch. */
+extern SceInt32 sceVideodecSetConfigInternal(SceVideodecType codec, SceInt32 config);
+extern SceInt32 sceAvcdecSetDecodeMode(SceVideodecType codec, SceInt32 mode);
+extern SceInt32 sceVideodecQueryMemSizeInternal(SceVideodecType codec,
+                                                const SceVideodecQueryInitInfo *pInitInfo,
+                                                SceVideodecMemInfo *pMemInfo);
+extern SceInt32 sceVideodecInitLibraryWithUnmapMemInternal(
+    SceVideodecType codec, SceVideodecCtrl *libCtrl, const SceVideodecQueryInitInfo *initInfo);
+extern SceInt32 sceAvcdecQueryDecoderMemSizeInternal(SceVideodecType codec,
+                                                     const SceAvcdecQueryDecoderInfo *query,
+                                                     SceAvcdecDecoderInfo *decoderInfo);
+extern SceInt32 sceAvcdecCreateDecoderInternal(SceVideodecType codec, SceAvcdecCtrl *decoder,
+                                               const SceAvcdecQueryDecoderInfo *query);
+/* Decode: feed one access unit, then pull the picture that is ready (if any). `pic` is the int both
+ * calls share (VitaIPTV tsplayer.c keeps one per decoder). */
+extern SceInt32 sceAvcdecDecodeAuInternal(SceAvcdecCtrl *decoder, SceAvcdecAu *au, SceInt32 *pic);
+extern SceInt32 sceAvcdecDecodeGetPictureWithWorkPictureInternal(SceAvcdecCtrl *decoder,
+                                                                 SceAvcdecArrayPicture *pictures,
+                                                                 SceAvcdecArrayPicture *work,
+                                                                 SceInt32 *pic);
+
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
 struct SceAvcdecPicture picture = {0};
@@ -876,6 +908,10 @@ static void video_cleanup_avc_lib(void) {
     return;
 
   sceVideodecTermLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC);
+  if (decoder_internal)
+    LOGW(
+        "DECODE/INTERNAL codec state stays set after this session (config=2 decode_mode=0x80, no "
+        "reset call known); a later 540p/720p session in this app run may be affected");
 
   if (videodecContext != 0) {
     sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
@@ -910,6 +946,16 @@ static void video_cleanup_framebuffer(void) {
 
 static int video_setup_framebuffer(int width, int height) {
   update_scaling_settings(width, height);
+  /* Bigger than the screen: downscale with bilinear so a 2:1 step averages 2x2 pixels instead of
+   * dropping three of four. At screen size the default filter is kept, so 540p is unchanged. */
+  const bool downscale_linear =
+      image_scaling.texture_width > SCREEN_WIDTH || image_scaling.texture_height > SCREEN_HEIGHT;
+  const VideoDecoderPlan plan = video_geometry_decoder_plan(width, height);
+  LOGW("DECODE/SETUP stream=%dx%d decoder=%ux%u texture=%ux%u path=%s refs=%d filter=%s", width,
+       height, (unsigned int)VITA_DECODER_RESOLUTION(width),
+       (unsigned int)VITA_DECODER_RESOLUTION(height), image_scaling.texture_width,
+       image_scaling.texture_height, plan.use_internal ? "internal" : "public", plan.ref_frames,
+       downscale_linear ? "linear" : "default");
   picture.frame.framePitch = image_scaling.texture_width;
   picture.frame.frameWidth = image_scaling.texture_width;
   picture.frame.frameHeight = image_scaling.texture_height;
@@ -918,7 +964,9 @@ static int video_setup_framebuffer(int width, int height) {
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
   if (frame_texture == NULL) {
-    LOGD("not enough memory4\n");
+    LOGE("DECODE/SETUP frame_texture alloc FAILED size=%ux%u bytes=%u", image_scaling.texture_width,
+         image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
     return VITA_VIDEO_ERROR_NO_MEM;
   }
   /* Initial decode target, matching frame_texture's freshly-allocated value above.
@@ -927,6 +975,9 @@ static int video_setup_framebuffer(int width, int height) {
    * promote_decoded_frame_to_last_good()), so this assignment only matters for a
    * hypothetical decode that ran before the first ping-pong swap; kept for
    * defensive clarity rather than relying on that per-decode re-set alone. */
+  if (downscale_linear)
+    vita2d_texture_set_filters(frame_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                               SCE_GXM_TEXTURE_FILTER_LINEAR);
   picture.frame.pPicture[0] = vita2d_texture_get_datap(frame_texture);
 
   /* Allocate the twin "last good frame" texture. Same format and dimensions as
@@ -939,10 +990,119 @@ static int video_setup_framebuffer(int width, int height) {
   last_good_texture =
       vita2d_create_empty_texture_format(image_scaling.texture_width, image_scaling.texture_height,
                                          SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
-  if (last_good_texture == NULL)
-    LOGD("VIDEO: last_good_texture alloc failed — freeze suppression disabled\n");
+  if (last_good_texture == NULL) {
+    LOGE("DECODE/SETUP last_good_texture alloc FAILED size=%ux%u bytes=%u (freeze suppression off)",
+         image_scaling.texture_width, image_scaling.texture_height,
+         image_scaling.texture_width * image_scaling.texture_height * 4);
+  } else if (downscale_linear) {
+    vita2d_texture_set_filters(last_good_texture, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                               SCE_GXM_TEXTURE_FILTER_LINEAR);
+  }
 
   return VITA_VIDEO_INIT_OK;
+}
+
+/* What the decoder is being set up with, kept for the failure lines below. Session thread only. */
+static unsigned int setup_decoder_w = 0;
+static unsigned int setup_decoder_h = 0;
+static int setup_refs = 0;
+
+/* One line for every decoder setup failure, naming the call, its return code and the size and
+ * reference count in use, so a beta tester's log says which step refused which configuration.
+ * bytes is the memory the step asked for, 0 when it asks for none. */
+static void log_setup_failure(const char *call, int ret, unsigned int bytes) {
+  LOGE("DECODE/SETUP %s FAILED ret=0x%x decoder=%ux%u refs=%d path=%s bytes=%u", call,
+       (unsigned int)ret, setup_decoder_w, setup_decoder_h, setup_refs,
+       decoder_internal ? "internal" : "public", bytes);
+}
+
+/* Frees the library memory a failed Internal init allocated (the same globals
+ * video_cleanup_avc_lib releases after a successful setup, which does not run for a failed one). */
+static void free_lib_memory(void) {
+  if (videodecContext > 0)
+    sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
+  videodecContext = 0;
+  if (videodecUnmap > 0)
+    sceCodecEngineCloseUnmapMemBlock(videodecUnmap);
+  videodecUnmap = -1;
+  if (videodecblock >= 0)
+    sceKernelFreeMemBlock(videodecblock);
+  videodecblock = -1;
+}
+
+/* The Internal init sequence the other homebrew uses: sceVideodecSetConfigInternal(2), decode
+ * mode 0x80, sceVideodecQueryMemSizeInternal, codec memory in CDRAM at 1 MB alignment handed to
+ * the codec engine, sceVideodecInitLibraryWithUnmapMemInternal. The config and decode mode are
+ * process-wide and nothing resets them (see the warning in video_cleanup_avc_lib). Returns 0 or
+ * a negative error; on failure nothing stays allocated. */
+static int video_setup_avc_lib_internal(SceVideodecCtrl *libCtrl, SceVideodecMemInfo *libMemInfo,
+                                        SceVideodecQueryInitInfo *initVideodec) {
+  int cfg = sceVideodecSetConfigInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, 2);
+  if (cfg < 0)
+    log_setup_failure("sceVideodecSetConfigInternal", cfg, 0);
+  int mode = sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, 0x80);
+  if (mode < 0)
+    log_setup_failure("sceAvcdecSetDecodeMode", mode, 0);
+
+  libMemInfo->memSize = 0;
+  int ret = sceVideodecQueryMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
+  if (ret >= 0 && (int)libMemInfo->memSize <= 0)
+    ret = VIDEODEC_ERROR_INVALID_PARAM;
+  if (ret < 0) {
+    log_setup_failure("sceVideodecQueryMemSizeInternal", ret, 0);
+    return ret;
+  }
+
+  SceUInt32 ctx_size = libMemInfo->memSize;
+  SceUInt32 block_size = ROUND_UP(ctx_size, 1024 * 1024);
+  SceKernelAllocMemBlockOpt opt;
+  sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
+  opt.size = sizeof(SceKernelAllocMemBlockOpt);
+  opt.attr = 4;
+  opt.alignment = 1024 * 1024;
+  void *libMem = NULL;
+  videodecblock =
+      sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, block_size, &opt);
+  if (videodecblock < 0) {
+    ret = videodecblock;
+    videodecblock = -1;
+    log_setup_failure("sceKernelAllocMemBlock(videodec)", ret, (unsigned int)block_size);
+    return ret;
+  }
+  ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
+  if (ret < 0) {
+    log_setup_failure("sceKernelGetMemBlockBase(videodec)", ret, 0);
+    free_lib_memory();
+    return ret;
+  }
+  videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, block_size);
+  if (videodecUnmap <= 0) {
+    ret = videodecUnmap < 0 ? videodecUnmap : -1;
+    videodecUnmap = -1;
+    log_setup_failure("sceCodecEngineOpenUnmapMemBlock", ret, (unsigned int)block_size);
+    free_lib_memory();
+    return ret;
+  }
+  videodecContext = sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, ctx_size, 256 * 1024);
+  if (videodecContext <= 0) {
+    ret = videodecContext < 0 ? videodecContext : -1;
+    videodecContext = 0;
+    log_setup_failure("sceCodecEngineAllocMemoryFromUnmapMemBlock", ret, (unsigned int)ctx_size);
+    free_lib_memory();
+    return ret;
+  }
+
+  sceClibMemset(libCtrl, 0, sizeof(SceVideodecCtrl));
+  libCtrl->vaContext = videodecContext;
+  libCtrl->contextSize = ctx_size;
+  ret = sceVideodecInitLibraryWithUnmapMemInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl,
+                                                   initVideodec);
+  if (ret < 0) {
+    log_setup_failure("sceVideodecInitLibraryWithUnmapMemInternal", ret, 0);
+    free_lib_memory();
+    return ret;
+  }
+  return 0;
 }
 
 static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
@@ -951,15 +1111,33 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   void *libMem;
   sceClibMemset(&initVideodec->hwAvc, 0, sizeof(SceVideodecQueryInitInfoHwAvcdec));
 
+  /* The size decides the entry points and the reference count (video_geometry.h). Only 720p and
+   * 1080p have their SPS rewritten down to that count; 540p is never touched. */
+  const VideoDecoderPlan plan = video_geometry_decoder_plan(width, height);
+  decoder_internal = plan.use_internal != 0;
+  sps_rewrite_target_refs = width > (int)VIDEO_GEOMETRY_SCREEN_W ? plan.ref_frames : 0;
+  /* Internal output: opaque alpha, as VitaIPTV sets for RGBA. Public path: the zero it always had.
+   */
+  picture.frame.opt.rgba.alpha = plan.use_internal ? 0xFF : 0;
+
   initVideodec->hwAvc.size = sizeof(SceVideodecQueryInitInfoHwAvcdec);
   initVideodec->hwAvc.horizontal = VITA_DECODER_RESOLUTION(width);
   initVideodec->hwAvc.vertical = VITA_DECODER_RESOLUTION(height);
   initVideodec->hwAvc.numOfStreams = 1;
-  initVideodec->hwAvc.numOfRefFrames = REF_FRAMES;
+  initVideodec->hwAvc.numOfRefFrames = plan.ref_frames;
+  setup_decoder_w = initVideodec->hwAvc.horizontal;
+  setup_decoder_h = initVideodec->hwAvc.vertical;
+  setup_refs = plan.ref_frames;
+
+  if (plan.use_internal) {
+    if (video_setup_avc_lib_internal(libCtrl, libMemInfo, initVideodec) < 0)
+      return VITA_VIDEO_ERROR_INIT_LIB;
+    return VITA_VIDEO_INIT_OK;
+  }
 
   int ret = sceVideodecQueryMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
   if (ret < 0) {
-    sceClibPrintf("sceVideodecQueryMemSize 0x%x\n", ret);
+    log_setup_failure("sceVideodecQueryMemSize", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -974,26 +1152,29 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   videodecblock = sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                          libMemInfo->memSize, &opt);
   if (videodecblock < 0) {
-    sceClibPrintf("videodecblock: 0x%08x\n", videodecblock);
+    log_setup_failure("sceKernelAllocMemBlock(videodec)", videodecblock,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
   if (ret < 0) {
-    sceClibPrintf("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    log_setup_failure("sceKernelGetMemBlockBase(videodec)", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, libMemInfo->memSize);
   if (videodecUnmap < 0) {
-    sceClibPrintf("sceCodecEngineOpenUnmapMemBlock: 0x%x\n", videodecUnmap);
+    log_setup_failure("sceCodecEngineOpenUnmapMemBlock", videodecUnmap,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
   videodecContext =
       sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, libMemInfo->memSize, 256 * 1024);
   if (videodecContext < 0) {
-    sceClibPrintf("sceCodecEngineAllocMemoryFromUnmapMemBlock: 0x%x\n", videodecContext);
+    log_setup_failure("sceCodecEngineAllocMemoryFromUnmapMemBlock", videodecContext,
+                      (unsigned int)libMemInfo->memSize);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -1003,7 +1184,7 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
 
   ret = sceVideodecInitLibraryWithUnmapMem(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl, initVideodec);
   if (ret < 0) {
-    LOGD("sceVideodecInitLibrary 0x%x\n", ret);
+    log_setup_failure("sceVideodecInitLibraryWithUnmapMem", ret, 0);
     return VITA_VIDEO_ERROR_INIT_LIB;
   }
 
@@ -1014,7 +1195,8 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   if (decoder_info == NULL) {
     decoder_info = calloc(1, sizeof(SceAvcdecQueryDecoderInfo));
     if (decoder_info == NULL) {
-      LOGD("not enough memory2\n");
+      LOGE("DECODE/SETUP decoder_info calloc FAILED bytes=%u",
+           (unsigned int)sizeof(SceAvcdecQueryDecoderInfo));
       return VITA_VIDEO_ERROR_NO_MEM;
     }
   }
@@ -1023,16 +1205,19 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoder_info->numOfRefFrames = initVideodec->hwAvc.numOfRefFrames;
 
   SceAvcdecDecoderInfo decoder_info_out = (SceAvcdecDecoderInfo){0};
-  int ret =
-      sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
+  int ret = decoder_internal ? sceAvcdecQueryDecoderMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC,
+                                                                    decoder_info, &decoder_info_out)
+                             : sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC,
+                                                            decoder_info, &decoder_info_out);
   if (ret < 0) {
-    LOGD("sceAvcdecQueryDecoderMemSize 0x%x size 0x%x\n", ret, decoder_info_out.frameMemSize);
+    log_setup_failure("sceAvcdecQueryDecoderMemSize", ret,
+                      (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_QUERY_DEC_MEMSIZE;
   }
 
   decoder = calloc(1, sizeof(SceAvcdecCtrl));
   if (decoder == NULL) {
-    LOGD("not enough memory3\n");
+    LOGE("DECODE/SETUP decoder calloc FAILED bytes=%u", (unsigned int)sizeof(SceAvcdecCtrl));
     return VITA_VIDEO_ERROR_ALLOC_MEM;
   }
 
@@ -1046,13 +1231,14 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoderblock = sceKernelAllocMemBlock("decoder", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                         decoder_info_out.frameMemSize, &opt);
   if (decoderblock < 0) {
-    LOGD("decoderblock: 0x%08x\n", decoderblock);
+    log_setup_failure("sceKernelAllocMemBlock(decoder)", decoderblock,
+                      (unsigned int)decoder_info_out.frameMemSize);
     return VITA_VIDEO_ERROR_ALLOC_MEM;
   }
 
   ret = sceKernelGetMemBlockBase(decoderblock, &decoder->frameBuf.pBuf);
   if (ret < 0) {
-    LOGD("sceKernelGetMemBlockBase: 0x%x\n", ret);
+    log_setup_failure("sceKernelGetMemBlockBase(decoder)", ret, 0);
     return VITA_VIDEO_ERROR_GET_MEMBASE;
   }
 
@@ -1061,9 +1247,11 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
 
 static int video_setup_decoder_instance(void) {
   LOGD("base: 0x%08x\n", decoder->frameBuf.pBuf);
-  int ret = sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
+  int ret = decoder_internal
+                ? sceAvcdecCreateDecoderInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info)
+                : sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
   if (ret < 0) {
-    LOGD("sceAvcdecCreateDecoder 0x%x\n", ret);
+    log_setup_failure("sceAvcdecCreateDecoder", ret, 0);
     return VITA_VIDEO_ERROR_CREATE_DEC;
   }
   return VITA_VIDEO_INIT_OK;
@@ -1156,6 +1344,72 @@ static void withdraw_unclaimed_picture(uint32_t frame_seq) {
   }
 }
 
+/* The int both Internal decode calls share and write. Decode thread only; reset in
+ * vita_h264_start. */
+static SceInt32 internal_pic_state = 0;
+/* Failed Internal decode calls logged this session (the calls can fail at the frame rate, so
+ * only the first ones are reported). Decode thread only; reset in vita_h264_start. */
+static uint32_t internal_err_logged = 0;
+#define INTERNAL_ERR_LOG_MAX 20
+
+static void log_internal_call_failed(const char *call, int ret, uint32_t frame_seq) {
+  if (internal_err_logged >= INTERNAL_ERR_LOG_MAX)
+    return;
+  internal_err_logged++;
+  LOGE("DECODE/INTERNAL %s FAILED ret=0x%x frame=%u%s", call, (unsigned int)ret, frame_seq,
+       internal_err_logged == INTERNAL_ERR_LOG_MAX ? " (suppressing further reports)" : "");
+}
+
+/* Pulls the ready picture out of the Internal decoder into array_picture (the output pointer is
+ * already set by the caller). Follows VitaIPTV tsplayer.c decode_internal: the work-picture array
+ * is zeroed and passed along. numOfOutput stays 0 while the decoder has nothing ready yet. */
+static int internal_get_picture(uint32_t frame_seq) {
+  static SceAvcdecPicture work_pic;
+  static SceAvcdecPicture *work_pp[1];
+  static SceAvcdecArrayPicture work;
+  memset(&work_pic, 0, sizeof(work_pic));
+  work_pp[0] = &work_pic;
+  work.numOfOutput = 0;
+  work.numOfElm = 0;
+  work.pPicture = work_pp;
+  array_picture.numOfOutput = 0;
+  int r = sceAvcdecDecodeGetPictureWithWorkPictureInternal(decoder, &array_picture, &work,
+                                                           &internal_pic_state);
+  if (r < 0)
+    log_internal_call_failed("sceAvcdecDecodeGetPictureWithWorkPictureInternal", r, frame_seq);
+  return r;
+}
+
+/* The Internal replacement for the single sceAvcdecDecode call: feed the access unit, then pull
+ * the ready picture. ES buffer full: an empty unit lets the decoder hand a picture out, which is
+ * taken, then the unit goes in again (VitaIPTV decode_internal; in that case this call's picture
+ * is the one taken and no second pull is made, as there is one output texture). An "invalid
+ * stream" answer is counted as fed: it is seen on device for units that decoded fine. */
+static int decode_internal(SceAvcdecAu *a, uint32_t frame_seq) {
+  bool pulled = false;
+  int ra = sceAvcdecDecodeAuInternal(decoder, a, &internal_pic_state);
+  if ((unsigned int)ra == AVCDEC_ERROR_ES_BUFFER_FULL) {
+    SceAvcdecAu empty = *a;
+    empty.es.pBuf = NULL;
+    empty.es.size = 0;
+    int re = sceAvcdecDecodeAuInternal(decoder, &empty, &internal_pic_state);
+    if (re < 0 && (unsigned int)re != AVCDEC_ERROR_INVALID_STREAM)
+      log_internal_call_failed("sceAvcdecDecodeAuInternal(empty)", re, frame_seq);
+    int rg = internal_get_picture(frame_seq);
+    if (rg < 0)
+      return rg;
+    pulled = true;
+    ra = sceAvcdecDecodeAuInternal(decoder, a, &internal_pic_state);
+  }
+  if (ra < 0 && (unsigned int)ra != AVCDEC_ERROR_INVALID_STREAM) {
+    log_internal_call_failed("sceAvcdecDecodeAuInternal", ra, frame_seq);
+    return pulled && array_picture.numOfOutput == 1 ? 0 : ra;
+  }
+  if (pulled)
+    return 0;
+  return internal_get_picture(frame_seq);
+}
+
 typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } PullResult;
 
 /* #413 decoder pull. The hardware decoder gives back at most one picture per sceAvcdecDecode call,
@@ -1178,8 +1432,8 @@ typedef enum { PULL_NOT_TRIED, PULL_GOT_PICTURE, PULL_NO_PICTURE, PULL_FAILED } 
  * now_us is the caller's process-time reading. */
 static PullResult decoder_pull_picture(uint32_t frame_seq, uint64_t now_us, uint32_t *readback_seq,
                                        bool *readback_valid) {
-  if (dechold_pull_disabled || dechold_handed_total == 0)
-    return PULL_NOT_TRIED;
+  if (dechold_pull_disabled || dechold_handed_total == 0 || decoder_internal)
+    return PULL_NOT_TRIED; /* the Internal decoder is read by decode_internal() */
 
   if (dechold_pull_floor > dechold_pull_base &&
       now_us - dechold_pull_floor_change_us >= DECHOLD_PULL_FLOOR_DECAY_US) {
@@ -1243,11 +1497,15 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                             uint64_t frame_first_packet_ms, uint32_t frame_seq) {
   chiaki_mutex_lock(&mtx);
 
+  /* The Internal decoder gets the same cap (wiliwili's ffmpeg.patch calls this on a decoder made
+   * by sceAvcdecCreateDecoderInternal and feeds nothing larger). An error from it (negative) means
+   * no room on the Internal path, so nothing oversized is ever fed. */
   int avail_size = sceAvcdecDecodeAvailableSize(decoder);
+  size_t avail_cap = (decoder_internal && avail_size < 0) ? 0 : (size_t)avail_size;
   uint32_t avail_now = avail_size > 0 ? (uint32_t)avail_size : 0;
   if (avail_now < dechold_acc.avail_min)
     dechold_acc.avail_min = avail_now;
-  if (buf_size > (size_t)avail_size) {
+  if (buf_size > avail_cap) {
     decode_buf_small_count++;
     if (decode_buf_small_logged < DECODE_ANOM_LOG_MAX) {
       decode_buf_small_logged++;
@@ -1281,7 +1539,8 @@ static int decode_frame_now(uint8_t *buf, size_t buf_size, bool frame_corrupt,
   picture.info.pts.upper = DECHOLD_PTS_SENTINEL;
   picture.info.pts.lower = DECHOLD_PTS_SENTINEL;
   uint64_t decode_start_us = sceKernelGetProcessTimeWide();
-  ret = sceAvcdecDecode(decoder, &au, &array_picture);
+  ret = decoder_internal ? decode_internal(&au, frame_seq)
+                         : sceAvcdecDecode(decoder, &au, &array_picture);
   uint64_t decode_end_us = sceKernelGetProcessTimeWide();
   uint32_t decode_elapsed_us = (uint32_t)(decode_end_us - decode_start_us);
   uint32_t since_prev_us =
@@ -1432,6 +1691,46 @@ static uint32_t press_meter_observe_frame(size_t buf_size, bool frame_corrupt,
   return frame_seq;
 }
 
+/* When the decoder holds fewer reference frames than the stream's SPS declares (720p and 1080p
+ * only; sps_rewrite_target_refs is 0 for 540p), rewrites the SPS at the start of buf so the
+ * hardware decoder does not hold its output waiting for references it cannot keep. Receive
+ * thread, no allocation. On a rewrite, pre[0..*pre_len) replaces the first *consumed bytes of buf
+ * (start code + SPS NAL) and the caller copies the rest unchanged. Returns false when the buffer
+ * is to be used as it is. */
+static bool rewrite_sps_for_decoder(const uint8_t *buf, size_t size, uint8_t *pre, size_t *pre_len,
+                                    size_t *consumed) {
+  const int target_refs = sps_rewrite_target_refs;
+  if (target_refs <= 0)
+    return false;
+  size_t off, len;
+  if (!sps_probe_locate(buf, size, &off, &len))
+    return false;
+  uint8_t out[SPS_REWRITE_MAX_OUT];
+  uint32_t out_len = 0;
+  SpsRewriteInfo info;
+  SpsRewriteStatus st = sps_rewrite_max_refs(buf + off, (uint32_t)len, (uint32_t)target_refs, out,
+                                             sizeof(out), &out_len, &info);
+  if (st == SPS_REWRITE_NOT_NEEDED)
+    return false;
+  if (st != SPS_REWRITE_DONE) {
+    LOGW("DECODE/SPS rewrite refused status=%s", sps_rewrite_status_name(st));
+    return false;
+  }
+  if (size - len + out_len > DECODE_SLOT_CAPACITY - DECODE_SLOT_PAD)
+    return false;
+  memcpy(pre, buf, off); /* the original start code */
+  memcpy(pre + off, out, out_len);
+  *pre_len = off + out_len;
+  *consumed = off + len;
+  if (!sps_rewrite_logged) {
+    sps_rewrite_logged = true;
+    LOGW("DECODE/SPS rewritten refs %u->%u dfb %d->%d len %u->%u", info.refs_old, info.refs_new,
+         info.dfb_old == UINT32_MAX ? -1 : (int)info.dfb_old,
+         info.dfb_new == UINT32_MAX ? -1 : (int)info.dfb_new, info.len_old, info.len_new);
+  }
+  return true;
+}
+
 int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
                            uint64_t frame_first_packet_ms) {
   /* Early validation — reject garbage before touching the queue. */
@@ -1456,6 +1755,12 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * compares; one bounded copy or compare only when it does). buf is not modified and the
    * decoder is fed exactly as before. Parsing and printing happen on the UI thread. */
   sps_probe_observe(buf, buf_size);
+
+  /* Prefix replaces the SPS at the buffer start when the decoder holds fewer references. */
+  uint8_t sps_pre[4 + SPS_REWRITE_MAX_OUT];
+  size_t sps_pre_len = 0;
+  size_t sps_consumed = 0;
+  bool sps_rewritten = rewrite_sps_for_decoder(buf, buf_size, sps_pre, &sps_pre_len, &sps_consumed);
 
   uint32_t frame_seq = press_meter_observe_frame(buf_size, frame_corrupt, frame_first_packet_ms);
 
@@ -1488,9 +1793,16 @@ int vita_h264_decode_frame(uint8_t *buf, size_t buf_size, bool frame_corrupt,
    * the callback returns. Zero the trailing DECODE_SLOT_PAD bytes required by
    * sceAvcdecDecode (== CHIAKI_VIDEO_BUFFER_PADDING_SIZE). */
   DecodeSlot *slot = &decode_queue[decode_q_tail];
-  sceClibMemcpy(slot->data, buf, buf_size);
-  sceClibMemset(slot->data + buf_size, 0, DECODE_SLOT_PAD);
-  slot->size = buf_size;
+  size_t slot_size = buf_size;
+  if (sps_rewritten) {
+    sceClibMemcpy(slot->data, sps_pre, sps_pre_len);
+    sceClibMemcpy(slot->data + sps_pre_len, buf + sps_consumed, buf_size - sps_consumed);
+    slot_size = sps_pre_len + (buf_size - sps_consumed);
+  } else {
+    sceClibMemcpy(slot->data, buf, buf_size);
+  }
+  sceClibMemset(slot->data + slot_size, 0, DECODE_SLOT_PAD);
+  slot->size = slot_size;
   slot->frame_corrupt = frame_corrupt;
   slot->frame_first_packet_ms = frame_first_packet_ms;
   slot->press_frame_seq = frame_seq;
@@ -2008,6 +2320,9 @@ void vita_h264_start() {
   incoming_frame_decode_done_us = 0;
   press_meter_reset(&press_meter);
   sps_probe_reset();
+  sps_rewrite_logged = false;
+  internal_pic_state = 0;
+  internal_err_logged = 0;
   press_frame_seq = 0;
   press_lost_total = 0;
   press_jump_head = 0;
