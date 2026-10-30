@@ -97,6 +97,9 @@ static int probe456_stream_h = 0;
 static bool probe456_spsrefs_logged = false;
 /* SPS rewrites done this session (receive thread only; reset in vita_h264_start). */
 static uint32_t probe456_sps_rewrites = 0;
+/* True when the library was set up through the Internal entry points (the >720p fallback in
+ * video_setup_avc_lib); the decoder query and create then go through the Internal variants too. */
+static bool probe456_internal_lib = false;
 
 /* GH #245 code review round 3: was plain `bool`, missing the `volatile` this file's
  * own convention requires for a cross-thread flag -- a pre-existing gap (written on
@@ -842,6 +845,23 @@ extern SceUIntVAddr sceCodecEngineAllocMemoryFromUnmapMemBlock(SceUID unmapUid, 
 extern SceInt32 sceCodecEngineFreeMemoryFromUnmapMemBlock(SceUID unmapUid, SceUIntVAddr vaCtx);
 extern SceInt32 sceAvcdecDecodeAvailableSize(const SceAvcdecCtrl *decoder);
 
+/* #456: the firmware's "Internal" entry points, the only way found in other homebrew to set the
+ * AVC decoder up above 720p (the public ones stop at H.264 level 3.1). Not in the SDK headers; the
+ * stub libraries carry the NIDs. Sources: VitaIPTV src/tsplayer.c decoder_core_open_internal and
+ * tools/decprobe, OpenNOW-vita decoder.rs try_initialize_internal, wiliwili ffmpeg.patch. */
+extern SceInt32 sceVideodecSetConfigInternal(SceVideodecType codec, SceInt32 config);
+extern SceInt32 sceAvcdecSetDecodeMode(SceVideodecType codec, SceInt32 mode);
+extern SceInt32 sceVideodecQueryMemSizeInternal(SceVideodecType codec,
+                                                const SceVideodecQueryInitInfo *pInitInfo,
+                                                SceVideodecMemInfo *pMemInfo);
+extern SceInt32 sceVideodecInitLibraryWithUnmapMemInternal(
+    SceVideodecType codec, SceVideodecCtrl *libCtrl, const SceVideodecQueryInitInfo *initInfo);
+extern SceInt32 sceAvcdecQueryDecoderMemSizeInternal(SceVideodecType codec,
+                                                     const SceAvcdecQueryDecoderInfo *query,
+                                                     SceAvcdecDecoderInfo *decoderInfo);
+extern SceInt32 sceAvcdecCreateDecoderInternal(SceVideodecType codec, SceAvcdecCtrl *decoder,
+                                               const SceAvcdecQueryDecoderInfo *query);
+
 SceAvcdecAu au = {0};
 SceAvcdecArrayPicture array_picture = {0};
 struct SceAvcdecPicture picture = {0};
@@ -1039,6 +1059,119 @@ static void probe456_log_spsrefs(void) {
   }
 }
 
+/* #456: free what the Internal attempt allocated for the library (the same globals that
+ * video_cleanup_avc_lib releases after a successful setup). Used when an attempt fails halfway. */
+static void probe456_free_lib_memory(void) {
+  if (videodecContext > 0) {
+    sceCodecEngineFreeMemoryFromUnmapMemBlock(videodecUnmap, videodecContext);
+  }
+  videodecContext = 0;
+  if (videodecUnmap > 0) {
+    sceCodecEngineCloseUnmapMemBlock(videodecUnmap);
+  }
+  videodecUnmap = -1;
+  if (videodecblock >= 0) {
+    sceKernelFreeMemBlock(videodecblock);
+  }
+  videodecblock = -1;
+}
+
+/* #456 attempt 1: vita-moonlight's setup (src/video/vita.c ~340-350): public sceVideodecInitLibrary
+ * with 4 reference frames and no QueryMemSize. The public call takes no memory argument (the
+ * library allocates its own), so there is no library memory size to choose. */
+static int probe456_try_direct_init(SceVideodecQueryInitInfo *initVideodec, int refs) {
+  initVideodec->hwAvc.numOfRefFrames = refs;
+  int ret = sceVideodecInitLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC, &initVideodec->hwAvc);
+  LOGD("PROBE456/INIT1080 path=moonlight_direct refs=%d ret=0x%x", refs, (unsigned int)ret);
+  if (ret < 0) {
+    sceVideodecTermLibrary(SCE_VIDEODEC_TYPE_HW_AVCDEC);
+    return ret;
+  }
+  probe456_decoder_refs = refs;
+  return 0;
+}
+
+/* #456 attempt 2: the Internal sequence the other homebrew uses: sceVideodecSetConfigInternal(2),
+ * decode mode 0x80, sceVideodecQueryMemSizeInternal, codec memory in CDRAM at 1 MB alignment
+ * handed to the codec engine, sceVideodecInitLibraryWithUnmapMemInternal. refs=4 is what level 4.x
+ * allows at 1920x1088 (32768 / 8160 macroblocks; VitaIPTV saw 5 refused). */
+static int probe456_try_internal_init(SceVideodecCtrl *libCtrl, SceVideodecMemInfo *libMemInfo,
+                                      SceVideodecQueryInitInfo *initVideodec, int refs) {
+  initVideodec->hwAvc.numOfRefFrames = refs;
+  int cfg = sceVideodecSetConfigInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, 2);
+  int mode = sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, 0x80);
+  libMemInfo->memSize = 0;
+  int ret = sceVideodecQueryMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, initVideodec, libMemInfo);
+  LOGD(
+      "PROBE456/INIT1080 path=internal_cfg2 step=query setconfig=0x%x setmode=0x%x refs=%d "
+      "ret=0x%x memSize=%u",
+      (unsigned int)cfg, (unsigned int)mode, refs, (unsigned int)ret,
+      (unsigned int)libMemInfo->memSize);
+  if (ret >= 0 && (int)libMemInfo->memSize <= 0)
+    ret = PROBE456_VIDEODEC_INVALID_PARAM;
+  if (ret < 0) {
+    LOGD("PROBE456/INIT1080 path=internal_cfg2 refs=%d ret=0x%x", refs, (unsigned int)ret);
+    return ret;
+  }
+
+  SceUInt32 ctx_size = libMemInfo->memSize;
+  SceUInt32 block_size = ROUND_UP(ctx_size, 1024 * 1024);
+  SceKernelAllocMemBlockOpt opt;
+  sceClibMemset(&opt, 0, sizeof(SceKernelAllocMemBlockOpt));
+  opt.size = sizeof(SceKernelAllocMemBlockOpt);
+  opt.attr = 4;
+  opt.alignment = 1024 * 1024;
+  void *libMem = NULL;
+  videodecblock =
+      sceKernelAllocMemBlock("videodec", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, block_size, &opt);
+  if (videodecblock < 0) {
+    ret = videodecblock;
+    videodecblock = -1;
+    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=alloc refs=%d ret=0x%x block=%u", refs,
+         (unsigned int)ret, (unsigned int)block_size);
+    return ret;
+  }
+  ret = sceKernelGetMemBlockBase(videodecblock, &libMem);
+  if (ret < 0) {
+    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=blockbase refs=%d ret=0x%x", refs,
+         (unsigned int)ret);
+    probe456_free_lib_memory();
+    return ret;
+  }
+  videodecUnmap = sceCodecEngineOpenUnmapMemBlock(libMem, block_size);
+  if (videodecUnmap <= 0) {
+    ret = videodecUnmap < 0 ? videodecUnmap : -1;
+    videodecUnmap = -1;
+    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=unmap refs=%d ret=0x%x", refs,
+         (unsigned int)ret);
+    probe456_free_lib_memory();
+    return ret;
+  }
+  videodecContext = sceCodecEngineAllocMemoryFromUnmapMemBlock(videodecUnmap, ctx_size, 256 * 1024);
+  if (videodecContext <= 0) {
+    ret = videodecContext < 0 ? videodecContext : -1;
+    videodecContext = 0;
+    LOGD("PROBE456/INIT1080 path=internal_cfg2 step=vaddr refs=%d ret=0x%x", refs,
+         (unsigned int)ret);
+    probe456_free_lib_memory();
+    return ret;
+  }
+
+  sceClibMemset(libCtrl, 0, sizeof(SceVideodecCtrl));
+  libCtrl->vaContext = videodecContext;
+  libCtrl->contextSize = ctx_size;
+  ret = sceVideodecInitLibraryWithUnmapMemInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, libCtrl,
+                                                   initVideodec);
+  LOGD("PROBE456/INIT1080 path=internal_cfg2 refs=%d ret=0x%x", refs, (unsigned int)ret);
+  if (ret < 0) {
+    probe456_free_lib_memory();
+    return ret;
+  }
+  probe456_decoder_refs = refs;
+  probe456_internal_lib = true;
+  return 0;
+}
+
 static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
                                SceVideodecMemInfo *libMemInfo,
                                SceVideodecQueryInitInfo *initVideodec) {
@@ -1051,6 +1184,7 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
   initVideodec->hwAvc.numOfStreams = 1;
   initVideodec->hwAvc.numOfRefFrames = REF_FRAMES;
   probe456_decoder_refs = 0;
+  probe456_internal_lib = false;
   probe456_spsrefs_logged = false;
 
   /* #456: the hardware refuses some (size, numOfRefFrames) pairs with INVALID_PARAM (720p and
@@ -1070,6 +1204,20 @@ static int video_setup_avc_lib(int width, int height, SceVideodecCtrl *libCtrl,
       break;
     LOGD("PROBE456/REFS refused refs=%d decoder=%ux%u err=0x%x", refs,
          initVideodec->hwAvc.horizontal, initVideodec->hwAvc.vertical, (unsigned int)ret);
+  }
+  if (ret == PROBE456_VIDEODEC_INVALID_PARAM) {
+    /* #456: every count down to 1 was refused (1920x1088 behaves like H.264 level 3.1 here).
+     * Try the other setups once each; sizes that accepted a count above never get here. */
+    const int hd_refs = 4;
+    if (probe456_try_direct_init(initVideodec, hd_refs) >= 0) {
+      probe456_log_free_memory("after_videodec_lib");
+      return VITA_VIDEO_INIT_OK;
+    }
+    if (probe456_try_internal_init(libCtrl, libMemInfo, initVideodec, hd_refs) >= 0) {
+      probe456_log_free_memory("after_videodec_lib");
+      return VITA_VIDEO_INIT_OK;
+    }
+    initVideodec->hwAvc.numOfRefFrames = 1;
   }
   if (ret < 0) {
     LOGE("PROBE456/ALLOC sceVideodecQueryMemSize FAILED 0x%x decoder=%ux%u refs=%d", ret,
@@ -1147,8 +1295,11 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
   decoder_info->numOfRefFrames = initVideodec->hwAvc.numOfRefFrames;
 
   SceAvcdecDecoderInfo decoder_info_out = (SceAvcdecDecoderInfo){0};
-  int ret =
-      sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info, &decoder_info_out);
+  int ret = probe456_internal_lib
+                ? sceAvcdecQueryDecoderMemSizeInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info,
+                                                       &decoder_info_out)
+                : sceAvcdecQueryDecoderMemSize(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder_info,
+                                               &decoder_info_out);
   if (ret < 0) {
     LOGE("PROBE456/ALLOC sceAvcdecQueryDecoderMemSize FAILED 0x%x size=%u", ret,
          (unsigned int)decoder_info_out.frameMemSize);
@@ -1191,7 +1342,11 @@ static int video_setup_decoder_memblock(const SceVideodecQueryInitInfo *initVide
 
 static int video_setup_decoder_instance(void) {
   LOGD("base: 0x%08x\n", decoder->frameBuf.pBuf);
-  int ret = sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
+  int ret = probe456_internal_lib
+                ? sceAvcdecCreateDecoderInternal(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info)
+                : sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, decoder, decoder_info);
+  LOGD("PROBE456/INIT1080 decoder_create internal=%d ret=0x%x", (int)probe456_internal_lib,
+       (unsigned int)ret);
   if (ret < 0) {
     LOGE("PROBE456/ALLOC sceAvcdecCreateDecoder FAILED 0x%x decoder=%ux%u", ret,
          decoder_info->horizontal, decoder_info->vertical);
