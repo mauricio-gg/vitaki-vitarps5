@@ -16,11 +16,14 @@ const char *ui_label_resolution(ChiakiVideoResolutionPreset preset) {
   switch (preset) {
     case CHIAKI_VIDEO_RESOLUTION_PRESET_360p:
       return "360p";
-    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
     case CHIAKI_VIDEO_RESOLUTION_PRESET_720p:
+      return "720p";
     case CHIAKI_VIDEO_RESOLUTION_PRESET_1080p:
+      return "1080p";
+    case CHIAKI_VIDEO_RESOLUTION_PRESET_540p:
     default:
-      /* Legacy and unsupported values are shown as the Vita preset they actually use. */
+      /* Display default only: unknown config strings already parse to 540p
+       * (parse_resolution_preset), so this is not reached by a loaded config. */
       return "540p";
   }
 }
@@ -45,6 +48,8 @@ const char *ui_label_latency_mode(VitaChiakiLatencyMode mode) {
       return "High (≈4.5 Mbps)";
     case VITA_LATENCY_MODE_MAX:
       return "Max (≈6 Mbps)";
+    case VITA_LATENCY_MODE_EXTREME:
+      return "Extreme (≈10 Mbps)";
     case VITA_LATENCY_MODE_BALANCED:
     default:
       return "Balanced (≈3.5 Mbps)";

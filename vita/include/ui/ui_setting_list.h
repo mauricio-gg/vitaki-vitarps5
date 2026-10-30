@@ -4,12 +4,13 @@
  *
  * UI_PAGE_PANE_ROWS rows of UI_ROW_H at UI_PAGE_PANE_X. Each row has a T20 label on the left and a
  * control on the right: a toggle (pill track, round knob, "On"/"Off"), a choice (chevron, value,
- * chevron), an info value (right-aligned text that only takes focus) or an action (a chevron
- * pointing right; it runs when activated). While the pane has focus (@active) the focused row has
- * a FILL_FOCUS bar, TEXT colours and a glow on the label; the other rows have a LINE_FAINT
- * divider. While the pane is not active no row has a focus look (the group list holds the page's
- * one focus bar); @focus and @scroll are kept, so the bar returns to the same row. The pane
- * scrolls to keep the focused row visible.
+ * chevron), a locked choice (a lock icon, the value and a tag in place of the chevrons; it only
+ * takes focus, like an info row), an info value (right-aligned text that only takes focus) or an
+ * action (a chevron pointing right; it runs when activated). While the pane has focus (@active) the
+ * focused row has a FILL_FOCUS bar, TEXT colours and a glow on the label; the other rows have a
+ * LINE_FAINT divider. While the pane is not active no row has a focus look (the group list holds
+ * the page's one focus bar); @focus and @scroll are kept, so the bar returns to the same row. The
+ * pane scrolls to keep the focused row visible.
  *
  * The screen owns the items array and rewrites the values from the config each frame, then calls
  * ui_setting_list_sync(); the list never touches the config. When input asks for a change it
@@ -21,7 +22,8 @@
  *
  * Paper cost, per row: label 1; unfocused rows (all rows while the pane is not active) add a
  * divider 1; the focused row of an active pane adds a bar 3 and a glow 1. A toggle adds track 1 (2
- * when on), knob 1, text 1; a choice adds 2 chevrons and the value text; an info row adds its value
+ * when on), knob 1, text 1; a choice adds 2 chevrons and the value text (a locked one adds the
+ * lock icon 1, the value text and the tag text instead); an info row adds its value
  * text (an error row 2 more: icon and rule; a warn row 1 more: icon); an enabled action adds 1
  * chevron, and a value text when it has one; a check (info or action value) adds 1; a label glyph
  * and its tail add 2.
@@ -60,6 +62,9 @@ typedef struct ui_setting_item_t {
   bool checked;            ///< info and action value: a UI_OK check before the value (marks the one
                            ///< in use)
   uint32_t value_color;    ///< action value: its colour; 0 for the row's own
+  bool locked;             ///< choice: fixed by a rule. Drawn with @lock_tag and no chevrons; no
+                           ///< press, tap or key changes it (the screen still rewrites @value_text)
+  const char *lock_tag;    ///< locked choice: the reason in a few words ("1080p limit")
 } UiSettingItem;
 
 typedef struct ui_setting_list_t {
@@ -83,6 +88,8 @@ typedef struct ui_setting_list_t {
   char value_raw[UI_SETTING_MAX_ROWS][UI_SETTING_VALUE_MAX];  ///< value_text as last seen
   char value_fit[UI_SETTING_MAX_ROWS][UI_SETTING_VALUE_MAX];  ///< shortened to fit its place
   int value_w[UI_SETTING_MAX_ROWS];
+  const char *lock_tag_seen[UI_SETTING_MAX_ROWS];  ///< lock_tag as last measured
+  int lock_tag_w[UI_SETTING_MAX_ROWS];             ///< its width in T16
   bool shown_on[UI_SETTING_MAX_ROWS];
   uint64_t toggle_start_us[UI_SETTING_MAX_ROWS];  ///< 0 when the knob is at rest
 
@@ -112,7 +119,8 @@ void ui_setting_list_draw(const UiSettingList *list);
 
 /**
  * ui_setting_list_input() - Up/Down move the focus (no wrap), Confirm and Right step the value
- * forward, Left steps a choice back, taps and swipes act on the pane.
+ * forward, Left steps a choice back, taps and swipes act on the pane. A locked choice acts like
+ * an info row: it takes focus and nothing else.
  * @return UI_EVENT_MOVED when the focus moved (D-pad or swipe, or a tap on an info row, which only
  * focuses), UI_EVENT_ACTIVATED when the focused row should change or run
  *         (the row is @focus, the way is @step; a tap on another row focuses it first). A disabled
