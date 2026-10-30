@@ -576,3 +576,36 @@ target_include_directories(input_test_tests PRIVATE
 )
 
 add_test(NAME vitarps5_input_test_tests COMMAND input_test_tests)
+
+# mic_frame_tests.c has its own main() and tests the microphone grain -> 480-sample frame builder
+# (GH #474). Cross-compiled but never run by ./tools/build.sh test; the native command is at the
+# top of the file.
+add_executable(mic_frame_tests mic_frame_tests.c ../vita/src/mic_frame.c)
+
+target_include_directories(mic_frame_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+
+add_test(NAME vitarps5_mic_frame_tests COMMAND mic_frame_tests)
+
+# input_combos_tests.c and mic_touch_tests.c have their own main(): the hold-to-fire combos (mute,
+# debug panel) and the touch area of the on-screen mic control (GH #474). Cross-compiled but never
+# run by ./tools/build.sh test; the native commands are at the top of the files.
+add_executable(input_combos_tests input_combos_tests.c ../vita/src/input_combos.c)
+target_include_directories(input_combos_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_input_combos_tests COMMAND input_combos_tests)
+
+add_executable(mic_touch_tests mic_touch_tests.c ../vita/src/mic_touch.c)
+target_include_directories(mic_touch_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_mic_touch_tests COMMAND mic_touch_tests)
+
+# mic_decide_tests.c has its own main() and tests the mic capture thread's decision (GH #474).
+add_executable(mic_decide_tests mic_decide_tests.c ../vita/src/mic_decide.c)
+target_include_directories(mic_decide_tests PRIVATE
+    ${VITARPS5_ROOT}/vita/include
+)
+add_test(NAME vitarps5_mic_decide_tests COMMAND mic_decide_tests)

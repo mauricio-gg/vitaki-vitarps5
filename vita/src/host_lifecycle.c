@@ -4,10 +4,13 @@
 #include "video.h"
 #include "host_lifecycle.h"
 #include "host.h"
+#include "mic.h"
 
 #include <psp2/kernel/processmgr.h>
 
 void host_shutdown_media_pipeline(void) {
+  // GH #474: the mic thread sends through the session, so it goes first on every teardown path.
+  vitamic_stop();
   if (!context.stream.media_initialized)
     return;
 
@@ -55,6 +58,7 @@ void host_finalize_session_resources(void) {
     LOGD("Input thread joined successfully");
   }
 
+  vitamic_stop();  // GH #474: no-op after host_shutdown_media_pipeline(); a safety net
   // Finalize session
   chiaki_session_fini(&context.stream.session);
   LOGD("Session finalized");
@@ -82,6 +86,7 @@ void host_finalize_deferred_session(void) {
     LOGD("Input thread joined (deferred path)");
   }
 
+  vitamic_stop();  // GH #474: no-op after host_shutdown_media_pipeline(); a safety net
   chiaki_session_fini(&context.stream.session);
   LOGD("Session finalized (deferred path)");
 

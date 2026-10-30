@@ -132,6 +132,7 @@ typedef enum ui_button_t {
   UI_BTN_DOWN = 1u << 9,
   UI_BTN_LEFT = 1u << 10,
   UI_BTN_RIGHT = 1u << 11,
+  UI_BTN_SELECT = 1u << 12, /**< Select: only a glyph for labels, no screen reads it as input */
 } UiButton;
 
 /** Mask of the four D-pad directions (the buttons that hold-repeat). */

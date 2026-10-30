@@ -37,6 +37,8 @@
  * (+1 forward, -1 back; a toggle ignores the way), saves the config and runs the side effect.
  * A choice may be locked by a rule: while @is_locked says so, the row shows @lock_tag and
  * @lock_description, nothing changes it, and @value_text gives the value that is in force.
+ * A row with @is_disabled that returns true is drawn dimmed, keeps its value and cannot be
+ * changed; its description is then @disabled_description.
  */
 typedef struct setting_def_t {
   const char *label;
@@ -48,6 +50,8 @@ typedef struct setting_def_t {
   bool (*is_locked)(void);
   const char *lock_tag;
   const char *lock_description;
+  bool (*is_disabled)(void);
+  const char *disabled_description;
 } SettingDef;
 
 typedef struct setting_group_t {
@@ -292,7 +296,40 @@ static void motion_deadband_change(int step) {
   ui_settings_persist_config();
 }
 
+static bool microphone_is_on(void) {
+  return context.config.microphone;
+}
+
+static void microphone_change(int step) {
+  (void)step;
+  context.config.microphone = !context.config.microphone;
+  ui_settings_persist_config();
+}
+
+static bool mic_button_is_on(void) {
+  return context.config.show_mic_button;
+}
+
+static void mic_button_change(int step) {
+  (void)step;
+  context.config.show_mic_button = !context.config.show_mic_button;
+  ui_settings_persist_config();
+}
+
+/** The button row has no effect while the microphone is off, so it is locked then. */
+static bool mic_button_is_disabled(void) {
+  return !context.config.microphone;
+}
+
 static const SettingDef CONTROLS_ROWS[] = {
+    {"Microphone", UI_SETTING_TOGGLE,
+     "Send the Vita microphone to the console. Takes effect the next time a stream starts.",
+     microphone_is_on, NULL, microphone_change},
+    {"Display mic button on-screen", UI_SETTING_TOGGLE,
+     "Show a small mic button at the bottom of the stream. Tap it to mute or unmute. It stays "
+     "faint until you touch it.",
+     mic_button_is_on, NULL, mic_button_change, .is_disabled = mic_button_is_disabled,
+     .disabled_description = "Turn Microphone on to use this. Your choice is kept."},
     {"Circle Button Confirm", UI_SETTING_TOGGLE,
      "Use Circle to confirm and Cross to go back, on every screen.", circle_confirm_is_on, NULL,
      circle_confirm_change},
@@ -391,12 +428,18 @@ static UiWrapped s_desc;
 static int s_desc_group = -1;
 static int s_desc_row = -1;
 static bool s_desc_locked = false;
+static bool s_desc_disabled = false;
 /** Hint layout of the last drawn frame; taps are resolved against it. */
 static UiHintLayout s_hints;
 
 /* ============================================================================
  * Rows and description
  * ============================================================================ */
+
+/** True when @def is a row that is locked right now. */
+static bool row_is_disabled(const SettingDef *def) {
+  return def->is_disabled && def->is_disabled();
+}
 
 /** Rewrite the items' values from the config. */
 static void fill_items(void) {
@@ -410,6 +453,7 @@ static void fill_items(void) {
         .value_text = def->value_text ? def->value_text() : NULL,
         .locked = def->is_locked && def->is_locked(),
         .lock_tag = def->lock_tag,
+        .disabled = row_is_disabled(def),
     };
   }
 }
@@ -429,18 +473,27 @@ static int measure_description(const char *text, void *ctx) {
   return ui_text_face_width(UI_FACE_T16, text);
 }
 
-/** Wrap the focused row's description when the group, the focused row or its lock changed. */
+/** Wrap the focused row's description when the group, the focused row or whether that row is
+ * locked or disabled changed. */
 static void update_description(void) {
-  const bool locked = s_pane.count > 0 && s_pane.items[s_pane.focus].locked;
-  if (s_desc_group == s_group && s_desc_row == s_pane.focus && s_desc_locked == locked)
+  const SettingDef *def = s_pane.count > 0 ? &GROUPS[s_group].rows[s_pane.focus] : NULL;
+  const bool locked = def && s_pane.items[s_pane.focus].locked;
+  const bool disabled = def && row_is_disabled(def);
+  if (s_desc_group == s_group && s_desc_row == s_pane.focus && s_desc_locked == locked &&
+      s_desc_disabled == disabled)
     return;
   s_desc_group = s_group;
   s_desc_row = s_pane.focus;
   s_desc_locked = locked;
+  s_desc_disabled = disabled;
   const char *text = "";
-  if (s_pane.count > 0) {
-    const SettingDef *def = &GROUPS[s_group].rows[s_pane.focus];
-    text = locked && def->lock_description ? def->lock_description : def->description;
+  if (def) {
+    if (locked && def->lock_description)
+      text = def->lock_description;
+    else if (disabled && def->disabled_description)
+      text = def->disabled_description;
+    else
+      text = def->description;
   }
   ui_text_wrap(text, UI_PAGE_PANE_W, measure_description, NULL, &s_desc);
 }
@@ -470,7 +523,10 @@ void ui_settings_open(int group) {
 
 /** Apply the change the pane asked for on its focused row. */
 static void change_focused_row(void) {
-  GROUPS[s_group].rows[s_pane.focus].change(s_pane.step);
+  const SettingDef *def = &GROUPS[s_group].rows[s_pane.focus];
+  if (row_is_disabled(def))
+    return;
+  def->change(s_pane.step);
 }
 
 /**

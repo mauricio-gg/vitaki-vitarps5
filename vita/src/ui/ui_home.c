@@ -44,6 +44,7 @@
 #include "ui/ui_pair_popup.h"
 #include "ui/ui_room_icons.h"
 #include "ui/ui_profile.h"
+#include "ui/ui_mic.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_text.h"
 #include "ui/ui_theme.h"
@@ -222,6 +223,7 @@ void ui_home_init(void) {
   ui_xmb_list_init(&s_list);
   ui_top_bar_init();
   ui_hint_row_init();
+  ui_mic_init();
   s_item_count = 0;
   s_filter_row = false;
   s_last_category = -1;

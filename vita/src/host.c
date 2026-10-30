@@ -16,6 +16,7 @@
 #include "psn_auth.h"
 #include "psn_remote.h"
 #include "video.h"
+#include "mic.h"
 #include "ui.h"
 #include "ui/ui_state.h"
 #include "string.h"
@@ -279,6 +280,8 @@ int host_stream(VitaChiakiHost *host) {
   bool resume_inputs = context.stream.inputs_resume_pending;
   // GH #272: a hard-fallback connect. Cancelling it clears recovery_active (see below).
   bool recovery_connect = context.stream.recovery_active;
+  // GH #474: snapshot the microphone setting; a recovery reconnect keeps the player's mute.
+  vitamic_on_stream_start(recovery_connect);
   context.stream.stop_requested = false;
   context.stream.stop_requested_by_user = false;
 #if VITARPS5_DEBUG_TOOLS

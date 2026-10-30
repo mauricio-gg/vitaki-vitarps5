@@ -595,12 +595,30 @@ typedef enum ui_face_t {
 #define UI_STREAM_OVERLAY_MARGIN UI_S2
 #define UI_STREAM_HINT_VISIBLE_MS 5000
 #define UI_STREAM_HINT_FADE_MS 500
+/** The mic hint pill stacks under the exit hint pill: one pill height plus UI_S1 lower. With both
+ * showing, the stats panel sits this much lower too. */
+#define UI_STREAM_HINT_STEP (UI_PILL_H + UI_S1)
+
+/** On-screen mic control (#474). The button rests at UI_MIC_REST_LIVE_PCT opacity while live and
+ * UI_MIC_REST_MUTED_PCT while muted; after a toggle it is opaque and shows its label for
+ * UI_MIC_LABEL_MS. Width and opacity follow their targets with a time constant of
+ * UI_MIC_ANIM_TAU_MS. A "Mic unavailable" pill stays UI_MIC_FAILED_MS, then fades over
+ * UI_STREAM_HINT_FADE_MS. */
+#define UI_MIC_REST_LIVE_PCT 28
+#define UI_MIC_REST_MUTED_PCT 60
+#define UI_MIC_LABEL_MS 5000
+#define UI_MIC_ANIM_TAU_MS 70
+#define UI_MIC_FAILED_MS 4000
+/** Side of the mic icon, and its gap to the label. */
+#define UI_MIC_ICON 16
+#define UI_MIC_ICON_GAP 10
 
 /* ============================================================================
  * C25 StatsPanel
  * ============================================================================ */
 
-/** Fixed slot: right edge UI_STREAM_OVERLAY_MARGIN from the screen's right, top at y 64. */
+/** Fixed slot: right edge UI_STREAM_OVERLAY_MARGIN from the screen's right, top at y 64; lower by
+ * UI_STREAM_HINT_STEP while the mic hint is stacked under the exit hint. */
 #define UI_STATS_TOP 64
 #define UI_STATS_MIN_W 176
 #define UI_STATS_PAD_X UI_S2

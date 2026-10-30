@@ -256,15 +256,17 @@ static float knob_position(const UiSettingList *list, int index) {
   return list->shown_on[index] ? p : 1.0f - p;
 }
 
-/** Draw the toggle of row @index in the row at (@x, @y), with its On/Off text in @text_color. */
-static void draw_toggle(const UiSettingList *list, int index, int x, int y, uint32_t text_color) {
+/** Draw the toggle of row @index in the row at (@x, @y), with its On/Off text in @text_color.
+ * @dim scales the opacity of the track and knob (1 for a normal row). */
+static void draw_toggle(const UiSettingList *list, int index, int x, int y, uint32_t text_color,
+                        float dim) {
   const float k = knob_position(list, index);
-  const uint32_t line = mix_color(UI_TEXT_2, UI_TEXT, k);
+  const uint32_t line = ui_color_scale_alpha(mix_color(UI_TEXT_2, UI_TEXT, k), dim);
   const int track_y = y + (UI_ROW_H - UI_TOGGLE_H) / 2;
 
   if (k > 0.0f && s_track_fill)
     vita2d_draw_texture_tint(s_track_fill, (float)x, (float)track_y,
-                             ui_color_scale_alpha(UI_FILL_ON, k));
+                             ui_color_scale_alpha(UI_FILL_ON, k * dim));
   if (s_track_border)
     vita2d_draw_texture_tint(s_track_border, (float)x, (float)track_y, line);
   if (s_knob) {
@@ -397,14 +399,18 @@ void ui_setting_list_draw(const UiSettingList *list) {
     /* Only the active pane shows a focused row; otherwise the remembered row looks like the rest.
      */
     const bool focused = list->active && i == list->focus;
-    const bool disabled = item->kind == UI_SETTING_ACTION && item->disabled;
+    const bool disabled =
+        (item->kind == UI_SETTING_ACTION || item->kind == UI_SETTING_TOGGLE) && item->disabled;
+    const float disabled_k = (float)UI_ROW_DISABLED_PCT / 100.0f;
+    /* A locked toggle dims its focus bar and glow too; a disabled action keeps its own look. */
+    const float bar_k = disabled && item->kind == UI_SETTING_TOGGLE ? disabled_k : 1.0f;
     uint32_t text_color = focused ? UI_TEXT : UI_TEXT_2;
     /* An action's colour is its label's; a warn row's colour tints label and value alike. */
     uint32_t label_color =
         (item->kind == UI_SETTING_ACTION || item->warn) && item->color ? item->color : text_color;
     if (disabled) {
-      text_color = ui_color_scale_alpha(text_color, (float)UI_ROW_DISABLED_PCT / 100.0f);
-      label_color = ui_color_scale_alpha(label_color, (float)UI_ROW_DISABLED_PCT / 100.0f);
+      text_color = ui_color_scale_alpha(text_color, disabled_k);
+      label_color = ui_color_scale_alpha(label_color, disabled_k);
     }
     const int label_x = row.x + UI_ROW_PAD;
 
@@ -412,9 +418,9 @@ void ui_setting_list_draw(const UiSettingList *list) {
       const UiRect label = {label_x, row.y + (row.h - UI_T20_LINE) / 2, list->label_w[i],
                             UI_T20_LINE};
       ui_glow_draw_rect(label, UI_ROW_GLOW,
-                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f));
+                        ui_color_scale_alpha(UI_GLOW, (float)UI_ROW_GLOW_PCT / 100.0f * bar_k));
       ui_shape3_draw(UI_SHAPE3_BAR_48, row.x, row.y, row.w,
-                     row_pressed(list) ? UI_FILL_ON : UI_FILL_FOCUS);
+                     ui_color_scale_alpha(row_pressed(list) ? UI_FILL_ON : UI_FILL_FOCUS, bar_k));
     } else {
       vita2d_draw_rectangle((float)row.x, (float)(row.y + row.h - UI_LW1), (float)row.w,
                             (float)UI_LW1, UI_LINE_FAINT);
@@ -426,7 +432,7 @@ void ui_setting_list_draw(const UiSettingList *list) {
         draw_toggle(
             list, i,
             row.x + row.w - UI_ROW_PAD - UI_TOGGLE_W - UI_TOGGLE_TEXT_GAP - UI_TOGGLE_TEXT_W, row.y,
-            text_color);
+            text_color, disabled ? disabled_k : 1.0f);
         break;
       case UI_SETTING_CHOICE:
         if (item->locked)
@@ -490,11 +496,11 @@ static bool focus_only(const UiSettingList *list, int index) {
   return list->items[index].kind == UI_SETTING_INFO || is_locked(&list->items[index]);
 }
 
-/** Report that row @index was pressed: a disabled action tells the screen without the pressed
- * look, so the screen can say why it does nothing. */
+/** Report that row @index was pressed: a disabled action or toggle tells the screen without the
+ * pressed look, so the screen can say why it does nothing. */
 static UiEvent press(UiSettingList *list, int index, int step) {
   const UiSettingItem *item = &list->items[index];
-  if (item->kind == UI_SETTING_ACTION && item->disabled) {
+  if ((item->kind == UI_SETTING_ACTION || item->kind == UI_SETTING_TOGGLE) && item->disabled) {
     list->step = step;
     return UI_EVENT_ACTIVATED;
   }
@@ -560,7 +566,7 @@ UiEvent ui_setting_list_input(UiSettingList *list, const UiInput *in) {
   if (in->pressed & UI_BTN_CONFIRM)
     return focus_only(list, list->focus) ? UI_EVENT_NONE : press(list, list->focus, 1);
   if (kind == UI_SETTING_TOGGLE && (in->pressed & UI_BTN_RIGHT))
-    return activate(list, 1);
+    return press(list, list->focus, 1);
   if (changeable_choice && (in->repeat & UI_BTN_RIGHT))
     return activate(list, 1);
   if (in->repeat & UI_BTN_LEFT)

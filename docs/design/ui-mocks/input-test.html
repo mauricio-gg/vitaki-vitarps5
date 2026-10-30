@@ -113,7 +113,7 @@ table.m .gap{width:12px}
     <label>Roll <input type="range" id="sRoll" min="-90" max="90" value="0"></label>
     <label>Pitch <input type="range" id="sPitch" min="-90" max="90" value="0"></label>
   </div>
-  <div class="legend">Mouse on the picture = front touch (click = tap, <kbd>Shift</kbd>+click = two-finger tap). Hold <kbd>Q</kbd>+<kbd>E</kbd>+<kbd>Z</kbd> (L + R + Select) for 0.5 s toggles the panel. Mouse down on the two buttons or the panel's Close is swallowed: no dot, no click.</div>
+  <div class="legend">Mouse on the picture = front touch (click = tap, <kbd>Shift</kbd>+click = two-finger tap). Hold <kbd>Q</kbd>+<kbd>E</kbd>+<kbd>X</kbd> (L + R + Triangle) for 0.5 s toggles the panel. Mouse down on the two buttons or the panel's Close is swallowed: no dot, no click.</div>
 
   <div class="stage" id="stage">
     <img class="game" src="screens/stream-quiet.png" alt="Live stream stand-in" draggable="false">
@@ -138,7 +138,7 @@ table.m .gap{width:12px}
         <div class="tilt" id="tilt"></div>
         <table class="m" id="mt"></table></div>
 
-      <div class="foot"><span class="glyph">L</span><span class="glyph">R</span><span class="glyph">SELECT</span><span id="footTxt">hold to close</span><div class="prog"><div id="prog"></div></div></div>
+      <div class="foot"><span class="glyph">L</span><span class="glyph">R</span><span class="glyph">TRIANGLE</span><span id="footTxt">hold to close</span><div class="prog"><div id="prog"></div></div></div>
     </div>
 
     <div class="wd" id="wInput" role="button" aria-pressed="false"><span class="dot"></span><span>Input test</span><div class="hit48"></div></div>
@@ -159,8 +159,8 @@ table.m .gap{width:12px}
     </ul>
     <h2>Input</h2>
     <ul>
-      <li><b>Open</b>: tap the Input test button, or hold <b>L + R + Select</b> for 0.5 s (same style as the exit combo L + R + Start). While the combo is held, those three buttons are swallowed from the game, so Select does not fire Share on the console; the Input test button's long-press hint and the debug design doc state the combo. Open question for the CEO. Both widgets get the same invisible 48 px touch box.</li>
-      <li><b>Close</b>: the Close pill (48 x 48 hit box), the Input test button, or the same L + R + Select hold. Controller buttons cannot move focus around the panel on purpose, because they must keep going to the game; that is why the combo is the controller path. A progress bar in the footer fills while the combo is held.</li>
+      <li><b>Open</b>: tap the Input test button, or hold <b>L + R + Triangle</b> for 0.5 s (same style as the exit combo L + R + Start). While the combo is held, those three buttons are swallowed from the game, so Triangle does not fire on the console; the Input test button's long-press hint and the debug design doc state the combo. Open question for the CEO. Both widgets get the same invisible 48 px touch box.</li>
+      <li><b>Close</b>: the Close pill (48 x 48 hit box), the Input test button, or the same L + R + Triangle hold. Controller buttons cannot move focus around the panel on purpose, because they must keep going to the game; that is why the combo is the controller path. A progress bar in the footer fills while the combo is held.</li>
       <li><b>Touches that must not reach the game</b>: reuse the existing resync widget filter in <code>host_input.c</code>. The filter decides at touch-down: a touch that starts inside the Input test button, the resync button or the panel's Close pill is swallowed for its whole life (no touchpad event, no button mapping, no click), and a touch that starts anywhere else is sent as usual, even if it later slides across the panel. The panel body is not swallowed, so the CEO can tap on the screen behind it and see the dots. The same rect-helper (<code>debug_widget_contains_screen_point</code>) is used by the drawer and the filter, so the drawn controls and the swallowed areas cannot disagree. The panel exposes only the two button rects, not its whole area.</li>
       <li>A swallowed touch never appears as a dot, because the pad shows only what is sent.</li>
       <li>The panel hides itself with the other overlay widgets while reconnecting, on resync and at teardown, and starts closed on every new stream.</li>
@@ -236,10 +236,10 @@ $('bTog').onclick=()=>{S.open=!S.open;render();};
 $('bClick').onclick=()=>doClick();
 $('bTwo').onclick=()=>{S.t=[{x:760,y:470},{x:1180,y:560}];S.ghost=null;render();setTimeout(()=>{doClick();S.ghost={x:760,y:470,at:performance.now()};S.t=[null,null];render();},60);};
 $('sRoll').oninput=e=>{S.roll=+e.target.value;render();};$('sPitch').oninput=e=>{S.pitch=+e.target.value;render();};
-// L + R + Select (Q + E + Z) hold 0.5 s toggles
+// L + R + Triangle (Q + E + X) hold 0.5 s toggles
 const keys=new Set();let comboT=null;
-addEventListener('keydown',e=>{keys.add(e.key.toLowerCase());if(keys.has('q')&&keys.has('e')&&keys.has('z')&&!comboT){const t0=performance.now();comboT=setInterval(()=>{S.combo=performance.now()-t0;if(S.combo>=500){clearInterval(comboT);comboT=null;S.combo=0;S.open=!S.open;}render();},30);}});
-addEventListener('keyup',e=>{keys.delete(e.key.toLowerCase());if(comboT&&!(keys.has('q')&&keys.has('e')&&keys.has('z'))){clearInterval(comboT);comboT=null;S.combo=0;render();}});
+addEventListener('keydown',e=>{keys.add(e.key.toLowerCase());if(keys.has('q')&&keys.has('e')&&keys.has('x')&&!comboT){const t0=performance.now();comboT=setInterval(()=>{S.combo=performance.now()-t0;if(S.combo>=500){clearInterval(comboT);comboT=null;S.combo=0;S.open=!S.open;}render();},30);}});
+addEventListener('keyup',e=>{keys.delete(e.key.toLowerCase());if(comboT&&!(keys.has('q')&&keys.has('e')&&keys.has('x'))){clearInterval(comboT);comboT=null;S.combo=0;render();}});
 // --- states (deep links) ---
 const ST={
  closed:['Panel closed: Input test button next to resync',()=>{S.open=false;}],
