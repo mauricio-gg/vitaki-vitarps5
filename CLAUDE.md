@@ -24,6 +24,7 @@ Never call VitaSDK by hand. All commands run from the repo root.
 | `./tools/build.sh format` | Runs clang-format over the sources. |
 | `./tools/build.sh shell` | Interactive shell inside the build container. |
 | `./tools/build.sh deploy <vita_ip>` | Uploads `build/vitarps5.vpk` to the Vita over FTP (port 1337). Build first. |
+| `VITA_IP=<ip> tools/vita.sh upload\|ls\|log\|cmd` | Put a VPK in `ux0:/vpk/`, pull the testing log, send vitacompanion commands. Read the `vita-access` skill (`.claude/skills/vita-access/SKILL.md`) first: the CEO may be using the Vita. |
 
 ## Repo map
 
