@@ -9,7 +9,8 @@
  * packets, the only size the audio sender accepts) and sends them through the session. When the
  * setting is off no thread exists and nothing is sent. Every line it logs starts with "MIC/".
  *
- * Threads: vitamic_ui_tick, vitamic_set_muted and vitamic_state belong to the UI thread;
+ * Threads: vitamic_ui_tick and vitamic_set_muted belong to the UI thread (vitamic_state may be read
+ * from any);
  * vitamic_on_stream_start runs on the connect thread and vitamic_stop on whichever thread tears
  * the session down.
  */
@@ -18,12 +19,14 @@
 
 #include <stdbool.h>
 
-/** What the player should see. OFF covers "off by setting", "not started yet" and "failed for
- * this stream" (the log says which). */
+/** What the player should see. OFF covers "off by setting" and "not started yet". FAILED means the
+ * mic was meant to run this stream but did not start or died (the log says why); it lasts until
+ * the next stream. */
 typedef enum mic_state_t {
   MIC_STATE_OFF,
   MIC_STATE_LIVE,
   MIC_STATE_MUTED,
+  MIC_STATE_FAILED,
 } MicState;
 
 /** A stream is about to start (host_stream). Snapshots the "microphone" setting for this stream.
@@ -40,7 +43,8 @@ void vitamic_ui_tick(void);
  * next player-started stream. */
 void vitamic_set_muted(bool muted);
 
-/** OFF, LIVE or MUTED, for the indicator. */
+/** OFF, LIVE, MUTED or FAILED, for the indicator. Reads plain flags with no lock, so any thread may
+ * call it. */
 MicState vitamic_state(void);
 
 /** Stops and joins the capture thread and frees the encoder. Idempotent; call before

@@ -572,6 +572,23 @@ static void test_motion_deadband_defaults_off_and_survives_save_and_load(void) {
   assert(loaded.motion_deadband == true);
 }
 
+/* catches: a config without the key turning the on-screen mic button off, or the player's choice to
+ * turn it off (kept while the microphone is off) coming back on at the next start. */
+static void test_show_mic_button_defaults_on_and_survives_save_and_load(void) {
+  reset_config_file();
+  write_config_text(
+      "[general]\nversion = 1\n\n[settings]\nshow_network_indicator = false\n");
+  VitaChiakiConfig cfg;
+  init_cfg(&cfg);
+  assert(cfg.show_mic_button == true);
+
+  cfg.show_mic_button = false;
+  assert(config_serialize(&cfg));
+  VitaChiakiConfig loaded;
+  init_cfg(&loaded);
+  assert(loaded.show_mic_button == false);
+}
+
 /* catches: a non-default blur level, theme or hints-off choice being lost on save or load, so the
  * setting reverts after a restart. */
 static void test_new_fields_survive_save_and_load(void) {
@@ -930,6 +947,7 @@ int main(void) {
   test_removed_force_30fps_key_is_ignored_and_dropped();
   test_new_fields_survive_save_and_load();
   test_motion_deadband_defaults_off_and_survives_save_and_load();
+  test_show_mic_button_defaults_on_and_survives_save_and_load();
   test_manual_account_id_and_choice_survive_save_and_load();
   test_out_of_range_blur_is_rejected();
   test_out_of_range_theme_is_rejected();

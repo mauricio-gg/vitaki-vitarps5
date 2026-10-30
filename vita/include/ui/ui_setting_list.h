@@ -51,7 +51,8 @@ typedef struct ui_setting_item_t {
   bool on;                 ///< toggle: the current value
   const char *value_text;  ///< choice and info: the current value's words
   bool small_value;        ///< info: draw the value in T16 instead of T20
-  bool disabled;   ///< action: drawn at UI_ROW_DISABLED_PCT, no chevron; still reports a press
+  bool disabled;   ///< action or toggle: drawn at UI_ROW_DISABLED_PCT (an action also has no
+                   ///< chevron); still reports a press, so the screen decides what it means
   uint32_t color;  ///< 0: the row's own. info: the value's colour; action: the label's
   bool error;      ///< info: UI_ERR rule at the row's left edge and a warning icon before the
                    ///< value (the value's @color should be UI_ERR)

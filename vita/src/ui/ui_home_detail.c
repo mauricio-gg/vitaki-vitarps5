@@ -215,6 +215,8 @@ static void build_settings_rows(int group) {
       add_row("Background Blur", ui_label_background_blur(config_background_blur(cfg)), 0);
       break;
     case UI_SETTINGS_GROUP_CONTROLS:
+      add_toggle_row("Microphone", cfg->microphone);
+      add_toggle_row("Display mic button on-screen", cfg->show_mic_button);
       add_toggle_row("Circle Button Confirm", cfg->circle_btn_confirm);
       add_toggle_row("Motion Deadband", cfg->motion_deadband);
       break;

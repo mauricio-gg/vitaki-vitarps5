@@ -95,8 +95,10 @@ typedef struct vita_chiaki_config_t {
   bool circle_btn_confirm;
   bool microphone;  // Send the Vita microphone to the console, read when a stream starts (off by
                     // default, #474)
-  bool motion_deadband;         // Vita motion sensor ignores small movements (off by default, #455)
-  bool show_latency;            // Display live latency/FPS metrics in Profile + stream HUD
+  bool show_mic_button;  // Draw the small mute button on the stream; the corner icon shows when
+                         // off. Kept while microphone is off, ignored then (on by default, #474)
+  bool motion_deadband;  // Vita motion sensor ignores small movements (off by default, #455)
+  bool show_latency;     // Display live latency/FPS metrics in Profile + stream HUD
   bool show_network_indicator;  // Display "Network unstable" overlay in stream HUD
   bool show_stream_exit_hint;   // Display stream exit shortcut hint in stream HUD
   bool stretch_video;

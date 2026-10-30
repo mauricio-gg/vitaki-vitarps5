@@ -41,6 +41,9 @@ static volatile bool muted = false;
  * capture thread itself sets or reads. */
 static volatile bool should_exit = false;
 static volatile bool thread_dead = false;
+/* The mic was meant to run this stream but its thread could not be created or started. Set by the
+ * UI thread under lifecycle_lock, cleared when the next stream starts. */
+static volatile bool start_failed = false;
 static bool thread_started = false;
 static SceUID thread_id = -1;
 static volatile int lifecycle_lock = 0;
@@ -257,6 +260,7 @@ static void join_thread_locked(void) {
 void vitamic_on_stream_start(bool recovery_reconnect) {
   lock_lifecycle();
   armed = context.config.microphone;
+  start_failed = false;
   if (!recovery_reconnect)
     muted = false;
   LOGD("MIC/ARM setting=%s muted=%d recovery_reconnect=%d", armed ? "on" : "off", muted ? 1 : 0,
@@ -275,12 +279,14 @@ void vitamic_ui_tick(void) {
     if (thread_id < 0) {
       LOGE("MIC/FAIL create thread err=0x%08X", (unsigned)thread_id);
       thread_id = -1;
+      start_failed = true;
     } else {
       int st = sceKernelStartThread(thread_id, 0, NULL);
       if (st < 0) {
         LOGE("MIC/FAIL start thread err=0x%08X", (unsigned)st);
         sceKernelDeleteThread(thread_id);
         thread_id = -1;
+        start_failed = true;
       } else {
         thread_started = true;
       }
@@ -297,7 +303,10 @@ void vitamic_set_muted(bool new_muted) {
 }
 
 MicState vitamic_state(void) {
-  if (!thread_started || thread_dead)
+  /* A thread that ended by itself (not because vitamic_stop() asked it to) is a failure. */
+  if (start_failed || (thread_started && thread_dead && !should_exit))
+    return MIC_STATE_FAILED;
+  if (!thread_started)
     return MIC_STATE_OFF;
   return muted ? MIC_STATE_MUTED : MIC_STATE_LIVE;
 }

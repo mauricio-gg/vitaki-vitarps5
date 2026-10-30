@@ -69,6 +69,7 @@ static void config_set_defaults(VitaChiakiConfig *cfg, bool circle_btn_confirm_d
   cfg->room_icons.count = 0;
   cfg->circle_btn_confirm = circle_btn_confirm_default;
   cfg->microphone = false;
+  cfg->show_mic_button = true;
   cfg->motion_deadband = false;
   vita_logging_config_set_defaults(&cfg->logging);
 }
@@ -482,6 +483,7 @@ static void parse_bool_settings_with_migration(VitaChiakiConfig *cfg, toml_table
   BoolSettingSpec bool_settings[] = {
       {"circle_btn_confirm", circle_btn_confirm_default, &cfg->circle_btn_confirm},
       {"microphone", false, &cfg->microphone},
+      {"show_mic_button", true, &cfg->show_mic_button},
       {"motion_deadband", false, &cfg->motion_deadband},
       {"show_latency", false, &cfg->show_latency},
       {"show_network_indicator", true, &cfg->show_network_indicator},
@@ -833,6 +835,7 @@ static bool config_format_file(VitaChiakiConfig *cfg, char **out_data, size_t *o
   BoolSerializeSpec bool_settings[] = {
       {"circle_btn_confirm", cfg->circle_btn_confirm},
       {"microphone", cfg->microphone},
+      {"show_mic_button", cfg->show_mic_button},
       {"motion_deadband", cfg->motion_deadband},
       {"show_latency", cfg->show_latency},
       {"show_network_indicator", cfg->show_network_indicator},
