@@ -168,11 +168,75 @@ static void test_held_touch_is_let_go_without_click(void) {
   assert(t.click_rises == 0);
 }
 
+/* catches: a two-finger hold never presses the click (no long press in Witcher/Cyberpunk), presses
+ * it before the threshold, keeps it past the first lift or after a touch is already released, or
+ * clicks again when the second finger lifts. */
+static void test_two_finger_hold_clicks_until_first_lift_only(void) {
+  Sim s;
+  sim_init(&s);
+  s.seen[0] = true;
+  sim_run_ms(&s, 20);
+  s.seen[1] = true;
+  sim_run_ms(&s, 400);
+  assert(s.click_on_us == 0); /* not yet held long enough */
+  sim_run_ms(&s, 280);
+  assert(s.click_on_us >= MS(100)); /* held click is on */
+  s.moved[1] = true;                /* moving after the click started does not end it */
+  sim_run_ms(&s, 20);
+  s.seen[0] = false; /* first finger lifts */
+  sim_run_ms(&s, 4);
+  uint64_t on_at_lift = s.click_on_us;
+  sim_run_ms(&s, 300);
+  assert(s.click_on_us == on_at_lift); /* click ended with the lift */
+  assert(!s.active[0] && s.active[1]); /* first released, second still on the pad */
+  s.seen[1] = false;
+  sim_run_ms(&s, 300);
+
+  assert(s.click_rises == 1); /* no tap click from either lift */
+  assert(s.click_frames_not_both == 0);
+  assert(!s.click_with_no_touch);
+  assert(!s.active[1]);
+}
+
+/* catches: fingers that moved still trigger the hold click, so a two-finger scroll or pinch presses
+ * the touchpad. */
+static void test_two_finger_hold_with_movement_never_clicks(void) {
+  Sim s;
+  sim_init(&s);
+  s.seen[0] = true;
+  s.seen[1] = true;
+  sim_run_ms(&s, 100);
+  s.moved[1] = true;
+  sim_run_ms(&s, 900);
+  assert(s.click_on_us == 0);
+}
+
+/* catches: a finger resting alone, or a second finger arriving late, triggers the hold click, which
+ * would break games that need a finger resting on the pad. */
+static void test_resting_fingers_that_are_not_a_two_finger_press_never_hold(void) {
+  Sim s;
+  sim_init(&s);
+  s.seen[0] = true;
+  sim_run_ms(&s, 1500);
+  assert(s.click_on_us == 0);
+
+  Sim t;
+  sim_init(&t);
+  t.seen[0] = true;
+  sim_run_ms(&t, 300); /* second finger later than the down window */
+  t.seen[1] = true;
+  sim_run_ms(&t, 1000);
+  assert(t.click_on_us == 0);
+}
+
 int main(void) {
   test_single_tap_clicks_with_finger_on_pad_for_50ms();
   test_two_finger_tap_gives_one_click_with_both_touches_active();
   test_moved_touch_never_clicks();
   test_held_touch_is_let_go_without_click();
+  test_two_finger_hold_clicks_until_first_lift_only();
+  test_two_finger_hold_with_movement_never_clicks();
+  test_resting_fingers_that_are_not_a_two_finger_press_never_hold();
   printf("touchpad_gesture_tests: all passed\n");
   return 0;
 }
